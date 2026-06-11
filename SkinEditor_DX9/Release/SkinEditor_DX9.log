@@ -1,0 +1,760 @@
+﻿  winWorkspace.cpp
+D:\Github\LunaticRave2_rewrite\lib\DXlib\DxDataType.h(1,1): warning C4819: 현재 코드 페이지(949)에서 표시할 수 없는 문자가 파일에 들어 있습니다. 데이터가 손실되지 않게 하려면 해당 파일을 유니코드 형식으로 저장하십시오.
+  (소스 파일 'winWorkspace.cpp'을(를) 컴파일하는 중)
+  
+D:\Github\LunaticRave2_rewrite\lib\DXlib\DxDataTypeWin.h(1,1): warning C4819: 현재 코드 페이지(949)에서 표시할 수 없는 문자가 파일에 들어 있습니다. 데이터가 손실되지 않게 하려면 해당 파일을 유니코드 형식으로 저장하십시오.
+  (소스 파일 'winWorkspace.cpp'을(를) 컴파일하는 중)
+  
+D:\Github\LunaticRave2_rewrite\lib\DXlib\DxDataTypeWin.h(1163,1): warning C4819: 현재 코드 페이지(949)에서 표시할 수 없는 문자가 파일에 들어 있습니다. 데이터가 손실되지 않게 하려면 해당 파일을 유니코드 형식으로 저장하십시오.
+  (소스 파일 'winWorkspace.cpp'을(를) 컴파일하는 중)
+  
+D:\Github\LunaticRave2_rewrite\lib\DXlib\DxFunctionWin.h(1,1): warning C4819: 현재 코드 페이지(949)에서 표시할 수 없는 문자가 파일에 들어 있습니다. 데이터가 손실되지 않게 하려면 해당 파일을 유니코드 형식으로 저장하십시오.
+  (소스 파일 'winWorkspace.cpp'을(를) 컴파일하는 중)
+  
+D:\Github\LunaticRave2_rewrite\lib\DXlib\DxFunctionWin.h(165,1): warning C4819: 현재 코드 페이지(949)에서 표시할 수 없는 문자가 파일에 들어 있습니다. 데이터가 손실되지 않게 하려면 해당 파일을 유니코드 형식으로 저장하십시오.
+  (소스 파일 'winWorkspace.cpp'을(를) 컴파일하는 중)
+  
+D:\Github\LunaticRave2_rewrite\lib\DXlib\DxFunctionWin.h(430,1): warning C4819: 현재 코드 페이지(949)에서 표시할 수 없는 문자가 파일에 들어 있습니다. 데이터가 손실되지 않게 하려면 해당 파일을 유니코드 형식으로 저장하십시오.
+  (소스 파일 'winWorkspace.cpp'을(를) 컴파일하는 중)
+  
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(678,37): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(679,37): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(680,37): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(681,37): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(691,42): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(998,41): warning C4244: '=': 'LONGLONG'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(579,36): warning C4101: 'lpFindFileData' :참조되지 않은 지역 변수입니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uAE28'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uAE23'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uB400'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uADB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uB935'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uB67D'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uBB2A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1186,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uBAEE'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uB3D2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uADE1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uB665'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uADB0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uAD94'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1207,37): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uBAEE'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uB3D2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uADE1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uB665'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uADB0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uAD94'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1211,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uBAEE'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uB3D2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uADE1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uB665'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uADB0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uAD94'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1219,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uADE2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uB325'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uB935'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uADE9'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uADB3'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uAD96'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1239,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uADE2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uB325'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uB935'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uADE9'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uADB3'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uAD96'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1273,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uB42A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uBAB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1289,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADB3'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADBC'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAD87'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADBF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADB0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uBA5F'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uBAEE'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uB3D2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uBAD4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uB76A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAD8B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAD94'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAC02'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADDD'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uAD8E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1292,36): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uB347'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uBDA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uB74D'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uB8CA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADE9'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uB533'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADB2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uAD8B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADE1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uB400'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uB9DC'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uAD87'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1301,36): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1304,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uB42A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uBAB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1329,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADB3'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADBC'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAD87'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADBF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADB0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uBA5F'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uBAEE'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uB3D2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uBAD4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uB76A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAD8B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAD94'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAC02'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADDD'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uAD8E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1332,36): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uB42A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uBAB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1344,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADB3'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADBC'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAD87'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADBF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADB0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uBA5F'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uBAEE'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uB3D2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uBAD4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uB76A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAD8B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAD94'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAC02'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADDD'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uAD8E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1347,36): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uB42A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uBAB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1360,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADB3'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADBC'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAD87'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADBF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADB0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uBA5F'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uBAEE'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uB3D2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uBAD4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uB76A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAD8B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAD94'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAC02'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADDD'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uAD8E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1363,36): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uB42A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uBAB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1375,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADB3'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADBC'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAD87'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADBF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADB0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uBA5F'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uBAEE'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uB3D2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uBAD4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uB76A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAD8B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAD94'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAC02'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADDD'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uAD8E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1378,36): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uB42A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uBAB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1391,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADB3'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADBC'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAD87'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADBF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADB0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uBA5F'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uBAEE'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uB3D2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uBAD4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uB76A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAD8B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAD94'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAC02'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADDD'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uAD8E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1394,36): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uB42A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uBAB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1415,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADB3'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADBC'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAD87'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADDF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADBF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADB4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADB0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uBA5F'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uBAEE'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uB3D2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADAB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAD95'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uBAD4'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uB76A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAD8B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAD94'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAC02'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uB82A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uBD32'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADDD'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uAD8E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1418,36): warning C4566: 유니버설 문자 이름 '\uADA5'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uAD9E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uADE2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uB325'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uB935'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uBC4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uADBC'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uADB3'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uAD96'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uADCF'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uADA7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uADEA'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1857,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAE1A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAE0C'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAE5B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uBCB6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uADD2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uB71B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAE04'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAE4B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uB6F1'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uBF5E'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uADBB'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uBB09'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uB347'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uB359'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uB9B6'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAE06'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAE35'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAE18'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAE48'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uBB60'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uADBC'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uBD9D'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uB32A'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uBCD9'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uADB8'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uADA2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uADB2'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uB3F7'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uADA0'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAD8B'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(1951,36): warning C4566: 유니버설 문자 이름 '\uAC03'(으)로 표현되는 문자는 현재 코드 페이지(932)에서 표현할 수 없습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2212,25): warning C4244: '-=': 'float'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2531,66): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2531,62): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2586,45): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2586,38): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2627,45): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2627,38): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2669,45): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2669,38): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2838,38): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2839,38): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2873,27): warning C4244: '초기화 중': 'float'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2873,43): warning C4244: '초기화 중': 'float'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2962,42): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(2962,35): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3224,24): warning C4101: 'lpFindFileData' :참조되지 않은 지역 변수입니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3371,47): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3372,47): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3373,47): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3374,47): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3376,47): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3377,47): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3378,47): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3379,47): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3387,35): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3388,35): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3389,35): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3390,35): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3395,88): warning C4244: '인수': 'float'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3395,84): warning C4244: '인수': 'float'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3502,55): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3503,55): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3504,55): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3505,55): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3507,55): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3508,55): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3509,55): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3510,55): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3518,43): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3519,43): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3520,43): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3521,43): warning C4244: '=': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3526,96): warning C4244: '인수': 'float'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3526,92): warning C4244: '인수': 'float'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3542,43): warning C4244: '=': 'double'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3780,38): warning C4477: 'sprintf' : 서식 문자열 '%s'에 'char *' 형식의 인수가 필요하지만 variadic 인수 2의 형식이 'CSTR'입니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3784,46): warning C4477: 'sprintf' : 서식 문자열 '%s'에 'char *' 형식의 인수가 필요하지만 variadic 인수 2의 형식이 'CSTR'입니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3808,74): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\winWorkspace.cpp(3808,70): warning C4244: '인수': 'int'에서 'float'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+  코드를 생성하고 있습니다.
+  1 of 6248 functions (<0.1%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    317 functions had inline decision re-evaluated but remain unchanged
+  코드를 생성했습니다.
+  SkinEditor_DX9.vcxproj -> D:\Github\LunaticRave2_rewrite\Release\SkinEditor_DX9.exe

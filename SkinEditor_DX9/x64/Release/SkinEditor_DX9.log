@@ -1,0 +1,219 @@
+﻿  En_audio.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/En_audio.cpp'을(를) 컴파일하는 중)
+  
+  En_dbio.cpp
+D:\Github\LunaticRave2_rewrite\LR2\En_dbio.h(3,10): error C1083: 포함 파일을 열 수 없습니다. 'sqlite/sqlite3.h': No such file or directory
+  (소스 파일 '../LR2/En_dbio.cpp'을(를) 컴파일하는 중)
+  
+  En_fileutil.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/En_fileutil.cpp'을(를) 컴파일하는 중)
+  
+  En_graphic.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/En_graphic.cpp'을(를) 컴파일하는 중)
+  
+  En_input.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/En_input.cpp'을(를) 컴파일하는 중)
+  
+  En_recordmovie.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/En_recordmovie.cpp'을(를) 컴파일하는 중)
+  
+  En_timer.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/En_timer.cpp'을(를) 컴파일하는 중)
+  
+  En_value.cpp
+  En_xml.cpp
+D:\Github\LunaticRave2_rewrite\LR2\En_xml.h(1,10): error C1083: 포함 파일을 열 수 없습니다. 'tinyxml/tinyxml.h': No such file or directory
+  (소스 파일 '../LR2/En_xml.cpp'을(를) 컴파일하는 중)
+  
+  LR2_audio.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_audio.cpp'을(를) 컴파일하는 중)
+  
+  LR2_bmsload.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_bmsload.cpp'을(를) 컴파일하는 중)
+  
+  LR2_configsave.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_configsave.cpp'을(를) 컴파일하는 중)
+  
+  LR2_gameloop.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_gameloop.cpp'을(를) 컴파일하는 중)
+  
+  LR2_ghost.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_ghost.cpp'을(를) 컴파일하는 중)
+  
+  LR2_ir.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_ir.cpp'을(를) 컴파일하는 중)
+  
+  LR2_makemp3.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_makemp3.cpp'을(를) 컴파일하는 중)
+  
+  LR2_replay.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_replay.cpp'을(를) 컴파일하는 중)
+  
+  LR2_skindraw.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_skindraw.cpp'을(를) 컴파일하는 중)
+  
+  LR2_skinload.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_skinload.cpp'을(를) 컴파일하는 중)
+  
+  LR2_skinmanage.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_skinmanage.cpp'을(를) 컴파일하는 중)
+  
+  컴파일하고 있습니다...
+  LR2_skinobject.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_skinobject.cpp'을(를) 컴파일하는 중)
+  
+  LR2_songmanage.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_songmanage.cpp'을(를) 컴파일하는 중)
+  
+  LR2_statlong.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_statlong.cpp'을(를) 컴파일하는 중)
+  
+  LR2_statplay.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/LR2_statplay.cpp'을(를) 컴파일하는 중)
+  
+  Scene02_Songselect.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene02_Songselect.cpp'을(를) 컴파일하는 중)
+  
+  Scene03_Decide.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene03_Decide.cpp'을(를) 컴파일하는 중)
+  
+  Scene04_Play.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene04_Play.cpp'을(를) 컴파일하는 중)
+  
+  Scene05_Result.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene05_Result.cpp'을(를) 컴파일하는 중)
+  
+  Scene06_Keyconfig.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene06_Keyconfig.cpp'을(를) 컴파일하는 중)
+  
+  Scene07_Skinselect.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene07_Skinselect.cpp'을(를) 컴파일하는 중)
+  
+  Scene08_Lunaris.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene08_Lunaris.cpp'을(를) 컴파일하는 중)
+  
+  Scene09_Po4menu.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene09_Po4menu.cpp'을(를) 컴파일하는 중)
+  
+  Scene10_Po4decide.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene10_Po4decide.cpp'을(를) 컴파일하는 중)
+  
+  Scene11_Po4select.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene11_Po4select.cpp'을(를) 컴파일하는 중)
+  
+  Scene13_Courseresult.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 '../LR2/Scene13_Courseresult.cpp'을(를) 컴파일하는 중)
+  
+  strclass.cpp
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(17,16): warning C4267: 'return': 'size_t'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(24,7): warning C4101: 'cVar1' :참조되지 않은 지역 변수입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(93,25): warning C4267: 'return': 'size_t'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(115,15): warning C4267: '=': 'size_t'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(112,7): warning C4101: 'ch' :참조되지 않은 지역 변수입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(202,19): warning C4267: '=': 'size_t'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(214,7): warning C4101: 'cVar2' :참조되지 않은 지역 변수입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(219,8): warning C4101: 'pcVar6' :참조되지 않은 지역 변수입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(254,48): error C2039: 'string_view': 'std'의 멤버가 아닙니다.
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\string(23,1):
+      'std' 선언을 참조하십시오.
+  
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(254,48): error C2061: 구문 오류: 식별자 'string_view'
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(256,29): error C2065: 'from': 선언되지 않은 식별자입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(258,20): error C2065: 'from': 선언되지 않은 식별자입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(258,35): error C2065: 'to': 선언되지 않은 식별자입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(259,18): error C2065: 'from': 선언되지 않은 식별자입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(259,30): error C2065: 'to': 선언되지 않은 식별자입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(293,2): error C2660: 'replace_all': 함수는 3개의 인수를 사용하지 않습니다.
+      D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(254,13):
+      'replace_all' 선언을 참조하십시오.
+      D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(293,2):
+      인수 목록 '(std::string, const char *, const char *)'을(를) 일치시키는 동안
+  
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(385,15): warning C4267: '=': 'size_t'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(391,10): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(391,10): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(391,23): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(391,23): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(402,26): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(402,26): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(402,11): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(402,11): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(413,26): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(413,26): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(413,11): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(413,11): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(589,15): warning C4267: '=': 'size_t'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(618,15): warning C4267: '=': 'size_t'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(646,12): warning C4311: '형식 캐스트': 'void *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(646,12): warning C4302: '형식 캐스트': 'void *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(647,9): warning C4312: '형식 캐스트': 'int'에서 더 큰 'char *'(으)로의 변환입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(655,11): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(655,11): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(655,24): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(655,24): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(678,16): warning C4267: '=': 'size_t'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(682,13): warning C4312: '형식 캐스트': 'int'에서 더 큰 'char *'(으)로의 변환입니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(682,8): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(682,8): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(1031,27): warning C4267: '인수': 'size_t'에서 'int'(으)로 변환하면서 데이터가 손실될 수 있습니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(1060,33): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(1060,33): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(1060,17): warning C4311: '형식 캐스트': 'char *'에서 'int'(으)로 포인터가 잘립니다.
+D:\Github\LunaticRave2_rewrite\LR2\strclass.cpp(1060,17): warning C4302: '형식 캐스트': 'char *'에서 'int'(으)로 잘립니다.
+  imageLoader.cpp
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\imageLoader.cpp(1,10): error C1083: 포함 파일을 열 수 없습니다. 'D3dx9tex.h': No such file or directory
+  main.cpp
+D:\Github\LunaticRave2_rewrite\SkinEditor_DX9\main.cpp(21,10): error C1083: 포함 파일을 열 수 없습니다. 'DxLib/DxLib.h': No such file or directory
+  seHelper.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 'seHelper.cpp'을(를) 컴파일하는 중)
+  
+  skin.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 'skin.cpp'을(를) 컴파일하는 중)
+  
+  컴파일하고 있습니다...
+  winWorkspace.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 'winWorkspace.cpp'을(를) 컴파일하는 중)
+  
+  winWorkspace2.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 'winWorkspace2.cpp'을(를) 컴파일하는 중)
+  
+  winWorkspace_save.cpp
+D:\Github\LunaticRave2_rewrite\LR2\structure.h(7,10): error C1083: 포함 파일을 열 수 없습니다. 'FMOD/fmod.h': No such file or directory
+  (소스 파일 'winWorkspace_save.cpp'을(를) 컴파일하는 중)
+  

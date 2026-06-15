@@ -217,6 +217,8 @@ int WORKSPACE::draw() {
     if (wOpList) drawOpList();
     if (wHistory) drawHistory();
 
+    if (wNewObject) drawNewObject();
+
 
     return 0;
 }
@@ -1988,37 +1990,37 @@ int WORKSPACE::ReadSkinSE() {
 }
 
 //deprecated
-int WORKSPACE::MakeObjects() {
-
-    for (int i = 0; i < arr_DST.count; i++) {
-        SEOBJ* seobj = (SEOBJ*)arr_seobj.Get_new();
-        seobj->ID = i;
-        seobj->dst = i;
-        seobj->src = ((DST*)arr_DST.data)[i].src;
-
-        seobj->name.assign("");
-        if (((DST*)arr_DST.data)[i].op1 >= 0) {
-            seobj->name.add(dstName(((DST*)arr_DST.data)[i].op1));
-        }
-        else {
-            seobj->name.add("Not_");
-            seobj->name.add(dstName(-((DST*)arr_DST.data)[i].op1));
-        }
-
-        seobj->ifGroup = ((SRC*)arr_SRC.data)[seobj->src].ifGroup;
-        if (seobj->ifGroup) {
-            seobj->name.add("_");
-        }
-
-        seobj->igType;
-        seobj->igID;
-        
-    }
-    
-    
-
-    return 0;
-}
+//int WORKSPACE::MakeObjects() {
+//
+//    for (int i = 0; i < arr_DST.count; i++) {
+//        SEOBJ* seobj = (SEOBJ*)arr_seobj.Get_new();
+//        seobj->ID = i;
+//        seobj->dst = i;
+//        seobj->src = ((DST*)arr_DST.data)[i].src;
+//
+//        seobj->name.assign("");
+//        if (((DST*)arr_DST.data)[i].op1 >= 0) {
+//            seobj->name.add(dstName(((DST*)arr_DST.data)[i].op1));
+//        }
+//        else {
+//            seobj->name.add("Not_");
+//            seobj->name.add(dstName(-((DST*)arr_DST.data)[i].op1));
+//        }
+//
+//        seobj->ifGroup = ((SRC*)arr_SRC.data)[seobj->src].ifGroup;
+//        if (seobj->ifGroup) {
+//            seobj->name.add("_");
+//        }
+//
+//        seobj->igType;
+//        seobj->igID;
+//        
+//    }
+//    
+//    
+//
+//    return 0;
+//}
 
 int WORKSPACE::SeInit() {
     zoom = 1.0f;
@@ -3682,6 +3684,54 @@ int WORKSPACE::drawObjectManagerTest() {
 //TODO - iftree, *wildcardtree, insert, delete, group, dst thing
 //group should have both if / endif
 // new file to "skin wizard", which makes mockup and create texture template
+int WORKSPACE::drawNewObject() {
+
+    char title[260];
+    snprintf(title, sizeof(title), "NewObject##%d", num);
+    if (ImGui::Begin(title, &wNewObject)) {
+
+        CSVbuf* csv = ((CSVbuf*)arr_CommandHelp.data);
+        if (ImGui::BeginCombo("command", csv[selected_command].str[0], ImGuiComboFlags_None)) {
+            for (int op = 0; op < arr_CommandHelp.count; op++) {
+                ImGui::PushID(op);
+                const bool is_selected = (selected_command == op);
+                char opname[64];
+                sprintf(opname, "%03d:%s", op, csv[op].str[0].body);
+
+                if (ImGui::Selectable(opname, is_selected)) {
+                    selected_command = op;
+                }
+                // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+                if (is_selected)
+                    ImGui::SetItemDefaultFocus();
+
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        CSVbuf nCsv;
+        for (int column = 1; column < 30; column++) {
+            ImGui::PushID(column);
+            if (csv[selected_command].str[column].isDiff(""))
+                ImGui::InputText(csv[selected_command].str[column], nCsv.str[column], 0);
+            ImGui::PopID();
+        }
+
+
+        if (ImGui::Button("OK")) {
+            SEOBJ* seobj = (SEOBJ*)arr_seobj.Get_newAt(selected_obj);
+            seobj->name.assign("newObject");
+            seobj->body.Alloc(sizeof(CSTR), 1);
+            seobj->bodyCSV.Alloc(sizeof(CSVbuf), 1);
+            CsvToCSTR(nCsv, ((CSTR*)seobj->body.data)[0]);
+            SplitCSV(((CSTR*)seobj->body.data)[0], &((CSVbuf*)seobj->bodyCSV.data)[0], ",");
+
+            wNewObject = 0;
+        }
+    }
+    ImGui::End();
+    return 0;
+}
 
 int WORKSPACE::drawObjectManager() {
 
@@ -3731,11 +3781,15 @@ int WORKSPACE::drawObjectManager() {
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("New")) {
-                    SEOBJ* nObj = (SEOBJ*)arr_seobj.Get_newAt(selected_obj);
+                    wNewObject = 1;
+                    
+                    //SEOBJ* nObj = (SEOBJ*)arr_seobj.Get_newAt(selected_obj);
 
-                    nObj->name = "newObject";
-                    nObj->body.Alloc(sizeof(CSTR), 2);
-                    nObj->bodyCSV.Alloc(sizeof(CSVbuf), 2);
+                    //nObj->name = "newObject";
+                    //nObj->body.Alloc(sizeof(CSTR), 2);
+                    //nObj->bodyCSV.Alloc(sizeof(CSVbuf), 2);
+
+
                     //SplitCSV(&nObj->body[0], &nObj->bodyCSV[0], ",");
                 }
                 ImGui::EndPopup();
@@ -3950,11 +4004,13 @@ int WORKSPACE::drawObjectManager() {
                         ImGui::SeparatorText("animation");
                         if(ImGui::Button("+")) {
                             CSVbuf* csvN = (CSVbuf*)seobj.bodyCSV.Get_new();
+                            CSTR* bodyN = (CSTR*)seobj.body.Get_new();
+                            bodyN->assign(((CSTR*)seobj.body.data)[seobj.body.count - 2]);
                             memset(csvN, 0, sizeof(CSVbuf));
                             for (int i = 0; i < 30; i++) {
                                 csvN->str[i].assign("");
                             }
-                            SplitCSV(((CSVbuf*)seobj.bodyCSV.data)[1].str[0], csvN, ",");
+                            SplitCSV(bodyN->body, csvN, ",");
                             CSVatol(csvN);
                             CSVltoa (csvN,10);
                         }
@@ -3962,6 +4018,7 @@ int WORKSPACE::drawObjectManager() {
                         if (ImGui::Button("-")) {
                             if (seobj.bodyCSV.count > 2) {
                                 seobj.bodyCSV.DeleteAt(seobj.bodyCSV.count-1);
+                                seobj.body.DeleteAt(seobj.bodyCSV.count - 1);
                             }
                         }
                         ImGui::BeginGroup();

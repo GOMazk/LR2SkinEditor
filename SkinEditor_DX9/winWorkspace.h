@@ -295,6 +295,10 @@ typedef struct WORKSPACE {
     float DstViewTime;
     bool isDstViewTimeStop;
 
+    bool wNewObject;
+    int drawNewObject();
+    int selected_command;
+
     int MakeObjects();
     bool wObjectManager;
     int drawObjectManager();

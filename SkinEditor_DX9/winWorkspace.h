@@ -298,6 +298,7 @@ typedef struct WORKSPACE {
     bool wNewObject;
     int drawNewObject();
     int selected_command;
+    CSVbuf nCsv;
 
     int MakeObjects();
     bool wObjectManager;

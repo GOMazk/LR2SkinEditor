@@ -18,6 +18,7 @@
 #include "op.h"
 #include "arr.hpp"
 #include "seHelper.h"
+#include "inputwrap.h"
 
 const char* SKINTYPESTR[]= {
     "7KEYS",
@@ -168,8 +169,9 @@ int WORKSPACE::draw() {
                         ImGui::InputText("div_x", ((CSVbuf*)seobj.bodyCSV.data)[0].str[7], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[7].outstr()), ImGuiInputTextFlags_CharsDecimal);
                         ImGui::InputText("div_y", ((CSVbuf*)seobj.bodyCSV.data)[0].str[8], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[8].outstr()), ImGuiInputTextFlags_CharsDecimal);
                         ImGui::InputText("cycle", ((CSVbuf*)seobj.bodyCSV.data)[0].str[9], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[9].outstr()), ImGuiInputTextFlags_CharsDecimal);
-                        ImGui::InputText("timer", ((CSVbuf*)seobj.bodyCSV.data)[0].str[10], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[10].outstr()), ImGuiInputTextFlags_CharsDecimal);
-
+                        //ImGui::InputText("timer", ((CSVbuf*)seobj.bodyCSV.data)[0].str[10], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[10].outstr()), ImGuiInputTextFlags_CharsDecimal);
+                        CstrInputText("timer", &((CSVbuf*)seobj.bodyCSV.data)[0].str[10], ImGuiInputTextFlags_None);
+                        ImGui::Text("Data: %p\nSize: %d\nCapacity: %d", (void*)((CSVbuf*)seobj.bodyCSV.data)[0].str[10].body, ((CSVbuf*)seobj.bodyCSV.data)[0].str[10].length(), ((CSVbuf*)seobj.bodyCSV.data)[0].str[10].msize());
 
 
                         ImGui::EndTabItem();
@@ -2492,7 +2494,8 @@ int WORKSPACE::drawTextEdit() {
                         }
                         else {
                             static CSTR tmp;
-                            ImGui::InputText(inputname, read.csv.str[column], 260, ImGuiInputTextFlags_AutoSelectAll);
+                            CstrInputText(inputname, &read.csv.str[column], ImGuiInputTextFlags_AutoSelectAll);
+                            //ImGui::InputText(inputname, read.csv.str[column], 260, ImGuiInputTextFlags_AutoSelectAll);
                             if (ImGui::IsItemActivated()) {
                                 tmp.assign(read.line.outstr());
                             }
@@ -3709,11 +3712,17 @@ int WORKSPACE::drawNewObject() {
             }
             ImGui::EndCombo();
         }
-        CSVbuf nCsv;
+        static CSVbuf nCsv;
+        static bool isCsvInit = false;
+        if (!isCsvInit) {
+            SplitCSV("", &nCsv, ",");
+            isCsvInit = true;
+        }
         for (int column = 1; column < 30; column++) {
             ImGui::PushID(column);
             if (csv[selected_command].str[column].isDiff(""))
-                ImGui::InputText(csv[selected_command].str[column], nCsv.str[column], 0);
+                CstrInputText(csv[selected_command].str[column], &nCsv.str[column], ImGuiInputTextFlags_None);
+                //ImGui::InputText(csv[selected_command].str[column], nCsv.str[column], 0);
             ImGui::PopID();
         }
 
@@ -3725,6 +3734,7 @@ int WORKSPACE::drawNewObject() {
             seobj->bodyCSV.Alloc(sizeof(CSVbuf), 1);
             CsvToCSTR(nCsv, ((CSTR*)seobj->body.data)[0]);
             SplitCSV(((CSTR*)seobj->body.data)[0], &((CSVbuf*)seobj->bodyCSV.data)[0], ",");
+            seobj->type2 = -1;
 
             wNewObject = 0;
         }
@@ -3875,17 +3885,25 @@ int WORKSPACE::drawObjectManager() {
                         CSVbuf* csv = (CSVbuf*)seobj.bodyCSV.data;
                         
                         ImGui::PushItemWidth(45);
-                        ImGui::InputInt("gr", &csv[0].val[2], 0, 0, ImGuiInputTextFlags_None);
+                        /*ImGui::InputInt("gr", &csv[0].val[2], 0, 0, ImGuiInputTextFlags_None);
                         ImGui::InputInt("x", &csv[0].val[3], 0, 0, ImGuiInputTextFlags_None);
                         ImGui::InputInt("y", &csv[0].val[4], 0, 0, ImGuiInputTextFlags_None);
                         ImGui::InputInt("w", &csv[0].val[5], 0, 0, ImGuiInputTextFlags_None);
-                        ImGui::InputInt("h", &csv[0].val[6], 0, 0, ImGuiInputTextFlags_None);
+                        ImGui::InputInt("h", &csv[0].val[6], 0, 0, ImGuiInputTextFlags_None);*/
+                        CstrInputText("gr", &csv[0].str[2], ImGuiInputTextFlags_CharsDecimal);
+                        CstrInputText("x", &csv[0].str[3], ImGuiInputTextFlags_CharsDecimal);
+                        CstrInputText("y", &csv[0].str[4], ImGuiInputTextFlags_CharsDecimal);
+                        CstrInputText("w", &csv[0].str[5], ImGuiInputTextFlags_CharsDecimal);
+                        CstrInputText("h", &csv[0].str[6], ImGuiInputTextFlags_CharsDecimal);
                         
 
                         ImGui::SeparatorText("animation");
-                        ImGui::InputInt("div_x", &csv[0].val[7], 0, 0, ImGuiInputTextFlags_None);
+                        /*ImGui::InputInt("div_x", &csv[0].val[7], 0, 0, ImGuiInputTextFlags_None);
                         ImGui::InputInt("div_y", &csv[0].val[8], 0, 0, ImGuiInputTextFlags_None);
-                        ImGui::InputInt("cycle", &csv[0].val[9], 0, 0, ImGuiInputTextFlags_None);
+                        ImGui::InputInt("cycle", &csv[0].val[9], 0, 0, ImGuiInputTextFlags_None);*/
+                        CstrInputText("div_x", &csv[0].str[7], ImGuiInputTextFlags_CharsDecimal);
+                        CstrInputText("div_y", &csv[0].str[8], ImGuiInputTextFlags_CharsDecimal);
+                        CstrInputText("cycle", &csv[0].str[9], ImGuiInputTextFlags_CharsDecimal);
                         //ImGui::InputText("timer", csv[0].str[10], IM_COUNTOF(csv[0].str[10].outstr()), ImGuiInputTextFlags_CharsDecimal);
                         if (ImGui::BeginCombo("timer",csv[0].str[10], ImGuiComboFlags_None)) {
                             for (int op = 0; op < 200; op++) {
@@ -3998,8 +4016,9 @@ int WORKSPACE::drawObjectManager() {
                             }
                             ImGui::EndCombo();
                         }
-                        ImGui::InputText("loop", csv[1].str[16], IM_COUNTOF(csv[1].str[16].outstr()), ImGuiInputTextFlags_CharsDecimal);
+                        //ImGui::InputText("loop", csv[1].str[16], IM_COUNTOF(csv[1].str[16].outstr()), ImGuiInputTextFlags_CharsDecimal);
                         //ImGui::InputInt("loop", &csv[1].val[16],0,0);
+                        CstrInputText("loop", &csv[1].str[16], ImGuiInputTextFlags_CharsDecimal);
 
                         ImGui::SeparatorText("animation");
                         if(ImGui::Button("+")) {
@@ -4079,6 +4098,10 @@ int WORKSPACE::drawObjectManager() {
                     }
                     ImGui::EndTabBar();
                 }
+            }
+            else if (seobj.type2 == -1) {
+
+
             }
 
             ImGui::PopID();

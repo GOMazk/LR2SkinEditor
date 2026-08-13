@@ -11,6 +11,8 @@
 int LR2SEInit(game* g);
 
 int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY);
+int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY);
+void LR2SEResetRenderFault();
 
 int LR2SESceneInit(game* g, int type);
 

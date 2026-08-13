@@ -3,6 +3,7 @@
 #include "arr.hpp"
 #include <imgui.h>
 #include "ImageLoader.h"
+#include "seObjectEditor.h"
 
 typedef struct SKINFILELINEREAD {
     int numTotal;
@@ -192,7 +193,7 @@ typedef struct WORKSPACE {
     ARR arr_seobj; //SKINUNIT, SEOBJ
 
     ARR arr_history; //HISTORY
-    int previewScreen; //DxLib handle
+    int previewScreen = -1; //DxLib handle
 
     //mainwindow
     int num;
@@ -245,7 +246,9 @@ typedef struct WORKSPACE {
 
     bool wPreview;
     int drawPreview();
-    PDIRECT3DTEXTURE9 texture_preview;
+    PDIRECT3DTEXTURE9 texture_preview = NULL;
+    int texture_preview_width = 0;
+    int texture_preview_height = 0;
     int timerSelected;
     ImVec2 clickPos;
     bool drawRightClick;
@@ -303,6 +306,11 @@ typedef struct WORKSPACE {
     int MakeObjects();
     bool wObjectManager;
     int drawObjectManager();
+
+    bool wObjectEditor = false;
+    int selected_object_editor = 0;
+    int selected_object_group = 0;
+    int drawObjectEditor();
     int selected_obj;
 
 
@@ -314,6 +322,12 @@ typedef struct WORKSPACE {
         float w;
         float h;
     }preview_selected_obj;
+    bool preview_selected_obj_valid = false;
+    int preview_selected_object_model_index = -1;
+    bool preview_object_dragging = false;
+    ImVec2 preview_drag_mouse_start = {};
+    float preview_drag_object_start_x = 0.0f;
+    float preview_drag_object_start_y = 0.0f;
     int selectedObjectTest;
 
     bool wHistory;

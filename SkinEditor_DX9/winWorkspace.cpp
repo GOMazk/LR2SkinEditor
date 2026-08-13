@@ -1,4 +1,4 @@
-#include "imgui/imgui.h"
+ï»¿#include "imgui/imgui.h"
 
 #include "../LR2/structure.h"
 #include "../LR2/LR2_skinmanage.h"
@@ -19,6 +19,16 @@
 #include "arr.hpp"
 #include "seHelper.h"
 #include "inputwrap.h"
+#include <algorithm>
+#include <cstdio>
+
+static void WriteSkinLoadLog(const char* stage, const char* detail = NULL) {
+    FILE* fp = fopen("SkinEditor_load_crash.log", "a");
+    if (!fp) return;
+    fprintf(fp, "%s%s%s\n", stage ? stage : "(null)", detail ? " : " : "", detail ? detail : "");
+    fflush(fp);
+    fclose(fp);
+}
 
 const char* SKINTYPESTR[]= {
     "7KEYS",
@@ -109,6 +119,7 @@ int WORKSPACE::draw() {
                     ImGui::MenuItem("treeView", NULL, &wTreeView);
                     ImGui::MenuItem("SimplePreview", NULL, &wSimplePreview);
                     ImGui::MenuItem("dstView", NULL, &wDstView);
+                    ImGui::MenuItem("Object Editor", NULL, &wObjectEditor);
                     ImGui::MenuItem("objectManager", NULL, &wObjectManager);
                     ImGui::MenuItem("objectManagerTest", NULL, &wObjectManagerTest);
                     ImGui::MenuItem("objectProperty", NULL, &wProperty);
@@ -213,6 +224,7 @@ int WORKSPACE::draw() {
     if (wTreeView) drawTreeView();
     if (wSimplePreview) drawSimplePreview();
     if (wDstView) drawDstView();
+    if (wObjectEditor) drawObjectEditor();
     if (wObjectManager) drawObjectManager();
     if (wObjectManagerTest) drawObjectManagerTest();
     if (wProperty) drawProperty();
@@ -423,6 +435,14 @@ int WORKSPACE::ParseSkin() {
             read.isDST = true;
             read.objID = objNow;
 
+            // Some large skins contain conditionally expanded DST commands
+            // before a usable SRC. Never dereference an empty object list.
+            if (arr_seobj.count <= 0) {
+                read.isDST = false;
+                read.isOther = true;
+                read.objID = -1;
+                continue;
+            }
             obj = (SEOBJ*)arr_seobj.Get_last();
 
             CSTR* bodyline = (CSTR*)obj->body.Get_new();
@@ -615,7 +635,24 @@ int WORKSPACE::ParseSkin() {
         ////////////////
         if (read.csv.str[0].isSame("#SRC_IMAGE")) {
 
-            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) {srcNow++; continue;}
+            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) {
+                // LR2 uses graphic IDs 110/111 as special placeholders.
+                // The old code advanced srcNow without adding an ARR entry,
+                // shifting every subsequent DST->src index and eventually
+                // reading past arr_SRC on skins such as tricoro HD.
+                SRC* placeholder = (SRC*)(arr_SRC.Get_new());
+                placeholder->gr = 0;
+                placeholder->sizeX = 1;
+                placeholder->sizeY = 1;
+                placeholder->div_x = 1;
+                placeholder->div_y = 1;
+                placeholder->declare = read.numTotal;
+                placeholder->objType = 10;
+                placeholder->objID = objTypeCount[9]++;
+                placeholder->name.assign("LR2 special image placeholder");
+                srcNow++;
+                continue;
+            }
 
             SRC *src = (SRC*)(arr_SRC.Get_new());
                         
@@ -672,6 +709,7 @@ int WORKSPACE::ParseSkin() {
                 srcOld = srcNow;
             }
             else {// if(srcNow == srcOld){
+                if (currentLeadDST < 0 || currentLeadDST >= arr_DST.count) continue;
                 dst = &(((DST*)arr_DST.data)[currentLeadDST]);
             }
             
@@ -980,6 +1018,8 @@ int WORKSPACE::ParseSkin() {
         SRCGR& img = ((SRCGR*)arr_SRCGR.data)[n];
         CSTR& path = ((SRCGR*)arr_SRCGR.data)[n].path;
 
+        WriteSkinLoadLog("ParseSkin image", path.outstr());
+
         if (path.isSame("CONTINUE")) {
             gr++;
             
@@ -995,19 +1035,21 @@ int WORKSPACE::ParseSkin() {
         if (!isLoaded) 
          {
             int dxf = DxLib::FileRead_open(path);
-            if (dxf) {
+            // DxLib returns -1 on failure. The previous truthiness check
+            // treated -1 as success, then attempted malloc/read with a
+            // negative file size and terminated on missing optional images.
+            if (dxf >= 0) {
                 void* Buffer;
                 int FileSize;
 
                 FileSize = FileRead_size(path.outstr());
-                Buffer = malloc(FileSize);
-                DxLib::FileRead_read(Buffer, FileSize, dxf);
+                Buffer = FileSize > 0 ? malloc((size_t)FileSize) : NULL;
+                if (Buffer != NULL && DxLib::FileRead_read(Buffer, FileSize, dxf) >= 0) {
+                    isLoaded = LoadTextureFromMemory(Buffer, FileSize, &(img.texture), &img.sizeX, &img.sizeY);
+                }
 
                 DxLib::FileRead_close(dxf);
-
-                isLoaded = LoadTextureFromMemory(Buffer, FileSize, &(img.texture), &img.sizeX, &img.sizeY);
-
-                free(Buffer);
+                if (Buffer != NULL) free(Buffer);
             }
         }
 
@@ -1019,6 +1061,8 @@ int WORKSPACE::ParseSkin() {
 }
 
 int WORKSPACE::LoadSkin(char* path) {
+    remove("SkinEditor_load_crash.log");
+    WriteSkinLoadLog("LoadSkin begin", path);
     skinSizeX = meta.targetX;
     skinSizeY = meta.targetY;
 
@@ -1028,6 +1072,17 @@ int WORKSPACE::LoadSkin(char* path) {
     arr_subpath.Alloc(sizeof(CSTR), 1);
     arr_ifunit.Free();
     arr_ifunit.Alloc(sizeof(IFUNIT), 50);
+
+    // Release the editor-side D3D textures before discarding their records.
+    // This is especially important when switching away from an HD skin with
+    // hundreds of customization images.
+    for (int i = 0; i < arr_SRCGR.count; ++i) {
+        SRCGR& oldImage = ((SRCGR*)arr_SRCGR.data)[i];
+        if (oldImage.texture != NULL) {
+            oldImage.texture->Release();
+            oldImage.texture = NULL;
+        }
+    }
     arr_SRCGR.Free();
     arr_SRCGR.Alloc(sizeof(SRCGR), 10);
     arr_SRC.Free();
@@ -1051,6 +1106,15 @@ int WORKSPACE::LoadSkin(char* path) {
     arr_history.Alloc(sizeof(HISTORY), 1);
 
     //LR2
+    // Delete graph handles owned by the previously loaded preview before the
+    // skstruct is reset. Otherwise memset loses the handles and leaks all
+    // DxLib graph memory across skin changes.
+    for (int i = 0; i < g.skstruct.count && i < 200; ++i) {
+        if (g.skstruct.GrHandle[i] >= 0) {
+            DeleteGraph(g.skstruct.GrHandle[i]);
+            g.skstruct.GrHandle[i] = -1;
+        }
+    }
     for (int i = 0; i < 200; i++) g.skstruct.caption[i].fillzero();
     for (int i = 0; i < 10; i++) g.skstruct.helpfilePath[i].fillzero();
     for (int i = 0; i < 20; i++) g.skstruct.customfileRANDOM[i].fillzero();
@@ -1071,11 +1135,19 @@ int WORKSPACE::LoadSkin(char* path) {
     //LoadScene(&g.skstruct, mainpath, 0, 0);
 
     //SE
+    WriteSkinLoadLog("LoadSkinScript begin", path);
     LoadSkinScript(path);
+    WriteSkinLoadLog("LoadSkinScript complete");
     ParseSkin();
+    WriteSkinLoadLog("ParseSkin complete");
+    if (g_seObjectEditorModel.Groups().empty()) g_seObjectEditorModel.LoadGroups("skinObjGroup.txt");
+    g_seObjectEditorModel.Rebuild(*this);
+    WriteSkinLoadLog("ObjectEditor Rebuild complete");
     
     LR2SEInit(&g);
+    WriteSkinLoadLog("LR2SEInit complete");
     LoadSceneSE();
+    WriteSkinLoadLog("LoadSceneSE complete");
 
     //MakeObjects();
     
@@ -1088,10 +1160,22 @@ int WORKSPACE::LoadSkin(char* path) {
 
     
     DeleteGraph(previewScreen);
+    if (texture_preview) {
+        texture_preview->Release();
+        texture_preview = NULL;
+    }
+    texture_preview_width = 0;
+    texture_preview_height = 0;
+
+    // DxLib renders the preview into its back buffer. Match that buffer to
+    // the skin resolution before capturing it into the soft image.
+    SetGraphMode(skinSizeX, skinSizeY, 32, 60);
+    SetDrawScreen(DX_SCREEN_BACK);
     //previewScreen = LoadGraph("ex.bmp");
     //previewScreen = MakeGraph(skinSizeX, skinSizeY); //MakeScreen vs MakeGraph
     //SetDrawScreen(previewScreen);
     previewScreen = MakeSoftImage(skinSizeX, skinSizeY);
+    WriteSkinLoadLog("LoadSkin complete");
     //previewScreen = MakeARGB8ColorSoftImage(skinSizeX, skinSizeY); //for SDL3
 
     wPreview = 1;
@@ -1103,7 +1187,7 @@ int WORKSPACE::LoadSkin(char* path) {
 //copied from LR2 LoadScene
 int WORKSPACE::LoadSceneSE() {
     skstruct* sk = &g.skstruct;
-    SkinUser tsku;
+    SkinUser tsku{};
     CSTR tStr;
     
     InitSkin(sk, 0, false);
@@ -1143,7 +1227,7 @@ int WORKSPACE::ReadSkinSE() {
 
     int tSkin_num = 0;
     int line = 0;
-    int IFCOUNT = 0, IFSWITCH[100];
+    int IFCOUNT = 0, IFSWITCH[100] = {};
 
     bool flipside = false;
 
@@ -1167,6 +1251,10 @@ int WORKSPACE::ReadSkinSE() {
         CSTR& fBuf = read.line;
         line++;
 
+        char loadLine[128];
+        sprintf_s(loadLine, "expanded line %d, source line %d, command %.64s", i, read.num, fBuf.outstr());
+        WriteSkinLoadLog("ReadSkinSE", loadLine);
+
         if (read.line.length() <= 6) continue;
         if (strncmp(read.line.atPos(0), "#", 1)) continue;
 
@@ -1187,7 +1275,7 @@ int WORKSPACE::ReadSkinSE() {
                     IFCOUNT++;
                 }
                 else {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\nƒlƒXƒg‰Â?‚È#IF‚ÌãŒÀ‚É’B‚µ‚Ü‚µ‚½B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nãƒã‚¹ãƒˆå¯?ãª#IFã®ä¸Šé™ã«é”ã—ã¾ã—ãŸã€‚\n", line, fBuf);
                     if (IFSWITCH[IFCOUNT] > 1) {
                         *fBuf.atPos(0) = '\0';
                         continue;
@@ -1208,11 +1296,11 @@ int WORKSPACE::ReadSkinSE() {
                         }
                     }
                 }
-                else ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‘Î‰ž‚·‚é#IF‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñB\n", line, fBuf);
+                else ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nå¯¾å¿œã™ã‚‹#IFãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“ã€‚\n", line, fBuf);
             }
             else if (fBuf.left(5).isSame("#ELSE") && IFSWITCH[IFCOUNT] != 3) {
                 if (IFCOUNT == 0) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‘Î‰ž‚·‚é#IF‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñB\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nå¯¾å¿œã™ã‚‹#IFãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“ã€‚\n", line, fBuf);
                 }
                 else {
                     IFSWITCH[IFCOUNT] = (IFSWITCH[IFCOUNT] == 1) ? 3 : 1;
@@ -1220,7 +1308,7 @@ int WORKSPACE::ReadSkinSE() {
             }
             else if (fBuf.left(6).isSame("#ENDIF")) {
                 if (IFCOUNT == 0) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‘Î‰ž‚·‚é#IF‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñB\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nå¯¾å¿œã™ã‚‹#IFãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“ã€‚\n", line, fBuf);
                 }
                 else {
                     IFSWITCH[IFCOUNT] = 0;
@@ -1231,8 +1319,12 @@ int WORKSPACE::ReadSkinSE() {
 
         if (IFCOUNT > 0) {
             if (IFSWITCH[IFCOUNT] > 1) {
-                /**fBuf.atPos(0) = '\0';
-                continue;*/
+                // The editor previously evaluated IF state but deliberately
+                // continued parsing inactive branches. Large skins therefore
+                // loaded both player sides and every customization variant at
+                // once (tricoro HD expands to more than 1,000 SRC_IMAGE rows).
+                // Preview must load only the currently active branch.
+                continue;
             }
         }
 
@@ -1240,7 +1332,7 @@ int WORKSPACE::ReadSkinSE() {
         if (!fBuf.left(1).isDiff("#")) {
             if (fBuf.left(6).isSame("#IMAGE")) {
                 if (sk->count == 100) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‚±‚êˆÈã#IMAGE‚ð“o?‚Å‚«‚Ü‚¹‚ñB\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nã“ã‚Œä»¥ä¸Š#IMAGEã‚’ç™»?ã§ãã¾ã›ã‚“ã€‚\n", line, fBuf);
                 }
                 else {
                     SplitCSV(fBuf, &csv, ",");
@@ -1274,7 +1366,7 @@ int WORKSPACE::ReadSkinSE() {
             }
             else if (fBuf.left(5).isSame("#FONT") && !flag_skipFont) {
                 if (sk->num_of_struct == 10) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‚±‚êˆÈã#FONT‚ð“o?‚Å‚«‚Ü‚¹‚ñB\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nã“ã‚Œä»¥ä¸Š#FONTã‚’ç™»?ã§ãã¾ã›ã‚“ã€‚\n", line, fBuf);
                 }
                 else {
                     SplitCSV(fBuf, &csv, ",");
@@ -1290,10 +1382,10 @@ int WORKSPACE::ReadSkinSE() {
                 SplitCSV(fBuf, &csv, ",");
                 ReadSRC(&sk->image.src[sk->image.srcSize], &csv, sk);
                 if (sk->image.src[sk->image.srcSize].graphcount < 1 || sk->image.src[sk->image.srcSize].count < 1) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‰æ‘œ‚Ì“o?‚ÉŽ¸”s‚µ‚Ü‚µ‚½B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nç”»åƒã®ç™»?ã«å¤±æ•—ã—ã¾ã—ãŸã€‚\n", line, fBuf);
                 }
                 if (sk->image.srcSize > 0 && (sk->image.dst[sk->image.srcSize - 1].dstCount < 1 || sk->image.dst[sk->image.srcSize - 1].dataSize < 1)) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n(‚±‚Ìs‚ÌƒGƒ‰?‚Å‚Í‚ ‚è‚Ü‚¹‚ñ)‚Ð‚Æ‚Â‘O‚Ì#SRC_IMAGE‚É‘Î‰ž‚µ‚½#DST_IMAGE‚ª‘¶Ý‚µ‚È‚¢‚©A“o?‚ÉŽ¸”s‚µ‚½‚æ‚¤‚Å‚·\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\n(ã“ã®è¡Œã®ã‚¨ãƒ©?ã§ã¯ã‚ã‚Šã¾ã›ã‚“)ã²ã¨ã¤å‰ã®#SRC_IMAGEã«å¯¾å¿œã—ãŸ#DST_IMAGEãŒå­˜åœ¨ã—ãªã„ã‹ã€ç™»?ã«å¤±æ•—ã—ãŸã‚ˆã†ã§ã™\n", line, fBuf);
                 }
                 sk->image.srcSize++;
             }
@@ -1302,10 +1394,10 @@ int WORKSPACE::ReadSkinSE() {
                 SplitCSV(fBuf, &csv, ",");
                 ReadDST(&sk->image.dst[sk->image.srcSize - 1], &csv, tSkin_num);
                 if (sk->image.dst[sk->image.srcSize - 1].dstCount < 1 || sk->image.dst[sk->image.srcSize - 1].dataSize < 1) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\nDST‚Ì“o?‚ÉŽ¸”s‚µ‚Ü‚µ‚½BDST‚Ìˆê”ÔÅ‰‚ªƒGƒ‰?‚ð‹N‚±‚µ‚Ä‚¢‚é‰Â?«‚ª‚ ‚è‚Ü‚·B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nDSTã®ç™»?ã«å¤±æ•—ã—ã¾ã—ãŸã€‚DSTã®ä¸€ç•ªæœ€åˆãŒã‚¨ãƒ©?ã‚’èµ·ã“ã—ã¦ã„ã‚‹å¯?æ€§ãŒã‚ã‚Šã¾ã™ã€‚\n", line, fBuf);
                 }
                 else if (sk->image.dst[sk->image.srcSize - 1].dstCount == oldDstCount) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\nDST‚Ì“o?‚ÉŽ¸”s‚µ‚Ü‚µ‚½B‚±‚Ìs‚Ì“o?‚Ì‚ÝŽ¸”s‚µ‚Ü‚µ‚½B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nDSTã®ç™»?ã«å¤±æ•—ã—ã¾ã—ãŸã€‚ã“ã®è¡Œã®ç™»?ã®ã¿å¤±æ•—ã—ã¾ã—ãŸã€‚\n", line, fBuf);
                 }
             }
             else if (fBuf.left(9).isSame("#SRC_TEXT")) {
@@ -1330,10 +1422,10 @@ int WORKSPACE::ReadSkinSE() {
                 SplitCSV(fBuf, &csv, ",");
                 ReadSRC(&sk->otherObject[2].src[sk->otherObject[2].srcSize], &csv, sk);
                 if (sk->otherObject[2].src[sk->otherObject[2].srcSize].graphcount < 1 || sk->otherObject[2].src[sk->otherObject[2].srcSize].count < 1) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‰æ‘œ‚Ì“o?‚ÉŽ¸”s‚µ‚Ü‚µ‚½B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nç”»åƒã®ç™»?ã«å¤±æ•—ã—ã¾ã—ãŸã€‚\n", line, fBuf);
                 }
                 if (sk->otherObject[2].srcSize > 0 && (sk->otherObject[2].dst[sk->otherObject[2].srcSize - 1].dstCount < 1 || sk->otherObject[2].dst[sk->otherObject[2].srcSize - 1].dataSize < 1)) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n(‚±‚Ìs‚ÌƒGƒ‰?‚Å‚Í‚ ‚è‚Ü‚¹‚ñ)‚Ð‚Æ‚Â‘O‚Ì#SRC_SLIDER‚É‘Î‰ž‚µ‚½#DST_SLIDER‚ª‘¶Ý‚µ‚È‚¢‚©A“o?‚ÉŽ¸”s‚µ‚½‚æ‚¤‚Å‚·\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\n(ã“ã®è¡Œã®ã‚¨ãƒ©?ã§ã¯ã‚ã‚Šã¾ã›ã‚“)ã²ã¨ã¤å‰ã®#SRC_SLIDERã«å¯¾å¿œã—ãŸ#DST_SLIDERãŒå­˜åœ¨ã—ãªã„ã‹ã€ç™»?ã«å¤±æ•—ã—ãŸã‚ˆã†ã§ã™\n", line, fBuf);
                 }
                 sk->otherObject[2].srcSize++;
             }
@@ -1345,10 +1437,10 @@ int WORKSPACE::ReadSkinSE() {
                 SplitCSV(fBuf, &csv, ",");
                 ReadSRC(&sk->otherObject[1].src[sk->otherObject[1].srcSize], &csv, sk);
                 if (sk->otherObject[1].src[sk->otherObject[1].srcSize].graphcount < 1 || sk->otherObject[1].src[sk->otherObject[1].srcSize].count < 1) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‰æ‘œ‚Ì“o?‚ÉŽ¸”s‚µ‚Ü‚µ‚½B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nç”»åƒã®ç™»?ã«å¤±æ•—ã—ã¾ã—ãŸã€‚\n", line, fBuf);
                 }
                 if (sk->otherObject[1].srcSize > 0 && (sk->otherObject[1].dst[sk->otherObject[1].srcSize - 1].dstCount < 1 || sk->otherObject[1].dst[sk->otherObject[1].srcSize - 1].dataSize < 1)) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n(‚±‚Ìs‚ÌƒGƒ‰?‚Å‚Í‚ ‚è‚Ü‚¹‚ñ)‚Ð‚Æ‚Â‘O‚Ì#SRC_BUTTON‚É‘Î‰ž‚µ‚½#DST_BUTTON‚ª‘¶Ý‚µ‚È‚¢‚©A“o?‚ÉŽ¸”s‚µ‚½‚æ‚¤‚Å‚·\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\n(ã“ã®è¡Œã®ã‚¨ãƒ©?ã§ã¯ã‚ã‚Šã¾ã›ã‚“)ã²ã¨ã¤å‰ã®#SRC_BUTTONã«å¯¾å¿œã—ãŸ#DST_BUTTONãŒå­˜åœ¨ã—ãªã„ã‹ã€ç™»?ã«å¤±æ•—ã—ãŸã‚ˆã†ã§ã™\n", line, fBuf);
                 }
                 sk->otherObject[1].srcSize++;
             }
@@ -1361,10 +1453,10 @@ int WORKSPACE::ReadSkinSE() {
                 SplitCSV(fBuf, &csv, ",");
                 ReadSRC(&sk->otherObject[3].src[sk->otherObject[3].srcSize], &csv, sk);
                 if (sk->otherObject[3].src[sk->otherObject[3].srcSize].graphcount < 1 || sk->otherObject[3].src[sk->otherObject[3].srcSize].count < 1) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‰æ‘œ‚Ì“o?‚ÉŽ¸”s‚µ‚Ü‚µ‚½B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nç”»åƒã®ç™»?ã«å¤±æ•—ã—ã¾ã—ãŸã€‚\n", line, fBuf);
                 }
                 if (sk->otherObject[3].srcSize > 0 && (sk->otherObject[3].dst[sk->otherObject[3].srcSize - 1].dstCount < 1 || sk->otherObject[3].dst[sk->otherObject[3].srcSize - 1].dataSize < 1)) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n(‚±‚Ìs‚ÌƒGƒ‰?‚Å‚Í‚ ‚è‚Ü‚¹‚ñ)‚Ð‚Æ‚Â‘O‚Ì#SRC_BGA‚É‘Î‰ž‚µ‚½#DST_BGA‚ª‘¶Ý‚µ‚È‚¢‚©A“o?‚ÉŽ¸”s‚µ‚½‚æ‚¤‚Å‚·\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\n(ã“ã®è¡Œã®ã‚¨ãƒ©?ã§ã¯ã‚ã‚Šã¾ã›ã‚“)ã²ã¨ã¤å‰ã®#SRC_BGAã«å¯¾å¿œã—ãŸ#DST_BGAãŒå­˜åœ¨ã—ãªã„ã‹ã€ç™»?ã«å¤±æ•—ã—ãŸã‚ˆã†ã§ã™\n", line, fBuf);
                 }
                 sk->otherObject[3].srcSize++;
             }
@@ -1376,10 +1468,10 @@ int WORKSPACE::ReadSkinSE() {
                 SplitCSV(fBuf, &csv, ",");
                 ReadSRC(&sk->otherObject[4].src[sk->otherObject[4].srcSize], &csv, sk);
                 if (sk->otherObject[4].src[sk->otherObject[4].srcSize].graphcount < 1 || sk->otherObject[4].src[sk->otherObject[4].srcSize].count < 1) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‰æ‘œ‚Ì“o?‚ÉŽ¸”s‚µ‚Ü‚µ‚½B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nç”»åƒã®ç™»?ã«å¤±æ•—ã—ã¾ã—ãŸã€‚\n", line, fBuf);
                 }
                 if (sk->otherObject[4].srcSize > 0 && (sk->otherObject[4].dst[sk->otherObject[4].srcSize - 1].dstCount < 1 || sk->otherObject[4].dst[sk->otherObject[4].srcSize - 1].dataSize < 1)) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n(‚±‚Ìs‚ÌƒGƒ‰?‚Å‚Í‚ ‚è‚Ü‚¹‚ñ)‚Ð‚Æ‚Â‘O‚Ì#SRC_BGA‚É‘Î‰ž‚µ‚½#DST_BGA‚ª‘¶Ý‚µ‚È‚¢‚©A“o?‚ÉŽ¸”s‚µ‚½‚æ‚¤‚Å‚·\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\n(ã“ã®è¡Œã®ã‚¨ãƒ©?ã§ã¯ã‚ã‚Šã¾ã›ã‚“)ã²ã¨ã¤å‰ã®#SRC_BGAã«å¯¾å¿œã—ãŸ#DST_BGAãŒå­˜åœ¨ã—ãªã„ã‹ã€ç™»?ã«å¤±æ•—ã—ãŸã‚ˆã†ã§ã™\n", line, fBuf);
                 }
                 sk->otherObject[4].srcSize++;
             }
@@ -1392,10 +1484,10 @@ int WORKSPACE::ReadSkinSE() {
                 SplitCSV(fBuf, &csv, ",");
                 ReadSRC(&sk->otherObject[6].src[sk->otherObject[6].srcSize], &csv, sk);
                 if (sk->otherObject[6].src[sk->otherObject[6].srcSize].graphcount < 1 || sk->otherObject[6].src[sk->otherObject[6].srcSize].count < 1) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‰æ‘œ‚Ì“o?‚ÉŽ¸”s‚µ‚Ü‚µ‚½B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nç”»åƒã®ç™»?ã«å¤±æ•—ã—ã¾ã—ãŸã€‚\n", line, fBuf);
                 }
                 if (sk->otherObject[6].srcSize > 0 && (sk->otherObject[6].dst[sk->otherObject[6].srcSize - 1].dstCount < 1 || sk->otherObject[6].dst[sk->otherObject[6].srcSize - 1].dataSize < 1)) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n(‚±‚Ìs‚ÌƒGƒ‰?‚Å‚Í‚  ‚è‚Ü‚¹‚ñ)‚Ð‚Æ‚Â‘O‚Ì#SRC_NUMBER‚É‘Î‰ž‚µ‚½#DST_NUMBER‚ª ‘¶Ý‚µ‚È‚¢‚©A“o?‚ÉŽ¸”s‚µ‚½‚æ‚¤‚Å‚·\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\n(ã“ã®è¡Œã®ã‚¨ãƒ©?ã§ã¯ã‚ ã‚Šã¾ã›ã‚“)ã²ã¨ã¤å‰ã®#SRC_NUMBERã«å¯¾å¿œã—ãŸ#DST_NUMBERãŒ å­˜åœ¨ã—ãªã„ã‹ã€ç™»?ã«å¤±æ•—ã—ãŸã‚ˆã†ã§ã™\n", line, fBuf);
                 }
                 sk->otherObject[6].srcSize++;
             }
@@ -1416,10 +1508,10 @@ int WORKSPACE::ReadSkinSE() {
                 SplitCSV(fBuf, &csv, ",");
                 ReadSRC(&sk->otherObject[5].src[sk->otherObject[5].srcSize], &csv, sk);
                 if (sk->otherObject[5].src[sk->otherObject[5].srcSize].graphcount < 1 || sk->otherObject[5].src[sk->otherObject[5].srcSize].count < 1) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‰æ‘œ‚Ì“o?‚ÉŽ¸”s‚µ‚Ü‚µ ‚½B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nç”»åƒã®ç™»?ã«å¤±æ•—ã—ã¾ã— ãŸã€‚\n", line, fBuf);
                 }
                 if (sk->otherObject[5].srcSize > 0 && (sk->otherObject[5].dst[sk->otherObject[5].srcSize - 1].dstCount < 1 || sk->otherObject[5].dst[sk->otherObject[5].srcSize - 1].dataSize < 1)) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n(‚±‚Ìs‚ÌƒGƒ‰?‚Å‚Í‚  ‚è‚Ü‚¹‚ñ)‚Ð‚Æ‚Â‘O‚Ì#SRC_BARGRAPH‚É‘Î‰ž‚µ‚½#DST_BARGRAP H‚ª‘¶Ý‚µ‚È‚¢‚©A“o?‚ÉŽ¸”s‚µ‚½‚æ‚¤‚Å‚·\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\n(ã“ã®è¡Œã®ã‚¨ãƒ©?ã§ã¯ã‚ ã‚Šã¾ã›ã‚“)ã²ã¨ã¤å‰ã®#SRC_BARGRAPHã«å¯¾å¿œã—ãŸ#DST_BARGRAP HãŒå­˜åœ¨ã—ãªã„ã‹ã€ç™»?ã«å¤±æ•—ã—ãŸã‚ˆã†ã§ã™\n", line, fBuf);
                 }
                 sk->otherObject[5].srcSize++;
             }
@@ -1858,7 +1950,7 @@ int WORKSPACE::ReadSkinSE() {
             else if (fBuf.left(8).isSame("#LR2FONT") && !flag_skipFont) {
                 SplitCSV(fBuf, &csv, ",");
                 if (sk->num_of_ImageFont == 10) {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n‚±‚êˆÈã‚Ì“o?‚Í‚Å‚«‚Ü ‚¹‚ñB\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\nã“ã‚Œä»¥ä¸Šã®ç™»?ã¯ã§ãã¾ ã›ã‚“ã€‚\n", line, fBuf);
                 }
                 else if (csv.val[2] == 1 || sk->disableimagefont == 0) {
                     if (csv.str[1].isDiff("CONTINUE")) {
@@ -1952,7 +2044,7 @@ int WORKSPACE::ReadSkinSE() {
                     sk->op[csv.val[1]] = (csv.val[2] != 0);
                 }
                 else {
-                    ErrorLogFmtAdd("ƒXƒLƒ““Ç‚Ýž‚ÝƒGƒ‰? %ds–Ú\n%s\n#SETOPTION‚Ì‘æˆêˆø”(ƒIƒvƒVƒ‡ƒ“’l)‚Í900?999‚Ì”ÍˆÍ“à‚É‚µ‚Ä‰º‚³‚¢B\n", line, fBuf);
+                    ErrorLogFmtAdd("ã‚¹ã‚­ãƒ³èª­ã¿è¾¼ã¿ã‚¨ãƒ©? %dè¡Œç›®\n%s\n#SETOPTIONã®ç¬¬ä¸€å¼•æ•°(ã‚ªãƒ—ã‚·ãƒ§ãƒ³å€¤)ã¯900?999ã®ç¯„å›²å†…ã«ã—ã¦ä¸‹ã•ã„ã€‚\n", line, fBuf);
                 }
             }
             else if (fBuf.left(13).isSame("#SRC_BAR_RANK")) {
@@ -2078,8 +2170,8 @@ int WORKSPACE::drawCustomize() {
 }
 
 int WORKSPACE::drawPreview() {
-    //static SDL_Texture* preview_tex;
-    static PDIRECT3DTEXTURE9 preview_tex = NULL;
+    // Preview texture is owned by this workspace and recreated whenever
+    // the loaded skin resolution changes.
     
     char title[260];
     snprintf(title, sizeof(title), "Preview##%d", num);
@@ -2094,15 +2186,26 @@ int WORKSPACE::drawPreview() {
     //TODO init zoom value
     //TODO support HD skins
     
-    if (!preview_tex) {
-        LoadTextureFromRawMemory(GetImageAddressSoftImage(previewScreen), skinSizeX * skinSizeY * 4, skinSizeX, skinSizeY, &preview_tex);
+    void* previewPixels = GetImageAddressSoftImage(previewScreen);
+    const size_t previewBytes = (size_t)skinSizeX * (size_t)skinSizeY * 4;
+    if (texture_preview &&
+        (texture_preview_width != skinSizeX || texture_preview_height != skinSizeY)) {
+        texture_preview->Release();
+        texture_preview = NULL;
     }
-    else
-    {
-        RefreshTextureByRawMemory(GetImageAddressSoftImage(previewScreen), skinSizeX * skinSizeY * 4, &preview_tex);
+    if (!texture_preview && previewPixels) {
+        if (LoadTextureFromRawMemory(previewPixels, previewBytes,
+            skinSizeX, skinSizeY, &texture_preview)) {
+            texture_preview_width = skinSizeX;
+            texture_preview_height = skinSizeY;
+        }
+    }
+    else if (previewPixels) {
+        RefreshTextureByRawMemory(previewPixels, previewBytes,
+            skinSizeX, skinSizeY, &texture_preview);
     }
 
-    ImGui::Image(preview_tex, { (float)skinSizeX / zoom, (float)skinSizeY / zoom }, { 0, 0 }, { 1, 1 });
+    ImGui::Image(texture_preview, { (float)skinSizeX / zoom, (float)skinSizeY / zoom }, { 0, 0 }, { 1, 1 });
 
     if (ImGui::Button("MainStart")) {
         LoadSceneSE();
@@ -2144,16 +2247,111 @@ int WORKSPACE::drawPreview() {
     //D_IDirect3DSurface9* d9 = (D_IDirect3DSurface9*)GetUseDirect3D9BackBufferSurface();
     //d9->GetDC()
 
-    //test draw square on preview
-    ImVec2 srcposLU = { p.x + preview_selected_obj.x - 1, p.y + preview_selected_obj.y - 1 };
-    ImVec2 srcposRB = { p.x + preview_selected_obj.x + preview_selected_obj.w + 1, p.y + preview_selected_obj.y + preview_selected_obj.h + 1 };
+    // Drag the highlighted Object. All DST animation rows receive the same
+    // delta, preserving animation while EditValue records CSV and History.
+    if (preview_selected_obj_valid) {
+        const float previewScale = 1.0f / zoom;
+        float hitX1 = preview_selected_obj.x;
+        float hitY1 = preview_selected_obj.y;
+        float hitX2 = preview_selected_obj.x + preview_selected_obj.w;
+        float hitY2 = preview_selected_obj.y + preview_selected_obj.h;
+        if (hitX1 > hitX2) std::swap(hitX1, hitX2);
+        if (hitY1 > hitY2) std::swap(hitY1, hitY2);
+        // Keep at least a 20x20 screen-space grab area. Very small or thin
+        // LR2 objects are otherwise nearly impossible to catch with a mouse.
+        const float grabPadding = 10.0f;
+        const ImVec2 hitMin(p.x + hitX1 * previewScale - grabPadding,
+            p.y + hitY1 * previewScale - grabPadding);
+        const ImVec2 hitMax(p.x + hitX2 * previewScale + grabPadding,
+            p.y + hitY2 * previewScale + grabPadding);
+        const ImVec2 imageMax(p.x + skinSizeX * previewScale,
+            p.y + skinSizeY * previewScale);
+        const ImVec2 mousePos = ImGui::GetIO().MousePos;
+        const bool overPreviewImage = mousePos.x >= p.x && mousePos.x <= imageMax.x &&
+            mousePos.y >= p.y && mousePos.y <= imageMax.y;
+        const bool overSelectedObject = overPreviewImage &&
+            mousePos.x >= hitMin.x && mousePos.x <= hitMax.x &&
+            mousePos.y >= hitMin.y && mousePos.y <= hitMax.y;
 
+        if (overSelectedObject || preview_object_dragging)
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+        if (overSelectedObject && !preview_object_dragging)
+            ImGui::SetTooltip("Drag to move Object");
+
+        // Read MouseDown directly. The preview Image may already own the
+        // frame's click, so relying on IsMouseClicked can miss the drag start.
+        if (!preview_object_dragging && overSelectedObject && ImGui::GetIO().MouseDown[ImGuiMouseButton_Left]) {
+            preview_object_dragging = true;
+            preview_drag_mouse_start = mousePos;
+            preview_drag_object_start_x = preview_selected_obj.x;
+            preview_drag_object_start_y = preview_selected_obj.y;
+        }
+
+        if (preview_object_dragging) {
+            const ImVec2 mouseNow = ImGui::GetIO().MousePos;
+            const float deltaX = (mouseNow.x - preview_drag_mouse_start.x) * zoom;
+            const float deltaY = (mouseNow.y - preview_drag_mouse_start.y) * zoom;
+            preview_selected_obj.x = preview_drag_object_start_x + deltaX;
+            preview_selected_obj.y = preview_drag_object_start_y + deltaY;
+
+            if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                const int moveX = (int)std::round(deltaX);
+                const int moveY = (int)std::round(deltaY);
+                if ((moveX != 0 || moveY != 0) && preview_selected_object_model_index >= 0 &&
+                    preview_selected_object_model_index < (int)g_seObjectEditorModel.Objects().size()) {
+                    const SEObjectInstance& selectedObject = g_seObjectEditorModel.Objects()[preview_selected_object_model_index];
+                    for (int rowIndex = 0; rowIndex < (int)selectedObject.rows.size(); ++rowIndex) {
+                        const int row = selectedObject.rows[rowIndex];
+                        if (row < 0 || row >= skinfileLines.count) continue;
+                        SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                        if (!line.csv.str[0].body || strncmp(line.csv.str[0].outstr(), "#DST", 4) != 0) continue;
+                        EditValue(row, 3, line.csv.val[3] + moveX);
+                        EditValue(row, 4, line.csv.val[4] + moveY);
+                    }
+                    for (int dstIndex = 0; dstIndex < arr_DST.count; ++dstIndex) {
+                        DST& dst = ((DST*)arr_DST.data)[dstIndex];
+                        bool belongsToObject = false;
+                        for (int rowIndex = 0; rowIndex < (int)selectedObject.rows.size(); ++rowIndex) {
+                            if (dst.declare == selectedObject.rows[rowIndex]) { belongsToObject = true; break; }
+                        }
+                        if (!belongsToObject) continue;
+                        for (int frameIndex = 0; frameIndex < dst.arr_animation.count; ++frameIndex) {
+                            DST_ANIMATION& frame = ((DST_ANIMATION*)dst.arr_animation.data)[frameIndex];
+                            frame.x += moveX;
+                            frame.y += moveY;
+                        }
+                    }
+                }
+                preview_selected_obj.x = preview_drag_object_start_x + moveX;
+                preview_selected_obj.y = preview_drag_object_start_y + moveY;
+                preview_object_dragging = false;
+            }
+        }
+    }
+    // Flash the selected Object's destination rectangle over the preview.
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
-    bool flicking = ((int)GetTimeLapse(1, &g.timer1) % 200 > 100);
-    ImColor color = flicking ? 0xff0080ff : 0x000000;
-    draw_list->AddRect(srcposLU, srcposRB, color, 0.0f, ImDrawFlags_Closed, 1.0f);
-    //test draw square on preview
+    if (preview_selected_obj_valid && ((int)GetTimeLapse(1, &g.timer1) % 500 < 300)) {
+        const float previewScale = 1.0f / zoom;
+        float x1 = preview_selected_obj.x;
+        float y1 = preview_selected_obj.y;
+        float x2 = preview_selected_obj.x + preview_selected_obj.w;
+        float y2 = preview_selected_obj.y + preview_selected_obj.h;
+        if (x1 > x2) std::swap(x1, x2);
+        if (y1 > y2) std::swap(y1, y2);
+        ImVec2 dstTopLeft = {
+            p.x + x1 * previewScale - 2.0f,
+            p.y + y1 * previewScale - 2.0f
+        };
+        ImVec2 dstBottomRight = {
+            p.x + x2 * previewScale + 2.0f,
+            p.y + y2 * previewScale + 2.0f
+        };
+        draw_list->AddRect(dstTopLeft, dstBottomRight,
+            IM_COL32(255, 48, 48, 255), 0.0f, ImDrawFlags_Closed, 3.0f);
+        draw_list->AddRect(ImVec2(dstTopLeft.x + 2, dstTopLeft.y + 2),
+            ImVec2(dstBottomRight.x - 2, dstBottomRight.y - 2),
+            IM_COL32(255, 255, 255, 230), 0.0f, ImDrawFlags_Closed, 1.0f);
+    }
 
     //test objects on cursor
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
@@ -4199,3 +4397,355 @@ int WORKSPACE::drawHistory() {
 
 
 ARR workspaceList;
+// Data-driven Object Editor.  The schema comes from skinObjGroup.txt and
+// argument names from skinHelper.txt.  The editor works directly on
+// skinfileLines so the existing CSV/table/save path remains authoritative.
+int WORKSPACE::drawObjectEditor() {
+    char title[128];
+    snprintf(title, sizeof(title), "Object Editor##%d", num);
+    if (!ImGui::Begin(title, &wObjectEditor)) { ImGui::End(); return 0; }
+
+    if (g_seObjectEditorModel.Groups().empty()) {
+        ImGui::Text("skinObjGroup.txt not loaded.");
+        ImGui::End();
+        return 0;
+    }
+    if (!loaded || skinfileLines.count <= 0) {
+        ImGui::Text("No skin loaded.");
+        ImGui::End();
+        return 0;
+    }
+
+    static WORKSPACE* lastWs = NULL;
+    static int lastLineCount = -1;
+    if (lastWs != this || lastLineCount != skinfileLines.count) {
+        g_seObjectEditorModel.Rebuild(*this);
+        lastWs = this;
+        lastLineCount = skinfileLines.count;
+        selected_object_editor = 0;
+    }
+
+    const std::vector<SEObjectGroupDef>& groups = g_seObjectEditorModel.Groups();
+    if (selected_object_group < 0 || selected_object_group >= (int)groups.size()) selected_object_group = 0;
+
+    // Left: Object types/groups.
+    if (ImGui::BeginChild("ObjectGroups", ImVec2(180, 0), true)) {
+        for (int gidx = 0; gidx < (int)groups.size(); ++gidx) {
+            std::vector<int> objs = g_seObjectEditorModel.ObjectsForGroup(gidx);
+            if (objs.empty()) continue;
+            char label[128];
+            snprintf(label, sizeof(label), "%s (%d)", groups[gidx].name.c_str(), (int)objs.size());
+            if (ImGui::Selectable(label, selected_object_group == gidx)) {
+                selected_object_group = gidx;
+                selected_object_editor = 0;
+            }
+        }
+        ImGui::EndChild();
+    }
+
+    ImGui::SameLine();
+    std::vector<int> groupObjects = g_seObjectEditorModel.ObjectsForGroup(selected_object_group);
+
+    // Middle: control-flow is metadata, never an Object command.
+    // Sibling #IF/#ELSEIF/#ELSE branches are displayed together.
+    if (ImGui::BeginChild("ObjectList", ImVec2(220, 0), true)) {
+        struct BranchBlock {
+            int ifgroup;
+            int order;
+            std::string label;
+            std::vector<int> localObjectIndices;
+        };
+        struct ConditionBlock {
+            int rootIfgroup;
+            int depth;
+            std::string label;
+            std::vector<BranchBlock> branches;
+        };
+        std::vector<ConditionBlock> conditions;
+
+        auto getHeader = [&](int ifgroup, std::string& label, int& order) -> bool {
+            label = "";
+            order = 0;
+            if (ifgroup <= 0 || ifgroup >= arr_ifunit.count) return false;
+            IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[ifgroup];
+            order = unit.order;
+            for (int rno = 0; rno < skinfileLines.count; ++rno) {
+                SKINFILELINEREAD& r = ((SKINFILELINEREAD*)skinfileLines.data)[rno];
+                if (r.ifgroup != ifgroup || !r.isIfGroupHead || !r.csv.str[0].body) continue;
+                label = r.csv.str[0].outstr();
+                if (r.csv.str[1].body) {
+                    std::string arg = r.csv.str[1].outstr();
+                    if (!arg.empty()) label += " " + arg;
+                }
+                return true;
+            }
+            return false;
+        };
+
+        auto getRootIfgroup = [&](int ifgroup) -> int {
+            if (ifgroup <= 0 || ifgroup >= arr_ifunit.count) return 0;
+            IFUNIT& u = ((IFUNIT*)arr_ifunit.data)[ifgroup];
+            if (u.order == 0) return ifgroup;
+            int root = ifgroup;
+            for (int j = ifgroup - 1; j > 0; --j) {
+                IFUNIT& c = ((IFUNIT*)arr_ifunit.data)[j];
+                if (c.depth == u.depth && c.parentID == u.parentID && c.order == 0) {
+                    root = j;
+                    break;
+                }
+            }
+            return root;
+        };
+
+        for (int oi = 0; oi < (int)groupObjects.size(); ++oi) {
+            const SEObjectInstance& o = g_seObjectEditorModel.Objects()[groupObjects[oi]];
+            int ifgroup = o.ifgroup;
+            if (ifgroup == 0 && !o.rows.empty())
+                ifgroup = ((SKINFILELINEREAD*)skinfileLines.data)[o.rows[0]].ifgroup;
+
+            if (ifgroup == 0) {
+                int ci = -1;
+                for (int i = 0; i < (int)conditions.size(); ++i)
+                    if (conditions[i].rootIfgroup == 0) { ci = i; break; }
+                if (ci < 0) {
+                    ConditionBlock c;
+                    c.rootIfgroup = 0; c.depth = 0; c.label = "ALWAYS";
+                    conditions.push_back(c); ci = (int)conditions.size() - 1;
+                }
+                if (conditions[ci].branches.empty()) {
+                    BranchBlock b; b.ifgroup = 0; b.order = 0; b.label = "ALWAYS";
+                    conditions[ci].branches.push_back(b);
+                }
+                conditions[ci].branches[0].localObjectIndices.push_back(oi);
+                continue;
+            }
+
+            int root = getRootIfgroup(ifgroup);
+            int ci = -1;
+            for (int i = 0; i < (int)conditions.size(); ++i)
+                if (conditions[i].rootIfgroup == root) { ci = i; break; }
+            if (ci < 0) {
+                ConditionBlock c;
+                c.rootIfgroup = root;
+                c.depth = ((IFUNIT*)arr_ifunit.data)[root].depth;
+                int dummyOrder = 0;
+                getHeader(root, c.label, dummyOrder);
+                if (c.label.empty()) c.label = "#IF";
+                conditions.push_back(c); ci = (int)conditions.size() - 1;
+            }
+
+            int bi = -1;
+            for (int i = 0; i < (int)conditions[ci].branches.size(); ++i)
+                if (conditions[ci].branches[i].ifgroup == ifgroup) { bi = i; break; }
+            if (bi < 0) {
+                BranchBlock b;
+                b.ifgroup = ifgroup;
+                getHeader(ifgroup, b.label, b.order);
+                if (b.label.empty()) b.label = (b.order == 0) ? "#IF" : "#ELSE";
+                conditions[ci].branches.push_back(b); bi = (int)conditions[ci].branches.size() - 1;
+            }
+            conditions[ci].branches[bi].localObjectIndices.push_back(oi);
+        }
+
+        for (int ci = 0; ci < (int)conditions.size(); ++ci) {
+            ConditionBlock& cond = conditions[ci];
+            ImGui::PushID(cond.rootIfgroup);
+
+            auto drawBranchObjects = [&](BranchBlock& branch) {
+                for (int k = 0; k < (int)branch.localObjectIndices.size(); ++k) {
+                    int oi = branch.localObjectIndices[k];
+                    const SEObjectInstance& o = g_seObjectEditorModel.Objects()[groupObjects[oi]];
+                    char label[128];
+                    int firstRow = o.rows.empty() ? -1 : o.rows[0];
+                    int key = -1;
+                    if (firstRow >= 0) {
+                        SKINFILELINEREAD& r = ((SKINFILELINEREAD*)skinfileLines.data)[firstRow];
+                        if (r.csv.str[1].body) key = r.csv.val[1];
+                    }
+                    if (key >= 0) snprintf(label, sizeof(label), "%03d  #%d", oi, key);
+                    else snprintf(label, sizeof(label), "%03d", oi);
+                    bool hasDst = false;
+                    bool hasEnabledDst = false;
+                    for (int rowIndex = 0; rowIndex < (int)o.rows.size(); ++rowIndex) {
+                        int row = o.rows[rowIndex];
+                        if (row < 0 || row >= skinfileLines.count) continue;
+                        SKINFILELINEREAD& dstRow = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                        if (!dstRow.csv.str[0].body) continue;
+                        const char* command = dstRow.csv.str[0].outstr();
+                        if (strncmp(command, "#DST", 4) != 0) continue;
+                        hasDst = true;
+                        if (GetOptionFlag_dst(&g, dstRow.csv.val[18]) &&
+                            GetOptionFlag_dst(&g, dstRow.csv.val[19]) &&
+                            GetOptionFlag_dst(&g, dstRow.csv.val[20])) {
+                            hasEnabledDst = true;
+                        }
+                    }
+
+                    ImGui::PushID(oi);
+                    if (hasDst) {
+                        const ImVec4 rowColor = hasEnabledDst
+                            ? ImVec4(0.58f, 0.88f, 0.62f, 0.42f)
+                            : ImVec4(0.94f, 0.58f, 0.58f, 0.42f);
+                        const ImVec4 hoverColor = hasEnabledDst
+                            ? ImVec4(0.55f, 0.90f, 0.60f, 0.62f)
+                            : ImVec4(0.96f, 0.54f, 0.54f, 0.62f);
+                        ImGui::PushStyleColor(ImGuiCol_Header, rowColor);
+                        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, hoverColor);
+                        ImGui::PushStyleColor(ImGuiCol_HeaderActive, hoverColor);
+                    }
+                    const bool clicked = ImGui::Selectable(label, hasDst ? true : selected_object_editor == oi);
+                    if (hasDst) ImGui::PopStyleColor(3);
+                    if (clicked) {
+                        selected_object_editor = oi;
+                        preview_selected_object_model_index = groupObjects[oi];
+                        preview_object_dragging = false;
+                        preview_selected_obj_valid = false;
+
+                        // arr_DST keeps the first CSV row (declare) of each
+                        // destination animation. Match it back to this Object.
+                        DST* fallbackDst = NULL;
+                        DST* enabledDst = NULL;
+                        for (int dstIndex = 0; dstIndex < arr_DST.count; ++dstIndex) {
+                            DST& candidate = ((DST*)arr_DST.data)[dstIndex];
+                            bool belongsToObject = false;
+                            for (int rowIndex = 0; rowIndex < (int)o.rows.size(); ++rowIndex) {
+                                if (candidate.declare == o.rows[rowIndex]) {
+                                    belongsToObject = true;
+                                    break;
+                                }
+                            }
+                            if (!belongsToObject || candidate.arr_animation.count <= 0) continue;
+                            if (!fallbackDst) fallbackDst = &candidate;
+                            if (GetOptionFlag_dst(&g, candidate.op1) &&
+                                GetOptionFlag_dst(&g, candidate.op2) &&
+                                GetOptionFlag_dst(&g, candidate.op3)) {
+                                enabledDst = &candidate;
+                                break;
+                            }
+                        }
+
+                        DST* selectedDst = enabledDst ? enabledDst : fallbackDst;
+                        if (selectedDst) {
+                            DST_ANIMATION& frame = ((DST_ANIMATION*)selectedDst->arr_animation.data)
+                                [selectedDst->arr_animation.count - 1];
+                            preview_selected_obj = { frame.x, frame.y, frame.w, frame.h };
+                            preview_selected_obj_valid = true;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+            };
+
+            if (cond.rootIfgroup == 0) {
+                // Unconditional objects are not part of a condition block.
+                bool open = ImGui::TreeNodeEx("always", ImGuiTreeNodeFlags_DefaultOpen, "ALWAYS");
+                if (open) {
+                    for (int bi = 0; bi < (int)cond.branches.size(); ++bi)
+                        drawBranchObjects(cond.branches[bi]);
+                    ImGui::TreePop();
+                }
+            }
+            else {
+                // #IF / #ELSEIF / #ELSE are sibling branches of one condition.
+                // Only a genuinely nested #IF becomes a child ConditionBlock.
+                int objectCount = 0;
+                for (int bi = 0; bi < (int)cond.branches.size(); ++bi)
+                    objectCount += (int)cond.branches[bi].localObjectIndices.size();
+
+                bool conditionOpen = ImGui::TreeNodeEx("condition", ImGuiTreeNodeFlags_DefaultOpen,
+                    "CONDITION  (%d)", objectCount);
+                if (conditionOpen) {
+                    // Keep branch order stable: IF first, then ELSEIF/ELSE.
+                    std::stable_sort(cond.branches.begin(), cond.branches.end(),
+                        [](const BranchBlock& a, const BranchBlock& b) { return a.order < b.order; });
+
+                    for (int bi = 0; bi < (int)cond.branches.size(); ++bi) {
+                        BranchBlock& branch = cond.branches[bi];
+                        ImGui::PushID(branch.ifgroup);
+                        bool branchOpen = ImGui::TreeNodeEx("branch", ImGuiTreeNodeFlags_DefaultOpen,
+                            "%s  (%d)", branch.label.c_str(), (int)branch.localObjectIndices.size());
+                        if (branchOpen) {
+                            drawBranchObjects(branch);
+                            ImGui::TreePop();
+                        }
+                        ImGui::PopID();
+                    }
+                    ImGui::TreePop();
+                }
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+    }
+    ImGui::SameLine();
+
+    // Right: actual Object data. #IF/#ELSEIF/#ELSE are context only.
+    if (ImGui::BeginChild("ObjectProperties", ImVec2(0, 0), true)) {
+        if (selected_object_editor >= 0 && selected_object_editor < (int)groupObjects.size()) {
+            const SEObjectInstance& obj = g_seObjectEditorModel.Objects()[groupObjects[selected_object_editor]];
+            const SEObjectGroupDef* def = g_seObjectEditorModel.Group(obj.group);
+            if (def) {
+                ImGui::Text("%s", def->name.c_str());
+
+                int ifgroup = obj.ifgroup;
+                if (ifgroup == 0 && !obj.rows.empty())
+                    ifgroup = ((SKINFILELINEREAD*)skinfileLines.data)[obj.rows[0]].ifgroup;
+                ImGui::SameLine();
+                if (ifgroup == 0) {
+                    ImGui::TextDisabled("[ALWAYS]");
+                } else {
+                    std::string flowName = "IF";
+                    if (ifgroup < arr_ifunit.count) {
+                        IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[ifgroup];
+                        if (unit.order > 0) flowName = "ELSE";
+                        for (int rno = 0; rno < skinfileLines.count; ++rno) {
+                            SKINFILELINEREAD& r = ((SKINFILELINEREAD*)skinfileLines.data)[rno];
+                            if (r.ifgroup != ifgroup || !r.isIfGroupHead || !r.csv.str[0].body) continue;
+                            flowName = r.csv.str[0].outstr();
+                            if (r.csv.str[1].body) {
+                                std::string arg = r.csv.str[1].outstr();
+                                if (!arg.empty()) flowName += " " + arg;
+                            }
+                            break;
+                        }
+                    }
+                    ImGui::TextDisabled("[%s]", flowName.c_str());
+                }
+                ImGui::Separator();
+
+                for (std::size_t ri = 0; ri < obj.rows.size(); ++ri) {
+                    int row = obj.rows[ri];
+                    if (row < 0 || row >= skinfileLines.count) continue;
+                    SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+                    ImGui::PushID(row);
+                    if (ImGui::CollapsingHeader(command, ImGuiTreeNodeFlags_DefaultOpen)) {
+                        int maxcol = 30;
+                        for (int col = 1; col < maxcol; ++col) {
+                            CSTR help = GetCommandHelp(command, col);
+                            if (!line.csv.str[col].body && !help.body) continue;
+                            const char* label = help.body ? help.outstr() : "value";
+                            if (!label || !*label) continue;
+                            ImGui::PushID(col);
+                            CSTR before(line.csv.str[col]);
+                            CstrInputText(label, &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
+                            if (before.isDiff(line.csv.str[col])) {
+                                CSTR newValue(line.csv.str[col]);
+                                line.csv.str[col] = before;
+                                EditValue(row, col, newValue.outstr());
+                            }
+                            ImGui::PopID();
+                        }
+                    }
+                    ImGui::PopID();
+                }
+            }
+        } else {
+            ImGui::Text("No object.");
+        }
+        ImGui::EndChild();
+    }
+
+    ImGui::End();
+    return 0;
+}

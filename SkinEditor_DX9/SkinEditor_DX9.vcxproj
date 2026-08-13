@@ -187,9 +187,11 @@
     <ClCompile Include="imgui\imgui_impl_win32.cpp" />
     <ClCompile Include="imgui\imgui_tables.cpp" />
     <ClCompile Include="imgui\imgui_widgets.cpp" />
+    <ClCompile Include="inputwrap.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="op.cpp" />
     <ClCompile Include="seHelper.cpp" />
+    <ClCompile Include="seObjectEditor.cpp" />
     <ClCompile Include="skin.cpp" />
     <ClCompile Include="winWorkspace.cpp" />
     <ClCompile Include="winWorkspace2.cpp" />
@@ -247,8 +249,10 @@
     <ClInclude Include="imgui\imstb_rectpack.h" />
     <ClInclude Include="imgui\imstb_textedit.h" />
     <ClInclude Include="imgui\imstb_truetype.h" />
+    <ClInclude Include="inputwrap.h" />
     <ClInclude Include="op.h" />
     <ClInclude Include="seHelper.h" />
+    <ClInclude Include="seObjectEditor.h" />
     <ClInclude Include="skin.h" />
     <ClInclude Include="winWorkspace.h" />
   </ItemGroup>

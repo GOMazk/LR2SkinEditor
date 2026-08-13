@@ -2,11 +2,49 @@
 #include "../LR2/LR2.h"
 #include "../LR2/Scenes.h"
 #include <cmath>
+#include <cstdio>
+
+static const char* g_previewRenderStage = "not started";
+static int g_previewRenderIndex = -1;
+static bool g_previewRenderFaulted = false;
+
+void LR2SEResetRenderFault() {
+	g_previewRenderStage = "not started";
+	g_previewRenderIndex = -1;
+	g_previewRenderFaulted = false;
+}
+
+int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY) {
+	if (g_previewRenderFaulted) return -1;
+	__try {
+		return LR2SEDrawLoop(g, gHandle, sizeX, sizeY);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		g_previewRenderFaulted = true;
+		FILE* fp = fopen("SkinEditor_load_crash.log", "a");
+		if (fp) {
+			fprintf(fp, "Preview render exception : code=0x%08lX stage=%s index=%d\n",
+				GetExceptionCode(), g_previewRenderStage, g_previewRenderIndex);
+			fclose(fp);
+		}
+		return -1;
+	}
+}
 
 int LR2SEInit(game* g) {
-	InitBmsList(&g->sSelect);
-	InitObjectString(&g->txtStruct);
-	InitGameplay(&g->gameplay, &g->config.play);
+	// These are application-wide LR2 work buffers, not per-skin data.
+	// Reinitializing them on every skin change leaked two 1000-entry song
+	// lists, gameplay note buffers, and reinitialized critical sections.
+	// A large skin followed by another skin could therefore terminate here.
+	static bool coreInitialized = false;
+	if (!coreInitialized) {
+		InitBmsList(&g->sSelect);
+		InitObjectString(&g->txtStruct);
+		InitGameplay(&g->gameplay, &g->config.play);
+		InitializeCriticalSection(&g->gameplay.criticalSection);
+		InitializeCriticalSection(&g->criticalSection);
+		coreInitialized = true;
+	}
 
 
 	DeleteGraph(g->skstruct.GrHandle[GrH_BackBMP]); 
@@ -21,16 +59,15 @@ int LR2SEInit(game* g) {
 	//LoadGraph("LR2files/Config/loading.bmp", 0);
 
 
-	InitializeCriticalSection(&g->gameplay.criticalSection);
-	InitializeCriticalSection(&g->criticalSection);
-
 	return 0;
 }
 
 int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY) {
 	SetDrawScreen(DX_SCREEN_BACK);
 
+	g_previewRenderStage = "IMAGE";
 	for (int i = 0; i < g->skstruct.image.srcSize; i++) {
+		g_previewRenderIndex = i;
 
 		if (g->skstruct.image.dst[i].dstCount && GetOptionFlag_dst(g, g->skstruct.image.dst[i].op1)
 			&& GetOptionFlag_dst(g, g->skstruct.image.dst[i].op2) && GetOptionFlag_dst(g, g->skstruct.image.dst[i].op3)) {
@@ -159,7 +196,9 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY) {
 		}
 	}
 
+	g_previewRenderStage = "BUTTON";
 	for (int i = 0; i < g->skstruct.otherObject[1].srcSize; i++) {
+		g_previewRenderIndex = i;
 		if (GetOptionFlag_dst(g, g->skstruct.otherObject[1].dst[i].op1) && GetOptionFlag_dst(g, g->skstruct.otherObject[1].dst[i].op2)
 			&& GetOptionFlag_dst(g, g->skstruct.otherObject[1].dst[i].op3) && g->skstruct.adjust.dark_type != 2) {
 
@@ -167,7 +206,9 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY) {
 
 		}
 	}
+	g_previewRenderStage = "SLIDER";
 	for (int i = 0; i < g->skstruct.otherObject[2].srcSize; i++) {
+		g_previewRenderIndex = i;
 		if (GetOptionFlag_dst(g, g->skstruct.otherObject[2].dst[i].op1) && GetOptionFlag_dst(g, g->skstruct.otherObject[2].dst[i].op2)
 			&& GetOptionFlag_dst(g, g->skstruct.otherObject[2].dst[i].op3) && g->skstruct.adjust.dark_type != 2) {
 
@@ -175,7 +216,9 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY) {
 
 		}
 	}
+	g_previewRenderStage = "NUMBER";
 	for (int i = 0; i < g->skstruct.otherObject[6].srcSize; i++) {
+		g_previewRenderIndex = i;
 		if (GetOptionFlag_dst(g, g->skstruct.otherObject[6].dst[i].op1) && GetOptionFlag_dst(g, g->skstruct.otherObject[6].dst[i].op2)
 			&& GetOptionFlag_dst(g, g->skstruct.otherObject[6].dst[i].op3) && g->skstruct.adjust.dark_type != 2) {
 
@@ -184,7 +227,9 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY) {
 		}
 	}
 	if (g->txtStruct.readme.show != true) {
+		g_previewRenderStage = "ONMOUSE";
 		for (int i = 0; i < g->skstruct.otherObject[3].srcSize; i++) {
+			g_previewRenderIndex = i;
 			if (GetOptionFlag_dst(g, g->skstruct.otherObject[3].dst[i].op1) && GetOptionFlag_dst(g, g->skstruct.otherObject[3].dst[i].op2)
 				&& GetOptionFlag_dst(g, g->skstruct.otherObject[3].dst[i].op3) && g->skstruct.adjust.dark_type != 2) {
 

@@ -110,16 +110,33 @@ bool LoadTextureFromRawMemory(void* data, size_t size, int width, int height, PD
     return true;
 }
 
-bool RefreshTextureByRawMemory(void* data, size_t size, PDIRECT3DTEXTURE9* out_texture)
+bool RefreshTextureByRawMemory(void* data, size_t size, int width, int height, PDIRECT3DTEXTURE9* out_texture)
 {
+    if (!data || !out_texture || !*out_texture || width <= 0 || height <= 0)
+        return false;
+
     IDirect3DTexture9* pTexture = *out_texture;
+    D3DSURFACE_DESC desc;
+    if (FAILED(pTexture->GetLevelDesc(0, &desc)) ||
+        desc.Width != (UINT)width || desc.Height != (UINT)height)
+        return false;
+
+    const size_t sourcePitch = (size_t)width * 4;
+    if (size < sourcePitch * (size_t)height)
+        return false;
+
     D3DLOCKED_RECT lockedRect;
 
     if (SUCCEEDED(pTexture->LockRect(0, &lockedRect, NULL, 0)))
     {        
         BYTE* pDestBits = (BYTE*)lockedRect.pBits;
-        
-        memcpy(pDestBits, data, size);
+        const BYTE* pSourceBits = (const BYTE*)data;
+
+        // A D3D texture row may contain padding. Copying the whole image in
+        // one memcpy corrupts rows whenever Pitch differs from width * 4.
+        for (int y = 0; y < height; ++y)
+            memcpy(pDestBits + (size_t)y * lockedRect.Pitch,
+                pSourceBits + (size_t)y * sourcePitch, sourcePitch);
 
         pTexture->UnlockRect(0);
         return true;

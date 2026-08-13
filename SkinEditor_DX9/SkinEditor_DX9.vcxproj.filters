@@ -60,6 +60,9 @@
     <ClCompile Include="seHelper.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="seObjectEditor.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="..\lib\md5.cpp">
       <Filter>LR2</Filter>
     </ClCompile>
@@ -201,6 +204,9 @@
     <ClCompile Include="winWorkspace_save.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="inputwrap.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="imgui\imgui.h">
@@ -237,6 +243,9 @@
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="seHelper.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="seObjectEditor.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="..\LR2\dbgtool.h">
@@ -366,6 +375,9 @@
       <Filter>LR2</Filter>
     </ClInclude>
     <ClInclude Include="skin.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="inputwrap.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
   </ItemGroup>

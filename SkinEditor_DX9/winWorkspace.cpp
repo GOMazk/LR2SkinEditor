@@ -21,6 +21,7 @@
 #include "inputwrap.h"
 #include <algorithm>
 #include <cstdio>
+#include <vector>
 
 static void WriteSkinLoadLog(const char* stage, const char* detail = NULL) {
     FILE* fp = fopen("SkinEditor_load_crash.log", "a");
@@ -468,78 +469,77 @@ int WORKSPACE::ParseSkin() {
     }
 
     //parse skin
+    // Each open conditional owns its actual current IFUNIT index. Branches are
+    // not assumed to be contiguous: a nested #IF can insert units between an
+    // outer #IF and its #ELSEIF/#ELSE.
+    struct ConditionFrame {
+        int parentGroup;
+        int currentGroup;
+        int nextOrder;
+        int grCountBeforeBlock;
+    };
+    std::vector<ConditionFrame> conditionStack;
+
+    IFUNIT rootIf;
+    arr_ifunit.push_back(&rootIf);
+
     for (int i = 0; i < skinfileLines.count; i++) {
         SKINFILELINEREAD& read = ((SKINFILELINEREAD*)skinfileLines.data)[i];
         bool isif = false;
 
-        if (i == 0) {
-            IFUNIT tif;
-            arr_ifunit.push_back(&tif);
-        }
-
         if (read.isComment) continue;
 
-        //if (read.line.left(strlen("#IF")).isSame("#IF")) {
+        const int currentGroup = conditionStack.empty() ? 0 : conditionStack.back().currentGroup;
+
         if (read.csv.str[0].isSame("#IF")) {
-            
-            IFdepth++;
-
             isif = true;
 
             IFUNIT tif;
             for (int val = 0; val < 10; val++) {
-                tif.data[val] = read.csv.val[val+1];
+                tif.data[val] = read.csv.val[val + 1];
             }
-            tif.depth = IFdepth;
-            tif.order = cOrder = 0;
-            tif.parentID = IFcur;
-            //tif.declare = i;
+            tif.depth = (int)conditionStack.size() + 1;
+            tif.order = 0;
+            tif.parentID = currentGroup;
 
-            IFcur = arr_ifunit.count;
+            const int newGroup = arr_ifunit.count;
             arr_ifunit.push_back(&tif);
-            read.ifgroup = IFcur;
+            conditionStack.push_back({ currentGroup, newGroup, 0, grCount });
+            read.ifgroup = newGroup;
 
             read.isIfGroupHead = true;
             read.isGroupHead = true;
         }
-        else if (read.csv.str[0].isSame("#ELSEIF")) {
+        else if (read.csv.str[0].isSame("#ELSEIF") ||
+                 read.csv.str[0].isSame("#ELSE")) {
             isif = true;
 
-            IFUNIT tif;
-            for (int val = 0; val < 10; val++) {
-                tif.data[val] = read.csv.val[val+1];
+            if (conditionStack.empty()) {
+                // Keep malformed standalone branch markers attached to the
+                // root group instead of indexing outside arr_ifunit.
+                read.ifgroup = 0;
             }
-            tif.depth = IFdepth;
-            tif.order = ++cOrder;
-            tif.parentID = ((IFUNIT*)arr_ifunit.data)[IFcur].parentID;
-            //tif.declare = i;
+            else {
+                ConditionFrame& frame = conditionStack.back();
+                IFUNIT tif;
+                if (read.csv.str[0].isSame("#ELSEIF")) {
+                    for (int val = 0; val < 10; val++) {
+                        tif.data[val] = read.csv.val[val + 1];
+                    }
+                }
+                tif.depth = (int)conditionStack.size();
+                tif.order = ++frame.nextOrder;
+                tif.parentID = frame.parentGroup;
 
-            arr_ifunit.push_back(&tif);;
-            read.ifgroup = IFcur + cOrder;
+                const int newGroup = arr_ifunit.count;
+                arr_ifunit.push_back(&tif);
+                frame.currentGroup = newGroup;
+                read.ifgroup = newGroup;
 
-            grCount -= ((IFUNIT*)arr_ifunit.data)[read.ifgroup].grCount;
-            grInIf = 0;
-
-            read.isIfGroupHead = true;
-            read.isGroupHead = true;
-        }
-        else if (read.csv.str[0].isSame("#ELSE")) {
-            isif = true;
-
-            IFUNIT tif;
-            for (int val = 0; val < 10; val++) {
-                tif.data[val] = 0;
+                // Alternative branches reuse the same image-number range.
+                grCount = frame.grCountBeforeBlock;
+                grInIf = 0;
             }
-            tif.depth = IFdepth;
-            tif.order = ++cOrder;
-            tif.parentID = ((IFUNIT*)arr_ifunit.data)[IFcur].parentID;
-            //tif.declare = i;
-
-            arr_ifunit.push_back(&tif);
-            read.ifgroup = IFcur + cOrder;
-
-            grCount -= ((IFUNIT*)arr_ifunit.data)[read.ifgroup].grCount;
-            grInIf = 0;
 
             read.isIfGroupHead = true;
             read.isGroupHead = true;
@@ -547,20 +547,22 @@ int WORKSPACE::ParseSkin() {
         else if (read.csv.str[0].isSame("#ENDIF")) {
             isif = true;
 
-            read.ifgroup = IFcur + cOrder;
-            IFcur = ((IFUNIT*)arr_ifunit.data)[IFcur].parentID;;
-
-            IFdepth--;
-            cOrder = 0;
-
-            grCount -= ((IFUNIT*)arr_ifunit.data)[read.ifgroup].grCount;
-            grInIf = 0;
+            if (conditionStack.empty()) {
+                read.ifgroup = 0;
+            }
+            else {
+                const ConditionFrame frame = conditionStack.back();
+                read.ifgroup = frame.currentGroup;
+                grCount = frame.grCountBeforeBlock;
+                grInIf = 0;
+                conditionStack.pop_back();
+            }
 
             read.isIfGroupEnd = true;
             read.isGroupEnd = true;
         }
         else {
-            read.ifgroup = IFcur + cOrder;
+            read.ifgroup = currentGroup;
         }
 
         if (isif) continue;

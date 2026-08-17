@@ -359,7 +359,8 @@ int WORKSPACE::drawSkinList() {
         {
             const bool is_selected = (item_selected_idx == n);
             char itemname[260];
-            snprintf(itemname, sizeof(itemname), "%02d:%s -%s", n, g.skinData.Data[n].title.outstr(), SKINTYPESTR[g.skinData.Data[n].type]);
+            const std::string titleUtf8 = Cp932ToUtf8(g.skinData.Data[n].title.outstr());
+            snprintf(itemname, sizeof(itemname), "%02d:%s -%s", n, titleUtf8.c_str(), SKINTYPESTR[g.skinData.Data[n].type]);
             if (ImGui::Selectable(itemname, is_selected)) {
                 item_selected_idx = n;
             }
@@ -384,13 +385,13 @@ int WORKSPACE::drawSkinList() {
         resolutionSavePath.clear();
     }
     ImGui::Image(isPreview ? preview_tex : NULL, { 320, 240 }, { 0, 0 }, { 1, 1 });
-    ImGui::Text("%s", g.skinData.Data[m].skinFile.outstr());
-    ImGui::Text("%s", g.skinData.Data[m].title.outstr());
-    ImGui::Text("%s", g.skinData.Data[m].maker.outstr());
+    ImGui::Text("%s", Cp932ToUtf8(g.skinData.Data[m].skinFile.outstr()).c_str());
+    ImGui::Text("%s", Cp932ToUtf8(g.skinData.Data[m].title.outstr()).c_str());
+    ImGui::Text("%s", Cp932ToUtf8(g.skinData.Data[m].maker.outstr()).c_str());
     ImGui::Text("%s", SKINTYPESTR[g.skinData.Data[m].type]);
     ImGui::SeparatorText("Resolution");
     ImGui::TextColored(ImVec4(1.0f, 0.78f, 0.28f, 1.0f),
-        "AUTO SAVE: Changes are written directly to the skin file.");
+        "AUTO SAVE: Changes are written directly to the original skin file and cannot be undone.");
     int resolution[2] = {
         g.skinData.Data[m].targetX,
         g.skinData.Data[m].targetY
@@ -464,8 +465,6 @@ int WORKSPACE::drawSkinList() {
         }
 
     }
-    ImGui::SameLine(0, 3);
-    ImGui::Button("CLONE", { 0, 0 });
     ImGui::SameLine(0, 3);
     if (ImGui::Button("BROWSE", { 0, 0 })) {
         const char* skinPath = g.skinData.Data[m].skinFile.outstr();
@@ -2692,15 +2691,17 @@ int WORKSPACE::drawCustomize() {
     for (int i = 0; i < meta.custom_count; i++) {
         SkinCustom& cu = meta.customs[i];
 
-        ImGui::Text("%s", cu.title.outstr());
+        const std::string customTitleUtf8 = Cp932ToUtf8(cu.title.outstr());
+        ImGui::Text("%s", customTitleUtf8.c_str());
         ImGui::SameLine();
         
-        char item[64];
+        char item[256];
+        std::string selectedLabelUtf8 = Cp932ToUtf8(cu.op_label[cu.dst_op_selected].outstr());
 
         if(cu.dst_op_start)
-            snprintf(item, sizeof(item), "%03d : %s", cu.dst_op_start + cu.dst_op_selected, cu.op_label[cu.dst_op_selected].outstr());
+            snprintf(item, sizeof(item), "%03d : %s", cu.dst_op_start + cu.dst_op_selected, selectedLabelUtf8.c_str());
         else
-            snprintf(item, sizeof(item), "FILE : %s", cu.op_label[cu.dst_op_selected].outstr());
+            snprintf(item, sizeof(item), "FILE : %s", selectedLabelUtf8.c_str());
 
         char label[32];
         snprintf(label, sizeof(label), "##%d", i);
@@ -2708,10 +2709,11 @@ int WORKSPACE::drawCustomize() {
         {
             for (int n = 0; n < cu.dst_op_count; n++)
             {
+                const std::string optionLabelUtf8 = Cp932ToUtf8(cu.op_label[n].outstr());
                 if (cu.dst_op_start)
-                    snprintf(item, sizeof(item), "%03d : %s", cu.dst_op_start + n, cu.op_label[n].outstr());
+                    snprintf(item, sizeof(item), "%03d : %s", cu.dst_op_start + n, optionLabelUtf8.c_str());
                 else
-                    snprintf(item, sizeof(item), "FILE : %s", cu.op_label[n].outstr());
+                    snprintf(item, sizeof(item), "FILE : %s", optionLabelUtf8.c_str());
 
                 const bool is_selected = (cu.dst_op_selected == n);
                 if (ImGui::Selectable(item, is_selected))
@@ -3200,7 +3202,7 @@ int WORKSPACE::drawTextEdit() {
             ImGui::SameLine();
             //ImGui::TextDisabled("%s", read.line.outstr());
             ImGui::PushID(n);
-            ImGui::InputText("", read.line.outstr(), 260);
+            CstrInputText("", &read.line, ImGuiInputTextFlags_None);
 
             static CSTR tmp;
             if (ImGui::IsItemActivated()) {
@@ -3251,7 +3253,7 @@ int WORKSPACE::drawTextEdit() {
                 {
                     ImGui::TableSetColumnIndex(column);
                     if (read.csv.str[column].atPos(0) == nullptr) {
-                        ImGui::TextDisabled("%s", read.csv.str[column].outstr());
+                        ImGui::TextDisabled("%s", Cp932ToUtf8(read.csv.str[column].outstr()).c_str());
                     }
                     else {
                         //ImGui::Text("%s", read.csv.str[column]);
@@ -3305,12 +3307,14 @@ int WORKSPACE::drawTextEdit() {
                             }
                         }
                         else if (GetCommandHelp(read.csv.str[0].outstr(), column).left(3).isSame("$st")) {
-                            if (ImGui::BeginCombo(inputname, textName(read.csv.val[column]), ImGuiComboFlags_None)) {
+                            const std::string currentTextNameUtf8 = Cp932ToUtf8(textName(read.csv.val[column]));
+                            if (ImGui::BeginCombo(inputname, currentTextNameUtf8.c_str(), ImGuiComboFlags_None)) {
                                 for (int op = 0; op < 200; op++) {
                                     ImGui::PushID(op);
                                     const bool is_selected = (read.csv.val[column] == op);
                                     char opname[64];
-                                    sprintf(opname, "%03d:%s", op, textName(op));
+                                    const std::string textNameUtf8 = Cp932ToUtf8(textName(op));
+                                    snprintf(opname, sizeof(opname), "%03d:%s", op, textNameUtf8.c_str());
 
                                     if (ImGui::Selectable(opname, is_selected)) {
                                         //read.csv.val[column] = op;
@@ -3326,12 +3330,14 @@ int WORKSPACE::drawTextEdit() {
                             }
                         }
                         else if (GetCommandHelp(read.csv.str[0].outstr(), column).left(4).isSame("$num")) {
-                            if (ImGui::BeginCombo(inputname, numberName(read.csv.val[column]), ImGuiComboFlags_None)) {
+                            const std::string currentNumberNameUtf8 = Cp932ToUtf8(numberName(read.csv.val[column]));
+                            if (ImGui::BeginCombo(inputname, currentNumberNameUtf8.c_str(), ImGuiComboFlags_None)) {
                                 for (int op = 0; op < 300; op++) {
                                     ImGui::PushID(op);
                                     const bool is_selected = (read.csv.val[column] == op);
                                     char opname[64];
-                                    sprintf(opname, "%03d:%s", op, numberName(op));
+                                    const std::string numberNameUtf8 = Cp932ToUtf8(numberName(op));
+                                    snprintf(opname, sizeof(opname), "%03d:%s", op, numberNameUtf8.c_str());
 
                                     if (ImGui::Selectable(opname, is_selected)) {
                                         //read.csv.val[column] = op;
@@ -3347,12 +3353,14 @@ int WORKSPACE::drawTextEdit() {
                             }
                         }
                         else if (GetCommandHelp(read.csv.str[0].outstr(), column).left(6).isSame("$timer")) {
-                            if (ImGui::BeginCombo(inputname, timerName(read.csv.val[column]), ImGuiComboFlags_None)) {
+                            const std::string currentTimerNameUtf8 = Cp932ToUtf8(timerName(read.csv.val[column]));
+                            if (ImGui::BeginCombo(inputname, currentTimerNameUtf8.c_str(), ImGuiComboFlags_None)) {
                                 for (int op = 0; op < 200; op++) {
                                     ImGui::PushID(op);
                                     const bool is_selected = (read.csv.val[column] == op);
                                     char opname[64];
-                                    sprintf(opname, "%03d:%s", op, timerName(op));
+                                    const std::string timerNameUtf8 = Cp932ToUtf8(timerName(op));
+                                    snprintf(opname, sizeof(opname), "%03d:%s", op, timerNameUtf8.c_str());
 
                                     if (ImGui::Selectable(opname, is_selected)) {
                                         //read.csv.val[column] = op;
@@ -3391,9 +3399,11 @@ int WORKSPACE::drawTextEdit() {
                     {
                         ImGui::Text("%d", read.objID);;
                         //ImGui::Text("%d",ifs.grCount);
-                        ImGui::Text("%s", GetCommandHelp(read.csv.str[0].outstr(), column).outstr());
+                        ImGui::Text("%s", Cp932ToUtf8(
+                            GetCommandHelp(read.csv.str[0].outstr(), column).outstr()).c_str());
                         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-                        ImGui::TextUnformatted(read.csv.str[column]);
+                        const std::string cellValueUtf8 = Cp932ToUtf8(read.csv.str[column].outstr());
+                        ImGui::TextUnformatted(cellValueUtf8.c_str());
                         if (read.csv.str[0].isSame("#SRC_IMAGE")) {
 
                             int handle = read.csv.val[2];
@@ -3941,6 +3951,15 @@ int WORKSPACE::drawSaveMenu() {
         ImGui::SeparatorText("Script files");
         ImGui::RadioButton("merge scripts", &split, 0);
         ImGui::RadioButton("split scripts", &split, 1);
+        if (split)
+            ImGui::TextColored(ImVec4(1.0f, 0.78f, 0.28f, 1.0f),
+                "Included scripts stay linked and are saved to their existing paths.");
+        else
+            ImGui::TextDisabled("Included scripts are embedded in the new main script.");
+        ImGui::TextDisabled("Image, font, and other resource files are not copied.");
+        if (_stricmp(mainpath, newPath) != 0)
+            ImGui::TextColored(ImVec4(0.35f, 0.75f, 1.0f, 1.0f),
+                "After Save As, editing will continue on the new main script.");
         ImGui::SeparatorText("Comments");
         ImGui::RadioButton("maintain memo", &nocomment, 0);
         ImGui::RadioButton("delete memo", &nocomment, 1);
@@ -3950,14 +3969,34 @@ int WORKSPACE::drawSaveMenu() {
         }
         
         if (ImGui::Button("SAVE", { 0, 0 })) {
+            char previousMainPath[MAX_PATH] = {};
+            strncpy(previousMainPath, mainpath, MAX_PATH - 1);
             success = (SaveSkinScript(newPath, split, nocomment) == 0);
+            if (success && _stricmp(previousMainPath, newPath) != 0) {
+                // Save As continues editing the newly written main script.
+                // In merged mode every expanded line now belongs to that file;
+                // in split mode only the former main-file lines change owner.
+                for (int row = 0; row < skinfileLines.count; ++row) {
+                    SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    const char* owner = line.filename.body ? line.filename.outstr() : previousMainPath;
+                    if (!split || _stricmp(owner, previousMainPath) == 0)
+                        line.filename.assign(newPath);
+                }
+                strncpy(mainpath, newPath, MAX_PATH - 1);
+                mainpath[MAX_PATH - 1] = '\0';
+            }
             if(success) snprintf(result, sizeof(result), "SaveResult##Save%d", num);
             ImGui::OpenPopup(result);
         }
         
         snprintf(result, sizeof(result), "SaveResult##Save%d", num);
         if (ImGui::BeginPopupModal(result, NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextUnformatted(success ? "save success" : "save failed - original files were preserved");
+            if (success) {
+                ImGui::TextUnformatted("Saved successfully.");
+                ImGui::TextWrapped("The workspace is now using: %s", mainpath);
+            } else {
+                ImGui::TextUnformatted("Save failed - original files were preserved.");
+            }
             if (ImGui::Button("OK")) {
                 wSaveMenu = 0;
                 success = 0;
@@ -5341,16 +5380,17 @@ int WORKSPACE::drawObjectEditor() {
         ImGui::TextDisabled("Group");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-FLT_MIN);
-        const char* groupPreview = selected_user_object_group >= 0 &&
+        const std::string groupPreviewUtf8 = selected_user_object_group >= 0 &&
             selected_user_object_group < (int)userGroups.size()
-            ? userGroups[selected_user_object_group].name.c_str() : "No My Group";
-        if (ImGui::BeginCombo("##ObjectUserGroupFilter", groupPreview)) {
+            ? Cp932ToUtf8(userGroups[selected_user_object_group].name.c_str()) : "No My Group";
+        if (ImGui::BeginCombo("##ObjectUserGroupFilter", groupPreviewUtf8.c_str())) {
             if (ImGui::Selectable("No My Group", selected_user_object_group < 0))
                 selected_user_object_group = -1;
             for (int gidx = 0; gidx < (int)userGroups.size(); ++gidx) {
                 std::vector<int> members = g_seObjectEditorModel.ObjectsForUserGroup(gidx);
                 char label[160];
-                snprintf(label, sizeof(label), "%s (%d)##user%d", userGroups[gidx].name.c_str(),
+                const std::string nameUtf8 = Cp932ToUtf8(userGroups[gidx].name.c_str());
+                snprintf(label, sizeof(label), "%s (%d)##user%d", nameUtf8.c_str(),
                     (int)members.size(), gidx);
                 if (ImGui::Selectable(label, selected_user_object_group == gidx)) {
                     selected_user_object_group = gidx;
@@ -5766,7 +5806,7 @@ int WORKSPACE::drawObjectEditor() {
 
                     std::string approximateName;
                     if (!o.name.empty()) {
-                        approximateName = o.name;
+                        approximateName = Cp932ToUtf8(o.name.c_str());
                     } else {
                         for (std::size_t opIndex = 0; opIndex < labelOps.size(); ++opIndex) {
                             const int op = labelOps[opIndex];
@@ -6061,6 +6101,31 @@ int WORKSPACE::drawObjectEditor() {
                         "%s  (%d)", branch.label.c_str(), (int)branch.localObjectIndices.size());
                     branchTreeOpen[branch.ifgroup] = branchOpen;
                     ImGui::PopStyleColor(3);
+                    if (ImGui::BeginPopupContextItem("BranchContext")) {
+                        int insertPosition = skinfileLines.count;
+                        for (int row = 0; row < skinfileLines.count; ++row) {
+                            SKINFILELINEREAD& candidate = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                            if (candidate.ifgroup != branch.ifgroup) continue;
+                            if (candidate.isIfGroupEnd) {
+                                insertPosition = row;
+                                break;
+                            }
+                            insertPosition = row + 1;
+                        }
+                        if (ImGui::MenuItem("Create Object in this branch")) {
+                            newObjectInsertPosition = insertPosition;
+                            newObjectIfgroup = branch.ifgroup;
+                            newCommandIncludeAll = false;
+                            wNewObject = true;
+                        }
+                        if (ImGui::MenuItem("Create Command / Setting in this branch")) {
+                            newObjectInsertPosition = insertPosition;
+                            newObjectIfgroup = branch.ifgroup;
+                            newCommandIncludeAll = true;
+                            wNewObject = true;
+                        }
+                        ImGui::EndPopup();
+                    }
                     if (branchOpen) {
                         drawBranchObjects(branch);
                         ImGui::TreePop();
@@ -6210,11 +6275,12 @@ int WORKSPACE::drawObjectEditor() {
                 ImGui::Separator();
 
                 char objectName[256];
-                strncpy(objectName, obj.name.c_str(), sizeof(objectName) - 1);
+                const std::string objectNameUtf8 = Cp932ToUtf8(obj.name.c_str());
+                strncpy(objectName, objectNameUtf8.c_str(), sizeof(objectName) - 1);
                 objectName[sizeof(objectName) - 1] = '\0';
                 ImGui::SetNextItemWidth(260.0f);
                 if (ImGui::InputText("Name", objectName, sizeof(objectName)))
-                    obj.name = objectName;
+                    obj.name = Utf8ToCp932(objectName);
 
                 auto drawTaggedImageSelector = [&](int row, const char* command) {
                     if (!command || strncmp(command, "#SRC", 4) != 0 || arr_IMG.count <= 0) return;
@@ -6236,8 +6302,10 @@ int WORKSPACE::drawObjectEditor() {
                     char preview[260];
                     if (currentTag >= 0 && currentTag < arr_IMG.count) {
                         IMG& tag = ((IMG*)arr_IMG.data)[currentTag];
-                        snprintf(preview, sizeof(preview), "%03d  %s", currentTag,
+                        const std::string tagNameUtf8 = Cp932ToUtf8(
                             tag.name.body ? tag.name.outstr() : "noname");
+                        snprintf(preview, sizeof(preview), "%03d  %s", currentTag,
+                            tagNameUtf8.c_str());
                     } else snprintf(preview, sizeof(preview), "Custom coordinates");
 
                     ImGui::SetNextItemWidth(300.0f);
@@ -6245,8 +6313,10 @@ int WORKSPACE::drawObjectEditor() {
                         for (int tagIndex = 0; tagIndex < arr_IMG.count; ++tagIndex) {
                             IMG& tag = ((IMG*)arr_IMG.data)[tagIndex];
                             char tagLabel[260];
-                            snprintf(tagLabel, sizeof(tagLabel), "%03d  G%02d  %s", tagIndex, tag.gr,
+                            const std::string tagNameUtf8 = Cp932ToUtf8(
                                 tag.name.body ? tag.name.outstr() : "noname");
+                            snprintf(tagLabel, sizeof(tagLabel), "%03d  G%02d  %s", tagIndex, tag.gr,
+                                tagNameUtf8.c_str());
                             if (ImGui::Selectable(tagLabel, tagIndex == currentTag)) {
                                 for (int field = 0; field < 5; ++field) {
                                     const int values[5] = { tag.gr, tag.x, tag.y, tag.w, tag.h };

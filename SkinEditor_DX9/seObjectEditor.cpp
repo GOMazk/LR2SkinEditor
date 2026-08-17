@@ -2,6 +2,7 @@
 #include "winWorkspace.h"
 #include "inputwrap.h"
 #include "seHelper.h"
+#include "op.h"
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
@@ -60,8 +61,20 @@ std::vector<int> SEObjectEditorModel::ObjectsForGroup(int group) const {
     return out;
 }
 
+std::vector<int> SEObjectEditorModel::ObjectsForUserGroup(int group) const {
+    std::vector<int> out;
+    if (group < 0 || group >= (int)userGroups.size()) return out;
+    for (int i = 0; i < (int)objects.size(); ++i) {
+        for (const std::string& id : userGroups[group].memberIds) {
+            if (!id.empty() && objects[i].editorId == id) { out.push_back(i); break; }
+        }
+    }
+    return out;
+}
+
 void SEObjectEditorModel::Rebuild(WORKSPACE& ws) {
     objects.clear();
+    userGroups.clear();
     if (groups.empty()) return;
 
     // Build the command index once. Large HD skins can contain well over
@@ -168,6 +181,54 @@ void SEObjectEditorModel::Rebuild(WORKSPACE& ws) {
                 }
                 if (current >= 0) objects[current].rows.push_back(row);
             }
+        }
+    }
+
+    // TEXT objects get a useful default name from the field described as $st
+    // in skinHelper.txt. Other object names remain user-editable and blank.
+    for (std::size_t oi = 0; oi < objects.size(); ++oi) {
+        SEObjectInstance& object = objects[oi];
+        for (std::size_t ri = 0; ri < object.rows.size() && object.name.empty(); ++ri) {
+            const int row = object.rows[ri];
+            if (row < 0 || row >= ws.skinfileLines.count) continue;
+            SKINFILELINEREAD& line = ((SKINFILELINEREAD*)ws.skinfileLines.data)[row];
+            const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+            for (int col = 1; col < 30; ++col) {
+                CSTR help = GetCommandHelp(command, col);
+                if (!help.left(3).isSame("$st")) continue;
+                const char* defaultName = textName(line.csv.val[col]);
+                if (defaultName && *defaultName) object.name = defaultName;
+                break;
+            }
+        }
+    }
+
+    for (SEObjectInstance& object : objects) {
+        if (object.rows.empty()) continue;
+        for (int row = object.rows.front() - 1; row >= 0; --row) {
+            SKINFILELINEREAD& meta = ((SKINFILELINEREAD*)ws.skinfileLines.data)[row];
+            const char* text = meta.line.body ? meta.line.outstr() : "";
+            if (strncmp(text, "$SE_OBJECT_ID,", 14) == 0) {
+                object.editorId = text + 14;
+                break;
+            }
+            if (*text == '#') break;
+            if (*text && *text != '$' && strncmp(text, "//", 2) != 0) break;
+        }
+    }
+
+    SEUserObjectGroup* currentUserGroup = NULL;
+    for (int row = 0; row < ws.skinfileLines.count; ++row) {
+        SKINFILELINEREAD& meta = ((SKINFILELINEREAD*)ws.skinfileLines.data)[row];
+        const char* text = meta.line.body ? meta.line.outstr() : "";
+        if (strncmp(text, "$SE_GROUP_BEGIN,", 16) == 0) {
+            userGroups.push_back(SEUserObjectGroup());
+            currentUserGroup = &userGroups.back();
+            currentUserGroup->name = text + 16;
+        } else if (strncmp(text, "$SE_GROUP_MEMBER,", 17) == 0 && currentUserGroup) {
+            currentUserGroup->memberIds.push_back(text + 17);
+        } else if (strcmp(text, "$SE_GROUP_END") == 0) {
+            currentUserGroup = NULL;
         }
     }
 }

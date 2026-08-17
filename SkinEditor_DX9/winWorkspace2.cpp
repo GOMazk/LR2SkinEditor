@@ -19,6 +19,16 @@
 #include "arr.hpp"
 #include "seHelper.h"
 
+int CountCsvColumns(CSTR& line) {
+    if (!line.body || line.length() <= 0) return 0;
+    int count = 1;
+    const char* text = line.outstr();
+    for (int i = 0; text[i] != '\0'; ++i) {
+        if (text[i] == ',') ++count;
+    }
+    return count > 30 ? 30 : count;
+}
+
 int WORKSPACE::NewIMG(int gr, int x, int y, int w, int h) {
     IMG* img = (IMG*)arr_IMG.Get_new();
     img->name = "noname";
@@ -78,24 +88,55 @@ int WORKSPACE::FindIMG(int gr, int x, int y, int w, int h) {
 
 int WORKSPACE::InsertLine(int pos) {
 
+    if (pos < 0) pos = 0;
+    if (pos > skinfileLines.count) pos = skinfileLines.count;
+
     SKINFILELINEREAD* line = (SKINFILELINEREAD*)skinfileLines.Get_newAt(pos);
     line->line.assign("newline");
     line->isComment = true;
+    line->modified = true;
     line->num = pos;
 
     HISTORY* hs = (HISTORY*)arr_history.Get_new();
     hs->op = insertLine;
     hs->target = pos;
 
+    for (int i = 0; i < skinfileLines.count; ++i)
+        ((SKINFILELINEREAD*)skinfileLines.data)[i].numTotal = i;
+    for (int i = 0; i < arr_SRC.count; ++i)
+        if (((SRC*)arr_SRC.data)[i].declare >= pos) ++((SRC*)arr_SRC.data)[i].declare;
+    for (int i = 0; i < arr_DST.count; ++i)
+        if (((DST*)arr_DST.data)[i].declare >= pos) ++((DST*)arr_DST.data)[i].declare;
+
     return 0;
 }
 int WORKSPACE::DeleteLine(int pos) {
+
+    if (pos < 0 || pos >= skinfileLines.count) return -1;
 
     skinfileLines.DeleteAt(pos);
 
     HISTORY* hs = (HISTORY*)arr_history.Get_new();
     hs->op = removeLine;;
     hs->target = pos;
+
+    for (int i = 0; i < skinfileLines.count; ++i)
+        ((SKINFILELINEREAD*)skinfileLines.data)[i].numTotal = i;
+    for (int i = 0; i < arr_SRC.count; ++i) {
+        SRC& src = ((SRC*)arr_SRC.data)[i];
+        if (src.declare == pos) src.declare = -1;
+        else if (src.declare > pos) --src.declare;
+    }
+    for (int i = 0; i < arr_DST.count; ++i) {
+        DST& dst = ((DST*)arr_DST.data)[i];
+        if (dst.declare == pos) dst.declare = -1;
+        else if (dst.declare > pos) --dst.declare;
+    }
+    preview_selected_object_model_indices.clear();
+    preview_selected_object_model_index = -1;
+    preview_selection_anchor_model_index = -1;
+    preview_selected_obj_valid = false;
+    preview_selected_obj_last_valid = false;
 
     return 0;
 }
@@ -108,7 +149,13 @@ int WORKSPACE::EditLine(int pos, CSTR oldlinebody, CSTR newlinebody) {
     line.isComment = (*line.line.atPos(0) != '#');
     line.isSEcomment = (*line.line.atPos(0) == '$');
 
-    if (!line.isComment) SplitCSV(line.line, &line.csv, ",");
+    if (!line.isComment) {
+        SplitCSV(line.line, &line.csv, ",");
+        line.csvColumnCount = CountCsvColumns(line.line);
+    } else {
+        line.csvColumnCount = 0;
+    }
+    line.modified = true;
 
     HISTORY* hs = (HISTORY*)arr_history.Get_new();
     hs->op = overwriteLine;
@@ -117,16 +164,23 @@ int WORKSPACE::EditLine(int pos, CSTR oldlinebody, CSTR newlinebody) {
     hs->older.line.assign(oldlinebody);
     hs->newer.line.assign(newlinebody);
 
+    previewReloadPending = true;
+    previewReloadRequestedAt = GetTickCount64();
+
     return 0;
 }
 
 int WORKSPACE::EditValue(int pos, int column, const char* newVal) {
+
+    if (pos < 0 || pos >= skinfileLines.count || column < 0 || column >= 30 || newVal == NULL) return -1;
 
     SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[pos];
     CSTR oldLine(line.line);
 
     line.csv.str[column].assign(newVal);
     line.csv.val[column] = atol(newVal);
+    if (line.csvColumnCount < column + 1) line.csvColumnCount = column + 1;
+    line.modified = true;
     CsvToLine(pos);
 
     HISTORY* hs = (HISTORY*)arr_history.Get_new();
@@ -135,15 +189,22 @@ int WORKSPACE::EditValue(int pos, int column, const char* newVal) {
     hs->older.line.assign(oldLine);
     hs->newer.line.assign(line.line);
 
+    previewReloadPending = true;
+    previewReloadRequestedAt = GetTickCount64();
+
     return 0;
 }
 int WORKSPACE::EditValue(int pos, int column, int newVal) {
+
+    if (pos < 0 || pos >= skinfileLines.count || column < 0 || column >= 30) return -1;
 
     SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[pos];
     CSTR oldLine(line.line);
     line.csv.str[column].resize(12);
     ltoa(newVal, line.csv.str[column], 10);
     line.csv.val[column] = newVal;
+    if (line.csvColumnCount < column + 1) line.csvColumnCount = column + 1;
+    line.modified = true;
     CsvToLine(pos);
 
     HISTORY* hs = (HISTORY*)arr_history.Get_new();
@@ -152,10 +213,14 @@ int WORKSPACE::EditValue(int pos, int column, int newVal) {
     hs->older.line.assign(oldLine);
     hs->newer.line.assign(line.line);
 
+    previewReloadPending = true;
+    previewReloadRequestedAt = GetTickCount64();
+
     return 0;
 }
 
 int WORKSPACE::CsvToLine(int pos) {
+    if (pos < 0 || pos >= skinfileLines.count) return -1;
     SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[pos];
 
     line.isComment = (*line.line.atPos(0) != '#');
@@ -165,12 +230,18 @@ int WORKSPACE::CsvToLine(int pos) {
         return 0;
     }
 
-    //TODO : truncate ','
     CSTR buf("");
 
     cstrSprintf(&buf, "%s", line.csv.str[0]);
-    for (int i = 1; i < 25; i++) {
-        cstrSprintf(&buf, "%s,%s", buf, (line.csv.str[i].body == NULL) ? "" : line.csv.str[i].outstr());
+    int columnCount = line.csvColumnCount;
+    if (columnCount < 1) columnCount = 1;
+    if (columnCount > 30) columnCount = 30;
+    for (int i = 1; i < columnCount; i++) {
+        const char* value = (line.csv.str[i].body == NULL) ? "" : line.csv.str[i].outstr();
+        if (line.csv.val[i] < 0 && value[0] != '-' && value[0] != '!')
+            cstrSprintf(&buf, "%s,!%s", buf, value);
+        else
+            cstrSprintf(&buf, "%s,%s", buf, value);
     }
 
     line.line.assign(buf);
@@ -180,8 +251,14 @@ int WORKSPACE::CsvToLine(int pos) {
 int CsvToCSTR(CSVbuf& csv, CSTR& line) {
     CSTR buf("");
     cstrSprintf(&buf, "%s", csv.str[0]);
-    for (int i = 1; i < 25; i++) {
-        cstrSprintf(&buf, "%s,%s", buf, (csv.str[i].body == NULL) ? "" : csv.str[i].outstr());
+    int columnCount = 30;
+    while (columnCount > 1 && csv.str[columnCount - 1].body == NULL) --columnCount;
+    for (int i = 1; i < columnCount; i++) {
+        const char* value = (csv.str[i].body == NULL) ? "" : csv.str[i].outstr();
+        if (csv.val[i] < 0 && value[0] != '-' && value[0] != '!')
+            cstrSprintf(&buf, "%s,!%s", buf, value);
+        else
+            cstrSprintf(&buf, "%s,%s", buf, value);
     }
 
     line.assign(buf);

@@ -7,6 +7,7 @@
 static const char* g_previewRenderStage = "not started";
 static int g_previewRenderIndex = -1;
 static bool g_previewRenderFaulted = false;
+static const char* g_sceneProcStage = "not started";
 
 void LR2SEResetRenderFault() {
 	g_previewRenderStage = "not started";
@@ -14,10 +15,10 @@ void LR2SEResetRenderFault() {
 	g_previewRenderFaulted = false;
 }
 
-int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY) {
+int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview) {
 	if (g_previewRenderFaulted) return -1;
 	__try {
-		return LR2SEDrawLoop(g, gHandle, sizeX, sizeY);
+		return LR2SEDrawLoop(g, gHandle, sizeX, sizeY, staticSpecialPreview);
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER) {
 		g_previewRenderFaulted = true;
@@ -28,6 +29,444 @@ int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY) {
 			fclose(fp);
 		}
 		return -1;
+	}
+}
+
+static void LogSceneException(const char* stage, unsigned long code) {
+	FILE* fp = fopen("SkinEditor_load_crash.log", "a");
+	if (!fp) return;
+	fprintf(fp, "Scene exception : code=0x%08lX stage=%s\n", code, stage);
+	fflush(fp);
+	fclose(fp);
+}
+
+int LR2SESceneInitSafe(game* g, int type) {
+	__try {
+		return LR2SESceneInit(g, type);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		LogSceneException("LR2SESceneInit", GetExceptionCode());
+		return -1;
+	}
+}
+
+int LR2SESceneProcSafe(game* g, int type) {
+	__try {
+		return LR2SESceneProc(g, type);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		LogSceneException(g_sceneProcStage, GetExceptionCode());
+		return -1;
+	}
+}
+
+static void LR2SEInitSelectPreviewState(game* g) {
+	SONGSELECT& select = g->sSelect;
+	select.bmsListCount = 30;
+	select.cur = 0;
+	select.cur_song = 0;
+	select.listCalculatedBar = 0;
+	select.prevCalculatedBar = 0;
+	select.listTopbar = 0;
+	select.prevTopbar = 0;
+	select.nowBar = 0;
+	select.oldBar = 0;
+	select.scrollDirection = 0;
+	select.listSelectedBarFromScreenTop = g->skstruct.BAR_CENTER;
+	select.prevSelectedBarFromScreenTop = g->skstruct.BAR_CENTER;
+	select.panel = 0;
+	select.panel_unk = 0;
+	select.isFolder = 0;
+	select.isExLevel = 0;
+	select.filterDifficulty = 0;
+	select.filterKey = 0;
+	select.filterSort = 0;
+	select.stack_query[0] = "PREVIEW";
+	select.stack_folderPath[0] = "LR2files\\Preview";
+	select.stack_searchTitle[0] = "ALL SONGS";
+	select.stack_isFolder[0] = 0;
+	select.stack_rivalID[0] = 0;
+	select.ROOT = "LR2files\\Preview";
+	select.directory = "LR2files\\Preview";
+
+	static const char* difficulties[5] = { "BEGINNER", "NORMAL", "HYPER", "ANOTHER", "INSANE" };
+	for (int i = 0; i < select.bmsListCount; ++i) {
+		SONGDATA& song = select.bmsList[i];
+		char title[64];
+		char subtitle[64];
+		snprintf(title, sizeof(title), "PREVIEW SONG %02d", i + 1);
+		snprintf(subtitle, sizeof(subtitle), "[%s]", difficulties[i % 5]);
+		song.title = title;
+		song.subtitle = subtitle;
+		song.fulltitle = title;
+		song.fulltitle.add(" ");
+		song.fulltitle.add(subtitle);
+		song.genre = "SKIN EDITOR PREVIEW";
+		song.artist = "LR2 SKIN EDITOR";
+		song.subartist = "SCENE SIMULATOR";
+		song.tag = "PREVIEW";
+		song.filepath = "LR2files\\Config\\sample_7.bme";
+		song.folder = "LR2files\\Preview";
+		song.hash = "00000000000000000000000000000000";
+		song.folderType = (i == 5) ? 1 : 0;
+		song.difficulty = i % 5;
+		song.level = 3 + (i % 10);
+		song.exlevel = song.level + 1;
+		song.keymode = 7;
+		song.minBPM = 128;
+		song.maxBPM = 174;
+		song.longnote = 1;
+		song.bga = 1;
+		song.txt = 0;
+		song.isBanner = 0;
+		song.isStagefile = 0;
+		song.isBackBMP = 0;
+		song.grHandle = g->skstruct.GrHandle[GrH_Banner];
+		for (int difficulty = 0; difficulty < 5; ++difficulty) {
+			song.difficultyExist[difficulty] = 1;
+			song.difficultyLevel[difficulty] = 2 + difficulty * 2 + (i % 3);
+			song.difficultyLevelBarLamp[difficulty] = difficulty + 1;
+		}
+		song.difficultyCount = 5;
+		song.mybest.total_notes = 1000;
+		song.mybest.stat_pgreat = 720;
+		song.mybest.stat_great = 180;
+		song.mybest.stat_good = 45;
+		song.mybest.stat_bad = 12;
+		song.mybest.stat_poor = 8;
+		song.mybest.stat_exscore = 1620 - i * 7;
+		song.mybest.stat_score = 145000 - i * 900;
+		song.mybest.stat_maxcombo = 640 - i * 3;
+		song.mybest.minbp = 12 + i;
+		song.mybest.rate = 81;
+		song.mybest.rank = 2 + (i % 4);
+		song.mybest.clear = 1 + (i % 7);
+		song.mybest.clear_db = song.mybest.clear;
+		song.mybest.clear_sd = song.mybest.clear;
+		song.mybest.clear_ex = song.mybest.clear;
+		song.mybest.playcount = 12 + i;
+		song.mybest.clearcount = 8 + i / 2;
+		song.mybest.failcount = 4 + i / 3;
+		song.rivalRecord = song.mybest;
+		song.rivalRecord.stat_exscore -= 75;
+		song.rivalRecord.rank = 4;
+	}
+
+	// Keep the selected row a regular song so song-only conditions and values
+	// are deterministic. Neighbouring folder rows still exercise bar variants.
+	select.bmsList[0].folderType = 0;
+	select.old = select.bmsList[0].mybest;
+	g->config.select.key = 1;
+	g->config.select.difficulty = 0;
+	g->config.select.sort = 0;
+	if (g->config.select.levelbarflash_7 <= 0) g->config.select.levelbarflash_7 = 12;
+	if (g->config.select.levelbarflash_5 <= 0) g->config.select.levelbarflash_5 = 9;
+	if (g->config.select.levelbarflash_9 <= 0) g->config.select.levelbarflash_9 = 42;
+	g->config.play.battle = 0;
+	g->config.play.bga = 1;
+	g->config.play.bgasize = 0;
+	g->config.play.scoregraph = 1;
+	g->config.play.p1_target = 1;
+	g->config.play.target_percent = 80;
+	g->gameplay.isAutoplay = 0;
+	g->gameplay.song_runtime = 120000.0;
+	g->gameplay.loadObject_total = 100;
+	g->gameplay.loadObject_loaded = 100;
+	g->net.isOnline = 0;
+	g->procSelecter = 2;
+	g->procPhase = 1;
+
+	ProcS_Select(g);
+	for (int difficulty = 0; difficulty < 5; ++difficulty) {
+		select.levelIndicatorAnimation[difficulty] = select.bmsList[0].difficultyLevel[difficulty];
+		select.levelBarGraph[difficulty] = select.levelIndicatorAnimation[difficulty];
+		select.levelsOfSong[difficulty] = select.bmsList[0].difficultyLevel[difficulty];
+	}
+}
+
+static void LR2SEInitKeyconfigPreviewState(game* g) {
+	// A normal LR2 transition enters KEYCONFIG with the 7-key mode and the
+	// first logical button selected.  The editor has no preceding SELECT scene,
+	// so establish that state before #IF and destination options are evaluated.
+	g->KeyInput.config_keymode = 0;
+	g->KeyInput.config_button = 1;
+	g->KeyInput.config_button_inMap = 1;
+	g->KeyInput.config_key = -1;
+
+	// Keep an existing configuration when the host has loaded one.  A fresh
+	// editor session otherwise contains an empty map, which makes all key-name
+	// TEXT objects display "-" and is not useful as a scene preview.
+	bool hasAssignedKey = false;
+	for (int button = 0; button < 40 && !hasAssignedKey; ++button) {
+		for (int slot = 0; slot < 16; ++slot) {
+			if (g->config.input.buttonMap[button][slot] != 0) {
+				hasAssignedKey = true;
+				break;
+			}
+		}
+	}
+	if (!hasAssignedKey) {
+		static const int previewKeys[7] = {
+			KEY_INPUT_Z, KEY_INPUT_S, KEY_INPUT_X, KEY_INPUT_D,
+			KEY_INPUT_C, KEY_INPUT_F, KEY_INPUT_V
+		};
+		for (int button = 1; button <= 7; ++button)
+			g->config.input.buttonMap[button][0] = previewKeys[button - 1];
+	}
+
+	ProcS_Keyconfig(g);
+}
+
+static void LR2SEInitSkinSelectPreviewState(game* g) {
+	SkinManage& skins = g->skinData;
+	if (!skins.Data || skins.Count <= 0) {
+		SetObjectString(50, CSTR("SKIN SELECT PREVIEW"), g->txtStruct.objectStr);
+		SetObjectString(51, CSTR("LR2 SKIN EDITOR"), g->txtStruct.objectStr);
+		return;
+	}
+
+	// LR2 normally fills this table during SetFirstSkins. The editor scans the
+	// same skin headers but opens documents independently, so reconstruct the
+	// first available entry for every scene type here.
+	bool foundType[21] = {};
+	for (int i = 0; i < skins.Count; ++i) {
+		const int type = (int)skins.Data[i].type;
+		if (type >= 0 && type < 21 && !foundType[type]) {
+			skins.skinID[type] = i;
+			foundType[type] = true;
+		}
+	}
+
+	skins.select = foundType[SKINTYPE_7KEYS] ? SKINTYPE_7KEYS : 0;
+	skins.previewID = foundType[skins.select] ? skins.skinID[skins.select] : 0;
+	if (skins.previewID < 0 || skins.previewID >= skins.Count) skins.previewID = 0;
+	skins.previewCustomID = 0;
+
+	SkinHeader& header = skins.Data[skins.previewID];
+	SetObjectString(50, header.title, g->txtStruct.objectStr);
+	SetObjectString(51, header.maker, g->txtStruct.objectStr);
+	for (int row = 0; row < 5; ++row) {
+		CSTR empty("-");
+		if (row >= header.custom_count) {
+			SetObjectString(100 + row, empty, g->txtStruct.objectStr);
+			SetObjectString(110 + row, empty, g->txtStruct.objectStr);
+			continue;
+		}
+		SkinCustom& custom = header.customs[row];
+		SetObjectString(100 + row, custom.title, g->txtStruct.objectStr);
+		int label = custom.dst_op_selected;
+		if (custom.dst_op_start > 0) label -= custom.dst_op_start;
+		if (label >= 0 && label < custom.dst_op_count)
+			SetObjectString(110 + row, custom.op_label[label], g->txtStruct.objectStr);
+		else
+			SetObjectString(110 + row, empty, g->txtStruct.objectStr);
+	}
+
+	// SRC id 105 is the selected-skin preview in LR2's SKIN SELECT scene.
+	// Prefer the header thumbnail without loading the full nested scene.
+	if (header.thumbnail.length() > 0) {
+		DeleteGraph(g->skstruct.GrHandle[GrH_Preview]);
+		g->skstruct.GrHandle[GrH_Preview] = LoadGraph(header.thumbnail);
+		if (g->skstruct.GrHandle[GrH_Preview] < 0)
+			g->skstruct.GrHandle[GrH_Preview] = LoadGraph("LR2files\\Config\\white.bmp");
+	}
+}
+
+static void LR2SEInitDecidePreviewState(game* g) {
+	// DECIDE inherits the song selected in the preceding SELECT scene.  Build
+	// the same deterministic song first so all song strings and option flags
+	// are valid even when a DECIDE skin is opened directly in the editor.
+	LR2SEInitSelectPreviewState(g);
+	SONGDATA& song = g->sSelect.bmsList[g->sSelect.cur_song];
+	song.isStagefile = g->skstruct.GrHandle[GrH_Stage] >= 0;
+	song.isBackBMP = g->skstruct.GrHandle[GrH_BackBMP] >= 0;
+	song.isBanner = g->skstruct.GrHandle[GrH_Banner] >= 0;
+	song.grHandle = g->skstruct.GrHandle[GrH_Banner];
+	g->procSelecter = 3;
+	g->procPhase = 1;
+	ProcS_Select(g);
+	// ProcS_Select does not change the scene selector, but keep this explicit
+	// so future LR2-side changes cannot turn a DECIDE preview back into SELECT.
+	g->procSelecter = 3;
+}
+
+struct LR2SEPlayModeInfo {
+	int keymode;
+	const char* samplePath;
+	const char* keyConfigPath;
+	bool battle;
+};
+
+static LR2SEPlayModeInfo LR2SEGetPlayModeInfo(int type) {
+	switch (type) {
+	case SKINTYPE_5KEYS:
+		return { 5, "LR2files\\Config\\sample_5.bme", "LR2files\\Config\\keyconfig_5.xml", false };
+	case SKINTYPE_9KEYS:
+		return { 9, "LR2files\\Config\\sample_9.pms", "LR2files\\Config\\keyconfig_p.xml", false };
+	case SKINTYPE_10KEYS:
+		return { 10, "LR2files\\Config\\sample_10.bme", "LR2files\\Config\\keyconfig_5.xml", false };
+	case SKINTYPE_14KEYS:
+		return { 14, "LR2files\\Config\\sample_14.bme", "LR2files\\Config\\keyconfig.xml", false };
+	case SKINTYPE_5KEYSBATTLE:
+		return { 5, "LR2files\\Config\\sample_5.bme", "LR2files\\Config\\keyconfig_5.xml", true };
+	case SKINTYPE_7KEYSBATTLE:
+		return { 7, "LR2files\\Config\\sample_7.bme", "LR2files\\Config\\keyconfig.xml", true };
+	case SKINTYPE_9KEYSBATTLE:
+		return { 9, "LR2files\\Config\\sample_9.pms", "LR2files\\Config\\keyconfig_p.xml", true };
+	case SKINTYPE_7KEYS:
+	default:
+		return { 7, "LR2files\\Config\\sample_7.bme", "LR2files\\Config\\keyconfig.xml", false };
+	}
+}
+
+static void LR2SEInitPlayPreviewState(game* g, int type) {
+	const LR2SEPlayModeInfo mode = LR2SEGetPlayModeInfo(type);
+	// A PLAY skin normally inherits this information from SELECT.  Populate it
+	// explicitly because the editor can open every PLAY skin in isolation.
+	LR2SEInitSelectPreviewState(g);
+	SONGDATA& song = g->sSelect.bmsList[g->sSelect.cur_song];
+	song.filepath = mode.samplePath;
+	song.keymode = mode.keymode;
+	g->sSelect.metaSelected.title = song.title;
+	g->sSelect.metaSelected.subtitle = song.subtitle;
+	g->sSelect.metaSelected.artist = song.artist;
+	g->sSelect.metaSelected.subartist = song.subartist;
+	g->sSelect.metaSelected.genre = song.genre;
+	g->sSelect.metaSelected.filepath = mode.samplePath;
+	g->sSelect.metaSelected.keymode = mode.keymode;
+	g->sSelect.metaSelected.minbpm = song.minBPM;
+	g->sSelect.metaSelected.maxbpm = song.maxBPM;
+	g->sSelect.metaSelected.difficulty = song.difficulty;
+	g->sSelect.metaSelected.selLevel = song.level;
+	g->sSelect.metaSelected.exlevel = song.exlevel;
+	g->sSelect.metaSelected.longnote = song.longnote;
+	g->sSelect.metaSelected.bga = song.bga;
+	g->config.play.battle = mode.battle ? 1 : 0;
+	// Use a practical editor-only lane speed. A zero-initialized config makes
+	// notes overlap at the judge line and also displays HI-SPEED as 0.
+	g->config.play.hiSpeed[0] = 200;
+	g->config.play.hiSpeed[1] = 200;
+	g->config.play.basespeed = 100;
+	g->gameplay.isAutoplay = 1;
+	g->gameplay.song_runtime = 120000.0;
+	g->gameplay.loadObject_total = 100;
+	g->gameplay.loadObject_loaded = 100;
+	g->procSelecter = 4;
+	g->procPhase = 1;
+}
+
+static void LR2SEInitResultPreviewState(game* g, bool courseResult) {
+	// RESULT normally inherits both the selected song and the finished PLAY
+	// state. Build both explicitly so it can be opened as a standalone skin.
+	LR2SEInitSelectPreviewState(g);
+	SONGDATA& song = g->sSelect.bmsList[g->sSelect.cur_song];
+	song.keymode = 7;
+	song.level = 12;
+	song.difficulty = 3;
+	song.mybest.total_notes = 1000;
+	song.mybest.stat_pgreat = 680;
+	song.mybest.stat_great = 190;
+	song.mybest.stat_good = 65;
+	song.mybest.stat_bad = 25;
+	song.mybest.stat_poor = 40;
+	song.mybest.stat_exscore = 1550;
+	song.mybest.stat_score = 142000;
+	song.mybest.stat_maxcombo = 530;
+	song.mybest.minbp = 65;
+	song.mybest.rate = 77;
+	song.mybest.rank = 4;
+	song.mybest.clear = 2;
+	song.mybest.playcount = 21;
+	song.mybest.clearcount = 15;
+	song.mybest.failcount = 6;
+
+	g->sSelect.metaSelected.keymode = song.keymode;
+	g->sSelect.metaSelected.selLevel = song.level;
+	g->sSelect.metaSelected.difficulty = song.difficulty;
+	g->config.play.battle = 0;
+	g->config.play.gaugeOption[0] = 0;
+	g->config.play.gaugeOption[1] = 0;
+	g->gameplay.isCourse = courseResult ? 1 : 0;
+	g->gameplay.courseType = courseResult ? 0 : -1;
+
+	for (int p = 0; p < 2; ++p) {
+		PLAYERSTATUS& player = g->gameplay.player[p];
+		player.totalnotes = courseResult ? 2400 : 1000;
+		player.judgecount[5] = courseResult ? 1680 : 720;
+		player.judgecount[4] = courseResult ? 480 : 190;
+		player.judgecount[3] = courseResult ? 120 : 50;
+		player.judgecount[2] = courseResult ? 55 : 18;
+		player.judgecount[1] = courseResult ? 45 : 12;
+		player.judgecount[0] = courseResult ? 20 : 10;
+		player.exscore = player.judgecount[5] * 2 + player.judgecount[4];
+		player.score = courseResult ? 189500 : 176400;
+		player.max_combo = courseResult ? 1320 : 742;
+		player.now_combo = player.max_combo;
+		player.note_current = player.totalnotes;
+		player.clearType = p == 0 ? 3 : 2;
+		player.rate = player.exscore * 100.0 / (player.totalnotes * 2.0);
+		player.HP = p == 0 ? 86.0 : 72.0;
+		player.HP_print = player.HP;
+		player.score_print = player.score;
+
+		for (int i = 0; i < 1000; ++i) {
+			const double progress = i / 999.0;
+			g->gameplay.statgraph[p].combo[i] = (int)(player.max_combo * progress);
+			g->gameplay.statgraph[p].exscore[i] = (int)(player.exscore * progress);
+			int hp = (int)(28.0 + progress * (player.HP - 28.0) + sin(progress * 18.0 + p) * 8.0);
+			if (hp < 2) hp = 2;
+			if (hp > 100) hp = 100;
+			g->gameplay.statgraph[p].hp[i] = hp;
+		}
+		g->gameplay.statgraph[p].cursor = 1000;
+	}
+	for (int i = 0; i < 1000; ++i) {
+		g->gameplay.rategraph[0].val[i] = g->gameplay.statgraph[0].exscore[i] * 7 / 8;
+		g->gameplay.rategraph[1].val[i] = g->gameplay.statgraph[0].exscore[i] * 3 / 4;
+	}
+	g->gameplay.rategraph[0].cursor = 1000;
+	g->gameplay.rategraph[1].cursor = 1000;
+	g->procSelecter = 5;
+	g->procPhase = 1;
+}
+
+void LR2SEPreparePreviewState(game* g, int type) {
+	if (!g) return;
+	InitTimer(&g->timer1);
+	InitTimer(&g->timer2);
+	SetTimeLapse(0, &g->timer1);
+	SetTimeLapse(0, &g->timer2);
+	switch (type) {
+	case SKINTYPE_SELECT:
+		LR2SEInitSelectPreviewState(g);
+		break;
+	case SKINTYPE_DECIDE:
+		LR2SEInitDecidePreviewState(g);
+		break;
+	case SKINTYPE_5KEYS:
+	case SKINTYPE_7KEYS:
+	case SKINTYPE_9KEYS:
+	case SKINTYPE_10KEYS:
+	case SKINTYPE_14KEYS:
+	case SKINTYPE_5KEYSBATTLE:
+	case SKINTYPE_7KEYSBATTLE:
+	case SKINTYPE_9KEYSBATTLE:
+		LR2SEInitPlayPreviewState(g, type);
+		break;
+	case SKINTYPE_RESULT:
+		LR2SEInitResultPreviewState(g, false);
+		break;
+	case SKINTYPE_COURSERESULT:
+		LR2SEInitResultPreviewState(g, true);
+		break;
+	case SKINTYPE_KEYCONFIG:
+		LR2SEInitKeyconfigPreviewState(g);
+		break;
+	case SKINTYPE_SKINSELECT:
+		LR2SEInitSkinSelectPreviewState(g);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -62,8 +501,25 @@ int LR2SEInit(game* g) {
 	return 0;
 }
 
-int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY) {
+int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview) {
 	SetDrawScreen(DX_SCREEN_BACK);
+	// RESULT charts are not generic positioned images. Their width, reveal
+	// timing and vertical samples are calculated from the finished score data.
+	// Run LR2's real chart renderer even before MainStart so opening a result
+	// skin immediately shows the same graph structure as the live scene.
+    if (g->procSelecter == 5) {
+        g_previewRenderStage = "RESULT";
+        if (staticSpecialPreview) {
+            // Keep LR2's real result graph, but isolate the renderer's 150/151
+            // timer transitions so a passive editor preview cannot advance
+            // TEXT objects into their exit animation.
+            Timer resultPreviewTimer = g->timer1;
+            Proc_Result(g, &g->skstruct, &resultPreviewTimer);
+        }
+        else {
+            Proc_Result(g, &g->skstruct, &g->timer1);
+        }
+	}
 
 	g_previewRenderStage = "IMAGE";
 	for (int i = 0; i < g->skstruct.image.srcSize; i++) {
@@ -233,15 +689,266 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY) {
 			if (GetOptionFlag_dst(g, g->skstruct.otherObject[3].dst[i].op1) && GetOptionFlag_dst(g, g->skstruct.otherObject[3].dst[i].op2)
 				&& GetOptionFlag_dst(g, g->skstruct.otherObject[3].dst[i].op3) && g->skstruct.adjust.dark_type != 2) {
 
-				AddDrawingBuffer_OnMouse(&g->skstruct.drBuf, &g->skstruct.otherObject[3].src[i], &g->skstruct.otherObject[3].dst[i], &g->timer1, &g->KeyInput, g->sSelect.panel);
+				if (staticSpecialPreview)
+					AddDrawingBuffer_Image(&g->skstruct.drBuf, &g->skstruct.otherObject[3].src[i],
+						&g->skstruct.otherObject[3].dst[i], &g->timer1);
+				else
+					AddDrawingBuffer_OnMouse(&g->skstruct.drBuf, &g->skstruct.otherObject[3].src[i],
+						&g->skstruct.otherObject[3].dst[i], &g->timer1, &g->KeyInput, g->sSelect.panel);
 
 			}
 		}
 	}
 	if (g->skstruct.adjust.dark_type != 2) {
-		//Proc_Text(g, sql3, 0); //TEXT INPUT
+		// Keep the preview's common-object pass in sync with LR2's main draw
+		// loop.  TEXT objects were parsed correctly but never entered into the
+		// drawing buffer here, so they were absent from the editor preview.
+		g_previewRenderStage = "TEXT";
+		g_previewRenderIndex = -1;
+		// The current implementation does not dereference its legacy database
+		// parameter; the editor does not own LR2's global sqlite connection.
+		Proc_Text(g, nullptr, 0);
 		if (g->skstruct.adjust.dark_type != 2) {
+			g_previewRenderStage = "BARGRAPH";
 			SetObjectValue_Bargraph(g);
+		}
+	}
+	else if (staticSpecialPreview) {
+		// BGA images normally come from the selected chart. In layout mode use a
+		// neutral image, but keep LR2's draw order (behind controls and text).
+		const int layoutSampleHandle = g->skstruct.GrHandle[GrH_Banner];
+		if (layoutSampleHandle >= 0) {
+			for (int i = 0; i < g->skstruct.otherObject[4].srcSize; ++i) {
+				DSTstruct& bgaDst = g->skstruct.otherObject[4].dst[i];
+				if (bgaDst.dstCount > 0 && bgaDst.dataSize > 0 && bgaDst.draw &&
+					GetOptionFlag_dst(g, bgaDst.op1) && GetOptionFlag_dst(g, bgaDst.op2) &&
+					GetOptionFlag_dst(g, bgaDst.op3))
+					AddDrawingBuffer_EventLoading(&g->skstruct.drBuf, layoutSampleHandle,
+						&bgaDst, &g->timer1, 0, 0);
+			}
+		}
+	}
+	g_previewRenderStage = "MASK";
+	for (int i = 0; i < g->skstruct.otherObject[7].srcSize; ++i) {
+		g_previewRenderIndex = i;
+		DSTstruct& dst = g->skstruct.otherObject[7].dst[i];
+		if (dst.dstCount && GetOptionFlag_dst(g, dst.op1) &&
+			GetOptionFlag_dst(g, dst.op2) && GetOptionFlag_dst(g, dst.op3))
+			AddDrawingBuffer_Image2(&g->skstruct.drBuf,
+				&g->skstruct.otherObject[7].src[i], &dst, &g->timer1);
+	}
+
+	// Scene processors draw these objects from live song/result data.  Before
+	// Start is pressed there is no live scene, but an editor still needs a
+	// useful representation of every positioned special object.  Draw one
+	// deterministic sample for each valid declaration in that state.
+	if (staticSpecialPreview && g->skstruct.adjust.dark_type != 2) {
+		auto visible = [&](DSTstruct& dst) {
+			return dst.dstCount > 0 && dst.dataSize > 0 && dst.draw != nullptr
+				&& GetOptionFlag_dst(g, dst.op1) && GetOptionFlag_dst(g, dst.op2)
+				&& GetOptionFlag_dst(g, dst.op3);
+		};
+		auto image = [&](SRCstruct& src, DSTstruct& dst) {
+			if (src.graphcount > 0 && visible(dst))
+				AddDrawingBuffer_Object(&g->skstruct.drBuf, &src, &dst, &g->timer1, 0, 0);
+		};
+		auto resultChart = [&](SRCstruct& src, DSTstruct& dst, int phase) {
+			if (src.graphcount <= 0 || !visible(dst)) return;
+			const int chartWidth = src.op1 > 0 ? src.op1 : (int)dst.draw[0].w;
+			int step = (int)fabs(dst.draw[0].w);
+			if (step < 1) step = 1;
+			if (chartWidth <= 0) {
+				AddDrawingBuffer_Object(&g->skstruct.drBuf, &src, &dst, &g->timer1, 0, 0);
+				return;
+			}
+			// Deterministic editor data: a smooth rise with a small wave makes both
+			// the declared chart extent and vertical scale visible without a score.
+			for (int x = 0; x < chartWidth; x += step) {
+				const double progress = chartWidth > 1 ? x / (double)(chartWidth - 1) : 0.0;
+				double value = 18.0 + progress * 72.0 + sin(progress * 6.28318530718 + phase) * 8.0;
+				if (value < 0.0) value = 0.0;
+				if (value > 100.0) value = 100.0;
+				const int y = (int)(src.op2 * value / -100.0);
+				AddDrawingBuffer_Object(&g->skstruct.drBuf, &src, &dst, &g->timer1, x, y);
+			}
+		};
+
+		g_previewRenderStage = "SPECIAL_STATIC";
+		for (int i = 0; i < 2; ++i) {
+			g_previewRenderIndex = i;
+			image(g->skstruct.src_LINE[i], g->skstruct.dst_LINE[i]);
+			image(g->skstruct.src_JUDGELINE[i], g->skstruct.dst_JUDGELINE[i]);
+			if (g->skstruct.src_GROOVEGAUGE[i].graphcount > 0 && visible(g->skstruct.dst_GROOVEGAUGE[i]))
+				AddDrawingBuffer_Gauge(&g->skstruct.drBuf, &g->skstruct.src_GROOVEGAUGE[i],
+					&g->skstruct.dst_GROOVEGAUGE[i], &g->timer1, 50, 0);
+			if (g->procSelecter != 5) {
+				resultChart(g->skstruct.src_GAUGECHART_1P[i], g->skstruct.dst_GAUGECHART_1P[i], i);
+				resultChart(g->skstruct.src_GAUGECHART_2P[i], g->skstruct.dst_GAUGECHART_2P[i], i + 2);
+			}
+		}
+		if (g->procSelecter != 5) {
+			for (int i = 0; i < 3; ++i)
+				resultChart(g->skstruct.src_SCORECHART[i], g->skstruct.dst_SCORECHART[i], i + 4);
+		}
+
+		// Judge/combo slots describe alternate states at the same location.
+		// Pick the first valid slot so the preview does not stack all states.
+		auto judgeCombo = [&](SRCstruct* judgeSrc, DSTstruct* judgeDst,
+			SRCstruct* comboSrc, DSTstruct* comboDst) {
+			for (int i = 0; i < 6; ++i) {
+				if (judgeSrc[i].graphcount > 0 && visible(judgeDst[i])) {
+					AddDrawingBuffer_Object(&g->skstruct.drBuf, &judgeSrc[i], &judgeDst[i], &g->timer1, 0, 0);
+					break;
+				}
+			}
+			for (int i = 0; i < 6; ++i) {
+				if (comboSrc[i].graphcount > 0 && visible(comboDst[i])) {
+					AddDrawingBuffer_Numbers(&g->skstruct.drBuf, &comboSrc[i], &comboDst[i], &g->timer1, 123, 0, 0);
+					break;
+				}
+			}
+		};
+		judgeCombo(g->skstruct.src_NOWJUDGE_1P, g->skstruct.dst_NOWJUDGE_1P,
+			g->skstruct.src_NOWCOMBO_1P, g->skstruct.dst_NOWCOMBO_1P);
+		judgeCombo(g->skstruct.src_NOWJUDGE_2P, g->skstruct.dst_NOWJUDGE_2P,
+			g->skstruct.src_NOWCOMBO_2P, g->skstruct.dst_NOWCOMBO_2P);
+
+		// A note lane has one shared DST and several source variants. Lay out a
+		// small deterministic chart so lane direction, spacing, mines and long
+		// notes can be checked without loading a BMS file.
+		for (int i = 0; i < 20; ++i) {
+			g_previewRenderIndex = i;
+			SRCstruct* laneSample = &g->skstruct.src_NOTE[i];
+			if (laneSample->graphcount <= 0) laneSample = &g->skstruct.src_AUTO_NOTE[i];
+			if (laneSample->graphcount <= 0) laneSample = &g->skstruct.src_LN_START[i];
+			if (laneSample->graphcount <= 0) laneSample = &g->skstruct.src_AUTO_LN_START[i];
+			if (laneSample->graphcount <= 0 || !visible(g->skstruct.dst_NOTE[i])) continue;
+			// DST_NOTE is anchored at the judgement end of the lane.  Spread the
+			// editor samples over the distance from that anchor to the entrance of
+			// the lane; a fixed fraction of the whole screen left HD notes bunched
+			// together near the bottom.
+			const float laneAnchor = g->skstruct.horizontal
+				? (float)fabs(g->skstruct.dst_NOTE[i].draw->x)
+				: (float)fabs(g->skstruct.dst_NOTE[i].draw->y);
+			const float screenAxis = (float)(g->skstruct.horizontal ? sizeX : sizeY);
+			const float laneTravel = laneAnchor > screenAxis * 0.35f
+				? laneAnchor : screenAxis * 0.75f;
+			for (int sample = 0; sample < 3; ++sample) {
+				const float shift = -laneTravel * (0.20f + sample * 0.27f);
+				AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, laneSample,
+					&g->skstruct.dst_NOTE[i], &g->timer1,
+					g->skstruct.horizontal ? shift : 0.0f,
+					g->skstruct.horizontal ? 0.0f : shift, 255, 0, 0, 1);
+			}
+
+			SRCstruct* mine = g->skstruct.src_MINE[i].graphcount > 0
+				? &g->skstruct.src_MINE[i] : &g->skstruct.src_AUTO_MINE[i];
+			if (mine->graphcount > 0) {
+				const float shift = -laneTravel * 0.92f;
+				AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, mine,
+					&g->skstruct.dst_NOTE[i], &g->timer1,
+					g->skstruct.horizontal ? shift : 0.0f,
+					g->skstruct.horizontal ? 0.0f : shift, 255, 0, 0, 1);
+			}
+
+			if (!g->skstruct.horizontal) {
+				SRCstruct* lnStart = g->skstruct.src_LN_START[i].graphcount > 0
+					? &g->skstruct.src_LN_START[i] : &g->skstruct.src_AUTO_LN_START[i];
+				SRCstruct* lnEnd = g->skstruct.src_LN_END[i].graphcount > 0
+					? &g->skstruct.src_LN_END[i] : &g->skstruct.src_AUTO_LN_END[i];
+				SRCstruct* lnBody = g->skstruct.src_LN_BODY[i].graphcount > 0
+					? &g->skstruct.src_LN_BODY[i] : &g->skstruct.src_AUTO_LN_BODY[i];
+				if (lnStart->graphcount > 0 && lnEnd->graphcount > 0 && lnBody->graphcount > 0)
+					AddDrawingBuffer_LN(&g->skstruct.drBuf, lnStart, lnEnd, lnBody,
+						&g->skstruct.dst_NOTE[i], &g->timer1, 0.0f,
+						-laneTravel * 0.42f, -laneTravel * 0.68f, 210, 0, 0);
+			}
+		}
+
+		g_previewRenderStage = "SELECT_STATIC";
+		image(g->skstruct.src_THUMBNAIL, g->skstruct.dst_THUMBNAIL);
+		// SELECT bar DSTs describe row anchors.  As in LR2, interpolate adjacent
+		// anchors and offset each title/decoration from the resulting row origin.
+		// Drawing BAR_TITLE directly at its own DST makes every song overlap.
+		if (g->sSelect.bmsListCount > 0) {
+			for (int i = 1; i < 30; ++i) {
+				// LR2 treats these as positional anchors and does not reject the
+				// entire row through the common DST option filter.
+				if (g->skstruct.dst_BAR_BODY_OFF[i - 1].dstCount <= 0 ||
+					g->skstruct.dst_BAR_BODY_OFF[i].dstCount <= 0) continue;
+
+				DSTdraw rowNow = SetDSTdrawByTime(
+					i == g->sSelect.listSelectedBarFromScreenTop
+						? g->skstruct.dst_BAR_BODY_ON[i] : g->skstruct.dst_BAR_BODY_OFF[i],
+					GetTimeLapse(0, &g->timer1));
+				DSTdraw rowPrev = SetDSTdrawByTime(
+					i - 1 == g->sSelect.listSelectedBarFromScreenTop
+						? g->skstruct.dst_BAR_BODY_ON[i - 1] : g->skstruct.dst_BAR_BODY_OFF[i - 1],
+					GetTimeLapse(0, &g->timer1));
+				if (rowNow.time == -1 || rowPrev.time == -1) continue;
+
+				DSTdraw row = g->sSelect.listCalculatedBar % 1000 == 0
+					? rowNow
+					: DSTDbyTime(&rowNow, &rowPrev, 0, 1000.0,
+						g->sSelect.listCalculatedBar % 1000);
+				int songIndex = g->sSelect.listCalculatedBar / 1000
+					- g->skstruct.BAR_CENTER + i;
+				while (songIndex < 0) songIndex += g->sSelect.bmsListCount;
+				songIndex %= g->sSelect.bmsListCount;
+				SONGDATA& song = g->sSelect.bmsList[songIndex];
+				const int bodyType = song.folderType >= 0 && song.folderType < 10
+					? song.folderType : 0;
+				if (g->skstruct.src_BAR_BODY[bodyType].graphcount > 0)
+					AddDrawingBuffer_Lunaris(&g->skstruct.drBuf,
+						&g->skstruct.src_BAR_BODY[bodyType], &row, &g->timer1);
+
+				if (i == g->sSelect.listSelectedBarFromScreenTop &&
+					g->skstruct.src_BAR_FLASH.graphcount > 0)
+					AddDrawingBuffer_Object(&g->skstruct.drBuf, &g->skstruct.src_BAR_FLASH,
+						&g->skstruct.dst_BAR_FLASH, &g->timer1, rowNow.x, rowNow.y);
+				if (g->skstruct.src_BAR_TITLE[0].graphcount > 0 &&
+					visible(g->skstruct.dst_BAR_TITLE[0]))
+					AddDrawingBuffer_TextXY(&g->skstruct.drBuf,
+						&g->skstruct.src_BAR_TITLE[0], &g->skstruct.dst_BAR_TITLE[0],
+						&g->timer1, songIndex + 10000, row.x, row.y);
+				if (song.folderType == 0 && song.difficulty >= 0 && song.difficulty < 5 &&
+					g->skstruct.src_BAR_LEVEL[song.difficulty].graphcount > 0 &&
+					visible(g->skstruct.dst_BAR_LEVEL[song.difficulty]))
+					AddDrawingBuffer_Numbers(&g->skstruct.drBuf,
+						&g->skstruct.src_BAR_LEVEL[song.difficulty],
+						&g->skstruct.dst_BAR_LEVEL[song.difficulty], &g->timer1,
+						song.level, row.x, row.y);
+				const int lamp = song.mybest.clear >= 0 && song.mybest.clear < 10
+					? song.mybest.clear : 0;
+				if (g->skstruct.src_BAR_LAMP[lamp].graphcount > 0 &&
+					visible(g->skstruct.dst_BAR_LAMP[lamp]))
+					AddDrawingBuffer_Object(&g->skstruct.drBuf,
+						&g->skstruct.src_BAR_LAMP[lamp], &g->skstruct.dst_BAR_LAMP[lamp],
+						&g->timer1, row.x, row.y);
+			}
+		}
+
+		// Event-mode cursors have one source and separate ON/OFF destinations.
+		// Prefer ON, matching the selected-state preview used for other variants.
+		for (int i = 0; i < 10; ++i) {
+			DSTstruct* cursorDst = visible(g->skstruct.dst_EVENT_MODE_CURSOR_ON[i])
+				? &g->skstruct.dst_EVENT_MODE_CURSOR_ON[i]
+				: &g->skstruct.dst_EVENT_MODE_CURSOR_OFF[i];
+			image(g->skstruct.src_EVENT_MODE_CURSOR, *cursorDst);
+		}
+
+		// These declarations contain only a DST. A neutral image makes their
+		// geometry visible without requiring live song/event data.
+		const int layoutSampleHandle = g->skstruct.GrHandle[GrH_Banner];
+		if (layoutSampleHandle >= 0) {
+			if (visible(g->skstruct.dst_BAR_STAGEFILE))
+				AddDrawingBuffer_EventLoading(&g->skstruct.drBuf, layoutSampleHandle,
+					&g->skstruct.dst_BAR_STAGEFILE, &g->timer1, 0, 0);
+			for (int i = 0; i < 5; ++i) {
+				if (visible(g->skstruct.dst_EVENT_LOADINGBG[i]))
+					AddDrawingBuffer_EventLoading(&g->skstruct.drBuf, layoutSampleHandle,
+						&g->skstruct.dst_EVENT_LOADINGBG[i], &g->timer1, 0, 0);
+			}
 		}
 	}
 	if (GetTimeWrap() < g->KeyInput.mouse_recentMoveTime + 10000)
@@ -498,7 +1205,7 @@ int LR2SESceneInit(game *g, int type) {
 	//g->skstruct.GrHandle[GrH_Stage] = LoadGraph("LR2files\\Config\\title.bmp", 0);
 
 	InitGameplay(&g->gameplay, &g->config.play);
-	
+	LR2SEPreparePreviewState(g, type);
 	
 
 	switch (type) {
@@ -515,82 +1222,31 @@ int LR2SESceneInit(game *g, int type) {
 	case SKINTYPE_5KEYSBATTLE:
 	case SKINTYPE_9KEYSBATTLE:
 	{
+		const LR2SEPlayModeInfo mode = LR2SEGetPlayModeInfo(type);
 		InitKeysound(g);
-
-		//PlayPreviewSample(g);
-		int scratchSide = 0;
+		const int scratchSide = g->skstruct.scratchside_1 + g->skstruct.scratchside_2 * 2;
 		ConfigStruct tCfg = g->config;
-		tCfg.play.battle = (g->skinData.select >= 12);
+		tCfg.play.battle = mode.battle ? 1 : 0;
 		g->gameplay.isAutoplay = 1;
-		scratchSide = 0;
-		if (g->skinData.select == 3 && g->skinData.Data[g->skinData.skinID[3]].type == SKINTYPE_14KEYS)
-			scratchSide = g->skstruct.scratchside_1 + g->skstruct.scratchside_2 * 2;
-		if (g->skinData.select == 1 && g->skinData.Data[g->skinData.skinID[1]].type == SKINTYPE_7KEYS)
-			scratchSide = g->skstruct.scratchside_1 + g->skstruct.scratchside_2 * 2;
-		if (g->skinData.select == 13 && g->skinData.Data[g->skinData.skinID[13]].type == SKINTYPE_5KEYSBATTLE)
-			scratchSide = g->skstruct.scratchside_1 + g->skstruct.scratchside_2 * 2;
 		ProcS_Select(g);
 		ReleaseBGA(g);
-		switch (g->skinData.select) {
-		default: //case 0:?
-			ReadKeyConfig(g, "LR2files\\Config\\keyconfig.xml");
-			g->sSelect.metaSelected.keymode = 7;
-			InitGameplay(&g->gameplay, &tCfg.play);
-			ParseBmsFile(&g->gameplay, "LR2files\\Config\\sample_7.bme", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide);
-			LoadBmsResource(&g->gameplay, "LR2files\\Config\\sample_7.bme", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide, 0);
-			break;
-
-		case 1:
-			if (g->skinData.Data[g->skinData.skinID[1]].type == SKINTYPE_7KEYS)
-				ReadKeyConfig(g, "LR2files\\Config\\keyconfig.xml");
-			else
-				ReadKeyConfig(g, "LR2files\\Config\\keyconfig_5.xml");
-			g->sSelect.metaSelected.keymode = 5;
-			InitGameplay(&g->gameplay, &tCfg.play);
-			ParseBmsFile(&g->gameplay, "LR2files\\Config\\sample_5.bme", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide);
-			LoadBmsResource(&g->gameplay, "LR2files\\Config\\sample_5.bme", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide, 0);
-			break;
-
-		case 2:
-			ReadKeyConfig(g, "LR2files\\Config\\keyconfig.xml");
-			g->sSelect.metaSelected.keymode = 14;
-			InitGameplay(&g->gameplay, &tCfg.play);
-			ParseBmsFile(&g->gameplay, "LR2files\\Config\\sample_14.bme", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide);
-			LoadBmsResource(&g->gameplay, "LR2files\\Config\\sample_14.bme", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide, 0);
-			break;
-
-		case 3:
-			if (g->skinData.Data[g->skinData.skinID[3]].type == SKINTYPE_14KEYS)
-				ReadKeyConfig(g, "LR2files\\Config\\keyconfig.xml");
-			else
-				ReadKeyConfig(g, "LR2files\\Config\\keyconfig_5.xml");
-			g->sSelect.metaSelected.keymode = 10;
-			InitGameplay(&g->gameplay, &tCfg.play);
-			ParseBmsFile(&g->gameplay, "LR2files\\Config\\sample_10.bme", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide);
-			LoadBmsResource(&g->gameplay, "LR2files\\Config\\sample_10.bme", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide, 0);
-			break;
-
-		case 4:
-			ReadKeyConfig(g, "LR2files\\Config\\keyconfig_p.xml");
-			g->sSelect.metaSelected.keymode = 9;
-			InitGameplay(&g->gameplay, &tCfg.play);
-			ParseBmsFile(&g->gameplay, "LR2files\\Config\\sample_9.pms", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide);
-			LoadBmsResource(&g->gameplay, "LR2files\\Config\\sample_9.pms", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide, 0);
-			break;
-
-		case 13:
-			if (g->skinData.Data[g->skinData.skinID[13]].type == SKINTYPE_5KEYSBATTLE)
-				ReadKeyConfig(g, "LR2files\\Config\\keyconfig.xml");
-			else
-				ReadKeyConfig(g, "LR2files\\Config\\keyconfig_5.xml");
-			g->sSelect.metaSelected.keymode = 5;
-			InitGameplay(&g->gameplay, &tCfg.play);
-			ParseBmsFile(&g->gameplay, "LR2files\\Config\\sample_5.bme", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide);
-			LoadBmsResource(&g->gameplay, "LR2files\\Config\\sample_5.bme", &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide, 0);
-			break;
-		}
-
-		g->gameplay.bgaLayer1 = 1;
+		ReadKeyConfig(g, mode.keyConfigPath);
+		g->sSelect.metaSelected.keymode = mode.keymode;
+		g->sSelect.metaSelected.filepath = mode.samplePath;
+		InitGameplay(&g->gameplay, &tCfg.play);
+		g->gameplay.isAutoplay = 1;
+		ParseBmsFile(&g->gameplay, mode.samplePath, &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide);
+		LoadBmsResource(&g->gameplay, mode.samplePath, &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide, 0);
+		g->gameplay.bmsResourceLoaded = 1;
+		g->procSelecter = 4;
+		// ProcGameThread normally establishes these timers. The editor runs PLAY
+		// without that worker, so start the chart explicitly and let its BGA
+		// events choose the active layer instead of forcing image #1 over every
+		// skin background.
+		SetTimeLapse(40, &g->timer1);
+		SetTimeLapse(41, &g->timer1);
+		SetTimeLapse(142, &g->timer1);
+		g->gameplay.timetick = 0;
 		if (g->skinData.select == 7) {
 			g->gameplay.player[0].clearType = (GetRand(1) == 0) ? 5 : 1;
 			g->gameplay.player[1].clearType = g->gameplay.player[0].clearType;
@@ -636,24 +1292,6 @@ int LR2SESceneInit(game *g, int type) {
 		break;
 
 	case SKINTYPE_COURSERESULT:
-		g->gameplay.player[0].judgecount[0] = 1;
-		g->gameplay.player[0].judgecount[1] = 2;
-		g->gameplay.player[0].judgecount[2] = 3;
-		g->gameplay.player[0].judgecount[3] = 4;
-		g->gameplay.player[0].judgecount[4] = 5;
-		g->gameplay.player[0].judgecount[5] = 6;
-		g->gameplay.player[0].exscore = 17;
-		g->gameplay.player[0].totalnotes = 20;
-
-
-		g->gameplay.player[1].judgecount[0] = 1;
-		g->gameplay.player[1].judgecount[1] = 10;
-		g->gameplay.player[1].judgecount[2] = 100;
-		g->gameplay.player[1].judgecount[3] = 1000;
-		g->gameplay.player[1].judgecount[4] = 10000;
-		g->gameplay.player[1].judgecount[5] = 100000;
-		g->gameplay.player[1].exscore = 12345;
-		g->gameplay.player[1].totalnotes = 11110;
 		break;
 
 	case SKINTYPE_SOUNDSET:
@@ -674,8 +1312,6 @@ int LR2SESceneInit(game *g, int type) {
 		break;
 	}
 
-	InitTimer(&g->timer1);
-	SetTimeLapse(0, &g->timer1);
 	g->procPhase = 1;
 
 	return 0;
@@ -695,6 +1331,7 @@ int LR2SESceneProc(game* g, int type) {
 		break;
 	case SKINTYPE_DECIDE:
 		ProcI_Decide(g);
+		if (g->procSelecter != 3) return -1;
 		break;
 	case SKINTYPE_7KEYS:
 	case SKINTYPE_5KEYS:
@@ -749,26 +1386,34 @@ int LR2SE_I_Play(game* g) {
 	int timeLimit;
 	double gameTime;
 
+	g_sceneProcStage = "LR2SE_I_Play/DrawHPgauge";
 	DrawHPgauge(g);
+	g_sceneProcStage = "LR2SE_I_Play/SoundGetCurrentTime";
 	SoundGetCurrentTime(&g->audio, &g->gameplay.muon);
+	g_sceneProcStage = "LR2SE_I_Play/NONE_004b6770";
 	NONE_004b6770();
 
-	if (GetTimeLapse(41, &g->timer2) > 0.0 && g->config.play.m_lunaris == 0) {
-		DrawNotes(g, &g->skstruct, &g->timer2, &g->config.play);
-		DrawJudgeCombo(g, &g->skstruct, &g->timer2, &g->config.play);
+	g_sceneProcStage = "LR2SE_I_Play/DrawNotes";
+	if (GetTimeLapse(41, &g->timer1) > 0.0 && g->config.play.m_lunaris == 0) {
+		DrawNotes(g, &g->skstruct, &g->timer1, &g->config.play);
+		g_sceneProcStage = "LR2SE_I_Play/DrawJudgeCombo";
+		DrawJudgeCombo(g, &g->skstruct, &g->timer1, &g->config.play);
 	}
-	else if (GetTimeLapse(41, &g->timer2) > 0.0 && g->config.play.m_lunaris) {
+	else if (GetTimeLapse(41, &g->timer1) > 0.0 && g->config.play.m_lunaris) {
+		g_sceneProcStage = "LR2SE_I_Play/DrawLunaris";
 		DrawLunaris(g);
-		DrawJudgeCombo(g, &g->skstruct, &g->timer2, &g->config.play);
+		g_sceneProcStage = "LR2SE_I_Play/DrawJudgeComboLunaris";
+		DrawJudgeCombo(g, &g->skstruct, &g->timer1, &g->config.play);
 	}
 
+	g_sceneProcStage = "LR2SE_I_Play/JudgeLine";
 	if (g->skstruct.dst_JUDGELINE[0].dstCount > 0) {
-		AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, &g->skstruct.src_JUDGELINE[0], &g->skstruct.dst_JUDGELINE[0], &g->timer2,
+		AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, &g->skstruct.src_JUDGELINE[0], &g->skstruct.dst_JUDGELINE[0], &g->timer1,
 			(float)g->skstruct.adjust.note_1p_x + g->gameplay.nabeatsu_x, (float)g->skstruct.adjust.note_1p_y + g->gameplay.nabeatsu_y, -1,
 			(float)g->skstruct.adjust.size_x, (float)g->skstruct.adjust.size_y, 0);
 	}
 	if (g->skstruct.dst_JUDGELINE[1].dstCount > 0) {
-		AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, &g->skstruct.src_JUDGELINE[1], &g->skstruct.dst_JUDGELINE[1], &g->timer2,
+		AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, &g->skstruct.src_JUDGELINE[1], &g->skstruct.dst_JUDGELINE[1], &g->timer1,
 			(float)g->skstruct.adjust.note_2p_x + g->gameplay.nabeatsu_x, (float)g->skstruct.adjust.note_2p_y + g->gameplay.nabeatsu_y, -1,
 			(float)g->skstruct.adjust.size_x, (float)g->skstruct.adjust.size_y, 0);
 	}
@@ -778,7 +1423,7 @@ int LR2SE_I_Play(game* g) {
 		|| (g->KeyInput.p2_buttonInput[13] == 2 && g->KeyInput.p2_buttonInput[12] == 2)
 		|| (g->gameplay.player[0].totalnotes <= g->gameplay.player[0].note_current && (g->KeyInput.p1_buttonInput[13] == 2 || g->KeyInput.p1_buttonInput[12] == 2 || g->KeyInput.p2_buttonInput[13] == 2 || g->KeyInput.p2_buttonInput[12] == 2)))
 		&& g->procPhase == 1) {
-		SetTimeLapse(2, &g->timer2);
+		SetTimeLapse(2, &g->timer1);
 		g->procPhase = 2;
 		g->gameplay.flag_closingPhase = 1;
 		return 1;
@@ -786,13 +1431,14 @@ int LR2SE_I_Play(game* g) {
 
 	if (g->procPhase == 2) {
 		timeLimit = g->skstruct.fadeout;
-		gameTime = GetTimeLapse(2, &g->timer2);
+		gameTime = GetTimeLapse(2, &g->timer1);
 		if (timeLimit < gameTime || timeLimit == 0) g->procSelecter = 5;
 	}
 	else if (g->procPhase == 3) {
 		timeLimit = g->skstruct.close;
-		gameTime = GetTimeLapse(3, &g->timer2);
+		gameTime = GetTimeLapse(3, &g->timer1);
 		if (timeLimit < gameTime || timeLimit == 0) g->procSelecter = 5;
 	}
+	g_sceneProcStage = "LR2SE_I_Play/complete";
 	return 1;
 }

@@ -10,9 +10,12 @@
 
 int LR2SEInit(game* g);
 
-int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY);
-int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY);
+int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview);
+int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview);
+int LR2SESceneInitSafe(game* g, int type);
+int LR2SESceneProcSafe(game* g, int type);
 void LR2SEResetRenderFault();
+void LR2SEPreparePreviewState(game* g, int type);
 
 int LR2SESceneInit(game* g, int type);
 

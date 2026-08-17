@@ -1169,7 +1169,7 @@ const char* textName(unsigned n) {
 		case 63: return "RANDOM1P";
 		case 64: return "RANDOM2P";
 		case 65: return "GAUGE1P";
-		case 66: return "GAUGEP";
+		case 66: return "GAUGE2P";
 		case 67: return "ASSIST1P";
 		case 68: return "ASSIST2P";
 		case 69: return "BATTLE";

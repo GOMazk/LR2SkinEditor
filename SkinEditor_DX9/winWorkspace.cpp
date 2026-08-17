@@ -19,8 +19,12 @@
 #include "arr.hpp"
 #include "seHelper.h"
 #include "inputwrap.h"
+#include "imgui/imgui_internal.h"
 #include <algorithm>
 #include <cstdio>
+#include <map>
+#include <shellapi.h>
+#include <string>
 #include <vector>
 
 static void WriteSkinLoadLog(const char* stage, const char* detail = NULL) {
@@ -30,6 +34,40 @@ static void WriteSkinLoadLog(const char* stage, const char* detail = NULL) {
     fflush(fp);
     fclose(fp);
 }
+
+static bool SkinPathExists(const char* path) {
+    if (!path || !*path) return false;
+    WIN32_FIND_DATAA findData{};
+    HANDLE find = FindFirstFileA(path, &findData);
+    if (find == INVALID_HANDLE_VALUE) return false;
+    FindClose(find);
+    return true;
+}
+
+// Some distributed skins were renamed after authoring (for example
+// LITONE5_PLAYAC -> LITONE5) while their internal paths kept the old theme
+// folder. Resolve the same Play-relative asset inside the folder containing
+// the opened skin without modifying the source text saved by the editor.
+static bool ResolveSiblingPlayPath(const char* requested, const char* mainSkinPath,
+    char* resolved, size_t resolvedSize) {
+    if (!requested || !mainSkinPath || !resolved || resolvedSize == 0) return false;
+    if (SkinPathExists(requested)) return false;
+
+    std::string request = requested;
+    std::string mainPath = mainSkinPath;
+    std::replace(request.begin(), request.end(), '/', '\\');
+    std::replace(mainPath.begin(), mainPath.end(), '/', '\\');
+    const size_t requestPlay = request.find("\\Play\\");
+    const size_t mainPlay = mainPath.find("\\Play\\");
+    if (requestPlay == std::string::npos || mainPlay == std::string::npos) return false;
+
+    const std::string candidate = mainPath.substr(0, mainPlay) + request.substr(requestPlay);
+    if (!SkinPathExists(candidate.c_str())) return false;
+    strncpy_s(resolved, resolvedSize, candidate.c_str(), _TRUNCATE);
+    return true;
+}
+
+static bool SaveResolutionToSkinFile(const char* path, int width, int height);
 
 const char* SKINTYPESTR[]= {
     "7KEYS",
@@ -82,11 +120,16 @@ int WORKSPACE::init() {
     return 0;
 }
 int WORKSPACE::draw() {
-    
-    //ImGui::SetNextWindowViewport(num);
-
     if (initFlag == 0) init();
-    ImGui::Begin(title, &alive, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(viewport->WorkSize, ImGuiCond_Always);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    const ImGuiWindowFlags workspaceFlags = ImGuiWindowFlags_MenuBar |
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoBringToFrontOnFocus;
+    ImGui::Begin(title, &alive, workspaceFlags);
 
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
@@ -117,7 +160,6 @@ int WORKSPACE::draw() {
                     ImGui::MenuItem("ImgManager", NULL, &wImgManager);
                     //if (ImGui::MenuItem("ImgManager", NULL, &wImgManager)) { loadSRC(); };
                     ImGui::MenuItem("fileManager", NULL, &wFileManager);
-                    ImGui::MenuItem("treeView", NULL, &wTreeView);
                     ImGui::MenuItem("SimplePreview", NULL, &wSimplePreview);
                     ImGui::MenuItem("dstView", NULL, &wDstView);
                     ImGui::MenuItem("Object Editor", NULL, &wObjectEditor);
@@ -133,7 +175,50 @@ int WORKSPACE::draw() {
         ImGui::EndMenuBar();
     }
 
-    if (loaded) {
+    char dockName[64];
+    snprintf(dockName, sizeof(dockName), "WorkspaceDock##%d", num);
+    const ImGuiID dockspaceId = ImGui::GetID(dockName);
+    ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+
+    if (!dockLayoutBuilt) {
+        ImGui::DockBuilderRemoveNode(dockspaceId);
+        ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
+        ImGuiID rightDock = 0;
+        ImGuiID centerDock = dockspaceId;
+        ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Right, 0.14f, &rightDock, &centerDock);
+
+        ImGuiID editorDock = 0;
+        ImGuiID previewDock = centerDock;
+        ImGui::DockBuilderSplitNode(centerDock, ImGuiDir_Down, 0.36f, &editorDock, &previewDock);
+
+        ImGuiID customizeDock = 0;
+        ImGuiID opListDock = rightDock;
+        ImGui::DockBuilderSplitNode(rightDock, ImGuiDir_Down, 0.36f, &customizeDock, &opListDock);
+
+        char previewTitle[64];
+        char objectEditorTitle[64];
+        char imageManagerTitle[64];
+        char dstViewTitle[64];
+        char opListTitle[64];
+        char customizeTitle[64];
+        snprintf(previewTitle, sizeof(previewTitle), "Preview##%d", num);
+        snprintf(objectEditorTitle, sizeof(objectEditorTitle), "Object Editor##%d", num);
+        snprintf(imageManagerTitle, sizeof(imageManagerTitle), "ImageManager##%d", num);
+        snprintf(dstViewTitle, sizeof(dstViewTitle), "dstView##%d", num);
+        snprintf(opListTitle, sizeof(opListTitle), "OpList##%d", num);
+        snprintf(customizeTitle, sizeof(customizeTitle), "Customize##%d", num);
+        ImGui::DockBuilderDockWindow(previewTitle, previewDock);
+        ImGui::DockBuilderDockWindow(imageManagerTitle, previewDock);
+        ImGui::DockBuilderDockWindow(dstViewTitle, previewDock);
+        ImGui::DockBuilderDockWindow(objectEditorTitle, editorDock);
+        ImGui::DockBuilderDockWindow(opListTitle, opListDock);
+        ImGui::DockBuilderDockWindow(customizeTitle, customizeDock);
+        ImGui::DockBuilderFinish(dockspaceId);
+        dockLayoutBuilt = true;
+    }
+
+    if (loaded && false) {
         char tempTitle[260];
 
         snprintf(tempTitle, sizeof(tempTitle), "objList##%d", num);
@@ -201,7 +286,7 @@ int WORKSPACE::draw() {
         }
         ImGui::EndChild();
     }
-    else {
+    else if (!loaded) {
         ImGui::Text("%s", "no skin loaded");
     }
     
@@ -222,7 +307,6 @@ int WORKSPACE::draw() {
     if (wCustomize) drawCustomize();
     if (wImgManager) drawImgManager();
     if (wFileManager) drawFileManager();
-    if (wTreeView) drawTreeView();
     if (wSimplePreview) drawSimplePreview();
     if (wDstView) drawDstView();
     if (wObjectEditor) drawObjectEditor();
@@ -251,8 +335,23 @@ int WORKSPACE::drawSkinList() {
     static PDIRECT3DTEXTURE9 preview_tex;
     static int preview_size_x, preview_size_y;
     static bool isPreview = false;
+    static int resolutionSaveState = 0; // 0: untouched, 1: saved, -1: failed
+    static std::string resolutionSavePath;
 
+    const ImVec2 workSize = ImGui::GetMainViewport()->WorkSize;
+    const ImVec2 minimumSize(
+        (std::min)(820.0f, workSize.x),
+        (std::min)(540.0f, workSize.y));
+    ImGui::SetNextWindowSizeConstraints(minimumSize, workSize);
     ImGui::Begin("Open from skinlist", &wSkinList);
+
+    if (g.skinData.Count <= 0) {
+        ImGui::TextUnformatted("No skins found.");
+        ImGui::End();
+        return 0;
+    }
+    if (item_selected_idx < 0 || item_selected_idx >= g.skinData.Count)
+        item_selected_idx = 0;
 
     if (ImGui::BeginChild(ImGuiChildFlags_FrameStyle, { 300,-1 }))
     {
@@ -281,22 +380,74 @@ int WORKSPACE::drawSkinList() {
     if (oldSelected != m) {
         isPreview = LoadTextureFromFile(g.skinData.Data[m].thumbnail.outstr(), &preview_tex, &preview_size_x, &preview_size_y);
         oldSelected = m;
+        resolutionSaveState = 0;
+        resolutionSavePath.clear();
     }
     ImGui::Image(isPreview ? preview_tex : NULL, { 320, 240 }, { 0, 0 }, { 1, 1 });
     ImGui::Text("%s", g.skinData.Data[m].skinFile.outstr());
     ImGui::Text("%s", g.skinData.Data[m].title.outstr());
     ImGui::Text("%s", g.skinData.Data[m].maker.outstr());
     ImGui::Text("%s", SKINTYPESTR[g.skinData.Data[m].type]);
-    ImGui::Text("%d * %d", g.skinData.Data[m].targetX, g.skinData.Data[m].targetY);
+    ImGui::SeparatorText("Resolution");
+    ImGui::TextColored(ImVec4(1.0f, 0.78f, 0.28f, 1.0f),
+        "AUTO SAVE: Changes are written directly to the skin file.");
+    int resolution[2] = {
+        g.skinData.Data[m].targetX,
+        g.skinData.Data[m].targetY
+    };
+    ImGui::SetNextItemWidth(100.0f);
+    if (ImGui::InputInt2("Width / Height (?)", resolution)) {
+        if (resolution[0] < 64) resolution[0] = 64;
+        if (resolution[0] > 7680) resolution[0] = 7680;
+        if (resolution[1] < 64) resolution[1] = 64;
+        if (resolution[1] > 4320) resolution[1] = 4320;
+        g.skinData.Data[m].targetX = resolution[0];
+        g.skinData.Data[m].targetY = resolution[1];
+    }
+    auto persistResolution = [&]() {
+        const char* skinPath = g.skinData.Data[m].skinFile.outstr();
+        resolutionSaveState = SaveResolutionToSkinFile(skinPath,
+            g.skinData.Data[m].targetX, g.skinData.Data[m].targetY) ? 1 : -1;
+        resolutionSavePath = skinPath ? skinPath : "";
+    };
+    if (ImGui::IsItemDeactivatedAfterEdit()) persistResolution();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("The #INFORMATION width/height fields will be updated.\nPress Enter or leave this field to save immediately.");
+
+    struct ResolutionPreset { const char* label; int width; int height; };
+    const ResolutionPreset presets[] = {
+        { "640 x 480", 640, 480 },
+        { "1280 x 720", 1280, 720 },
+        { "1920 x 1080", 1920, 1080 }
+    };
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.32f, 0.20f, 0.48f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.44f, 0.28f, 0.63f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.53f, 0.34f, 0.72f, 1.0f));
+    for (int i = 0; i < 3; ++i) {
+        if (i > 0) ImGui::SameLine();
+        if (ImGui::Button(presets[i].label)) {
+            g.skinData.Data[m].targetX = presets[i].width;
+            g.skinData.Data[m].targetY = presets[i].height;
+            persistResolution();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+            ImGui::SetTooltip("Apply this resolution and save it to the skin file immediately.");
+    }
+    ImGui::PopStyleColor(3);
+    if (resolutionSaveState > 0)
+        ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.40f, 1.0f),
+            "Saved resolution to #INFORMATION: %s", resolutionSavePath.c_str());
+    else if (resolutionSaveState < 0)
+        ImGui::TextColored(ImVec4(1.0f, 0.30f, 0.30f, 1.0f),
+            "Failed to save resolution: %s", resolutionSavePath.c_str());
 
     if (ImGui::Button("LOAD", { 0, 0 })) {
         meta = g.skinData.Data[m];
         snprintf(title, 260, "%s -%s", meta.title.outstr(), SKINTYPESTR[meta.type]);
         
         strncpy(mainpath, g.skinData.Data[m].skinFile.outstr(), MAX_PATH);
-        LoadSkin(mainpath);
-        wSkinList = false;
-        loaded = true;
+        loaded = (LoadSkin(mainpath) == 0);
+        if (loaded) wSkinList = false;
         
     }
 
@@ -306,16 +457,30 @@ int WORKSPACE::drawSkinList() {
         snprintf(title, 260, "%s -%s", meta.title.outstr(), SKINTYPESTR[meta.type]);
 
         strncpy(mainpath, g.skinData.Data[m].skinFile.outstr(), MAX_PATH);
-        LoadSkin(mainpath);
-        wSkinList = false;
-        loaded = true;
-        isTextmode = true;
+        loaded = (LoadSkin(mainpath) == 0);
+        if (loaded) {
+            wSkinList = false;
+            isTextmode = true;
+        }
 
     }
     ImGui::SameLine(0, 3);
     ImGui::Button("CLONE", { 0, 0 });
     ImGui::SameLine(0, 3);
-    ImGui::Button("BROWSE", { 0, 0 });
+    if (ImGui::Button("BROWSE", { 0, 0 })) {
+        const char* skinPath = g.skinData.Data[m].skinFile.outstr();
+        if (skinPath && *skinPath) {
+            char fullPath[MAX_PATH] = {};
+            if (!GetFullPathNameA(skinPath, MAX_PATH, fullPath, NULL))
+                strncpy(fullPath, skinPath, MAX_PATH - 1);
+            std::string explorerArgs = "/select,\"";
+            explorerArgs += fullPath;
+            explorerArgs += "\"";
+            ShellExecuteA(NULL, "open", "explorer.exe", explorerArgs.c_str(), NULL, SW_SHOWNORMAL);
+        }
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("Open this skin file's folder in Windows Explorer.");
     ImGui::SameLine(0, 0);
     ImGui::EndGroup();
     ImGui::End();
@@ -324,62 +489,97 @@ int WORKSPACE::drawSkinList() {
 }
 
 int WORKSPACE::LoadSkinScript(char* path) {
+    if (!path || !*path) return -1;
+    char canonicalPath[MAX_PATH] = {};
+    if (!GetFullPathNameA(path, MAX_PATH, canonicalPath, NULL))
+        strncpy(canonicalPath, path, MAX_PATH - 1);
+    for (const std::string& activePath : loadScriptStack) {
+        if (_stricmp(activePath.c_str(), canonicalPath) == 0) {
+            WriteSkinLoadLog("Include cycle blocked", canonicalPath);
+            return -2;
+        }
+    }
+
     FILE* pFile;
 
-    pFile = fopen(path, "rb");
+    pFile = fopen(canonicalPath, "rb");
     if (!pFile) return -1;
+    loadScriptStack.push_back(canonicalPath);
 
     //TODO : $FILE are stacked when save/load
     SKINFILELINEREAD* readS = (SKINFILELINEREAD*)skinfileLines.Get_new();
     readS->line.resize(1024);
-    sprintf(readS->line, "$FILE \'%s\' start", path);
+    sprintf(readS->line, "$FILE \'%s\' start", canonicalPath);
     readS->isComment = true;
     readS->isSEcomment = true;
     readS->numTotal = skinfileLines.count-1;
     readS->num = 0;
+    readS->filename.assign(canonicalPath);
 
     int c = 1;
     while (1) {
+        std::string readLine;
         char readbuf[1024];
-
-        if (fgets(readbuf, 1023, pFile) == 0) break;
+        while (fgets(readbuf, sizeof(readbuf), pFile) != 0) {
+            readLine += readbuf;
+            const size_t len = strlen(readbuf);
+            if (len > 0 && readbuf[len - 1] == '\n') break;
+        }
+        if (readLine.empty()) break;
 
         SKINFILELINEREAD* read = (SKINFILELINEREAD*)skinfileLines.Get_new();
         read->line.resize(1024);
         read->filename.resize(260);
-        read->line.assign(readbuf);
+        read->line.assign(readLine.c_str());
             
         DealWhiteSpace(&read->line);
         read->numTotal = skinfileLines.count - 1;
-        read->filename.assign(path);
+        read->filename.assign(canonicalPath);
         read->num = c;
         read->isComment = (*read->line.atPos(0) != '#');
         read->isSEcomment = (*read->line.atPos(0) == '$');
 
-        if(!read->isComment) SplitCSV(read->line, &read->csv, ",");
+        if(!read->isComment) {
+            SplitCSV(read->line, &read->csv, ",");
+            read->csvColumnCount = CountCsvColumns(read->line);
+        }
             
         c++;
 
         if (read->line.left(8).isSame("#INCLUDE")) {
-            if (read->csv.str[1].canOpenFile()) {
-                CSTR& tmp = read->csv.str[1];
+            const char* includeText = read->csv.str[1].body ? read->csv.str[1].outstr() : "";
+            char includePath[MAX_PATH] = {};
+            CSTR parent(canonicalPath);
+            parent.assign(parent.getDirectory());
+            snprintf(includePath, sizeof(includePath), "%s%s", parent.outstr(), includeText);
+            if (GetFileAttributesA(includePath) == INVALID_FILE_ATTRIBUTES)
+                strncpy(includePath, includeText, sizeof(includePath) - 1);
+            char siblingInclude[MAX_PATH] = {};
+            if (ResolveSiblingPlayPath(includePath, mainpath,
+                siblingInclude, sizeof(siblingInclude)))
+                strncpy_s(includePath, siblingInclude, _TRUNCATE);
+            if (*includePath) {
+                CSTR tmp(includePath);
                 arr_subpath.push_back(&tmp);
-
-                LoadSkinScript(read->csv.str[1]);
+                const int includeResult = LoadSkinScript(includePath);
+                if (includeResult < 0 && includeResult != -2)
+                    WriteSkinLoadLog("Include open failed", includePath);
             }
         }
     }
 
     SKINFILELINEREAD* readE = (SKINFILELINEREAD*)skinfileLines.Get_new();
     readE->line.resize(1024);
-    sprintf(readE->line, "$FILE \'%s\' end", path);
+    sprintf(readE->line, "$FILE \'%s\' end", canonicalPath);
     readE->isComment = true;
     readE->isSEcomment = true;
     readE->numTotal = skinfileLines.count - 1;
     readE->num = c;
+    readE->filename.assign(canonicalPath);
         
 
     fclose(pFile);
+    loadScriptStack.pop_back();
 
     return 0;
 }
@@ -1020,6 +1220,11 @@ int WORKSPACE::ParseSkin() {
         SRCGR& img = ((SRCGR*)arr_SRCGR.data)[n];
         CSTR& path = ((SRCGR*)arr_SRCGR.data)[n].path;
 
+        char siblingAsset[MAX_PATH] = {};
+        if (ResolveSiblingPlayPath(path.outstr(), mainpath,
+            siblingAsset, sizeof(siblingAsset)))
+            path.assign(siblingAsset);
+
         WriteSkinLoadLog("ParseSkin image", path.outstr());
 
         if (path.isSame("CONTINUE")) {
@@ -1032,32 +1237,14 @@ int WORKSPACE::ParseSkin() {
 
         //TODO: deal *
 
-        bool isLoaded = LoadTextureFromFile(path.outstr(), &(img.texture), &img.sizeX, &img.sizeY);
-
-        if (!isLoaded) 
-         {
-            int dxf = DxLib::FileRead_open(path);
-            // DxLib returns -1 on failure. The previous truthiness check
-            // treated -1 as success, then attempted malloc/read with a
-            // negative file size and terminated on missing optional images.
-            if (dxf >= 0) {
-                void* Buffer;
-                int FileSize;
-
-                FileSize = FileRead_size(path.outstr());
-                Buffer = FileSize > 0 ? malloc((size_t)FileSize) : NULL;
-                if (Buffer != NULL && DxLib::FileRead_read(Buffer, FileSize, dxf) >= 0) {
-                    isLoaded = LoadTextureFromMemory(Buffer, FileSize, &(img.texture), &img.sizeX, &img.sizeY);
-                }
-
-                DxLib::FileRead_close(dxf);
-                if (Buffer != NULL) free(Buffer);
-            }
-        }
-
-        if (isLoaded) {
-            img.loaded = true;
-        }
+		// Complex skins list hundreds of wildcard/custom candidates. Uploading
+		// every candidate here exhausts the 32-bit address space. Preserve the
+		// metadata and create the editor texture only when it becomes visible.
+		img.texture = NULL;
+		img.loaded = false;
+		img.sizeX = 0;
+		img.sizeY = 0;
+		GetImageSizeFromFile(path.outstr(), &img.sizeX, &img.sizeY);
     }
     return 0;
 }
@@ -1117,6 +1304,24 @@ int WORKSPACE::LoadSkin(char* path) {
             g.skstruct.GrHandle[i] = -1;
         }
     }
+
+    // Changing DxLib's graph mode invalidates every graph handle. Do it before
+    // loading the new skin; doing it after ReadSkinSE made HD skins lose all
+    // of the images that had just been loaded. 640x480 skins appeared to work
+    // only because they often did not trigger a real device reset.
+    DeleteGraph(previewScreen);
+    previewScreen = -1;
+    if (texture_preview) {
+        texture_preview->Release();
+        texture_preview = NULL;
+    }
+    texture_preview_width = 0;
+    texture_preview_height = 0;
+    previewLastRenderAt = 0;
+    previewTextureDirty = true;
+    SetGraphMode(skinSizeX, skinSizeY, 32, 60);
+    SetDrawScreen(DX_SCREEN_BACK);
+
     for (int i = 0; i < 200; i++) g.skstruct.caption[i].fillzero();
     for (int i = 0; i < 10; i++) g.skstruct.helpfilePath[i].fillzero();
     for (int i = 0; i < 20; i++) g.skstruct.customfileRANDOM[i].fillzero();
@@ -1138,18 +1343,31 @@ int WORKSPACE::LoadSkin(char* path) {
 
     //SE
     WriteSkinLoadLog("LoadSkinScript begin", path);
-    LoadSkinScript(path);
+    loadScriptStack.clear();
+    if (LoadSkinScript(path) != 0) {
+        WriteSkinLoadLog("LoadSkinScript failed", path);
+        return -1;
+    }
     WriteSkinLoadLog("LoadSkinScript complete");
+
+    // Dynamic #IF options (clear/fail, rank, key mode, difficulty, etc.) are
+    // used while ParseSkin decides which image branches to keep. Prepare the
+    // standalone scene state first; doing this after ParseSkin left complex
+    // RESULT skins with only their unconditional chart objects.
+    LR2SEInit(&g);
+    LR2SEPreparePreviewState(&g, meta.type);
+    WriteSkinLoadLog("LR2SE preview state prepared");
     ParseSkin();
     WriteSkinLoadLog("ParseSkin complete");
     if (g_seObjectEditorModel.Groups().empty()) g_seObjectEditorModel.LoadGroups("skinObjGroup.txt");
     g_seObjectEditorModel.Rebuild(*this);
     WriteSkinLoadLog("ObjectEditor Rebuild complete");
     
-    LR2SEInit(&g);
     WriteSkinLoadLog("LR2SEInit complete");
     LoadSceneSE();
     WriteSkinLoadLog("LoadSceneSE complete");
+    LR2SEResetRenderFault();
+    previewReloadPending = false;
 
     //MakeObjects();
     
@@ -1161,18 +1379,6 @@ int WORKSPACE::LoadSkin(char* path) {
     SetWindowUserCloseEnableFlag(0); //DxLib
 
     
-    DeleteGraph(previewScreen);
-    if (texture_preview) {
-        texture_preview->Release();
-        texture_preview = NULL;
-    }
-    texture_preview_width = 0;
-    texture_preview_height = 0;
-
-    // DxLib renders the preview into its back buffer. Match that buffer to
-    // the skin resolution before capturing it into the soft image.
-    SetGraphMode(skinSizeX, skinSizeY, 32, 60);
-    SetDrawScreen(DX_SCREEN_BACK);
     //previewScreen = LoadGraph("ex.bmp");
     //previewScreen = MakeGraph(skinSizeX, skinSizeY); //MakeScreen vs MakeGraph
     //SetDrawScreen(previewScreen);
@@ -1181,7 +1387,19 @@ int WORKSPACE::LoadSkin(char* path) {
     //previewScreen = MakeARGB8ColorSoftImage(skinSizeX, skinSizeY); //for SDL3
 
     wPreview = 1;
-    wObjectManagerTest = 1;
+    wObjectEditor = true;
+    preview_selected_object_model_indices.clear();
+    preview_selected_object_model_index = -1;
+    preview_selection_anchor_model_index = -1;
+    preview_selected_obj_valid = false;
+    preview_selected_obj_last_valid = false;
+    wImgManager = true;
+    wDstView = true;
+    wOpList = true;
+    wCustomize = true;
+    wTreeView = false;
+    dockLayoutBuilt = false;
+    wObjectManagerTest = false;
 
     return 0;
 }
@@ -1189,9 +1407,7 @@ int WORKSPACE::LoadSkin(char* path) {
 //copied from LR2 LoadScene
 int WORKSPACE::LoadSceneSE() {
     skstruct* sk = &g.skstruct;
-    SkinUser tsku{};
-    CSTR tStr;
-    
+
     InitSkin(sk, 0, false);
 
     //copy of ReadSkinCustomize()
@@ -1211,12 +1427,322 @@ int WORKSPACE::LoadSceneSE() {
     sk->adjust.rate_x = 100;
     sk->adjust.rate_y = 100;
     
-    constexpr size_t s = offsetof(SkinUser, SkinUser::customize_value);
-    for (int i = 0; i < 40; i++) {
-        int t = tsku.customize_value[i];
-        if (900 <= t && t < 1000) sk->op[t] = 1;
+    // Apply the skin list's selected customization before evaluating #IF.
+    // Many real skins place the whole visible layout under options 900-999;
+    // leaving those options unset produces a valid but completely black preview.
+    sk->op[0] = 1;
+    sk->op[999] = 0;
+    // DECIDE skins cannot inherit #IMAGE,CONTINUE resources when opened as a
+    // standalone editor document.  Prefer an explicitly supplied SELECT LINK
+    // OFF branch so its self-contained image table is used.
+    if (meta.type == SKINTYPE_DECIDE) {
+        for (int i = 0; i < meta.custom_count; ++i) {
+            SkinCustom& custom = meta.customs[i];
+            if (_stricmp(custom.title.outstr(), "SELECT LINK") != 0) continue;
+            for (int option = 0; option < custom.dst_op_count; ++option) {
+                if (_stricmp(custom.op_label[option].outstr(), "OFF") == 0) {
+                    custom.dst_op_selected = option;
+                    break;
+                }
+            }
+        }
     }
-    return ReadSkinSE();
+    for (int i = 0; i < meta.custom_count; ++i) {
+        const SkinCustom& custom = meta.customs[i];
+        if (custom.dst_op_start <= 0) continue;
+        for (int option = 0; option < custom.dst_op_count; ++option) {
+            const int op = custom.dst_op_start + option;
+            if (op >= 900 && op < 1000) sk->op[op] = 0;
+        }
+        const int selectedOp = custom.dst_op_start + custom.dst_op_selected;
+        if (selectedOp >= 900 && selectedOp < 1000) sk->op[selectedOp] = 1;
+    }
+    // LR2 refreshes all built-in options immediately before loading a scene.
+    // These include RESULT_CLEAR/FAIL, rank, key mode and difficulty. The
+    // editor previously initialized only customization options (900-999).
+    LR2SEPreparePreviewState(&g, meta.type);
+    for (int option = 0; option < 900; ++option)
+        sk->op[option] = GetOptionFlag_dst(&g, option) ? 1 : 0;
+
+    const int result = ReadSkinSE();
+    {
+        int validImageHandles = 0;
+        int drawableImages = 0;
+        for (int image = 0; image < sk->count; ++image) {
+            if (sk->GrHandle[image] >= 0) ++validImageHandles;
+        }
+        for (int source = 0; source < sk->image.srcSize; ++source) {
+            if (sk->image.src[source].graphcount > 0 &&
+                sk->image.dst[source].dstCount > 0)
+                ++drawableImages;
+        }
+        char runtimeSummary[512];
+        sprintf_s(runtimeSummary,
+            "Runtime scene images=%d validHandles=%d imageSrc=%d drawable=%d "
+            "customFiles=%d op90=%d op91=%d op200=%d op201=%d result=%d",
+            sk->count, validImageHandles, sk->image.srcSize, drawableImages,
+            sk->customfile_count, sk->op[90], sk->op[91], sk->op[200],
+            sk->op[201], result);
+        WriteSkinLoadLog(runtimeSummary);
+
+        const int detailCount = (std::min)(sk->image.srcSize, 24);
+        for (int source = 0; source < detailCount; ++source) {
+            SRCstruct& src = sk->image.src[source];
+            DSTstruct& dst = sk->image.dst[source];
+            const int graphHandle = src.graphcount > 0 ? src.grHandles[0] : -1;
+            char sourceSummary[256];
+            sprintf_s(sourceSummary,
+                "Runtime imageSrc[%d] gr=%d handle=%d graphs=%d dst=%d timer=%d op=%d/%d/%d",
+                source, src.n, graphHandle, src.graphcount, dst.dstCount,
+                dst.timer, dst.op1, dst.op2, dst.op3);
+            WriteSkinLoadLog(sourceSummary);
+        }
+    }
+    // ReadSkinSE returns the accumulated skin sort/BGA number, not a success
+    // code.  Complex skins commonly return a positive value, so gating scene
+    // preparation on result == 0 left SELECT state entirely uninitialized.
+    if (meta.type == SKINTYPE_SELECT) {
+            char selectState[512];
+            sprintf_s(selectState,
+                "SELECT state center=%d songs=%d imageCount=%d image0=%d image9=%d "
+                "body0Graphs=%d body0Handle=%d off9=%d/%d off10=%d/%d "
+                "on10=%d/%d title0Graphs=%d title0Dst=%d/%d",
+                g.skstruct.BAR_CENTER, g.sSelect.bmsListCount, g.skstruct.count,
+                g.skstruct.GrHandle[0], g.skstruct.GrHandle[9],
+                g.skstruct.src_BAR_BODY[0].graphcount,
+                g.skstruct.src_BAR_BODY[0].graphcount > 0
+                    ? g.skstruct.src_BAR_BODY[0].grHandles[0] : -1,
+                g.skstruct.dst_BAR_BODY_OFF[9].dstCount,
+                g.skstruct.dst_BAR_BODY_OFF[9].dataSize,
+                g.skstruct.dst_BAR_BODY_OFF[10].dstCount,
+                g.skstruct.dst_BAR_BODY_OFF[10].dataSize,
+                g.skstruct.dst_BAR_BODY_ON[10].dstCount,
+                g.skstruct.dst_BAR_BODY_ON[10].dataSize,
+                g.skstruct.src_BAR_TITLE[0].graphcount,
+                g.skstruct.dst_BAR_TITLE[0].dstCount,
+                g.skstruct.dst_BAR_TITLE[0].dataSize);
+        WriteSkinLoadLog(selectState);
+    }
+    else if (meta.type == SKINTYPE_DECIDE) {
+        int validImages = 0;
+        int validSources = 0;
+        int firstValidSource = -1;
+        int firstValidHandle = -1;
+        for (int i = 0; i < g.skstruct.count; ++i)
+            if (g.skstruct.GrHandle[i] >= 0) ++validImages;
+        for (int i = 0; i < g.skstruct.image.srcSize; ++i) {
+            SRCstruct& src = g.skstruct.image.src[i];
+            bool valid = false;
+            for (int frame = 0; frame < src.graphcount; ++frame) {
+                if (src.grHandles && src.grHandles[frame] >= 0) {
+                    valid = true;
+                    if (firstValidSource < 0) {
+                        firstValidSource = i;
+                        firstValidHandle = src.grHandles[frame];
+                    }
+                    break;
+                }
+            }
+            if (valid) ++validSources;
+        }
+        char decideState[384];
+        sprintf_s(decideState,
+            "DECIDE state images=%d/%d sources=%d/%d first=%d:%d "
+            "dst0=%d/%d proc=%d phase=%d timer0=%.0f",
+            validImages, g.skstruct.count, validSources, g.skstruct.image.srcSize,
+            firstValidSource, firstValidHandle,
+            g.skstruct.image.srcSize > 0 ? g.skstruct.image.dst[0].dstCount : 0,
+            g.skstruct.image.srcSize > 0 ? g.skstruct.image.dst[0].dataSize : 0,
+            g.procSelecter, g.procPhase, GetTimeLapse(0, &g.timer1));
+        WriteSkinLoadLog(decideState);
+    }
+    return result;
+}
+
+// Persist the resolution from the skin picker without requiring the skin to
+// be loaded first. LR2 stores the target width and height in fields 6 and 7 of
+// #INFORMATION. The final replace is atomic so a failed write leaves the
+// original skin untouched.
+static bool SaveResolutionToSkinFile(const char* path, int width, int height) {
+    if (!path || !*path || width <= 0 || height <= 0) return false;
+    FILE* input = fopen(path, "rb");
+    if (!input) return false;
+    if (fseek(input, 0, SEEK_END) != 0) { fclose(input); return false; }
+    const long fileSize = ftell(input);
+    if (fileSize < 0 || fseek(input, 0, SEEK_SET) != 0) { fclose(input); return false; }
+    std::string contents((size_t)fileSize, '\0');
+    if (fileSize > 0 && fread(&contents[0], 1, (size_t)fileSize, input) != (size_t)fileSize) {
+        fclose(input);
+        return false;
+    }
+    fclose(input);
+
+    size_t informationStart = std::string::npos;
+    size_t informationEnd = std::string::npos;
+
+    for (size_t lineStart = 0; lineStart <= contents.size();) {
+        size_t lineBreak = contents.find('\n', lineStart);
+        const size_t fullEnd = lineBreak == std::string::npos ? contents.size() : lineBreak + 1;
+        size_t contentEnd = lineBreak == std::string::npos ? contents.size() : lineBreak;
+        if (contentEnd > lineStart && contents[contentEnd - 1] == '\r') --contentEnd;
+        size_t commandStart = lineStart;
+        if (commandStart == 0 && contents.size() >= 3 &&
+            (unsigned char)contents[0] == 0xEF && (unsigned char)contents[1] == 0xBB &&
+            (unsigned char)contents[2] == 0xBF) commandStart = 3;
+        while (commandStart < contentEnd &&
+            (contents[commandStart] == ' ' || contents[commandStart] == '\t')) ++commandStart;
+        const size_t commandLength = contentEnd - commandStart;
+        if (commandLength >= 12 &&
+            _strnicmp(contents.c_str() + commandStart, "#INFORMATION", 12) == 0 &&
+            (commandLength == 12 || contents[commandStart + 12] == ',' ||
+                contents[commandStart + 12] == ' ' || contents[commandStart + 12] == '\t')) {
+            informationStart = commandStart;
+            informationEnd = contentEnd;
+            break;
+        }
+        if (lineBreak == std::string::npos) break;
+        lineStart = fullEnd;
+    }
+
+    if (informationStart == std::string::npos) return false;
+
+    std::string information = contents.substr(informationStart, informationEnd - informationStart);
+    std::vector<std::string> fields;
+    size_t fieldStart = 0;
+    for (;;) {
+        const size_t comma = information.find(',', fieldStart);
+        fields.push_back(information.substr(fieldStart,
+            comma == std::string::npos ? std::string::npos : comma - fieldStart));
+        if (comma == std::string::npos) break;
+        fieldStart = comma + 1;
+    }
+    while (fields.size() < 8) fields.push_back("");
+    fields[6] = std::to_string(width);
+    fields[7] = std::to_string(height);
+
+    std::string updatedInformation;
+    for (size_t i = 0; i < fields.size(); ++i) {
+        if (i) updatedInformation += ',';
+        updatedInformation += fields[i];
+    }
+    contents.replace(informationStart, informationEnd - informationStart, updatedInformation);
+
+    const std::string tempPath = std::string(path) + ".resolution.tmp";
+    FILE* output = fopen(tempPath.c_str(), "wb");
+    if (!output) return false;
+    const bool writeOk = contents.empty() ||
+        fwrite(contents.data(), 1, contents.size(), output) == contents.size();
+    const bool closeOk = fclose(output) == 0;
+    if (!writeOk || !closeOk) {
+        remove(tempPath.c_str());
+        return false;
+    }
+    if (!MoveFileExA(tempPath.c_str(), path,
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        remove(tempPath.c_str());
+        return false;
+    }
+    return true;
+}
+
+static std::vector<unsigned char> BuildPreviewRuntimeMask(ARR& skinfileLines, skstruct* sk) {
+    struct ConditionalState {
+        bool outerActive = true;
+        bool branchTaken = false;
+        bool currentActive = true;
+    };
+    struct FileState {
+        bool enabled = true;
+        bool pendingIncludeEnabled = false;
+        std::vector<ConditionalState> conditions;
+    };
+
+    std::vector<unsigned char> enabled((size_t)skinfileLines.count, 0);
+    std::vector<FileState> files;
+
+    auto currentActive = [&]() -> bool {
+        if (files.empty() || !files.back().enabled) return false;
+        return files.back().conditions.empty() ||
+            files.back().conditions.back().currentActive;
+    };
+    auto matches = [&](const CSVbuf& csv) -> bool {
+        for (int column = 1; column < 10; ++column) {
+            const int option = csv.val[column];
+            if (option < 0 || option > 999 || sk->op[option] == 0)
+                return false;
+        }
+        return true;
+    };
+
+    for (int rowIndex = 0; rowIndex < skinfileLines.count; ++rowIndex) {
+        SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
+        const char* text = row.line.body ? row.line.outstr() : "";
+
+        if (row.isSEcomment && !strncmp(text, "$FILE ", 6)) {
+            const bool isStart = strstr(text, " start") != NULL;
+            const bool isEnd = strstr(text, " end") != NULL;
+            if (isStart) {
+                FileState state;
+                state.enabled = files.empty() ? true : files.back().pendingIncludeEnabled;
+                if (!files.empty()) files.back().pendingIncludeEnabled = false;
+                files.push_back(state);
+            }
+            else if (isEnd && !files.empty()) {
+                files.pop_back();
+            }
+            continue;
+        }
+        if (files.empty() || row.isComment) continue;
+
+        const char* command = row.csv.str[0].body ? row.csv.str[0].outstr() : "";
+        FileState& file = files.back();
+        if (!_stricmp(command, "#IF")) {
+            ConditionalState condition;
+            condition.outerActive = currentActive();
+            const bool branchMatches = matches(row.csv);
+            condition.branchTaken = branchMatches;
+            condition.currentActive = condition.outerActive && branchMatches;
+            file.conditions.push_back(condition);
+            continue;
+        }
+        if (!_stricmp(command, "#ELSEIF")) {
+            if (!file.conditions.empty()) {
+                ConditionalState& condition = file.conditions.back();
+                const bool branchMatches = !condition.branchTaken && matches(row.csv);
+                condition.currentActive = condition.outerActive && branchMatches;
+                condition.branchTaken = condition.branchTaken || branchMatches;
+            }
+            continue;
+        }
+        if (!_stricmp(command, "#ELSE")) {
+            if (!file.conditions.empty()) {
+                ConditionalState& condition = file.conditions.back();
+                const bool branchMatches = !condition.branchTaken;
+                condition.currentActive = condition.outerActive && branchMatches;
+                condition.branchTaken = true;
+            }
+            continue;
+        }
+        if (!_stricmp(command, "#ENDIF")) {
+            if (!file.conditions.empty()) file.conditions.pop_back();
+            continue;
+        }
+
+        const bool active = currentActive();
+        if (!_stricmp(command, "#INCLUDE")) {
+            file.pendingIncludeEnabled = active;
+            continue;
+        }
+        if (!active) continue;
+
+        enabled[(size_t)rowIndex] = 1;
+        if (!_stricmp(command, "#SETOPTION")) {
+            const int option = row.csv.val[1];
+            if (option >= 0 && option < 1000)
+                sk->op[option] = row.csv.val[2] != 0;
+        }
+    }
+    return enabled;
 }
 
 int WORKSPACE::ReadSkinSE() {
@@ -1234,6 +1760,8 @@ int WORKSPACE::ReadSkinSE() {
     bool flipside = false;
 
     skstruct* sk = &g.skstruct;
+    const std::vector<unsigned char> runtimeLineEnabled =
+        BuildPreviewRuntimeMask(skinfileLines, sk);
 
 
     for (int i = 0; i < skinfileLines.count; i++) {
@@ -1250,17 +1778,27 @@ int WORKSPACE::ReadSkinSE() {
 
 
         SKINFILELINEREAD& read = ((SKINFILELINEREAD*)(skinfileLines.data))[i];
-        CSTR& fBuf = read.line;
+        if (!runtimeLineEnabled[(size_t)i]) continue;
+        // ReadSkinSE normalizes and temporarily edits its input while parsing.
+        // Never do that to the editor's authoritative line: repeated preview
+        // rebuilds would otherwise remove one real character on every pass.
+        CSTR fBuf(read.line);
         line++;
 
         char loadLine[128];
         sprintf_s(loadLine, "expanded line %d, source line %d, command %.64s", i, read.num, fBuf.outstr());
+#ifdef _DEBUG
         WriteSkinLoadLog("ReadSkinSE", loadLine);
+#endif
 
         if (read.line.length() <= 6) continue;
         if (strncmp(read.line.atPos(0), "#", 1)) continue;
 
-        fBuf.nullAtPos(fBuf.length() - 1);
+        while (fBuf.length() > 0) {
+            const char tail = *fBuf.atPos(fBuf.length() - 1);
+            if (tail != '\r' && tail != '\n') break;
+            fBuf.nullAtPos(fBuf.length() - 1);
+        }
         fBuf.trimWhiteSpace();
         DealWhiteSpace(&fBuf);
         if (!fBuf.left(1).isDiff("#")) {
@@ -1320,12 +1858,17 @@ int WORKSPACE::ReadSkinSE() {
         }
 
         if (IFCOUNT > 0) {
-            if (IFSWITCH[IFCOUNT] > 1) {
-                // The editor previously evaluated IF state but deliberately
-                // continued parsing inactive branches. Large skins therefore
-                // loaded both player sides and every customization variant at
-                // once (tricoro HD expands to more than 1,000 SRC_IMAGE rows).
-                // Preview must load only the currently active branch.
+            bool inactiveAncestor = false;
+            for (int depth = 1; depth <= IFCOUNT; ++depth) {
+                if (IFSWITCH[depth] > 1) {
+                    inactiveAncestor = true;
+                    break;
+                }
+            }
+            if (inactiveAncestor) {
+                // Every enclosing condition must be active. Checking only the
+                // innermost level allowed a nested #IF to leak objects out of
+                // an inactive parent branch and overwrite image slots.
                 continue;
             }
         }
@@ -1343,7 +1886,13 @@ int WORKSPACE::ReadSkinSE() {
                         sk->count++;
                     }
                     else {
-                        if (sk->caption[sk->count].isDiff(&csv.str[1]) || sk->grIsMovie[sk->count] == 1 || sk->caption[sk->count].findStrPos("*") != -1) {
+                        // A failed LoadGraph still leaves the requested path in
+                        // caption.  Retrying the same skin then used to skip the
+                        // load forever and produced a permanently black preview.
+                        if (sk->GrHandle[sk->count] == -1 ||
+                            sk->caption[sk->count].isDiff(&csv.str[1]) ||
+                            sk->grIsMovie[sk->count] == 1 ||
+                            sk->caption[sk->count].findStrPos("*") != -1) {
                             DeleteGraph(sk->GrHandle[sk->count]);
                             sk->caption[sk->count].assign(&csv.str[1]);
                             if (csv.str[1].right(3).isSame("mpg") || csv.str[1].right(3).isSame("avi") || csv.str[1].right(3).isSame("wma") || csv.str[1].right(3).isSame("ogv")) {
@@ -1358,6 +1907,10 @@ int WORKSPACE::ReadSkinSE() {
                                     break;
                                 }
                             }
+                            char siblingImage[MAX_PATH] = {};
+                            if (ResolveSiblingPlayPath(csv.str[1].outstr(), mainpath,
+                                siblingImage, sizeof(siblingImage)))
+                                csv.str[1].assign(siblingImage);
                             CSTR temp(GetRandomFileNoError(csv.str[1], dir), 0);
                             sk->GrHandle[sk->count] = LoadGraph(temp);
                             sk->caption[sk->count].assign(&temp);
@@ -2024,6 +2577,10 @@ int WORKSPACE::ReadSkinSE() {
             }
             else if (fBuf.left(11).isSame("#CUSTOMFILE")) {
                 SplitCSV(fBuf, &csv, ",");
+                char siblingCustom[MAX_PATH] = {};
+                if (ResolveSiblingPlayPath(csv.str[2].outstr(), mainpath,
+                    siblingCustom, sizeof(siblingCustom)))
+                    csv.str[2].assign(siblingCustom);
                 sk->customfileRANDOM[sk->customfile_count].assign(&csv.str[2]);
                 sk->customfile[sk->customfile_count].assign("RANDOM");
                 if (sk->customfile[sk->customfile_count].isSame("RANDOM")) {
@@ -2180,15 +2737,54 @@ int WORKSPACE::drawPreview() {
 
     static bool playing = false;
 
-    LR2SEDrawLoop(&g, previewScreen, skinSizeX, skinSizeY);
-    
-    ImGui::Begin(title, &wPreview, ImGuiWindowFlags_HorizontalScrollbar);
-    ImGui::SliderFloat("zoom##zoom", &zoom, 0.25f, 4.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+    // An inactive dock tab returns false here. Do not run LR2 rendering or
+    // transfer a full preview texture while the user cannot see it.
+    if (!ImGui::Begin(title, &wPreview, ImGuiWindowFlags_HorizontalScrollbar)) {
+        ImGui::End();
+        return 0;
+    }
+
+    const unsigned long long previewNow = GetTickCount64();
+    bool previewFrameUpdated = false;
+
+    // Object Editor changes first update the in-memory CSV. Rebuild the LR2
+    // preview objects shortly after the last edit so coordinates and all DST
+    // properties become visible without saving and reopening the skin.
+    if (previewReloadPending && previewNow - previewReloadRequestedAt >= 80) {
+        LoadSceneSE();
+        LR2SEResetRenderFault();
+        previewReloadPending = false;
+        previewLastRenderAt = 0;
+    }
+
+    // Keep editing and live scene playback at the same responsive refresh
+    // rate. Image candidates are now loaded lazily, so the former 15/30 FPS
+    // memory-pressure workaround is no longer needed.
+    const unsigned long long previewFrameInterval = 16;
+    if (previewLastRenderAt == 0 || previewNow - previewLastRenderAt >= previewFrameInterval) {
+        // SELECT still needs its editor-side bar/BGA placeholders while its
+        // timers are running; the original selector loop is not driven here.
+        const bool staticSpecialPreview = !playing || meta.type == SKINTYPE_SELECT;
+        if (LR2SEDrawLoopSafe(&g, previewScreen, skinSizeX, skinSizeY, staticSpecialPreview) == 0) {
+            previewFrameUpdated = true;
+            previewTextureDirty = true;
+        }
+        previewLastRenderAt = previewNow;
+    }
+
+    float zoomPercent = 100.0f / zoom;
+    if (ImGui::SliderFloat("zoom##zoom", &zoomPercent, 25.0f, 400.0f,
+        "%.0f%%", ImGuiSliderFlags_Logarithmic)) {
+        if (zoomPercent < 1.0f) zoomPercent = 1.0f;
+        zoom = 100.0f / zoomPercent;
+    }
     ImVec2 p = ImGui::GetCursorScreenPos();
     //TODO init zoom value
     //TODO support HD skins
     
-    void* previewPixels = GetImageAddressSoftImage(previewScreen);
+    void* previewPixels = NULL;
+    if (previewTextureDirty || !texture_preview)
+        previewPixels = GetImageAddressSoftImage(previewScreen);
     const size_t previewBytes = (size_t)skinSizeX * (size_t)skinSizeY * 4;
     if (texture_preview &&
         (texture_preview_width != skinSizeX || texture_preview_height != skinSizeY)) {
@@ -2200,22 +2796,34 @@ int WORKSPACE::drawPreview() {
             skinSizeX, skinSizeY, &texture_preview)) {
             texture_preview_width = skinSizeX;
             texture_preview_height = skinSizeY;
+            previewTextureDirty = false;
         }
     }
-    else if (previewPixels) {
+    else if (previewPixels && previewFrameUpdated) {
         RefreshTextureByRawMemory(previewPixels, previewBytes,
             skinSizeX, skinSizeY, &texture_preview);
+        previewTextureDirty = false;
     }
 
-    ImGui::Image(texture_preview, { (float)skinSizeX / zoom, (float)skinSizeY / zoom }, { 0, 0 }, { 1, 1 });
+    // An Image does not claim mouse input, so dragging an Object over it can
+    // also start ImGui's window move behavior. Use a transparent button as the
+    // preview canvas so the canvas owns the drag from its first frame.
+    const ImVec2 previewCanvasSize((float)skinSizeX / zoom, (float)skinSizeY / zoom);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(0, 0, 0, 0));
+    ImGui::ImageButton("##preview_canvas", texture_preview, previewCanvasSize,
+        ImVec2(0, 0), ImVec2(1, 1));
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar();
 
     if (ImGui::Button("MainStart")) {
         LoadSceneSE();
-        LR2SESceneInit(&g, meta.type);
-        playing = true;
+        playing = (LR2SESceneInitSafe(&g, meta.type) == 0);
     }
-    if(playing)
-        LR2SESceneProc(&g, meta.type);
+    if (playing && LR2SESceneProcSafe(&g, meta.type) == -1)
+        playing = false;
 
     if (ImGui::BeginCombo("##Timer",timerName(timerSelected))) {
         for (int timer = 0; timer < 200; timer++) {
@@ -2287,6 +2895,8 @@ int WORKSPACE::drawPreview() {
             preview_drag_mouse_start = mousePos;
             preview_drag_object_start_x = preview_selected_obj.x;
             preview_drag_object_start_y = preview_selected_obj.y;
+            preview_drag_last_start_x = preview_selected_obj_last.x;
+            preview_drag_last_start_y = preview_selected_obj_last.y;
         }
 
         if (preview_object_dragging) {
@@ -2295,13 +2905,19 @@ int WORKSPACE::drawPreview() {
             const float deltaY = (mouseNow.y - preview_drag_mouse_start.y) * zoom;
             preview_selected_obj.x = preview_drag_object_start_x + deltaX;
             preview_selected_obj.y = preview_drag_object_start_y + deltaY;
+            if (preview_selected_obj_last_valid) {
+                preview_selected_obj_last.x = preview_drag_last_start_x + deltaX;
+                preview_selected_obj_last.y = preview_drag_last_start_y + deltaY;
+            }
 
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
                 const int moveX = (int)std::round(deltaX);
                 const int moveY = (int)std::round(deltaY);
-                if ((moveX != 0 || moveY != 0) && preview_selected_object_model_index >= 0 &&
-                    preview_selected_object_model_index < (int)g_seObjectEditorModel.Objects().size()) {
-                    const SEObjectInstance& selectedObject = g_seObjectEditorModel.Objects()[preview_selected_object_model_index];
+                if ((moveX != 0 || moveY != 0) && !preview_selected_object_model_indices.empty()) {
+                    for (int selectedModelIndex : preview_selected_object_model_indices) {
+                    if (selectedModelIndex < 0 ||
+                        selectedModelIndex >= (int)g_seObjectEditorModel.Objects().size()) continue;
+                    const SEObjectInstance& selectedObject = g_seObjectEditorModel.Objects()[selectedModelIndex];
                     for (int rowIndex = 0; rowIndex < (int)selectedObject.rows.size(); ++rowIndex) {
                         const int row = selectedObject.rows[rowIndex];
                         if (row < 0 || row >= skinfileLines.count) continue;
@@ -2323,10 +2939,67 @@ int WORKSPACE::drawPreview() {
                             frame.y += moveY;
                         }
                     }
+                    }
                 }
                 preview_selected_obj.x = preview_drag_object_start_x + moveX;
                 preview_selected_obj.y = preview_drag_object_start_y + moveY;
+                if (preview_selected_obj_last_valid) {
+                    preview_selected_obj_last.x = preview_drag_last_start_x + moveX;
+                    preview_selected_obj_last.y = preview_drag_last_start_y + moveY;
+                }
                 preview_object_dragging = false;
+            }
+        }
+
+        // Fine positioning: move every selected Object by exactly one skin
+        // pixel per arrow-key step. Key repeat is enabled for held keys, but
+        // text/property editing keeps ownership of the arrows.
+        if (!preview_object_dragging && !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive()) {
+            int keyMoveX = 0;
+            int keyMoveY = 0;
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)) --keyMoveX;
+            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) ++keyMoveX;
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) --keyMoveY;
+            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) ++keyMoveY;
+            if ((keyMoveX != 0 || keyMoveY != 0) &&
+                !preview_selected_object_model_indices.empty()) {
+                for (int selectedModelIndex : preview_selected_object_model_indices) {
+                    if (selectedModelIndex < 0 ||
+                        selectedModelIndex >= (int)g_seObjectEditorModel.Objects().size()) continue;
+                    const SEObjectInstance& selectedObject =
+                        g_seObjectEditorModel.Objects()[selectedModelIndex];
+                    for (int rowIndex = 0; rowIndex < (int)selectedObject.rows.size(); ++rowIndex) {
+                        const int row = selectedObject.rows[rowIndex];
+                        if (row < 0 || row >= skinfileLines.count) continue;
+                        SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                        if (!line.csv.str[0].body ||
+                            strncmp(line.csv.str[0].outstr(), "#DST", 4) != 0) continue;
+                        EditValue(row, 3, line.csv.val[3] + keyMoveX);
+                        EditValue(row, 4, line.csv.val[4] + keyMoveY);
+                    }
+                    for (int dstIndex = 0; dstIndex < arr_DST.count; ++dstIndex) {
+                        DST& dst = ((DST*)arr_DST.data)[dstIndex];
+                        bool belongsToObject = false;
+                        for (int rowIndex = 0; rowIndex < (int)selectedObject.rows.size(); ++rowIndex) {
+                            if (dst.declare == selectedObject.rows[rowIndex]) {
+                                belongsToObject = true;
+                                break;
+                            }
+                        }
+                        if (!belongsToObject) continue;
+                        for (int frameIndex = 0; frameIndex < dst.arr_animation.count; ++frameIndex) {
+                            DST_ANIMATION& frame = ((DST_ANIMATION*)dst.arr_animation.data)[frameIndex];
+                            frame.x += keyMoveX;
+                            frame.y += keyMoveY;
+                        }
+                    }
+                }
+                preview_selected_obj.x += keyMoveX;
+                preview_selected_obj.y += keyMoveY;
+                if (preview_selected_obj_last_valid) {
+                    preview_selected_obj_last.x += keyMoveX;
+                    preview_selected_obj_last.y += keyMoveY;
+                }
             }
         }
     }
@@ -2334,25 +3007,27 @@ int WORKSPACE::drawPreview() {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     if (preview_selected_obj_valid && ((int)GetTimeLapse(1, &g.timer1) % 500 < 300)) {
         const float previewScale = 1.0f / zoom;
-        float x1 = preview_selected_obj.x;
-        float y1 = preview_selected_obj.y;
-        float x2 = preview_selected_obj.x + preview_selected_obj.w;
-        float y2 = preview_selected_obj.y + preview_selected_obj.h;
-        if (x1 > x2) std::swap(x1, x2);
-        if (y1 > y2) std::swap(y1, y2);
-        ImVec2 dstTopLeft = {
-            p.x + x1 * previewScale - 2.0f,
-            p.y + y1 * previewScale - 2.0f
+        auto drawDstBounds = [&](const PreviewSelectionBounds& bounds, ImU32 color) {
+            float x1 = bounds.x;
+            float y1 = bounds.y;
+            float x2 = bounds.x + bounds.w;
+            float y2 = bounds.y + bounds.h;
+            if (x1 > x2) std::swap(x1, x2);
+            if (y1 > y2) std::swap(y1, y2);
+            ImVec2 dstTopLeft(p.x + x1 * previewScale - 2.0f,
+                p.y + y1 * previewScale - 2.0f);
+            ImVec2 dstBottomRight(p.x + x2 * previewScale + 2.0f,
+                p.y + y2 * previewScale + 2.0f);
+            draw_list->AddRect(dstTopLeft, dstBottomRight, color,
+                0.0f, ImDrawFlags_Closed, 3.0f);
+            draw_list->AddRect(ImVec2(dstTopLeft.x + 2, dstTopLeft.y + 2),
+                ImVec2(dstBottomRight.x - 2, dstBottomRight.y - 2),
+                IM_COL32(255, 255, 255, 210), 0.0f, ImDrawFlags_Closed, 1.0f);
         };
-        ImVec2 dstBottomRight = {
-            p.x + x2 * previewScale + 2.0f,
-            p.y + y2 * previewScale + 2.0f
-        };
-        draw_list->AddRect(dstTopLeft, dstBottomRight,
-            IM_COL32(255, 48, 48, 255), 0.0f, ImDrawFlags_Closed, 3.0f);
-        draw_list->AddRect(ImVec2(dstTopLeft.x + 2, dstTopLeft.y + 2),
-            ImVec2(dstBottomRight.x - 2, dstBottomRight.y - 2),
-            IM_COL32(255, 255, 255, 230), 0.0f, ImDrawFlags_Closed, 1.0f);
+        // Cyan marks the starting DST frame; red marks the final destination.
+        drawDstBounds(preview_selected_obj, IM_COL32(32, 210, 255, 255));
+        if (preview_selected_obj_last_valid)
+            drawDstBounds(preview_selected_obj_last, IM_COL32(255, 48, 48, 255));
     }
 
     //test objects on cursor
@@ -2722,7 +3397,7 @@ int WORKSPACE::drawTextEdit() {
                         if (read.csv.str[0].isSame("#SRC_IMAGE")) {
 
                             int handle = read.csv.val[2];
-                            
+                            EnsureSRCGRTexture(handle);
                             SRCGR& img = ((SRCGR*)arr_SRCGR.data)[handle];
 
                             int iX = read.csv.val[3];
@@ -2768,6 +3443,30 @@ int WORKSPACE::drawTextEdit() {
     return 0;
 }
 
+bool WORKSPACE::EnsureSRCGRTexture(int iSRCGR) {
+    if (iSRCGR < 0 || iSRCGR >= arr_SRCGR.count) return false;
+    SRCGR& img = ((SRCGR*)arr_SRCGR.data)[iSRCGR];
+    if (img.texture != NULL) return true;
+    if (img.loaded || img.path.isSame("CONTINUE")) return false;
+
+    // Mark the attempt so missing optional files are not retried every frame.
+    img.loaded = true;
+    if (LoadTextureFromFile(img.path.outstr(), &img.texture, &img.sizeX, &img.sizeY))
+        return true;
+
+    int dxf = DxLib::FileRead_open(img.path);
+    if (dxf < 0) return false;
+    const int fileSize = FileRead_size(img.path.outstr());
+    void* buffer = fileSize > 0 ? malloc((size_t)fileSize) : NULL;
+    bool loaded = false;
+    if (buffer && DxLib::FileRead_read(buffer, fileSize, dxf) >= 0)
+        loaded = LoadTextureFromMemory(buffer, (size_t)fileSize,
+            &img.texture, &img.sizeX, &img.sizeY);
+    DxLib::FileRead_close(dxf);
+    if (buffer) free(buffer);
+    return loaded;
+}
+
 //deprecated
 int WORKSPACE::loadSRC() {
 
@@ -2775,13 +3474,14 @@ int WORKSPACE::loadSRC() {
         CSTR& path = ((SRCGR*)arr_SRCGR.data)[n].path;
         SRCGR& img = ((SRCGR*)arr_SRCGR.data)[n];
 
-        bool isLoaded = LoadTextureFromFile(path.outstr(), &img.texture, &img.sizeX, &img.sizeY);
+        bool isLoaded = EnsureSRCGRTexture(n);
     }
     return 0;
 }
 
 
 int WORKSPACE::printSrcImg(SRC src, bool button) {
+    EnsureSRCGRTexture(src.gr);
     SRCGR &img = ((SRCGR*)arr_SRCGR.data)[src.gr];
     if (img.texture != NULL) {
         int sizeX = src.sizeX == -1 ? img.sizeX - src.x : src.sizeX;
@@ -2821,7 +3521,7 @@ int WORKSPACE::printSrcImg(SRC src, bool button) {
 }
 
 int WORKSPACE::printSrcImgButton(SRC src, int num, int w, int h) {
-    
+    EnsureSRCGRTexture(src.gr);
     SRCGR& img = ((SRCGR*)arr_SRCGR.data)[src.gr];
     ImGui::PushID(num);
     if (img.texture != NULL) {
@@ -2863,7 +3563,7 @@ int WORKSPACE::printSrcImgButton(SRC src, int num, int w, int h) {
 }
 
 int WORKSPACE::printSrcImgEx(SRC src, int w, int h) {
-
+    EnsureSRCGRTexture(src.gr);
     SRCGR& img = ((SRCGR*)arr_SRCGR.data)[src.gr];
     ImGui::PushID(num);
     if (img.texture != NULL) {
@@ -3001,6 +3701,7 @@ int WORKSPACE::drawImgManager() {
         ImGui::EndCombo();
     }
 
+    EnsureSRCGRTexture(gr_selected);
     SRCGR& img = ((SRCGR*)arr_SRCGR.data)[gr_selected];
     ImGui::Text("%03d_%d ", gr_selected, img.grID);
     
@@ -3148,6 +3849,7 @@ int AutoSRCObjectPos(SRCGR* gr, int* x, int* y, int* w, int* h) {
 }
 
 int WORKSPACE::drawSrc(int iSRCGR, int iSRCID, int posX, int posY, int w, int h, bool stretch) {
+    EnsureSRCGRTexture(iSRCGR);
     SRCGR& img = ((SRCGR*)arr_SRCGR.data)[iSRCGR];
 
     if (img.texture != NULL) {
@@ -3255,7 +3957,7 @@ int WORKSPACE::drawSaveMenu() {
         
         snprintf(result, sizeof(result), "SaveResult##Save%d", num);
         if (ImGui::BeginPopupModal(result, NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("save success");
+            ImGui::TextUnformatted(success ? "save success" : "save failed - original files were preserved");
             if (ImGui::Button("OK")) {
                 wSaveMenu = 0;
                 success = 0;
@@ -3313,7 +4015,7 @@ int WORKSPACE::drawSaveMenu2() {
 
         snprintf(result, sizeof(result), "SaveResult##Save%d", num);
         if (ImGui::BeginPopupModal(result, NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("save success");
+            ImGui::TextUnformatted(success ? "save success" : "save failed - original files were preserved");
             if (ImGui::Button("OK")) {
                 wSaveMenu2 = 0;
                 success = 0;
@@ -3890,19 +4592,58 @@ int WORKSPACE::drawObjectManagerTest() {
 int WORKSPACE::drawNewObject() {
 
     char title[260];
-    snprintf(title, sizeof(title), "NewObject##%d", num);
+    snprintf(title, sizeof(title), "%s##%d",
+        newCommandIncludeAll ? "New Command / Setting" : "New Object", num);
     if (ImGui::Begin(title, &wNewObject)) {
 
         CSVbuf* csv = ((CSVbuf*)arr_CommandHelp.data);
+        static bool isCsvInit = false;
+        static CSVbuf nCsv;
+        static int initializedCommand = -1;
+        auto isCreatableObjectCommand = [&](const char* command) {
+            if (!command || !*command) return false;
+            const std::vector<SEObjectGroupDef>& groups = g_seObjectEditorModel.Groups();
+            for (const SEObjectGroupDef& group : groups)
+                for (const std::string& candidate : group.commands)
+                    if (candidate == command) return true;
+            return false;
+        };
+        auto isSelectableCommand = [&](const char* command) {
+            if (!command || command[0] != '#') return false;
+            return newCommandIncludeAll || isCreatableObjectCommand(command);
+        };
+        if (arr_CommandHelp.count <= 0) {
+            ImGui::TextDisabled("Object command definitions are not loaded.");
+            ImGui::End();
+            return 0;
+        }
+        if (selected_command < 0 || selected_command >= arr_CommandHelp.count ||
+            !isSelectableCommand(csv[selected_command].str[0].outstr())) {
+            selected_command = 0;
+            while (selected_command < arr_CommandHelp.count &&
+                !isSelectableCommand(csv[selected_command].str[0].outstr()))
+                ++selected_command;
+            if (selected_command >= arr_CommandHelp.count) selected_command = 0;
+        }
         if (ImGui::BeginCombo("command", csv[selected_command].str[0], ImGuiComboFlags_None)) {
             for (int op = 0; op < arr_CommandHelp.count; op++) {
+                if (!csv[op].str[0].body ||
+                    !isSelectableCommand(csv[op].str[0].outstr())) continue;
                 ImGui::PushID(op);
                 const bool is_selected = (selected_command == op);
                 char opname[64];
-                sprintf(opname, "%03d:%s", op, csv[op].str[0].body);
+                const char* cmd = csv[op].str[0].outstr();
+                const char* category = isCreatableObjectCommand(cmd) ? "Object" :
+                    ((!strcmp(cmd, "#INFORMATION") || !strcmp(cmd, "#RESOLUTION") ||
+                        !strcmp(cmd, "#CUSTOMOPTION") || !strcmp(cmd, "#CUSTOMFILE") ||
+                        !strcmp(cmd, "#ENDOFHEADER")) ? "Header" :
+                    ((!strcmp(cmd, "#IF") || !strcmp(cmd, "#ELSEIF") ||
+                        !strcmp(cmd, "#ELSE") || !strcmp(cmd, "#ENDIF")) ? "Condition" : "Setting"));
+                sprintf(opname, "[%s] %s", category, csv[op].str[0].body);
 
                 if (ImGui::Selectable(opname, is_selected)) {
                     selected_command = op;
+                    isCsvInit = false;
                 }
                 // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
                 if (is_selected)
@@ -3912,10 +4653,10 @@ int WORKSPACE::drawNewObject() {
             }
             ImGui::EndCombo();
         }
-        static CSVbuf nCsv;
-        static bool isCsvInit = false;
-        if (!isCsvInit) {
+        if (!isCsvInit || initializedCommand != selected_command) {
             SplitCSV("", &nCsv, ",");
+            nCsv.str[0].assign(csv[selected_command].str[0].outstr());
+            initializedCommand = selected_command;
             isCsvInit = true;
         }
         for (int column = 1; column < 30; column++) {
@@ -3928,14 +4669,127 @@ int WORKSPACE::drawNewObject() {
 
 
         if (ImGui::Button("OK")) {
-            SEOBJ* seobj = (SEOBJ*)arr_seobj.Get_newAt(selected_obj);
-            seobj->name.assign("newObject");
-            seobj->body.Alloc(sizeof(CSTR), 1);
-            seobj->bodyCSV.Alloc(sizeof(CSVbuf), 1);
-            CsvToCSTR(nCsv, ((CSTR*)seobj->body.data)[0]);
-            SplitCSV(((CSTR*)seobj->body.data)[0], &((CSVbuf*)seobj->bodyCSV.data)[0], ",");
-            seobj->type2 = -1;
+            nCsv.str[0].assign(csv[selected_command].str[0].outstr());
+            CSTR srcLine;
+            CsvToCSTR(nCsv, srcLine);
+            int insertAt = newObjectInsertPosition;
+            if (insertAt < 0 || insertAt > skinfileLines.count) insertAt = skinfileLines.count;
+            const char* selectedCommand = csv[selected_command].str[0].outstr();
+            const bool isHeaderCommand = !strcmp(selectedCommand, "#INFORMATION") ||
+                !strcmp(selectedCommand, "#RESOLUTION") || !strcmp(selectedCommand, "#CUSTOMOPTION") ||
+                !strcmp(selectedCommand, "#CUSTOMFILE") || !strcmp(selectedCommand, "#ENDOFHEADER");
+            if (newCommandIncludeAll && isHeaderCommand && strcmp(selectedCommand, "#ENDOFHEADER") != 0) {
+                for (int row = 0; row < skinfileLines.count; ++row) {
+                    SKINFILELINEREAD& candidate = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    if (candidate.csv.str[0].body && candidate.csv.str[0].isSame("#ENDOFHEADER")) {
+                        insertAt = row;
+                        break;
+                    }
+                }
+            }
 
+            int wrapFirst = skinfileLines.count;
+            int wrapLast = -1;
+            bool wrapSameCondition = true;
+            if (newCommandIncludeAll && !strcmp(selectedCommand, "#IF")) {
+                const std::vector<SEObjectInstance>& objects = g_seObjectEditorModel.Objects();
+                for (int modelIndex : preview_selected_object_model_indices) {
+                    if (modelIndex < 0 || modelIndex >= (int)objects.size()) continue;
+                    const SEObjectInstance& object = objects[modelIndex];
+                    if (object.ifgroup != newObjectIfgroup) wrapSameCondition = false;
+                    for (int row : object.rows) {
+                        if (row < wrapFirst) wrapFirst = row;
+                        if (row > wrapLast) wrapLast = row;
+                    }
+                    if (!object.rows.empty() && object.rows.front() > 0) {
+                        const int metaRow = object.rows.front() - 1;
+                        SKINFILELINEREAD& meta = ((SKINFILELINEREAD*)skinfileLines.data)[metaRow];
+                        const char* metaText = meta.line.body ? meta.line.outstr() : "";
+                        if (strncmp(metaText, "$SE_OBJECT_ID,", 14) == 0 && metaRow < wrapFirst)
+                            wrapFirst = metaRow;
+                    }
+                }
+                if (!wrapSameCondition) { wrapFirst = skinfileLines.count; wrapLast = -1; }
+            }
+
+            auto insertObjectLine = [&](const char* text) {
+                InsertLine(insertAt);
+                SKINFILELINEREAD& inserted = ((SKINFILELINEREAD*)skinfileLines.data)[insertAt];
+                CSTR oldLine(inserted.line);
+                EditLine(insertAt, oldLine, CSTR(text));
+                inserted.filename.assign(mainpath);
+                inserted.ifgroup = newObjectIfgroup;
+                ++insertAt;
+            };
+            const bool selectedIsObject = isCreatableObjectCommand(selectedCommand);
+            const bool wrapSelection = newCommandIncludeAll && !strcmp(selectedCommand, "#IF") &&
+                wrapLast >= wrapFirst;
+            if (wrapSelection) insertAt = wrapFirst;
+            if (selectedIsObject) {
+                char generatedId[64];
+                snprintf(generatedId, sizeof(generatedId), "obj_%08llX_new", GetTickCount64());
+                std::string idLine = std::string("$SE_OBJECT_ID,") + generatedId;
+                insertObjectLine(idLine.c_str());
+            }
+            insertObjectLine(srcLine.outstr());
+
+            if (wrapSelection) {
+                const int ifRow = wrapFirst;
+                IFUNIT condition = {};
+                for (int value = 0; value < 10; ++value)
+                    condition.data[value] = nCsv.str[value + 1].body ? atol(nCsv.str[value + 1]) : 0;
+                condition.parentID = newObjectIfgroup;
+                condition.depth = newObjectIfgroup >= 0 && newObjectIfgroup < arr_ifunit.count
+                    ? ((IFUNIT*)arr_ifunit.data)[newObjectIfgroup].depth + 1 : 1;
+                condition.order = 0;
+                const int newIfgroup = arr_ifunit.count;
+                arr_ifunit.push_back(&condition);
+
+                ((SKINFILELINEREAD*)skinfileLines.data)[ifRow].ifgroup = newIfgroup;
+                ((SKINFILELINEREAD*)skinfileLines.data)[ifRow].isIfGroupHead = true;
+                ((SKINFILELINEREAD*)skinfileLines.data)[ifRow].isGroupHead = true;
+                // The opening line shifted every wrapped row down by one.
+                for (int row = wrapFirst + 1; row <= wrapLast + 1; ++row)
+                    ((SKINFILELINEREAD*)skinfileLines.data)[row].ifgroup = newIfgroup;
+                insertAt = wrapLast + 2;
+                insertObjectLine("#ENDIF");
+                const int endifRow = insertAt - 1;
+                ((SKINFILELINEREAD*)skinfileLines.data)[endifRow].ifgroup = newIfgroup;
+                ((SKINFILELINEREAD*)skinfileLines.data)[endifRow].isIfGroupEnd = true;
+                ((SKINFILELINEREAD*)skinfileLines.data)[endifRow].isGroupEnd = true;
+            }
+            else if (newCommandIncludeAll && !strcmp(selectedCommand, "#IF")) {
+                insertObjectLine("#ENDIF");
+            }
+
+            // Most editable objects are an SRC declaration followed by one
+            // matching DST frame. Create that frame automatically when the
+            // command exists in skinHelper.txt.
+            std::string dstCommand = selectedCommand;
+            if (dstCommand.compare(0, 4, "#SRC") == 0) dstCommand.replace(0, 4, "#DST");
+            for (int commandIndex = 0; selectedIsObject &&
+                strncmp(selectedCommand, "#SRC", 4) == 0 && commandIndex < arr_CommandHelp.count; ++commandIndex) {
+                if (!csv[commandIndex].str[0].body ||
+                    dstCommand != csv[commandIndex].str[0].outstr()) continue;
+                CSVbuf dstCsv;
+                SplitCSV("", &dstCsv, ",");
+                dstCsv.str[0].assign(dstCommand.c_str());
+                // Preserve an explicit object index when both commands use it.
+                CSTR srcIndexHelp = GetCommandHelp(csv[selected_command].str[0].outstr(), 1);
+                CSTR dstIndexHelp = GetCommandHelp(dstCommand.c_str(), 1);
+                if (srcIndexHelp.isSame("index") && dstIndexHelp.isSame("index"))
+                    dstCsv.str[1].assign(nCsv.str[1]);
+                CSTR dstLine;
+                CsvToCSTR(dstCsv, dstLine);
+                insertObjectLine(dstLine.outstr());
+                break;
+            }
+
+            newObjectInsertPosition = -1;
+            g_seObjectEditorModel.Rebuild(*this);
+            previewReloadPending = true;
+            previewReloadRequestedAt = GetTickCount64();
+            isCsvInit = false;
             wNewObject = 0;
         }
     }
@@ -4059,6 +4913,7 @@ int WORKSPACE::drawObjectManager() {
                                     IMG imgg = ((IMG*)arr_IMG.data)[n];
                                     int handle = imgg.gr;
 
+                                    EnsureSRCGRTexture(handle);
                                     SRCGR& img = ((SRCGR*)arr_SRCGR.data)[handle];
 
                                     int iX = imgg.x;
@@ -4428,29 +5283,206 @@ int WORKSPACE::drawObjectEditor() {
     }
 
     const std::vector<SEObjectGroupDef>& groups = g_seObjectEditorModel.Groups();
-    if (selected_object_group < 0 || selected_object_group >= (int)groups.size()) selected_object_group = 0;
+    if (selected_object_group >= (int)groups.size()) selected_object_group = -1;
 
-    // Left: Object types/groups.
-    if (ImGui::BeginChild("ObjectGroups", ImVec2(180, 0), true)) {
-        for (int gidx = 0; gidx < (int)groups.size(); ++gidx) {
-            std::vector<int> objs = g_seObjectEditorModel.ObjectsForGroup(gidx);
-            if (objs.empty()) continue;
-            char label[128];
-            snprintf(label, sizeof(label), "%s (%d)", groups[gidx].name.c_str(), (int)objs.size());
-            if (ImGui::Selectable(label, selected_object_group == gidx)) {
-                selected_object_group = gidx;
+    auto formatConditionHeader = [&](SKINFILELINEREAD& row) -> std::string {
+        std::string result = row.csv.str[0].body ? row.csv.str[0].outstr() : "#IF";
+        const char* command = row.csv.str[0].body ? row.csv.str[0].outstr() : "";
+        if (strcmp(command, "#IF") != 0 && strcmp(command, "#ELSEIF") != 0) return result;
+        for (int col = 1; col < 30; ++col) {
+            if (!row.csv.str[col].body || row.csv.str[col].length() == 0) continue;
+            const int op = row.csv.val[col];
+            const int optionId = op < 0 ? -op : op;
+            const char* optionName = dstName(optionId);
+            char option[160];
+            if (op < 0)
+                snprintf(option, sizeof(option), " !%03d:%s", optionId, optionName ? optionName : "");
+            else
+                snprintf(option, sizeof(option), " %03d:%s", optionId, optionName ? optionName : "");
+            result += option;
+        }
+        return result;
+    };
+
+    static char objectSearch[128] = "";
+    static bool requestCreateGroupPopup = false;
+    static float objectListWidth = 260.0f;
+    const float objectEditorPaneHeight = ImGui::GetContentRegionAvail().y;
+
+    // Left navigator: filters on top, condition/object list below.
+    ImGui::BeginChild("ObjectNavigator", ImVec2(objectListWidth, 0), false);
+    if (ImGui::BeginChild("ObjectFilters", ImVec2(0, 88), true)) {
+        ImGui::TextDisabled("Type");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        const char* typePreview = selected_user_object_group < 0 && selected_object_group >= 0
+            ? groups[selected_object_group].name.c_str() : "All Objects";
+        if (ImGui::BeginCombo("##ObjectTypeFilter", typePreview)) {
+            if (ImGui::Selectable("All Objects", selected_user_object_group < 0 && selected_object_group < 0)) {
+                selected_object_group = -1;
+                selected_user_object_group = -1;
                 selected_object_editor = 0;
             }
+            for (int gidx = 0; gidx < (int)groups.size(); ++gidx) {
+                std::vector<int> objs = g_seObjectEditorModel.ObjectsForGroup(gidx);
+                if (objs.empty()) continue;
+                char label[128];
+                snprintf(label, sizeof(label), "%s (%d)", groups[gidx].name.c_str(), (int)objs.size());
+                if (ImGui::Selectable(label, selected_user_object_group < 0 && selected_object_group == gidx)) {
+                    selected_object_group = gidx;
+                    selected_user_object_group = -1;
+                    selected_object_editor = 0;
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        const std::vector<SEUserObjectGroup>& userGroups = g_seObjectEditorModel.UserGroups();
+        ImGui::TextDisabled("Group");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        const char* groupPreview = selected_user_object_group >= 0 &&
+            selected_user_object_group < (int)userGroups.size()
+            ? userGroups[selected_user_object_group].name.c_str() : "No My Group";
+        if (ImGui::BeginCombo("##ObjectUserGroupFilter", groupPreview)) {
+            if (ImGui::Selectable("No My Group", selected_user_object_group < 0))
+                selected_user_object_group = -1;
+            for (int gidx = 0; gidx < (int)userGroups.size(); ++gidx) {
+                std::vector<int> members = g_seObjectEditorModel.ObjectsForUserGroup(gidx);
+                char label[160];
+                snprintf(label, sizeof(label), "%s (%d)##user%d", userGroups[gidx].name.c_str(),
+                    (int)members.size(), gidx);
+                if (ImGui::Selectable(label, selected_user_object_group == gidx)) {
+                    selected_user_object_group = gidx;
+                    selected_object_editor = 0;
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##ObjectSearch", "Search objects...", objectSearch, sizeof(objectSearch));
+
+        if (requestCreateGroupPopup) {
+            ImGui::OpenPopup("Create Object Group");
+            requestCreateGroupPopup = false;
+        }
+        if (ImGui::BeginPopupModal("Create Object Group", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+            static char newGroupName[128] = "New Group";
+            ImGui::InputText("Group name", newGroupName, sizeof(newGroupName));
+            if (ImGui::Button("Create")) {
+                struct PendingId { int row; int sourceNum; std::string owner; std::string id; };
+                std::vector<PendingId> pendingIds;
+                std::vector<std::string> memberIds;
+                const std::vector<SEObjectInstance>& allObjects = g_seObjectEditorModel.Objects();
+                const unsigned long long stamp = GetTickCount64();
+                for (int modelIndex : preview_selected_object_model_indices) {
+                    if (modelIndex < 0 || modelIndex >= (int)allObjects.size()) continue;
+                    const SEObjectInstance& object = allObjects[modelIndex];
+                    std::string id = object.editorId;
+                    if (id.empty() && !object.rows.empty()) {
+                        char generated[64];
+                        snprintf(generated, sizeof(generated), "obj_%08llX_%04d", stamp, modelIndex);
+                        id = generated;
+                        const int firstRow = object.rows.front();
+                        SKINFILELINEREAD& source = ((SKINFILELINEREAD*)skinfileLines.data)[firstRow];
+                        PendingId pending;
+                        pending.row = firstRow;
+                        pending.sourceNum = source.num;
+                        pending.owner = source.filename.body ? source.filename.outstr() : mainpath;
+                        pending.id = id;
+                        pendingIds.push_back(pending);
+                    }
+                    if (!id.empty()) memberIds.push_back(id);
+                }
+
+                std::sort(pendingIds.begin(), pendingIds.end(), [](const PendingId& a, const PendingId& b) {
+                    return a.row > b.row;
+                });
+                auto insertMetaLine = [&](int position, const char* text, const char* owner, int sourceNum) {
+                    InsertLine(position);
+                    SKINFILELINEREAD& inserted = ((SKINFILELINEREAD*)skinfileLines.data)[position];
+                    CSTR oldLine(inserted.line);
+                    EditLine(position, oldLine, CSTR(text));
+                    inserted.filename.assign(owner && *owner ? owner : mainpath);
+                    inserted.num = sourceNum;
+                    inserted.numTotal = position;
+                };
+                for (const PendingId& pending : pendingIds) {
+                    std::string line = "$SE_OBJECT_ID," + pending.id;
+                    insertMetaLine(pending.row, line.c_str(), pending.owner.c_str(), pending.sourceNum);
+                }
+
+                const int groupNumber = (int)userGroups.size();
+                std::string begin = std::string("$SE_GROUP_BEGIN,") +
+                    (newGroupName[0] ? newGroupName : "New Group");
+                insertMetaLine(skinfileLines.count, begin.c_str(), mainpath, skinfileLines.count);
+                for (const std::string& id : memberIds) {
+                    std::string member = "$SE_GROUP_MEMBER," + id;
+                    insertMetaLine(skinfileLines.count, member.c_str(), mainpath, skinfileLines.count);
+                }
+                insertMetaLine(skinfileLines.count, "$SE_GROUP_END", mainpath, skinfileLines.count);
+
+                g_seObjectEditorModel.Rebuild(*this);
+                selected_user_object_group = groupNumber;
+                selected_object_editor = 0;
+                preview_selected_object_model_indices.clear();
+                const std::vector<SEObjectInstance>& rebuiltObjects = g_seObjectEditorModel.Objects();
+                for (int objectIndex = 0; objectIndex < (int)rebuiltObjects.size(); ++objectIndex) {
+                    if (std::find(memberIds.begin(), memberIds.end(), rebuiltObjects[objectIndex].editorId) != memberIds.end())
+                        preview_selected_object_model_indices.push_back(objectIndex);
+                }
+                preview_selected_object_model_index = preview_selected_object_model_indices.empty()
+                    ? -1 : preview_selected_object_model_indices.front();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
         }
         ImGui::EndChild();
     }
 
-    ImGui::SameLine();
-    std::vector<int> groupObjects = g_seObjectEditorModel.ObjectsForGroup(selected_object_group);
+    std::vector<int> groupObjects;
+    if (selected_user_object_group >= 0)
+        groupObjects = g_seObjectEditorModel.ObjectsForUserGroup(selected_user_object_group);
+    else if (selected_object_group >= 0)
+        groupObjects = g_seObjectEditorModel.ObjectsForGroup(selected_object_group);
+    else {
+        const std::vector<SEObjectInstance>& allObjects = g_seObjectEditorModel.Objects();
+        for (int i = 0; i < (int)allObjects.size(); ++i) groupObjects.push_back(i);
+    }
+
+    if (objectSearch[0]) {
+        auto containsText = [](const char* text, const char* query) {
+            if (!text || !query || !*query) return true;
+            const size_t queryLength = strlen(query);
+            for (const char* cursor = text; *cursor; ++cursor)
+                if (_strnicmp(cursor, query, queryLength) == 0) return true;
+            return false;
+        };
+        const std::vector<SEObjectInstance>& allObjects = g_seObjectEditorModel.Objects();
+        groupObjects.erase(std::remove_if(groupObjects.begin(), groupObjects.end(), [&](int objectIndex) {
+            if (objectIndex < 0 || objectIndex >= (int)allObjects.size()) return true;
+            const SEObjectInstance& object = allObjects[objectIndex];
+            if (containsText(object.name.c_str(), objectSearch) ||
+                containsText(object.editorId.c_str(), objectSearch)) return false;
+            const SEObjectGroupDef* def = g_seObjectEditorModel.Group(object.group);
+            if (def && containsText(def->name.c_str(), objectSearch)) return false;
+            for (int row : object.rows) {
+                if (row < 0 || row >= skinfileLines.count) continue;
+                SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                if (line.line.body && containsText(line.line.outstr(), objectSearch)) return false;
+            }
+            return true;
+        }), groupObjects.end());
+    }
+    int contextCreateModel = -1;
+    int contextDeleteModel = -1;
 
     // Middle: control-flow is metadata, never an Object command.
     // Sibling #IF/#ELSEIF/#ELSE branches are displayed together.
-    if (ImGui::BeginChild("ObjectList", ImVec2(220, 0), true)) {
+    if (ImGui::BeginChild("ObjectList", ImVec2(0, 0), true)) {
         struct BranchBlock {
             int ifgroup;
             int order;
@@ -4474,11 +5506,7 @@ int WORKSPACE::drawObjectEditor() {
             for (int rno = 0; rno < skinfileLines.count; ++rno) {
                 SKINFILELINEREAD& r = ((SKINFILELINEREAD*)skinfileLines.data)[rno];
                 if (r.ifgroup != ifgroup || !r.isIfGroupHead || !r.csv.str[0].body) continue;
-                label = r.csv.str[0].outstr();
-                if (r.csv.str[1].body) {
-                    std::string arg = r.csv.str[1].outstr();
-                    if (!arg.empty()) label += " " + arg;
-                }
+                label = formatConditionHeader(r);
                 return true;
             }
             return false;
@@ -4497,6 +5525,84 @@ int WORKSPACE::drawObjectEditor() {
                 }
             }
             return root;
+        };
+
+        // Cache the exact active branch state. A branch is active only when
+        // its parent is active, its own IF/ELSEIF matches, and no earlier
+        // sibling branch has already matched.
+        static WORKSPACE* statusCacheWorkspace = nullptr;
+        static int statusCacheLineCount = -1;
+        static int statusCacheIfCount = -1;
+        static unsigned long long statusCacheAt = 0;
+        static std::vector<bool> branchActive;
+        const unsigned long long statusNow = GetTickCount64();
+        const bool refreshBranchStatus = statusCacheWorkspace != this ||
+            statusCacheLineCount != skinfileLines.count || statusCacheIfCount != arr_ifunit.count ||
+            statusNow - statusCacheAt >= 200;
+        if (refreshBranchStatus) {
+            std::vector<bool> branchMatches(arr_ifunit.count, true);
+            branchActive.assign(arr_ifunit.count, false);
+            if (!branchActive.empty()) branchActive[0] = true;
+            for (int row = 0; row < skinfileLines.count; ++row) {
+                SKINFILELINEREAD& header = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                if (!header.isIfGroupHead || header.ifgroup <= 0 ||
+                    header.ifgroup >= arr_ifunit.count || !header.csv.str[0].body) continue;
+                const char* command = header.csv.str[0].outstr();
+                if (!strcmp(command, "#ELSE")) {
+                    branchMatches[header.ifgroup] = true;
+                } else {
+                    bool matches = !strcmp(command, "#IF") || !strcmp(command, "#ELSEIF");
+                    for (int col = 1; matches && col <= 10; ++col) {
+                        const int option = header.csv.val[col];
+                        const int optionId = option < 0 ? -option : option;
+                        if (optionId > 999) {
+                            matches = false;
+                        } else {
+                            const bool optionEnabled = optionId == 0 || g.skstruct.op[optionId] != 0;
+                            if ((option >= 0) != optionEnabled) matches = false;
+                        }
+                    }
+                    branchMatches[header.ifgroup] = matches;
+                }
+            }
+            for (int group = 1; group < arr_ifunit.count; ++group) {
+                IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[group];
+                const int chainRoot = getRootIfgroup(group);
+                bool earlierTaken = false;
+                for (int sibling = 1; sibling < group; ++sibling) {
+                    IFUNIT& previous = ((IFUNIT*)arr_ifunit.data)[sibling];
+                    if (previous.parentID == unit.parentID && previous.depth == unit.depth &&
+                        previous.order < unit.order && getRootIfgroup(sibling) == chainRoot &&
+                        branchMatches[sibling]) {
+                        earlierTaken = true;
+                        break;
+                    }
+                }
+                const bool parentActive = unit.parentID >= 0 && unit.parentID < (int)branchActive.size()
+                    ? branchActive[unit.parentID] : false;
+                branchActive[group] = parentActive && !earlierTaken && branchMatches[group];
+            }
+            statusCacheWorkspace = this;
+            statusCacheLineCount = skinfileLines.count;
+            statusCacheIfCount = arr_ifunit.count;
+            statusCacheAt = statusNow;
+        }
+
+        // Command metadata never changes while the helper definition is
+        // loaded. Cache the $op column positions instead of linearly searching
+        // the whole help table for every DST, every UI frame.
+        static std::map<std::string, std::vector<int> > dstOptionColumns;
+        auto optionColumnsFor = [&](const char* command) -> const std::vector<int>& {
+            const std::string key = command ? command : "";
+            std::map<std::string, std::vector<int> >::iterator found = dstOptionColumns.find(key);
+            if (found != dstOptionColumns.end()) return found->second;
+            std::vector<int> columns;
+            for (int col = 1; col < 30; ++col) {
+                CSTR optionHelp = GetCommandHelp(key.c_str(), col);
+                optionHelp.trimWhiteSpace();
+                if (optionHelp.left(3).isSame("$op")) columns.push_back(col);
+            }
+            return dstOptionColumns.insert(std::make_pair(key, columns)).first->second;
         };
 
         for (int oi = 0; oi < (int)groupObjects.size(); ++oi) {
@@ -4549,25 +5655,142 @@ int WORKSPACE::drawObjectEditor() {
             conditions[ci].branches[bi].localObjectIndices.push_back(oi);
         }
 
+        // A condition containing only nested conditions has no direct object,
+        // so the object-driven pass above cannot discover it. Add every
+        // missing ancestor chain to keep the navigator rooted at the actual
+        // top-level #IF instead of starting midway through the source tree.
+        std::vector<int> visibleConditionRoots;
+        for (const ConditionBlock& condition : conditions)
+            if (condition.rootIfgroup > 0) visibleConditionRoots.push_back(condition.rootIfgroup);
+        for (int visibleRoot : visibleConditionRoots) {
+            int ancestorBranch = visibleRoot > 0 && visibleRoot < arr_ifunit.count
+                ? ((IFUNIT*)arr_ifunit.data)[visibleRoot].parentID : 0;
+            while (ancestorBranch > 0 && ancestorBranch < arr_ifunit.count) {
+                const int ancestorRoot = getRootIfgroup(ancestorBranch);
+                bool alreadyPresent = false;
+                for (const ConditionBlock& condition : conditions) {
+                    if (condition.rootIfgroup == ancestorRoot) {
+                        alreadyPresent = true;
+                        break;
+                    }
+                }
+                if (!alreadyPresent) {
+                    ConditionBlock ancestor;
+                    ancestor.rootIfgroup = ancestorRoot;
+                    ancestor.depth = ((IFUNIT*)arr_ifunit.data)[ancestorRoot].depth;
+                    int dummyOrder = 0;
+                    getHeader(ancestorRoot, ancestor.label, dummyOrder);
+                    if (ancestor.label.empty()) ancestor.label = "#IF";
+                    for (int group = ancestorRoot; group < arr_ifunit.count; ++group) {
+                        if (getRootIfgroup(group) != ancestorRoot) continue;
+                        BranchBlock branch;
+                        branch.ifgroup = group;
+                        getHeader(group, branch.label, branch.order);
+                        if (branch.label.empty()) branch.label = branch.order == 0 ? "#IF" : "#ELSE";
+                        ancestor.branches.push_back(branch);
+                    }
+                    conditions.push_back(ancestor);
+                }
+                ancestorBranch = ((IFUNIT*)arr_ifunit.data)[ancestorRoot].parentID;
+            }
+        }
+        std::stable_sort(conditions.begin(), conditions.end(), [](const ConditionBlock& a, const ConditionBlock& b) {
+            if (a.rootIfgroup == b.rootIfgroup) return false;
+            if (a.rootIfgroup == 0) return true;
+            if (b.rootIfgroup == 0) return false;
+            return a.rootIfgroup < b.rootIfgroup;
+        });
+
+        static WORKSPACE* branchTreeWorkspace = nullptr;
+        static int branchTreeIfCount = -1;
+        static std::map<int, bool> branchTreeOpen;
+        if (branchTreeWorkspace != this || branchTreeIfCount != arr_ifunit.count) {
+            branchTreeOpen.clear();
+            branchTreeWorkspace = this;
+            branchTreeIfCount = arr_ifunit.count;
+        }
+
         for (int ci = 0; ci < (int)conditions.size(); ++ci) {
             ConditionBlock& cond = conditions[ci];
+            // Conditions are stored in source order, but visually form a
+            // tree. Do not draw a nested condition when its owning branch is
+            // collapsed; this makes folding a parent hide the whole subtree.
+            if (cond.rootIfgroup > 0 && cond.rootIfgroup < arr_ifunit.count) {
+                bool ancestorCollapsed = false;
+                int parentBranch = ((IFUNIT*)arr_ifunit.data)[cond.rootIfgroup].parentID;
+                while (parentBranch > 0 && parentBranch < arr_ifunit.count) {
+                    std::map<int, bool>::const_iterator parentOpen = branchTreeOpen.find(parentBranch);
+                    if (parentOpen != branchTreeOpen.end() && !parentOpen->second) {
+                        ancestorCollapsed = true;
+                        break;
+                    }
+                    const int parentRoot = getRootIfgroup(parentBranch);
+                    parentBranch = parentRoot > 0 && parentRoot < arr_ifunit.count
+                        ? ((IFUNIT*)arr_ifunit.data)[parentRoot].parentID : 0;
+                }
+                if (ancestorCollapsed) continue;
+            }
+            const float conditionIndent = cond.depth > 1
+                ? (float)(cond.depth - 1) * ImGui::GetStyle().IndentSpacing : 0.0f;
+            if (conditionIndent > 0.0f) ImGui::Indent(conditionIndent);
             ImGui::PushID(cond.rootIfgroup);
 
             auto drawBranchObjects = [&](BranchBlock& branch) {
                 for (int k = 0; k < (int)branch.localObjectIndices.size(); ++k) {
                     int oi = branch.localObjectIndices[k];
                     const SEObjectInstance& o = g_seObjectEditorModel.Objects()[groupObjects[oi]];
-                    char label[128];
+                    char label[256];
                     int firstRow = o.rows.empty() ? -1 : o.rows[0];
                     int key = -1;
                     if (firstRow >= 0) {
                         SKINFILELINEREAD& r = ((SKINFILELINEREAD*)skinfileLines.data)[firstRow];
                         if (r.csv.str[1].body) key = r.csv.val[1];
                     }
-                    if (key >= 0) snprintf(label, sizeof(label), "%03d  #%d", oi, key);
-                    else snprintf(label, sizeof(label), "%03d", oi);
+                    std::vector<int> labelOps;
+                    for (int rowIndex = 0; rowIndex < (int)o.rows.size() && labelOps.size() < 2; ++rowIndex) {
+                        const int row = o.rows[rowIndex];
+                        if (row < 0 || row >= skinfileLines.count) continue;
+                        SKINFILELINEREAD& opRow = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                        const char* opCommand = opRow.csv.str[0].body ? opRow.csv.str[0].outstr() : "";
+                        const std::vector<int>& labelOptionColumns = optionColumnsFor(opCommand);
+                        for (int col : labelOptionColumns) {
+                            if (labelOps.size() >= 2) break;
+                            const int op = opRow.csv.val[col];
+                            if (op == 0) continue;
+                            bool duplicate = false;
+                            for (std::size_t existing = 0; existing < labelOps.size(); ++existing)
+                                if (labelOps[existing] == op) { duplicate = true; break; }
+                            if (!duplicate) labelOps.push_back(op);
+                        }
+                    }
+
+                    std::string approximateName;
+                    if (!o.name.empty()) {
+                        approximateName = o.name;
+                    } else {
+                        for (std::size_t opIndex = 0; opIndex < labelOps.size(); ++opIndex) {
+                            const int op = labelOps[opIndex];
+                            const int optionId = op < 0 ? -op : op;
+                            const char* optionName = dstName(optionId);
+                            if (!optionName || !*optionName) continue;
+                            if (!approximateName.empty()) approximateName += " / ";
+                            if (op < 0) approximateName += "!";
+                            approximateName += optionName;
+                        }
+                    }
+
+                    const SEObjectGroupDef* objectTypeDef = g_seObjectEditorModel.Group(o.group);
+                    const char* objectTypeName = objectTypeDef ? objectTypeDef->name.c_str() : "OBJECT";
+                    if (key >= 0 && !approximateName.empty())
+                        snprintf(label, sizeof(label), "%03d  [%s]  #%d  %s", oi, objectTypeName, key, approximateName.c_str());
+                    else if (key >= 0)
+                        snprintf(label, sizeof(label), "%03d  [%s]  #%d", oi, objectTypeName, key);
+                    else if (!approximateName.empty())
+                        snprintf(label, sizeof(label), "%03d  [%s]  %s", oi, objectTypeName, approximateName.c_str());
+                    else
+                        snprintf(label, sizeof(label), "%03d  [%s]", oi, objectTypeName);
                     bool hasDst = false;
-                    bool hasEnabledDst = false;
+                    bool allDstEnabled = true;
                     for (int rowIndex = 0; rowIndex < (int)o.rows.size(); ++rowIndex) {
                         int row = o.rows[rowIndex];
                         if (row < 0 || row >= skinfileLines.count) continue;
@@ -4576,63 +5799,216 @@ int WORKSPACE::drawObjectEditor() {
                         const char* command = dstRow.csv.str[0].outstr();
                         if (strncmp(command, "#DST", 4) != 0) continue;
                         hasDst = true;
-                        if (GetOptionFlag_dst(&g, dstRow.csv.val[18]) &&
-                            GetOptionFlag_dst(&g, dstRow.csv.val[19]) &&
-                            GetOptionFlag_dst(&g, dstRow.csv.val[20])) {
-                            hasEnabledDst = true;
+                        bool dstEnabled = true;
+                        const std::vector<int>& optionColumns = optionColumnsFor(command);
+                        for (int col : optionColumns) {
+                            if (!GetOptionFlag_dst(&g, dstRow.csv.val[col])) {
+                                dstEnabled = false;
+                                break;
+                            }
                         }
+                        if (!dstEnabled) allDstEnabled = false;
                     }
+
+                    const bool conditionActive = o.ifgroup <= 0 ||
+                        (o.ifgroup < (int)branchActive.size() && branchActive[o.ifgroup]);
+                    const bool objectEnabled = hasDst && allDstEnabled && conditionActive;
 
                     ImGui::PushID(oi);
                     if (hasDst) {
-                        const ImVec4 rowColor = hasEnabledDst
-                            ? ImVec4(0.58f, 0.88f, 0.62f, 0.42f)
-                            : ImVec4(0.94f, 0.58f, 0.58f, 0.42f);
-                        const ImVec4 hoverColor = hasEnabledDst
-                            ? ImVec4(0.55f, 0.90f, 0.60f, 0.62f)
-                            : ImVec4(0.96f, 0.54f, 0.54f, 0.62f);
+                        const ImVec4 rowColor = objectEnabled
+                            ? ImVec4(0.18f, 0.48f, 0.23f, 0.62f)
+                            : ImVec4(0.55f, 0.18f, 0.18f, 0.62f);
+                        const ImVec4 hoverColor = objectEnabled
+                            ? ImVec4(0.24f, 0.62f, 0.30f, 0.78f)
+                            : ImVec4(0.68f, 0.22f, 0.22f, 0.78f);
+                        const ImVec2 rowMin = ImGui::GetCursorScreenPos();
+                        const float rowWidth = ImGui::GetContentRegionAvail().x;
+                        ImGui::GetWindowDrawList()->AddRectFilled(rowMin,
+                            ImVec2(rowMin.x + rowWidth, rowMin.y + ImGui::GetFrameHeight()),
+                            ImGui::GetColorU32(rowColor));
                         ImGui::PushStyleColor(ImGuiCol_Header, rowColor);
                         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, hoverColor);
                         ImGui::PushStyleColor(ImGuiCol_HeaderActive, hoverColor);
                     }
-                    const bool clicked = ImGui::Selectable(label, hasDst ? true : selected_object_editor == oi);
+                    const int modelIndex = groupObjects[oi];
+                    const bool isMultiSelected = std::find(preview_selected_object_model_indices.begin(),
+                        preview_selected_object_model_indices.end(), modelIndex) !=
+                        preview_selected_object_model_indices.end();
+                    const bool clicked = ImGui::Selectable(label, isMultiSelected);
                     if (hasDst) ImGui::PopStyleColor(3);
                     if (clicked) {
                         selected_object_editor = oi;
-                        preview_selected_object_model_index = groupObjects[oi];
+                        preview_selected_object_model_index = modelIndex;
                         preview_object_dragging = false;
                         preview_selected_obj_valid = false;
+                        preview_selected_obj_last_valid = false;
 
-                        // arr_DST keeps the first CSV row (declare) of each
-                        // destination animation. Match it back to this Object.
-                        DST* fallbackDst = NULL;
-                        DST* enabledDst = NULL;
-                        for (int dstIndex = 0; dstIndex < arr_DST.count; ++dstIndex) {
-                            DST& candidate = ((DST*)arr_DST.data)[dstIndex];
-                            bool belongsToObject = false;
-                            for (int rowIndex = 0; rowIndex < (int)o.rows.size(); ++rowIndex) {
-                                if (candidate.declare == o.rows[rowIndex]) {
-                                    belongsToObject = true;
+                        if (ImGui::GetIO().KeyShift && preview_selection_anchor_model_index >= 0) {
+                            std::vector<int>::const_iterator anchorIt = std::find(groupObjects.begin(), groupObjects.end(),
+                                preview_selection_anchor_model_index);
+                            std::vector<int>::const_iterator clickedIt = std::find(groupObjects.begin(), groupObjects.end(), modelIndex);
+                            if (anchorIt != groupObjects.end() && clickedIt != groupObjects.end()) {
+                                int anchorPosition = (int)(anchorIt - groupObjects.begin());
+                                int clickedPosition = (int)(clickedIt - groupObjects.begin());
+                                if (anchorPosition > clickedPosition) std::swap(anchorPosition, clickedPosition);
+                                if (!ImGui::GetIO().KeyCtrl) preview_selected_object_model_indices.clear();
+                                for (int rangePosition = anchorPosition; rangePosition <= clickedPosition; ++rangePosition) {
+                                    const int rangeModelIndex = groupObjects[rangePosition];
+                                    if (std::find(preview_selected_object_model_indices.begin(),
+                                        preview_selected_object_model_indices.end(), rangeModelIndex) ==
+                                        preview_selected_object_model_indices.end())
+                                        preview_selected_object_model_indices.push_back(rangeModelIndex);
+                                }
+                            } else {
+                                preview_selected_object_model_indices.clear();
+                                preview_selected_object_model_indices.push_back(modelIndex);
+                                preview_selection_anchor_model_index = modelIndex;
+                            }
+                        } else if (ImGui::GetIO().KeyCtrl) {
+                            std::vector<int>::iterator selectedIt = std::find(
+                                preview_selected_object_model_indices.begin(),
+                                preview_selected_object_model_indices.end(), modelIndex);
+                            if (selectedIt == preview_selected_object_model_indices.end())
+                                preview_selected_object_model_indices.push_back(modelIndex);
+                            else
+                                preview_selected_object_model_indices.erase(selectedIt);
+                            preview_selection_anchor_model_index = modelIndex;
+                        } else {
+                            preview_selected_object_model_indices.clear();
+                            preview_selected_object_model_indices.push_back(modelIndex);
+                            preview_selection_anchor_model_index = modelIndex;
+                        }
+
+                        bool firstBounds = true;
+                        bool lastBounds = true;
+                        float minX = 0.0f, minY = 0.0f, maxX = 0.0f, maxY = 0.0f;
+                        float lastMinX = 0.0f, lastMinY = 0.0f, lastMaxX = 0.0f, lastMaxY = 0.0f;
+                        for (int selectedModelIndex : preview_selected_object_model_indices) {
+                            if (selectedModelIndex < 0 || selectedModelIndex >=
+                                (int)g_seObjectEditorModel.Objects().size()) continue;
+                            const SEObjectInstance& selectedObject =
+                                g_seObjectEditorModel.Objects()[selectedModelIndex];
+                            int textAlign = 0;
+                            bool isTextObject = false;
+                            int numberAlign = 0;
+                            bool isNumberObject = false;
+                            for (int rowIndex = 0; rowIndex < (int)selectedObject.rows.size(); ++rowIndex) {
+                                const int sourceRow = selectedObject.rows[rowIndex];
+                                if (sourceRow < 0 || sourceRow >= skinfileLines.count) continue;
+                                SKINFILELINEREAD& sourceLine =
+                                    ((SKINFILELINEREAD*)skinfileLines.data)[sourceRow];
+                                if (sourceLine.csv.str[0].isSame("#SRC_TEXT")) {
+                                    isTextObject = true;
+                                    textAlign = sourceLine.csv.val[4];
+                                    break;
+                                }
+                                if (sourceLine.csv.str[0].isSame("#SRC_NUMBER")) {
+                                    isNumberObject = true;
+                                    numberAlign = sourceLine.csv.val[12];
                                     break;
                                 }
                             }
-                            if (!belongsToObject || candidate.arr_animation.count <= 0) continue;
-                            if (!fallbackDst) fallbackDst = &candidate;
-                            if (GetOptionFlag_dst(&g, candidate.op1) &&
-                                GetOptionFlag_dst(&g, candidate.op2) &&
-                                GetOptionFlag_dst(&g, candidate.op3)) {
-                                enabledDst = &candidate;
-                                break;
+                            auto alignedObjectX = [&](float anchorX, float width) -> float {
+                                if (isTextObject) {
+                                    if (textAlign == 1) return anchorX - width * 0.5f;
+                                    if (textAlign == 2) return anchorX - width;
+                                    return anchorX;
+                                }
+                                if (isNumberObject) {
+                                    if (numberAlign == 0) return anchorX - width;
+                                    if (numberAlign == 2) return anchorX - width * 0.5f;
+                                }
+                                return anchorX;
+                            };
+                            DST* fallbackDst = NULL;
+                            DST* enabledDst = NULL;
+                            for (int dstIndex = 0; dstIndex < arr_DST.count; ++dstIndex) {
+                                DST& candidate = ((DST*)arr_DST.data)[dstIndex];
+                                bool belongsToObject = false;
+                                for (int rowIndex = 0; rowIndex < (int)selectedObject.rows.size(); ++rowIndex) {
+                                    if (candidate.declare == selectedObject.rows[rowIndex]) {
+                                        belongsToObject = true;
+                                        break;
+                                    }
+                                }
+                                if (!belongsToObject || candidate.arr_animation.count <= 0) continue;
+                                if (!fallbackDst) fallbackDst = &candidate;
+                                if (GetOptionFlag_dst(&g, candidate.op1) &&
+                                    GetOptionFlag_dst(&g, candidate.op2) &&
+                                    GetOptionFlag_dst(&g, candidate.op3)) {
+                                    enabledDst = &candidate;
+                                    break;
+                                }
+                            }
+                            DST* selectedDst = enabledDst ? enabledDst : fallbackDst;
+                            if (!selectedDst) continue;
+                            DST_ANIMATION& frame = ((DST_ANIMATION*)selectedDst->arr_animation.data)[0];
+                            const float frameX = alignedObjectX(frame.x, frame.w);
+                            const float x1 = frameX < frameX + frame.w ? frameX : frameX + frame.w;
+                            const float y1 = frame.y < frame.y + frame.h ? frame.y : frame.y + frame.h;
+                            const float x2 = frameX > frameX + frame.w ? frameX : frameX + frame.w;
+                            const float y2 = frame.y > frame.y + frame.h ? frame.y : frame.y + frame.h;
+                            if (firstBounds) {
+                                minX = x1; minY = y1; maxX = x2; maxY = y2;
+                                firstBounds = false;
+                            } else {
+                                if (x1 < minX) minX = x1;
+                                if (y1 < minY) minY = y1;
+                                if (x2 > maxX) maxX = x2;
+                                if (y2 > maxY) maxY = y2;
+                            }
+                            DST_ANIMATION& lastFrame = ((DST_ANIMATION*)selectedDst->arr_animation.data)
+                                [selectedDst->arr_animation.count - 1];
+                            const float lastFrameX = alignedObjectX(lastFrame.x, lastFrame.w);
+                            const float lx1 = lastFrameX < lastFrameX + lastFrame.w
+                                ? lastFrameX : lastFrameX + lastFrame.w;
+                            const float ly1 = lastFrame.y < lastFrame.y + lastFrame.h
+                                ? lastFrame.y : lastFrame.y + lastFrame.h;
+                            const float lx2 = lastFrameX > lastFrameX + lastFrame.w
+                                ? lastFrameX : lastFrameX + lastFrame.w;
+                            const float ly2 = lastFrame.y > lastFrame.y + lastFrame.h
+                                ? lastFrame.y : lastFrame.y + lastFrame.h;
+                            if (lastBounds) {
+                                lastMinX = lx1; lastMinY = ly1; lastMaxX = lx2; lastMaxY = ly2;
+                                lastBounds = false;
+                            } else {
+                                if (lx1 < lastMinX) lastMinX = lx1;
+                                if (ly1 < lastMinY) lastMinY = ly1;
+                                if (lx2 > lastMaxX) lastMaxX = lx2;
+                                if (ly2 > lastMaxY) lastMaxY = ly2;
                             }
                         }
-
-                        DST* selectedDst = enabledDst ? enabledDst : fallbackDst;
-                        if (selectedDst) {
-                            DST_ANIMATION& frame = ((DST_ANIMATION*)selectedDst->arr_animation.data)
-                                [selectedDst->arr_animation.count - 1];
-                            preview_selected_obj = { frame.x, frame.y, frame.w, frame.h };
+                        if (!firstBounds) {
+                            preview_selected_obj = { minX, minY, maxX - minX, maxY - minY };
                             preview_selected_obj_valid = true;
                         }
+                        preview_selected_obj_last_valid = !lastBounds;
+                        if (!lastBounds)
+                            preview_selected_obj_last = { lastMinX, lastMinY,
+                                lastMaxX - lastMinX, lastMaxY - lastMinY };
+                    }
+                    if (ImGui::BeginPopupContextItem("ObjectContext")) {
+                        ImGui::TextDisabled("Object %03d", oi);
+                        if (ImGui::MenuItem("Create Object (new)")) {
+                            newObjectInsertPosition = o.rows.empty() ? skinfileLines.count : o.rows.back() + 1;
+                            newObjectIfgroup = o.ifgroup;
+                            newCommandIncludeAll = false;
+                            wNewObject = true;
+                        }
+                        if (ImGui::MenuItem("Create Command / Setting")) {
+                            newObjectInsertPosition = o.rows.empty() ? skinfileLines.count : o.rows.back() + 1;
+                            newObjectIfgroup = o.ifgroup;
+                            newCommandIncludeAll = true;
+                            wNewObject = true;
+                        }
+                        if (ImGui::MenuItem("Create Object (duplicate)")) contextCreateModel = modelIndex;
+                        if (ImGui::MenuItem("Remove Object")) contextDeleteModel = modelIndex;
+                        ImGui::Separator();
+                        if (ImGui::MenuItem("Create Group from Selection", NULL, false,
+                            !preview_selected_object_model_indices.empty()))
+                            requestCreateGroupPopup = true;
+                        ImGui::EndPopup();
                     }
                     ImGui::PopID();
                 }
@@ -4648,43 +6024,165 @@ int WORKSPACE::drawObjectEditor() {
                 }
             }
             else {
-                // #IF / #ELSEIF / #ELSE are sibling branches of one condition.
-                // Only a genuinely nested #IF becomes a child ConditionBlock.
-                int objectCount = 0;
-                for (int bi = 0; bi < (int)cond.branches.size(); ++bi)
-                    objectCount += (int)cond.branches[bi].localObjectIndices.size();
-
-                bool conditionOpen = ImGui::TreeNodeEx("condition", ImGuiTreeNodeFlags_DefaultOpen,
-                    "CONDITION  (%d)", objectCount);
-                if (conditionOpen) {
-                    // Keep branch order stable: IF first, then ELSEIF/ELSE.
-                    std::stable_sort(cond.branches.begin(), cond.branches.end(),
-                        [](const BranchBlock& a, const BranchBlock& b) { return a.order < b.order; });
-
-                    for (int bi = 0; bi < (int)cond.branches.size(); ++bi) {
-                        BranchBlock& branch = cond.branches[bi];
-                        ImGui::PushID(branch.ifgroup);
-                        bool branchOpen = ImGui::TreeNodeEx("branch", ImGuiTreeNodeFlags_DefaultOpen,
-                            "%s  (%d)", branch.label.c_str(), (int)branch.localObjectIndices.size());
-                        if (branchOpen) {
-                            drawBranchObjects(branch);
-                            ImGui::TreePop();
-                        }
-                        ImGui::PopID();
+                // The real #IF is the condition node; no synthetic CONDITION
+                // wrapper is needed. ELSEIF/ELSE remain sibling branches.
+                std::stable_sort(cond.branches.begin(), cond.branches.end(),
+                    [](const BranchBlock& a, const BranchBlock& b) { return a.order < b.order; });
+                for (int bi = 0; bi < (int)cond.branches.size(); ++bi) {
+                    BranchBlock& branch = cond.branches[bi];
+                    ImGui::PushID(branch.ifgroup);
+                    const bool isBranchActive = branch.ifgroup > 0 &&
+                        branch.ifgroup < (int)branchActive.size() && branchActive[branch.ifgroup];
+                    bool isParentActive = false;
+                    if (branch.ifgroup > 0 && branch.ifgroup < arr_ifunit.count) {
+                        const int parent = ((IFUNIT*)arr_ifunit.data)[branch.ifgroup].parentID;
+                        isParentActive = parent >= 0 && parent < (int)branchActive.size() &&
+                            branchActive[parent];
                     }
-                    ImGui::TreePop();
+                    const ImVec4 branchColor = !isParentActive
+                        ? ImVec4(0.28f, 0.28f, 0.30f, 0.62f)
+                        : (isBranchActive
+                            ? ImVec4(0.18f, 0.48f, 0.23f, 0.62f)
+                            : ImVec4(0.55f, 0.18f, 0.18f, 0.62f));
+                    const ImVec4 branchHoverColor = !isParentActive
+                        ? ImVec4(0.38f, 0.38f, 0.41f, 0.78f)
+                        : (isBranchActive
+                            ? ImVec4(0.24f, 0.62f, 0.30f, 0.78f)
+                            : ImVec4(0.68f, 0.22f, 0.22f, 0.78f));
+                    const ImVec2 branchRowMin = ImGui::GetCursorScreenPos();
+                    ImGui::GetWindowDrawList()->AddRectFilled(branchRowMin,
+                        ImVec2(branchRowMin.x + ImGui::GetContentRegionAvail().x,
+                            branchRowMin.y + ImGui::GetFrameHeight()),
+                        ImGui::GetColorU32(branchColor));
+                    ImGui::PushStyleColor(ImGuiCol_Header, branchColor);
+                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, branchHoverColor);
+                    ImGui::PushStyleColor(ImGuiCol_HeaderActive, branchHoverColor);
+                    bool branchOpen = ImGui::TreeNodeEx("branch", ImGuiTreeNodeFlags_DefaultOpen,
+                        "%s  (%d)", branch.label.c_str(), (int)branch.localObjectIndices.size());
+                    branchTreeOpen[branch.ifgroup] = branchOpen;
+                    ImGui::PopStyleColor(3);
+                    if (branchOpen) {
+                        drawBranchObjects(branch);
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
                 }
             }
             ImGui::PopID();
+            if (conditionIndent > 0.0f) ImGui::Unindent(conditionIndent);
         }
         ImGui::EndChild();
     }
-    ImGui::SameLine();
+
+    if (contextCreateModel >= 0 || contextDeleteModel >= 0) {
+        const std::vector<SEObjectInstance>& allObjects = g_seObjectEditorModel.Objects();
+        if (contextCreateModel >= 0 && contextCreateModel < (int)allObjects.size()) {
+            const SEObjectInstance sourceObject = allObjects[contextCreateModel];
+            struct ClonedLine { std::string text, owner; int sourceNum, ifgroup; };
+            std::vector<ClonedLine> cloneLines;
+            for (int row : sourceObject.rows) {
+                if (row < 0 || row >= skinfileLines.count) continue;
+                SKINFILELINEREAD& source = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                ClonedLine clone;
+                clone.text = source.line.body ? source.line.outstr() : "";
+                clone.owner = source.filename.body ? source.filename.outstr() : mainpath;
+                clone.sourceNum = source.num;
+                clone.ifgroup = source.ifgroup;
+                cloneLines.push_back(clone);
+            }
+            if (!cloneLines.empty()) {
+                char generatedId[64];
+                snprintf(generatedId, sizeof(generatedId), "obj_%08llX_%04d", GetTickCount64(), contextCreateModel);
+                int insertPosition = sourceObject.rows.back() + 1;
+                auto insertCloneLine = [&](const char* text, const char* owner, int sourceNum, int ifgroup) {
+                    InsertLine(insertPosition);
+                    SKINFILELINEREAD& inserted = ((SKINFILELINEREAD*)skinfileLines.data)[insertPosition];
+                    CSTR oldLine(inserted.line);
+                    EditLine(insertPosition, oldLine, CSTR(text));
+                    inserted.filename.assign(owner && *owner ? owner : mainpath);
+                    inserted.num = sourceNum;
+                    inserted.ifgroup = ifgroup;
+                    ++insertPosition;
+                };
+                std::string idLine = std::string("$SE_OBJECT_ID,") + generatedId;
+                insertCloneLine(idLine.c_str(), cloneLines.front().owner.c_str(), cloneLines.front().sourceNum,
+                    cloneLines.front().ifgroup);
+                for (const ClonedLine& clone : cloneLines)
+                    insertCloneLine(clone.text.c_str(), clone.owner.c_str(), clone.sourceNum, clone.ifgroup);
+
+                if (selected_user_object_group >= 0) {
+                    int currentGroup = -1;
+                    for (int row = 0; row < skinfileLines.count; ++row) {
+                        SKINFILELINEREAD& meta = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                        const char* text = meta.line.body ? meta.line.outstr() : "";
+                        if (strncmp(text, "$SE_GROUP_BEGIN,", 16) == 0) ++currentGroup;
+                        else if (strcmp(text, "$SE_GROUP_END") == 0 && currentGroup == selected_user_object_group) {
+                            InsertLine(row);
+                            SKINFILELINEREAD& member = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                            CSTR oldLine(member.line);
+                            std::string memberLine = std::string("$SE_GROUP_MEMBER,") + generatedId;
+                            EditLine(row, oldLine, CSTR(memberLine.c_str()));
+                            member.filename.assign(mainpath);
+                            break;
+                        }
+                    }
+                }
+                g_seObjectEditorModel.Rebuild(*this);
+                preview_selected_object_model_indices.clear();
+                const std::vector<SEObjectInstance>& rebuilt = g_seObjectEditorModel.Objects();
+                for (int i = 0; i < (int)rebuilt.size(); ++i) {
+                    if (rebuilt[i].editorId == generatedId) {
+                        preview_selected_object_model_indices.push_back(i);
+                        preview_selected_object_model_index = i;
+                        break;
+                    }
+                }
+            }
+        } else if (contextDeleteModel >= 0 && contextDeleteModel < (int)allObjects.size()) {
+            const SEObjectInstance deleting = allObjects[contextDeleteModel];
+            std::vector<int> deleteRows = deleting.rows;
+            if (!deleting.rows.empty()) {
+                for (int row = deleting.rows.front() - 1; row >= 0; --row) {
+                    SKINFILELINEREAD& meta = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    const char* text = meta.line.body ? meta.line.outstr() : "";
+                    if (strncmp(text, "$SE_OBJECT_ID,", 14) == 0) { deleteRows.push_back(row); break; }
+                    if (*text == '#') break;
+                }
+            }
+            if (!deleting.editorId.empty()) {
+                const std::string memberLine = "$SE_GROUP_MEMBER," + deleting.editorId;
+                for (int row = 0; row < skinfileLines.count; ++row) {
+                    SKINFILELINEREAD& meta = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    if (meta.line.body && memberLine == meta.line.outstr()) deleteRows.push_back(row);
+                }
+            }
+            std::sort(deleteRows.begin(), deleteRows.end());
+            deleteRows.erase(std::unique(deleteRows.begin(), deleteRows.end()), deleteRows.end());
+            for (std::vector<int>::reverse_iterator it = deleteRows.rbegin(); it != deleteRows.rend(); ++it)
+                DeleteLine(*it);
+            g_seObjectEditorModel.Rebuild(*this);
+            selected_object_editor = 0;
+        }
+        ImGui::EndChild(); // ObjectNavigator
+        ImGui::End();
+        return 0;
+    }
+    ImGui::EndChild(); // ObjectNavigator
+    ImGui::SameLine(0.0f, 2.0f);
+    ImGui::InvisibleButton("##ObjectListWidthSplitter", ImVec2(6.0f, objectEditorPaneHeight));
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    if (ImGui::IsItemActive()) {
+        objectListWidth += ImGui::GetIO().MouseDelta.x;
+        if (objectListWidth < 160.0f) objectListWidth = 160.0f;
+        if (objectListWidth > 800.0f) objectListWidth = 800.0f;
+    }
+    ImGui::SameLine(0.0f, 2.0f);
 
     // Right: actual Object data. #IF/#ELSEIF/#ELSE are context only.
     if (ImGui::BeginChild("ObjectProperties", ImVec2(0, 0), true)) {
         if (selected_object_editor >= 0 && selected_object_editor < (int)groupObjects.size()) {
-            const SEObjectInstance& obj = g_seObjectEditorModel.Objects()[groupObjects[selected_object_editor]];
+            SEObjectInstance& obj = g_seObjectEditorModel.ObjectsMutable()[groupObjects[selected_object_editor]];
             const SEObjectGroupDef* def = g_seObjectEditorModel.Group(obj.group);
             if (def) {
                 ImGui::Text("%s", def->name.c_str());
@@ -4703,11 +6201,7 @@ int WORKSPACE::drawObjectEditor() {
                         for (int rno = 0; rno < skinfileLines.count; ++rno) {
                             SKINFILELINEREAD& r = ((SKINFILELINEREAD*)skinfileLines.data)[rno];
                             if (r.ifgroup != ifgroup || !r.isIfGroupHead || !r.csv.str[0].body) continue;
-                            flowName = r.csv.str[0].outstr();
-                            if (r.csv.str[1].body) {
-                                std::string arg = r.csv.str[1].outstr();
-                                if (!arg.empty()) flowName += " " + arg;
-                            }
+                            flowName = formatConditionHeader(r);
                             break;
                         }
                     }
@@ -4715,31 +6209,325 @@ int WORKSPACE::drawObjectEditor() {
                 }
                 ImGui::Separator();
 
-                for (std::size_t ri = 0; ri < obj.rows.size(); ++ri) {
-                    int row = obj.rows[ri];
-                    if (row < 0 || row >= skinfileLines.count) continue;
+                char objectName[256];
+                strncpy(objectName, obj.name.c_str(), sizeof(objectName) - 1);
+                objectName[sizeof(objectName) - 1] = '\0';
+                ImGui::SetNextItemWidth(260.0f);
+                if (ImGui::InputText("Name", objectName, sizeof(objectName)))
+                    obj.name = objectName;
+
+                auto drawTaggedImageSelector = [&](int row, const char* command) {
+                    if (!command || strncmp(command, "#SRC", 4) != 0 || arr_IMG.count <= 0) return;
+                    SKINFILELINEREAD& srcLine = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    const char* fieldNames[5] = { "gr", "x", "y", "w", "h" };
+                    int columns[5] = { -1, -1, -1, -1, -1 };
+                    for (int col = 1; col < 30; ++col) {
+                        CSTR help = GetCommandHelp(command, col);
+                        help.trimWhiteSpace();
+                        const char* label = help.body ? help.outstr() : "";
+                        if (*label == '$') ++label;
+                        for (int field = 0; field < 5; ++field)
+                            if (_stricmp(label, fieldNames[field]) == 0) columns[field] = col;
+                    }
+                    for (int field = 0; field < 5; ++field) if (columns[field] < 0) return;
+
+                    const int currentTag = FindIMG(srcLine.csv.val[columns[0]], srcLine.csv.val[columns[1]],
+                        srcLine.csv.val[columns[2]], srcLine.csv.val[columns[3]], srcLine.csv.val[columns[4]]);
+                    char preview[260];
+                    if (currentTag >= 0 && currentTag < arr_IMG.count) {
+                        IMG& tag = ((IMG*)arr_IMG.data)[currentTag];
+                        snprintf(preview, sizeof(preview), "%03d  %s", currentTag,
+                            tag.name.body ? tag.name.outstr() : "noname");
+                    } else snprintf(preview, sizeof(preview), "Custom coordinates");
+
+                    ImGui::SetNextItemWidth(300.0f);
+                    if (ImGui::BeginCombo("Tagged image", preview)) {
+                        for (int tagIndex = 0; tagIndex < arr_IMG.count; ++tagIndex) {
+                            IMG& tag = ((IMG*)arr_IMG.data)[tagIndex];
+                            char tagLabel[260];
+                            snprintf(tagLabel, sizeof(tagLabel), "%03d  G%02d  %s", tagIndex, tag.gr,
+                                tag.name.body ? tag.name.outstr() : "noname");
+                            if (ImGui::Selectable(tagLabel, tagIndex == currentTag)) {
+                                for (int field = 0; field < 5; ++field) {
+                                    const int values[5] = { tag.gr, tag.x, tag.y, tag.w, tag.h };
+                                    EditValue(row, columns[field], values[field]);
+                                }
+                                src_selected = tagIndex;
+                                gr_selected = tag.gr;
+                            }
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) &&
+                                tag.gr >= 0 && tag.gr < arr_SRCGR.count) {
+                                EnsureSRCGRTexture(tag.gr);
+                                SRCGR& sourceImage = ((SRCGR*)arr_SRCGR.data)[tag.gr];
+                                const int tagW = tag.w == -1 ? sourceImage.sizeX - tag.x : tag.w;
+                                const int tagH = tag.h == -1 ? sourceImage.sizeY - tag.y : tag.h;
+                                if (sourceImage.texture && sourceImage.sizeX > 0 && sourceImage.sizeY > 0 &&
+                                    tagW > 0 && tagH > 0 && ImGui::BeginTooltip()) {
+                                    float scale = 1.0f;
+                                    if (tagW > 240 || tagH > 180) {
+                                        const float sx = 240.0f / tagW, sy = 180.0f / tagH;
+                                        scale = sx < sy ? sx : sy;
+                                    }
+                                    ImGui::Image(sourceImage.texture, ImVec2(tagW * scale, tagH * scale),
+                                        ImVec2(tag.x / (float)sourceImage.sizeX, tag.y / (float)sourceImage.sizeY),
+                                        ImVec2((tag.x + tagW) / (float)sourceImage.sizeX,
+                                            (tag.y + tagH) / (float)sourceImage.sizeY));
+                                    ImGui::Text("gr %d  x %d  y %d  w %d  h %d", tag.gr, tag.x, tag.y, tag.w, tag.h);
+                                    ImGui::EndTooltip();
+                                }
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                };
+
+                auto drawObjectPropertyRow = [&](int row, int compactDstIndex) {
+                    if (row < 0 || row >= skinfileLines.count) return;
                     SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
                     const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+                    const bool compactDst = compactDstIndex >= 0;
                     ImGui::PushID(row);
-                    if (ImGui::CollapsingHeader(command, ImGuiTreeNodeFlags_DefaultOpen)) {
+                    if (compactDst) {
+                        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 2.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 2.0f));
+                    }
+                    if (compactDst || ImGui::CollapsingHeader(command, ImGuiTreeNodeFlags_DefaultOpen)) {
+                        if (!compactDst) drawTaggedImageSelector(row, command);
                         int maxcol = 30;
                         for (int col = 1; col < maxcol; ++col) {
                             CSTR help = GetCommandHelp(command, col);
+                            help.trimWhiteSpace();
                             if (!line.csv.str[col].body && !help.body) continue;
                             const char* label = help.body ? help.outstr() : "value";
                             if (!label || !*label) continue;
+                            // In animation frames after the first DST, these values are inherited
+                            // from the first row and are not used independently. Match by field
+                            // name because their column positions differ between DST commands.
+                            const bool isSharedDstField = _strnicmp(label, "loop", 4) == 0 ||
+                                _strnicmp(label, "timer", 5) == 0 || _strnicmp(label, "$timer", 6) == 0 ||
+                                _strnicmp(label, "op1", 3) == 0 || _strnicmp(label, "$op1", 4) == 0 ||
+                                _strnicmp(label, "op2", 3) == 0 || _strnicmp(label, "$op2", 4) == 0 ||
+                                _strnicmp(label, "op3", 3) == 0 || _strnicmp(label, "$op3", 4) == 0;
+                            if (compactDstIndex > 0 && isSharedDstField) continue;
                             ImGui::PushID(col);
-                            CSTR before(line.csv.str[col]);
-                            CstrInputText(label, &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
-                            if (before.isDiff(line.csv.str[col])) {
-                                CSTR newValue(line.csv.str[col]);
-                                line.csv.str[col] = before;
-                                EditValue(row, col, newValue.outstr());
+                            const char* widgetLabel = label;
+                            if (compactDst) {
+                                if (compactDstIndex == 0) {
+                                    ImGui::AlignTextToFramePadding();
+                                    ImGui::TextDisabled("%s", label);
+                                    ImGui::SameLine(62.0f);
+                                }
+                                widgetLabel = "##value";
+                                ImGui::SetNextItemWidth(-FLT_MIN);
+                            }
+                            const bool isType = help.left(5).isSame("$type");
+                            const bool isOp = help.left(3).isSame("$op");
+                            const bool isString = help.left(3).isSame("$st");
+                            const bool isNumber = help.left(4).isSame("$num");
+                            const bool isTimer = help.left(6).isSame("$timer");
+                            if (isType || isOp || isString || isNumber || isTimer) {
+                                const int current = line.csv.val[col];
+                                int itemCount = 0;
+                                const char* currentName = "";
+                                if (isType) { itemCount = 21; currentName = SKINTYPESTR[current]; }
+                                else if (isOp) { itemCount = 1999; currentName = dstName(current < 0 ? -current : current); }
+                                else if (isString) { itemCount = 200; currentName = textName(current); }
+                                else if (isNumber) { itemCount = 300; currentName = numberName(current); }
+                                else { itemCount = 300; currentName = timerName(current); }
+
+                                char preview[128];
+                                if (isOp && current < 0)
+                                    snprintf(preview, sizeof(preview), "NOT %03d:%s", -current, currentName ? currentName : "");
+                                else
+                                    snprintf(preview, sizeof(preview), "%03d:%s", current, currentName ? currentName : "");
+                                if (ImGui::BeginCombo(widgetLabel, preview)) {
+                                    ImGuiListClipper clipper;
+                                    clipper.Begin(itemCount);
+                                    while (clipper.Step()) {
+                                        for (int item = clipper.DisplayStart; item < clipper.DisplayEnd; ++item) {
+                                            const int value = isOp && item >= 1000 ? -(item - 999) : item;
+                                            const char* valueName = "";
+                                            if (isType) valueName = SKINTYPESTR[value];
+                                            else if (isOp) valueName = dstName(value < 0 ? -value : value);
+                                            else if (isString) valueName = textName(value);
+                                            else if (isNumber) valueName = numberName(value);
+                                            else valueName = timerName(value);
+                                            char option[128];
+                                            if (isOp && value < 0)
+                                                snprintf(option, sizeof(option), "NOT %03d:%s", -value, valueName ? valueName : "");
+                                            else
+                                                snprintf(option, sizeof(option), "%03d:%s", value, valueName ? valueName : "");
+                                            if (ImGui::Selectable(option, current == value))
+                                                EditValue(row, col, value);
+                                        }
+                                    }
+                                    ImGui::EndCombo();
+                                }
+                            } else {
+                                CSTR before(line.csv.str[col]);
+                                CstrInputText(widgetLabel, &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
+                                if (before.isDiff(line.csv.str[col])) {
+                                    CSTR newValue(line.csv.str[col]);
+                                    line.csv.str[col] = before;
+                                    EditValue(row, col, newValue.outstr());
+                                }
                             }
                             ImGui::PopID();
                         }
                     }
+                    if (compactDst) ImGui::PopStyleVar(2);
                     ImGui::PopID();
+                };
+
+                std::vector<int> srcRows;
+                std::vector<int> dstRows;
+                for (std::size_t ri = 0; ri < obj.rows.size(); ++ri) {
+                    const int row = obj.rows[ri];
+                    if (row < 0 || row >= skinfileLines.count) continue;
+                    SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+                    if (strncmp(command, "#DST", 4) == 0)
+                        dstRows.push_back(row);
+                    else
+                        srcRows.push_back(row);
+                }
+
+                if (ImGui::BeginTabBar("ObjectPropertyTabs")) {
+                    if (ImGui::BeginTabItem("SRC")) {
+                        ImGui::SeparatorText("basic");
+                        if (srcRows.empty()) ImGui::TextDisabled("No SRC properties.");
+                        for (std::size_t i = 0; i < srcRows.size(); ++i)
+                            drawObjectPropertyRow(srcRows[i], -1);
+                        ImGui::EndTabItem();
+                    }
+
+                    char dstTabLabel[64];
+                    snprintf(dstTabLabel, sizeof(dstTabLabel), "DST (%d)", (int)dstRows.size());
+                    if (ImGui::BeginTabItem(dstTabLabel)) {
+                        ImGui::SeparatorText(dstRows.size() > 1 ? "animation frames" : "basic");
+                        if (dstRows.empty()) {
+                            ImGui::TextDisabled("No DST properties.");
+                        } else if (dstRows.size() == 1) {
+                            drawObjectPropertyRow(dstRows[0], -1);
+                        } else {
+                            // Most DST values are short integers. Keep animation
+                            // columns dense so several frames fit on screen.
+                            const float labelWidth = 50.0f;
+                            const float valueWidth = 82.0f;
+                            const float cellPaddingWidth = ImGui::GetStyle().CellPadding.x * 2.0f;
+                            const float innerWidth = labelWidth + valueWidth * (float)dstRows.size() +
+                                cellPaddingWidth * ((float)dstRows.size() + 1.0f) + 16.0f;
+                            const ImGuiTableFlags flags = ImGuiTableFlags_Borders |
+                                ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingFixedFit |
+                                ImGuiTableFlags_RowBg;
+                            if (ImGui::BeginTable("DSTHorizontalRows", (int)dstRows.size() + 1, flags,
+                                ImVec2(0.0f, 0.0f), innerWidth)) {
+                                // Keep property names and the authoritative first DST visible;
+                                // only animation frames after DST 1 scroll horizontally.
+                                ImGui::TableSetupScrollFreeze(2, 1);
+                                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, labelWidth);
+                                for (int i = 0; i < (int)dstRows.size(); ++i) {
+                                    char columnLabel[32];
+                                    snprintf(columnLabel, sizeof(columnLabel), "DST %d", i + 1);
+                                    ImGui::TableSetupColumn(columnLabel, ImGuiTableColumnFlags_WidthFixed, valueWidth);
+                                }
+                                ImGui::TableHeadersRow();
+
+                                SKINFILELINEREAD& firstDst = ((SKINFILELINEREAD*)skinfileLines.data)[dstRows[0]];
+                                const char* firstCommand = firstDst.csv.str[0].body ? firstDst.csv.str[0].outstr() : "";
+                                for (int col = 1; col < 30; ++col) {
+                                    CSTR firstHelp = GetCommandHelp(firstCommand, col);
+                                    firstHelp.trimWhiteSpace();
+                                    // Multi-DST rows follow the documented command fields only.
+                                    // Ignore trailing CSV values and CR/LF-only helper entries.
+                                    if (!firstHelp.body) continue;
+                                    const char* rowLabel = firstHelp.outstr();
+                                    if (!rowLabel || !*rowLabel) continue;
+
+                                    const bool sharedField = _strnicmp(rowLabel, "loop", 4) == 0 ||
+                                        _strnicmp(rowLabel, "timer", 5) == 0 || _strnicmp(rowLabel, "$timer", 6) == 0 ||
+                                        _strnicmp(rowLabel, "op1", 3) == 0 || _strnicmp(rowLabel, "$op1", 4) == 0 ||
+                                        _strnicmp(rowLabel, "op2", 3) == 0 || _strnicmp(rowLabel, "$op2", 4) == 0 ||
+                                        _strnicmp(rowLabel, "op3", 3) == 0 || _strnicmp(rowLabel, "$op3", 4) == 0;
+
+                                    ImGui::TableNextRow();
+                                    ImGui::TableSetColumnIndex(0);
+                                    ImGui::AlignTextToFramePadding();
+                                    ImGui::TextDisabled("%s", rowLabel);
+
+                                    for (int i = 0; i < (int)dstRows.size(); ++i) {
+                                        ImGui::TableSetColumnIndex(i + 1);
+                                        if (i > 0 && sharedField) continue;
+
+                                        const int row = dstRows[i];
+                                        SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                                        CSTR help = GetCommandHelp(line.csv.str[0].outstr(), col);
+                                        help.trimWhiteSpace();
+                                        ImGui::PushID(row);
+                                        ImGui::PushID(col);
+                                        ImGui::SetNextItemWidth(-FLT_MIN);
+                                        const bool isType = help.left(5).isSame("$type");
+                                        const bool isOp = help.left(3).isSame("$op");
+                                        const bool isString = help.left(3).isSame("$st");
+                                        const bool isNumber = help.left(4).isSame("$num");
+                                        const bool isTimer = help.left(6).isSame("$timer");
+                                        if (isType || isOp || isString || isNumber || isTimer) {
+                                            const int current = line.csv.val[col];
+                                            int itemCount = 0;
+                                            const char* currentName = "";
+                                            if (isType) { itemCount = 21; currentName = SKINTYPESTR[current]; }
+                                            else if (isOp) { itemCount = 1999; currentName = dstName(current < 0 ? -current : current); }
+                                            else if (isString) { itemCount = 200; currentName = textName(current); }
+                                            else if (isNumber) { itemCount = 300; currentName = numberName(current); }
+                                            else { itemCount = 300; currentName = timerName(current); }
+                                            char preview[128];
+                                            if (isOp && current < 0)
+                                                snprintf(preview, sizeof(preview), "NOT %03d:%s", -current, currentName ? currentName : "");
+                                            else
+                                                snprintf(preview, sizeof(preview), "%03d:%s", current, currentName ? currentName : "");
+                                            if (ImGui::BeginCombo("##value", preview)) {
+                                                ImGuiListClipper clipper;
+                                                clipper.Begin(itemCount);
+                                                while (clipper.Step()) {
+                                                    for (int item = clipper.DisplayStart; item < clipper.DisplayEnd; ++item) {
+                                                        const int value = isOp && item >= 1000 ? -(item - 999) : item;
+                                                        const char* valueName = "";
+                                                        if (isType) valueName = SKINTYPESTR[value];
+                                                        else if (isOp) valueName = dstName(value < 0 ? -value : value);
+                                                        else if (isString) valueName = textName(value);
+                                                        else if (isNumber) valueName = numberName(value);
+                                                        else valueName = timerName(value);
+                                                        char option[128];
+                                                        if (isOp && value < 0)
+                                                            snprintf(option, sizeof(option), "NOT %03d:%s", -value, valueName ? valueName : "");
+                                                        else
+                                                            snprintf(option, sizeof(option), "%03d:%s", value, valueName ? valueName : "");
+                                                        if (ImGui::Selectable(option, current == value)) EditValue(row, col, value);
+                                                    }
+                                                }
+                                                ImGui::EndCombo();
+                                            }
+                                            if ((isOp || isTimer) && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                                                ImGui::SetTooltip("%s", preview);
+                                        } else {
+                                            CSTR before(line.csv.str[col]);
+                                            CstrInputText("##value", &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
+                                            if (before.isDiff(line.csv.str[col])) {
+                                                CSTR newValue(line.csv.str[col]);
+                                                line.csv.str[col] = before;
+                                                EditValue(row, col, newValue.outstr());
+                                            }
+                                        }
+                                        ImGui::PopID();
+                                        ImGui::PopID();
+                                    }
+                                }
+                                ImGui::EndTable();
+                            }
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
                 }
             }
         } else {

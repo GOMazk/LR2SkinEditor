@@ -32,6 +32,16 @@ bool LoadTextureFromFile(const char* filename, PDIRECT3DTEXTURE9* out_texture, i
     return true;
 }
 
+bool GetImageSizeFromFile(const char* filename, int* out_width, int* out_height)
+{
+    if (!filename || !out_width || !out_height) return false;
+    D3DXIMAGE_INFO info = {};
+    if (FAILED(D3DXGetImageInfoFromFileA(filename, &info))) return false;
+    *out_width = (int)info.Width;
+    *out_height = (int)info.Height;
+    return true;
+}
+
 bool LoadTextureFromFile(const char* filename, D3Image* d3)
 {
     // Load texture from disk

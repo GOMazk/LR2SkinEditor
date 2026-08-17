@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include "ImageLoader.h"
 #include "seObjectEditor.h"
+#include <vector>
 
 typedef struct SKINFILELINEREAD {
     int numTotal;
@@ -14,6 +15,8 @@ typedef struct SKINFILELINEREAD {
     CSTR line;
     bool isComment;
     bool isSEcomment;
+    bool modified = false;
+    int csvColumnCount = 0;
     bool show = true;
 
     CSVbuf csv;
@@ -171,6 +174,9 @@ typedef struct WORKSPACE {
     SkinHeader meta;
 
     bool loaded = false;
+    bool dockLayoutBuilt = false;
+    bool previewReloadPending = false;
+    unsigned long long previewReloadRequestedAt = 0;
     char mainpath[MAX_PATH];
 
     byte* filedata = NULL;
@@ -181,6 +187,7 @@ typedef struct WORKSPACE {
     int skinSizeX = 640 , skinSizeY = 480;
 
     ARR arr_subpath; //CSTR
+    std::vector<std::string> loadScriptStack;
     ARR skinfileLines; //SKINFILELINEREAD
     ARR arr_ifunit; //IFUNIT
 
@@ -249,6 +256,8 @@ typedef struct WORKSPACE {
     PDIRECT3DTEXTURE9 texture_preview = NULL;
     int texture_preview_width = 0;
     int texture_preview_height = 0;
+    unsigned long long previewLastRenderAt = 0;
+    bool previewTextureDirty = true;
     int timerSelected;
     ImVec2 clickPos;
     bool drawRightClick;
@@ -289,6 +298,7 @@ typedef struct WORKSPACE {
     int drawSimplePreview();
 
     int drawSrc(int iSRCGR, int iSRCID);
+    bool EnsureSRCGRTexture(int iSRCGR);
     //int drawSrc(int iSRCGR, int iSRCID, int posX, int posY);
     int drawSrc(int iSRCGR, int iSRCID, int posX, int posY, int w = -1, int h = -1, bool stretch = 0);
     //dstview
@@ -301,6 +311,9 @@ typedef struct WORKSPACE {
     bool wNewObject;
     int drawNewObject();
     int selected_command;
+    int newObjectInsertPosition = -1;
+    int newObjectIfgroup = 0;
+    bool newCommandIncludeAll = false;
     CSVbuf nCsv;
 
     int MakeObjects();
@@ -309,25 +322,32 @@ typedef struct WORKSPACE {
 
     bool wObjectEditor = false;
     int selected_object_editor = 0;
-    int selected_object_group = 0;
+    int selected_object_group = -1;
+    int selected_user_object_group = -1;
     int drawObjectEditor();
     int selected_obj;
 
 
     bool wObjectManagerTest;
     int drawObjectManagerTest();
-    struct preview_selected_obj {
+    struct PreviewSelectionBounds {
         float x;
         float y;
         float w;
         float h;
     }preview_selected_obj;
+    PreviewSelectionBounds preview_selected_obj_last = {};
     bool preview_selected_obj_valid = false;
+    bool preview_selected_obj_last_valid = false;
     int preview_selected_object_model_index = -1;
+    std::vector<int> preview_selected_object_model_indices;
+    int preview_selection_anchor_model_index = -1;
     bool preview_object_dragging = false;
     ImVec2 preview_drag_mouse_start = {};
     float preview_drag_object_start_x = 0.0f;
     float preview_drag_object_start_y = 0.0f;
+    float preview_drag_last_start_x = 0.0f;
+    float preview_drag_last_start_y = 0.0f;
     int selectedObjectTest;
 
     bool wHistory;
@@ -366,3 +386,4 @@ extern ARR workspaceList;
 int makeTransBackground();
 int AutoSRCObjectPos(SRCGR* gr, int* x, int* y, int* w, int* h);
 int CsvToCSTR(CSVbuf& csv, CSTR& line);
+int CountCsvColumns(CSTR& line);

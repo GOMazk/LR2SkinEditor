@@ -54,6 +54,7 @@ typedef struct IFUNIT {
 typedef struct IMG {
     CSTR name;
     int gr, x, y, w, h;
+    int ifGroup = 0;
 }IMG;
 
 typedef struct SRCGR {
@@ -177,6 +178,7 @@ typedef struct WORKSPACE {
     bool dockLayoutBuilt = false;
     bool previewReloadPending = false;
     unsigned long long previewReloadRequestedAt = 0;
+    int RefreshPreviewSelectionBounds();
     char mainpath[MAX_PATH];
 
     byte* filedata = NULL;
@@ -200,6 +202,8 @@ typedef struct WORKSPACE {
     ARR arr_seobj; //SKINUNIT, SEOBJ
 
     ARR arr_history; //HISTORY
+    bool applyingHistory = false;
+    int UndoLastEdit();
     int previewScreen = -1; //DxLib handle
 
     //mainwindow
@@ -324,6 +328,7 @@ typedef struct WORKSPACE {
     int selected_object_editor = 0;
     int selected_object_group = -1;
     int selected_user_object_group = -1;
+    int object_editor_select_request = -1;
     int drawObjectEditor();
     int selected_obj;
 
@@ -337,8 +342,10 @@ typedef struct WORKSPACE {
         float h;
     }preview_selected_obj;
     PreviewSelectionBounds preview_selected_obj_last = {};
+    PreviewSelectionBounds preview_hover_obj = {};
     bool preview_selected_obj_valid = false;
     bool preview_selected_obj_last_valid = false;
+    bool preview_hover_obj_valid = false;
     int preview_selected_object_model_index = -1;
     std::vector<int> preview_selected_object_model_indices;
     int preview_selection_anchor_model_index = -1;
@@ -363,7 +370,7 @@ typedef struct WORKSPACE {
     int NewIMG(int gr, int x, int y, int w, int h);
     int DeleteIMG(int pos);
     int ModifyIMG(int pos, int gr, int x, int y, int w, int h);
-    int FindIMG(int gr, int x, int y, int w, int h);
+    int FindIMG(int gr, int x, int y, int w, int h, int ifGroup = -1);
 
     int InsertLine(int pos);
     int DeleteLine(int pos);

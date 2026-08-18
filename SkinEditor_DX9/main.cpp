@@ -134,7 +134,9 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     DxLib_Init();
 
     //SE init
-    LoadCommandHelp("skinHelper.txt");
+    // Development builds read the editable source file. Packaged builds fall
+    // back to the RCDATA copy embedded in the executable.
+    LoadCommandHelp("..\\skinHelper.txt");
     makeTransBackground();
     workspaceList.Alloc(sizeof(WORKSPACE), 1);
 

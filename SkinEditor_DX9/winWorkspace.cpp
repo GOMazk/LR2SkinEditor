@@ -22,6 +22,7 @@
 #include "imgui/imgui_internal.h"
 #include <algorithm>
 #include <cstdio>
+#include <functional>
 #include <map>
 #include <shellapi.h>
 #include <string>
@@ -309,7 +310,14 @@ int WORKSPACE::draw() {
     if (wFileManager) drawFileManager();
     if (wSimplePreview) drawSimplePreview();
     if (wDstView) drawDstView();
-    if (wObjectEditor) drawObjectEditor();
+    if (wObjectEditor) {
+        // Opening a docked window does not select its tab. A selection coming
+        // from Preview must activate Object Editor so its target row is
+        // actually submitted and can be scrolled into view.
+        if (object_editor_select_request >= 0)
+            ImGui::SetNextWindowFocus();
+        drawObjectEditor();
+    }
     if (wObjectManager) drawObjectManager();
     if (wObjectManagerTest) drawObjectManagerTest();
     if (wProperty) drawProperty();
@@ -317,6 +325,11 @@ int WORKSPACE::draw() {
     if (wHistory) drawHistory();
 
     if (wNewObject) drawNewObject();
+
+    ImGuiIO& shortcutIO = ImGui::GetIO();
+    if (loaded && shortcutIO.KeyCtrl && !shortcutIO.WantTextInput &&
+        ImGui::IsKeyPressed(ImGuiKey_Z, false))
+        UndoLastEdit();
 
 
     return 0;
@@ -620,7 +633,7 @@ int WORKSPACE::ParseSkin() {
             //get all IMG presets fromSRC here
             if (read.csv.str[0].isDiff("#SRC_TEXT")){
                 //check duplicated
-                if (FindIMG(read.csv.val[2], read.csv.val[3], read.csv.val[4], read.csv.val[5], read.csv.val[6]) == arr_IMG.count) {
+                if (FindIMG(read.csv.val[2], read.csv.val[3], read.csv.val[4], read.csv.val[5], read.csv.val[6], read.ifgroup) == arr_IMG.count) {
                     IMG* img = (IMG*)arr_IMG.Get_new();
                     cstrSprintf(&img->name,"%s", read.csv.str[0].outstr());
                     img->gr = read.csv.val[2];
@@ -628,6 +641,7 @@ int WORKSPACE::ParseSkin() {
                     img->y = read.csv.val[4];
                     img->w = read.csv.val[5];
                     img->h = read.csv.val[6];
+                    img->ifGroup = read.ifgroup;
                 }
             }
         }
@@ -676,11 +690,24 @@ int WORKSPACE::ParseSkin() {
         int currentGroup;
         int nextOrder;
         int grCountBeforeBlock;
+        int maxBranchEnd;
     };
     std::vector<ConditionFrame> conditionStack;
 
     IFUNIT rootIf;
     arr_ifunit.push_back(&rootIf);
+
+    auto appendSpecialSourcePlaceholder = [&](SKINFILELINEREAD& sourceLine) {
+        SRC* placeholder = (SRC*)arr_SRC.Get_new();
+        placeholder->gr = sourceLine.csv.val[2];
+        placeholder->sizeX = 1;
+        placeholder->sizeY = 1;
+        placeholder->div_x = 1;
+        placeholder->div_y = 1;
+        placeholder->declare = sourceLine.numTotal;
+        placeholder->name.assign("LR2 special source placeholder");
+        ++srcNow;
+    };
 
     for (int i = 0; i < skinfileLines.count; i++) {
         SKINFILELINEREAD& read = ((SKINFILELINEREAD*)skinfileLines.data)[i];
@@ -703,7 +730,7 @@ int WORKSPACE::ParseSkin() {
 
             const int newGroup = arr_ifunit.count;
             arr_ifunit.push_back(&tif);
-            conditionStack.push_back({ currentGroup, newGroup, 0, grCount });
+            conditionStack.push_back({ currentGroup, newGroup, 0, grCount, grCount });
             read.ifgroup = newGroup;
 
             read.isIfGroupHead = true;
@@ -720,6 +747,10 @@ int WORKSPACE::ParseSkin() {
             }
             else {
                 ConditionFrame& frame = conditionStack.back();
+                // Every alternative starts at the same logical IMAGE slot.
+                // Preserve how far the branch that just ended advanced, then
+                // rewind for the next #ELSEIF/#ELSE.
+                if (grCount > frame.maxBranchEnd) frame.maxBranchEnd = grCount;
                 IFUNIT tif;
                 if (read.csv.str[0].isSame("#ELSEIF")) {
                     for (int val = 0; val < 10; val++) {
@@ -750,9 +781,13 @@ int WORKSPACE::ParseSkin() {
                 read.ifgroup = 0;
             }
             else {
-                const ConditionFrame frame = conditionStack.back();
+                ConditionFrame& frame = conditionStack.back();
                 read.ifgroup = frame.currentGroup;
-                grCount = frame.grCountBeforeBlock;
+                // After the condition, LR2 continues after the longest
+                // alternative.  Sibling branches do not each consume their
+                // own IMAGE-number range.
+                if (grCount > frame.maxBranchEnd) frame.maxBranchEnd = grCount;
+                grCount = frame.maxBranchEnd;
                 grInIf = 0;
                 conditionStack.pop_back();
             }
@@ -951,7 +986,9 @@ int WORKSPACE::ParseSkin() {
 
         else if (read.csv.str[0].isSame("#SRC_NUMBER")) { 
 
-            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) {srcNow++; continue;}
+            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) {
+                appendSpecialSourcePlaceholder(read); continue;
+            }
 
             SRC* src = (SRC*)(arr_SRC.Get_new());
 
@@ -993,7 +1030,9 @@ int WORKSPACE::ParseSkin() {
         
         else if (read.csv.str[0].isSame("#SRC_SLIDER")) {
 
-            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) { srcNow++; continue; }
+            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) {
+                appendSpecialSourcePlaceholder(read); continue;
+            }
 
             SRC* src = (SRC*)(arr_SRC.Get_new());
 
@@ -1031,7 +1070,9 @@ int WORKSPACE::ParseSkin() {
         }
         else if (read.csv.str[0].isSame("#SRC_BUTTON")) {
 
-            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) { srcNow++; continue; }
+            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) {
+                appendSpecialSourcePlaceholder(read); continue;
+            }
 
             SRC* src = (SRC*)(arr_SRC.Get_new());
 
@@ -1069,7 +1110,9 @@ int WORKSPACE::ParseSkin() {
         }
         else if (read.csv.str[0].isSame("#SRC_BARGRAPH")) {
 
-            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) { srcNow++; continue; }
+            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) {
+                appendSpecialSourcePlaceholder(read); continue;
+            }
 
             SRC* src = (SRC*)(arr_SRC.Get_new());
 
@@ -1105,7 +1148,9 @@ int WORKSPACE::ParseSkin() {
          }
         else if (read.csv.str[0].isSame("#SRC_TEXT")) {
 
-            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) { srcNow++; continue; }
+            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) {
+                appendSpecialSourcePlaceholder(read); continue;
+            }
 
             SRC* src = (SRC*)(arr_SRC.Get_new());
 
@@ -1141,7 +1186,9 @@ int WORKSPACE::ParseSkin() {
         }
         else if (read.csv.str[0].isSame("#SRC_ONMOUSE")) {
 
-            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) { srcNow++; continue; }
+            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) {
+                appendSpecialSourcePlaceholder(read); continue;
+            }
 
             SRC* src = (SRC*)(arr_SRC.Get_new());
 
@@ -1173,10 +1220,13 @@ int WORKSPACE::ParseSkin() {
                 sprintf(tmp, "noname : %d*%d ##%d", src->sizeX, src->sizeY, read.numTotal);
             }
             src->name.assign(tmp);
-            }
+            srcNow++;
+        }
         else if (read.csv.str[0].isSame("#SRC_BGA")) {
 
-            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) { srcNow++; continue; }
+            if (read.csv.val[2] == 110 || read.csv.val[2] == 111) {
+                appendSpecialSourcePlaceholder(read); continue;
+            }
 
             SRC* src = (SRC*)(arr_SRC.Get_new());
 
@@ -1338,6 +1388,9 @@ int WORKSPACE::LoadSkin(char* path) {
     g.skstruct.skinMD5.fillzero();
     g.skstruct.skinMD5.resize2(34);
     AllocDrawingBuffer(&g.skstruct.drBuf);
+    // SkinEditor does not provide audio playback. Keep every inherited LR2
+    // audio entry point on its disabled path so fmod.dll is optional.
+    g.audio.is_fmod_disabled = 1;
     //LoadScene(&g.skstruct, mainpath, 0, 0);
 
     //SE
@@ -1358,7 +1411,8 @@ int WORKSPACE::LoadSkin(char* path) {
     WriteSkinLoadLog("LR2SE preview state prepared");
     ParseSkin();
     WriteSkinLoadLog("ParseSkin complete");
-    if (g_seObjectEditorModel.Groups().empty()) g_seObjectEditorModel.LoadGroups("skinObjGroup.txt");
+    if (g_seObjectEditorModel.Groups().empty())
+        g_seObjectEditorModel.LoadGroups("..\\skinObjGroup.txt");
     g_seObjectEditorModel.Rebuild(*this);
     WriteSkinLoadLog("ObjectEditor Rebuild complete");
     
@@ -2730,6 +2784,62 @@ int WORKSPACE::drawCustomize() {
     return 0;
 }
 
+int WORKSPACE::RefreshPreviewSelectionBounds() {
+    bool firstBounds = true;
+    bool lastBounds = true;
+    float minX = 0, minY = 0, maxX = 0, maxY = 0;
+    float lastMinX = 0, lastMinY = 0, lastMaxX = 0, lastMaxY = 0;
+    const std::vector<SEObjectInstance>& objects = g_seObjectEditorModel.Objects();
+
+    auto includeFrame = [](const DST_ANIMATION& frame, bool& empty,
+        float& left, float& top, float& right, float& bottom) {
+        const float frameRight = (float)(frame.x + frame.w);
+        const float frameBottom = (float)(frame.y + frame.h);
+        const float x1 = frame.x < frameRight ? (float)frame.x : frameRight;
+        const float y1 = frame.y < frameBottom ? (float)frame.y : frameBottom;
+        const float x2 = frame.x > frameRight ? (float)frame.x : frameRight;
+        const float y2 = frame.y > frameBottom ? (float)frame.y : frameBottom;
+        if (empty) {
+            left = x1; top = y1; right = x2; bottom = y2; empty = false;
+        } else {
+            if (x1 < left) left = x1;
+            if (y1 < top) top = y1;
+            if (x2 > right) right = x2;
+            if (y2 > bottom) bottom = y2;
+        }
+    };
+
+    for (int modelIndex : preview_selected_object_model_indices) {
+        if (modelIndex < 0 || modelIndex >= (int)objects.size()) continue;
+        const SEObjectInstance& object = objects[modelIndex];
+        DST* selectedDst = NULL;
+        for (int dstIndex = 0; dstIndex < arr_DST.count; ++dstIndex) {
+            DST& candidate = ((DST*)arr_DST.data)[dstIndex];
+            if (candidate.arr_animation.count <= 0 ||
+                std::find(object.rows.begin(), object.rows.end(), candidate.declare) == object.rows.end())
+                continue;
+            if (!selectedDst) selectedDst = &candidate;
+            if (GetOptionFlag_dst(&g, candidate.op1) && GetOptionFlag_dst(&g, candidate.op2) &&
+                GetOptionFlag_dst(&g, candidate.op3)) {
+                selectedDst = &candidate;
+                break;
+            }
+        }
+        if (!selectedDst) continue;
+        DST_ANIMATION* frames = (DST_ANIMATION*)selectedDst->arr_animation.data;
+        includeFrame(frames[0], firstBounds, minX, minY, maxX, maxY);
+        includeFrame(frames[selectedDst->arr_animation.count - 1], lastBounds,
+            lastMinX, lastMinY, lastMaxX, lastMaxY);
+    }
+
+    preview_selected_obj_valid = !firstBounds;
+    preview_selected_obj_last_valid = !lastBounds;
+    if (!firstBounds) preview_selected_obj = { minX, minY, maxX - minX, maxY - minY };
+    if (!lastBounds) preview_selected_obj_last = {
+        lastMinX, lastMinY, lastMaxX - lastMinX, lastMaxY - lastMinY };
+    return preview_selected_obj_valid ? 0 : -1;
+}
+
 int WORKSPACE::drawPreview() {
     // Preview texture is owned by this workspace and recreated whenever
     // the loaded skin resolution changes.
@@ -2757,6 +2867,7 @@ int WORKSPACE::drawPreview() {
         LR2SEResetRenderFault();
         previewReloadPending = false;
         previewLastRenderAt = 0;
+        RefreshPreviewSelectionBounds();
     }
 
     // Keep editing and live scene playback at the same responsive refresh
@@ -2764,6 +2875,15 @@ int WORKSPACE::drawPreview() {
     // memory-pressure workaround is no longer needed.
     const unsigned long long previewFrameInterval = 16;
     if (previewLastRenderAt == 0 || previewNow - previewLastRenderAt >= previewFrameInterval) {
+        // Scene processing queues PLAY notes, judge lines and other dynamic
+        // objects in skstruct.drBuf.  It must run before LR2SEDrawLoop: that
+        // function draws the queued objects, captures the preview and then
+        // clears the buffer.  Running this after the draw loop made every
+        // sample-BMS note get cleared at the start of the following frame
+        // without ever reaching the preview texture.
+        if (playing && LR2SESceneProcSafe(&g, meta.type) == -1)
+            playing = false;
+
         // SELECT still needs its editor-side bar/BGA placeholders while its
         // timers are running; the original selector loop is not driven here.
         const bool staticSpecialPreview = !playing || meta.type == SKINTYPE_SELECT;
@@ -2824,8 +2944,6 @@ int WORKSPACE::drawPreview() {
         LoadSceneSE();
         playing = (LR2SESceneInitSafe(&g, meta.type) == 0);
     }
-    if (playing && LR2SESceneProcSafe(&g, meta.type) == -1)
-        playing = false;
 
     if (ImGui::BeginCombo("##Timer",timerName(timerSelected))) {
         for (int timer = 0; timer < 200; timer++) {
@@ -3038,29 +3156,209 @@ int WORKSPACE::drawPreview() {
         clickPos = { io.MousePos.x,io.MousePos.y };
         drawRightClick = true;
     }
-    else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        drawRightClick = false;
-    }
+    // Do not clear drawRightClick on a left press here.  The popup items are
+    // processed later in this function; clearing it first skipped the entire
+    // popup block on the exact frame a Selectable was clicked.
+    preview_hover_obj_valid = false;
     if(drawRightClick){
         ImGui::PushID(num);
         if (ImGui::BeginPopupContextWindow()) {
+            auto branchConditionMatches = [&](int ifgroup) -> bool {
+                if (ifgroup <= 0 || ifgroup >= arr_ifunit.count) return ifgroup == 0;
+                for (int row = 0; row < skinfileLines.count; ++row) {
+                    SKINFILELINEREAD& header = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    if (header.ifgroup != ifgroup || !header.isIfGroupHead ||
+                        !header.csv.str[0].body) continue;
+                    const char* command = header.csv.str[0].outstr();
+                    if (!strcmp(command, "#ELSE")) return true;
+                    if (strcmp(command, "#IF") && strcmp(command, "#ELSEIF")) return false;
+                    for (int col = 1; col <= 10; ++col) {
+                        const int option = header.csv.val[col];
+                        if (option != 0 && !GetOptionFlag_dst(&g, option)) return false;
+                    }
+                    return true;
+                }
+                return false;
+            };
+            auto rootIfgroup = [&](int ifgroup) -> int {
+                if (ifgroup <= 0 || ifgroup >= arr_ifunit.count) return 0;
+                IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[ifgroup];
+                if (unit.order == 0) return ifgroup;
+                for (int group = ifgroup - 1; group > 0; --group) {
+                    IFUNIT& candidate = ((IFUNIT*)arr_ifunit.data)[group];
+                    if (candidate.depth == unit.depth && candidate.parentID == unit.parentID &&
+                        candidate.order == 0) return group;
+                }
+                return ifgroup;
+            };
+            std::function<bool(int)> branchIsActive = [&](int ifgroup) -> bool {
+                if (ifgroup == 0) return true;
+                if (ifgroup < 0 || ifgroup >= arr_ifunit.count ||
+                    !branchConditionMatches(ifgroup)) return false;
+                IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[ifgroup];
+                if (!branchIsActive(unit.parentID)) return false;
+                const int chainRoot = rootIfgroup(ifgroup);
+                for (int sibling = 1; sibling < arr_ifunit.count; ++sibling) {
+                    IFUNIT& previous = ((IFUNIT*)arr_ifunit.data)[sibling];
+                    if (previous.parentID == unit.parentID && previous.depth == unit.depth &&
+                        previous.order < unit.order && rootIfgroup(sibling) == chainRoot &&
+                        branchConditionMatches(sibling)) return false;
+                }
+                return true;
+            };
+
+            std::vector<int> listedObjectModels;
             for (int i = 0; i < arr_DST.count; i++) {
                 DST& dst = ((DST*)arr_DST.data)[i];
+                if (dst.arr_animation.count <= 0 ||
+                    !GetOptionFlag_dst(&g, dst.op1) ||
+                    !GetOptionFlag_dst(&g, dst.op2) ||
+                    !GetOptionFlag_dst(&g, dst.op3)) continue;
                 DST_ANIMATION& dstd = ((DST_ANIMATION*)dst.arr_animation.data)[dst.arr_animation.count - 1];
-                ImVec2 dstposLU = { (float)p.x + dstd.x, (float)p.y + dstd.y };
-                ImVec2 dstposRB = { (float)p.x + dstd.x + dstd.w, (float)p.y + dstd.y + dstd.h };
+                const float hitScale = 1.0f / zoom;
+                float hitX1 = dstd.x, hitY1 = dstd.y;
+                float hitX2 = dstd.x + dstd.w, hitY2 = dstd.y + dstd.h;
+                if (hitX1 > hitX2) std::swap(hitX1, hitX2);
+                if (hitY1 > hitY2) std::swap(hitY1, hitY2);
+                ImVec2 dstposLU = { p.x + hitX1 * hitScale, p.y + hitY1 * hitScale };
+                ImVec2 dstposRB = { p.x + hitX2 * hitScale, p.y + hitY2 * hitScale };
                 
                 if (dstposLU.x <= clickPos.x && clickPos.x <= dstposRB.x && dstposLU.y <= clickPos.y && clickPos.y <= dstposRB.y) {
-                    ImGui::Text("%d", i);
-                    //printSrcImg(((SRC*)arr_SRC.data)[dst.src],1);
-                    ImGui::SameLine();
-                    printSrcImgEx(((SRC*)arr_SRC.data)[dst.src], 90, 60);
+                    int objectModelIndex = -1;
+                    const std::vector<SEObjectInstance>& objects = g_seObjectEditorModel.Objects();
+                    for (int modelIndex = 0; modelIndex < (int)objects.size(); ++modelIndex) {
+                        if (std::find(objects[modelIndex].rows.begin(), objects[modelIndex].rows.end(),
+                            dst.declare) != objects[modelIndex].rows.end()) {
+                            objectModelIndex = modelIndex;
+                            break;
+                        }
+                    }
+                    if (objectModelIndex < 0 ||
+                        !branchIsActive(objects[objectModelIndex].ifgroup)) continue;
+                    if (std::find(listedObjectModels.begin(), listedObjectModels.end(), objectModelIndex) !=
+                        listedObjectModels.end()) continue;
+                    listedObjectModels.push_back(objectModelIndex);
+
+                    // Resolve the thumbnail from this Object's matching SRC
+                    // row, rather than trusting DST::src's parser-global
+                    // sequence number.  Indexed object families can contain
+                    // several SRC/DST command pairs, so also match the command
+                    // suffix and index column.
+                    int thumbnailSrc = -1;
+                    const int dstRow = dst.declare;
+                    SKINFILELINEREAD* dstLine = dstRow >= 0 && dstRow < skinfileLines.count
+                        ? &((SKINFILELINEREAD*)skinfileLines.data)[dstRow] : NULL;
+                    std::string wantedSrcCommand;
+                    int wantedKey = 0;
+                    bool hasWantedKey = false;
+                    if (dstLine && dstLine->csv.str[0].body) {
+                        const char* dstCommand = dstLine->csv.str[0].outstr();
+                        if (!strncmp(dstCommand, "#DST_", 5))
+                            wantedSrcCommand = std::string("#SRC_") + (dstCommand + 5);
+                        if (dstLine->csv.str[1].body) {
+                            wantedKey = dstLine->csv.val[1];
+                            hasWantedKey = true;
+                        }
+                    }
+                    int fallbackSrc = -1;
+                    for (int objectRow : objects[objectModelIndex].rows) {
+                        if (objectRow < 0 || objectRow >= skinfileLines.count) continue;
+                        SKINFILELINEREAD& sourceLine =
+                            ((SKINFILELINEREAD*)skinfileLines.data)[objectRow];
+                        const char* sourceCommand = sourceLine.csv.str[0].body
+                            ? sourceLine.csv.str[0].outstr() : "";
+                        if (strncmp(sourceCommand, "#SRC_", 5)) continue;
+                        int sourceArrayIndex = -1;
+                        for (int sourceIndex = 0; sourceIndex < arr_SRC.count; ++sourceIndex) {
+                            if (((SRC*)arr_SRC.data)[sourceIndex].declare == objectRow) {
+                                sourceArrayIndex = sourceIndex;
+                                break;
+                            }
+                        }
+                        if (sourceArrayIndex < 0) continue;
+                        if (fallbackSrc < 0) fallbackSrc = sourceArrayIndex;
+                        const bool commandMatches = wantedSrcCommand.empty() ||
+                            wantedSrcCommand == sourceCommand;
+                        const bool keyMatches = !hasWantedKey || !sourceLine.csv.str[1].body ||
+                            sourceLine.csv.val[1] == wantedKey;
+                        if (commandMatches && keyMatches) {
+                            thumbnailSrc = sourceArrayIndex;
+                            break;
+                        }
+                    }
+                    if (thumbnailSrc < 0) thumbnailSrc = fallbackSrc;
+                    if (thumbnailSrc < 0 && dst.src >= 0 && dst.src < arr_SRC.count)
+                        thumbnailSrc = dst.src;
+
+                    char hitLabel[256];
+                    const std::string hitName = Cp932ToUtf8(objects[objectModelIndex].name.c_str());
+                    snprintf(hitLabel, sizeof(hitLabel), "Object %03d  %s##PreviewHit%d",
+                        objectModelIndex, hitName.c_str(), objectModelIndex);
+                    const ImVec2 hitRowStart = ImGui::GetCursorScreenPos();
+                    bool chooseObject = ImGui::Selectable(hitLabel, false,
+                        ImGuiSelectableFlags_AllowDoubleClick, ImVec2(310.0f, 64.0f));
+                    bool hoverObject = ImGui::IsItemHovered();
+                    ImGui::SetCursorScreenPos(ImVec2(hitRowStart.x + 215.0f, hitRowStart.y + 2.0f));
+                    if (thumbnailSrc >= 0 && thumbnailSrc < arr_SRC.count &&
+                        ((SRC*)arr_SRC.data)[thumbnailSrc].gr != 110 &&
+                        ((SRC*)arr_SRC.data)[thumbnailSrc].gr != 111) {
+                        printSrcImgEx(((SRC*)arr_SRC.data)[thumbnailSrc], 90, 60);
+                        if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) chooseObject = true;
+                        if (ImGui::IsItemHovered()) hoverObject = true;
+                    } else {
+                        ImGui::TextDisabled("Special source");
+                        if (ImGui::IsItemHovered()) hoverObject = true;
+                    }
+                    // SetCursorScreenPos() alone no longer contributes an item to the
+                    // parent layout (Dear ImGui 1.89+).  Submit a zero-size item at
+                    // the restored row end so the popup's content bounds and next
+                    // row cursor are both finalized without triggering the layout
+                    // assertion.
+                    ImGui::SetCursorScreenPos(ImVec2(hitRowStart.x, hitRowStart.y + 66.0f));
+                    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+                    if (hoverObject) {
+                        preview_hover_obj = { dstd.x, dstd.y, dstd.w, dstd.h };
+                        preview_hover_obj_valid = true;
+                    }
+                    if (chooseObject && objectModelIndex >= 0) {
+                        wObjectEditor = true;
+                        selected_object_group = -1;
+                        selected_user_object_group = -1;
+                        selected_object_editor = objectModelIndex;
+                        object_editor_select_request = objectModelIndex;
+                        preview_selected_object_model_indices.clear();
+                        preview_selected_object_model_indices.push_back(objectModelIndex);
+                        preview_selected_object_model_index = objectModelIndex;
+                        preview_selection_anchor_model_index = objectModelIndex;
+                        preview_object_dragging = false;
+
+                        DST_ANIMATION& first = ((DST_ANIMATION*)dst.arr_animation.data)[0];
+                        preview_selected_obj = { first.x, first.y, first.w, first.h };
+                        preview_selected_obj_last = { dstd.x, dstd.y, dstd.w, dstd.h };
+                        preview_selected_obj_valid = true;
+                        preview_selected_obj_last_valid = true;
+                        ImGui::CloseCurrentPopup();
+                    }
                 }
             }
 
             ImGui::EndPopup();
         }
         ImGui::PopID();
+    }
+
+    if (preview_hover_obj_valid && ((int)GetTimeLapse(1, &g.timer1) % 400 < 250)) {
+        float x1 = preview_hover_obj.x;
+        float y1 = preview_hover_obj.y;
+        float x2 = preview_hover_obj.x + preview_hover_obj.w;
+        float y2 = preview_hover_obj.y + preview_hover_obj.h;
+        if (x1 > x2) std::swap(x1, x2);
+        if (y1 > y2) std::swap(y1, y2);
+        const float previewScale = 1.0f / zoom;
+        draw_list->AddRect(
+            ImVec2(p.x + x1 * previewScale, p.y + y1 * previewScale),
+            ImVec2(p.x + x2 * previewScale, p.y + y2 * previewScale),
+            IM_COL32(255, 230, 40, 235), 0.0f, ImDrawFlags_Closed, 1.0f);
     }
     
 
@@ -3573,8 +3871,38 @@ int WORKSPACE::printSrcImgButton(SRC src, int num, int w, int h) {
 }
 
 int WORKSPACE::printSrcImgEx(SRC src, int w, int h) {
-    EnsureSRCGRTexture(src.gr);
-    SRCGR& img = ((SRCGR*)arr_SRCGR.data)[src.gr];
+    int imageIndex = -1;
+    int bestImageScore = -1;
+    const int sourceIfgroup = src.declare >= 0 && src.declare < skinfileLines.count
+        ? ((SKINFILELINEREAD*)skinfileLines.data)[src.declare].ifgroup : 0;
+    for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
+        if (((SRCGR*)arr_SRCGR.data)[candidate].grID == src.gr) {
+            SRCGR& candidateImage = ((SRCGR*)arr_SRCGR.data)[candidate];
+            // Graphic IDs are local to the active IF branch in many LR2
+            // skins.  Reusing the first matching grID can therefore crop the
+            // right SRC rectangle from a completely different texture sheet.
+            int candidateScore = candidateImage.isIf == sourceIfgroup ? 100 : 0;
+            for (int custom = 0; custom < g.skstruct.customfile_count; ++custom) {
+                const char* selected = g.skstruct.customfile[custom].body
+                    ? g.skstruct.customfile[custom].outstr() : "";
+                if (!*selected || !candidateImage.filename.body) continue;
+                const char* selectedName = strrchr(selected, '\\');
+                if (!selectedName) selectedName = strrchr(selected, '/');
+                selectedName = selectedName ? selectedName + 1 : selected;
+                if (_stricmp(candidateImage.filename.outstr(), selectedName) == 0) {
+                    candidateScore += 10;
+                    break;
+                }
+            }
+            if (candidateScore > bestImageScore) {
+                bestImageScore = candidateScore;
+                imageIndex = candidate;
+            }
+        }
+    }
+    if (imageIndex < 0) return -1;
+    EnsureSRCGRTexture(imageIndex);
+    SRCGR& img = ((SRCGR*)arr_SRCGR.data)[imageIndex];
     ImGui::PushID(num);
     if (img.texture != NULL) {
         int sizeX = src.sizeX == -1 ? img.sizeX - src.x : src.sizeX;
@@ -3633,7 +3961,22 @@ int WORKSPACE::drawImgManager() {
             ImGui::PushID(i);
             if (ImGui::Selectable(buf, i == src_selected)) {
                 src_selected = i;
-                gr_selected = img.gr;
+                gr_selected = -1;
+                for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
+                    SRCGR& source = ((SRCGR*)arr_SRCGR.data)[candidate];
+                    if (source.grID == img.gr && source.isIf == img.ifGroup) {
+                        gr_selected = candidate;
+                        break;
+                    }
+                }
+                if (gr_selected < 0) {
+                    for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
+                        if (((SRCGR*)arr_SRCGR.data)[candidate].grID == img.gr) {
+                            gr_selected = candidate;
+                            break;
+                        }
+                    }
+                }
                 grID_selected = img.gr;
             }
             
@@ -3684,22 +4027,44 @@ int WORKSPACE::drawImgManager() {
     ImGui::BeginGroup();
 
     static int gr_type;
-    char buf[260] = "temp";
-    if (((SRCGR*)arr_SRCGR.data)[gr_selected].grID != grID_selected) {
+    char buf[260] = "No texture";
+    IMG& selectedImageTag = ((IMG*)arr_IMG.data)[src_selected];
+    if (gr_selected < 0 || gr_selected >= arr_SRCGR.count ||
+        ((SRCGR*)arr_SRCGR.data)[gr_selected].grID != grID_selected ||
+        ((SRCGR*)arr_SRCGR.data)[gr_selected].isIf != selectedImageTag.ifGroup) {
         for (int i = 0; i < arr_SRCGR.count; i++) {
             SRCGR& gr = ((SRCGR*)arr_SRCGR.data)[i];
-            if (gr.grID == grID_selected) {
+            if (gr.grID == grID_selected && gr.isIf == selectedImageTag.ifGroup) {
                 gr_selected = i;
                 sprintf(buf, "%03d %02d : %s", i, gr.grID, gr.filename.outstr());
+                break;
             }
         }
+        if (gr_selected < 0 || gr_selected >= arr_SRCGR.count ||
+            ((SRCGR*)arr_SRCGR.data)[gr_selected].grID != grID_selected) {
+            for (int i = 0; i < arr_SRCGR.count; ++i) {
+                if (((SRCGR*)arr_SRCGR.data)[i].grID == grID_selected) {
+                    gr_selected = i;
+                    break;
+                }
+            }
+        }
+    }
+    if (gr_selected >= 0 && gr_selected < arr_SRCGR.count) {
+        SRCGR& selectedGraphic = ((SRCGR*)arr_SRCGR.data)[gr_selected];
+        snprintf(buf, sizeof(buf), "%03d %02d [IF %03d] : %s", gr_selected,
+            selectedGraphic.grID, selectedGraphic.isIf,
+            selectedGraphic.filename.body ? selectedGraphic.filename.outstr() : "");
     }
     
     if (ImGui::BeginCombo("##grSelect", buf)) {
         for (int i = 0; i < arr_SRCGR.count; i++) {
             SRCGR& gr = ((SRCGR*)arr_SRCGR.data)[i];
             char buf[260];
-            sprintf(buf, "%03d %02d : %s", i, gr.grID, gr.filename.outstr());
+            sprintf(buf, "%03d %02d [IF %03d] : %s", i, gr.grID, gr.isIf,
+                gr.filename.body ? gr.filename.outstr() : "");
+            // Show every texture declaration sharing this logical gr number.
+            // The current SRC branch only controls the automatic default.
             if (gr.grID != grID_selected) continue;
             ImGui::PushID(i);
             if (ImGui::Selectable(buf, i == gr_selected)) {
@@ -3757,7 +4122,7 @@ int WORKSPACE::drawImgManager() {
 
             for (int i = 0; i < arr_IMG.count; i++) {
                 IMG& hoversrc = ((IMG*)arr_IMG.data)[i];
-                if (hoversrc.gr != src.gr) continue;
+                if (hoversrc.gr != src.gr || hoversrc.ifGroup != src.ifGroup) continue;
                 srcposLU = { (float)grpos.x + hoversrc.x, (float)grpos.y + hoversrc.y };
                 srcposRB = { (float)grpos.x + hoversrc.x + hoversrc.w, (float)grpos.y + hoversrc.y + hoversrc.h };
                 if (ImGui::IsMouseHoveringRect(srcposLU, srcposRB)) {
@@ -5346,6 +5711,14 @@ int WORKSPACE::drawObjectEditor() {
     static char objectSearch[128] = "";
     static bool requestCreateGroupPopup = false;
     static float objectListWidth = 260.0f;
+    const int requestedObjectModel = object_editor_select_request;
+    if (requestedObjectModel >= 0) {
+        // A Preview hit must remain reachable even when the Object Editor was
+        // showing a type/user-group/search filter that excludes it.
+        selected_object_group = -1;
+        selected_user_object_group = -1;
+        objectSearch[0] = '\0';
+    }
     const float objectEditorPaneHeight = ImGui::GetContentRegionAvail().y;
 
     // Left navigator: filters on top, condition/object list below.
@@ -5491,6 +5864,14 @@ int WORKSPACE::drawObjectEditor() {
     else {
         const std::vector<SEObjectInstance>& allObjects = g_seObjectEditorModel.Objects();
         for (int i = 0; i < (int)allObjects.size(); ++i) groupObjects.push_back(i);
+    }
+
+    if (requestedObjectModel >= 0) {
+        const std::vector<int>::const_iterator requestedIt = std::find(
+            groupObjects.begin(), groupObjects.end(), requestedObjectModel);
+        if (requestedIt != groupObjects.end())
+            selected_object_editor = (int)(requestedIt - groupObjects.begin());
+        object_editor_select_request = -1;
     }
 
     if (objectSearch[0]) {
@@ -5750,6 +6131,35 @@ int WORKSPACE::drawObjectEditor() {
             branchTreeIfCount = arr_ifunit.count;
         }
 
+        int requestedIfgroup = 0;
+        if (requestedObjectModel >= 0 && requestedObjectModel <
+            (int)g_seObjectEditorModel.Objects().size()) {
+            const SEObjectInstance& requestedObject =
+                g_seObjectEditorModel.Objects()[requestedObjectModel];
+            requestedIfgroup = requestedObject.ifgroup;
+            if (requestedIfgroup == 0 && !requestedObject.rows.empty())
+                requestedIfgroup = ((SKINFILELINEREAD*)skinfileLines.data)
+                    [requestedObject.rows.front()].ifgroup;
+            int pathBranch = requestedIfgroup;
+            while (pathBranch > 0 && pathBranch < arr_ifunit.count) {
+                branchTreeOpen[pathBranch] = true;
+                const int pathRoot = getRootIfgroup(pathBranch);
+                pathBranch = pathRoot > 0 && pathRoot < arr_ifunit.count
+                    ? ((IFUNIT*)arr_ifunit.data)[pathRoot].parentID : 0;
+            }
+        }
+
+        auto branchIsOnRequestedPath = [&](int branchIfgroup) -> bool {
+            int pathBranch = requestedIfgroup;
+            while (pathBranch > 0 && pathBranch < arr_ifunit.count) {
+                if (pathBranch == branchIfgroup) return true;
+                const int pathRoot = getRootIfgroup(pathBranch);
+                pathBranch = pathRoot > 0 && pathRoot < arr_ifunit.count
+                    ? ((IFUNIT*)arr_ifunit.data)[pathRoot].parentID : 0;
+            }
+            return false;
+        };
+
         for (int ci = 0; ci < (int)conditions.size(); ++ci) {
             ConditionBlock& cond = conditions[ci];
             // Conditions are stored in source order, but visually form a
@@ -5876,6 +6286,8 @@ int WORKSPACE::drawObjectEditor() {
                         preview_selected_object_model_indices.end(), modelIndex) !=
                         preview_selected_object_model_indices.end();
                     const bool clicked = ImGui::Selectable(label, isMultiSelected);
+                    if (modelIndex == requestedObjectModel)
+                        ImGui::SetScrollHereY(0.5f);
                     if (hasDst) ImGui::PopStyleColor(3);
                     if (clicked) {
                         selected_object_editor = oi;
@@ -6056,6 +6468,8 @@ int WORKSPACE::drawObjectEditor() {
 
             if (cond.rootIfgroup == 0) {
                 // Unconditional objects are not part of a condition block.
+                if (requestedObjectModel >= 0 && requestedIfgroup == 0)
+                    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
                 bool open = ImGui::TreeNodeEx("always", ImGuiTreeNodeFlags_DefaultOpen, "ALWAYS");
                 if (open) {
                     for (int bi = 0; bi < (int)cond.branches.size(); ++bi)
@@ -6097,6 +6511,8 @@ int WORKSPACE::drawObjectEditor() {
                     ImGui::PushStyleColor(ImGuiCol_Header, branchColor);
                     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, branchHoverColor);
                     ImGui::PushStyleColor(ImGuiCol_HeaderActive, branchHoverColor);
+                    if (branchIsOnRequestedPath(branch.ifgroup))
+                        ImGui::SetNextItemOpen(true, ImGuiCond_Always);
                     bool branchOpen = ImGui::TreeNodeEx("branch", ImGuiTreeNodeFlags_DefaultOpen,
                         "%s  (%d)", branch.label.c_str(), (int)branch.localObjectIndices.size());
                     branchTreeOpen[branch.ifgroup] = branchOpen;
@@ -6323,12 +6739,39 @@ int WORKSPACE::drawObjectEditor() {
                                     EditValue(row, columns[field], values[field]);
                                 }
                                 src_selected = tagIndex;
-                                gr_selected = tag.gr;
+                                gr_selected = -1;
+                                for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
+                                    SRCGR& source = ((SRCGR*)arr_SRCGR.data)[candidate];
+                                    if (source.grID == tag.gr && source.isIf == tag.ifGroup) {
+                                        gr_selected = candidate;
+                                        break;
+                                    }
+                                }
                             }
-                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) &&
-                                tag.gr >= 0 && tag.gr < arr_SRCGR.count) {
-                                EnsureSRCGRTexture(tag.gr);
-                                SRCGR& sourceImage = ((SRCGR*)arr_SRCGR.data)[tag.gr];
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone) &&
+                                tag.gr >= 0) {
+                                int tagImageIndex = -1;
+                                // Preview the tag against the branch of the
+                                // SRC currently being edited. Coordinate tags
+                                // themselves are shared across branches.
+                                for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
+                                    SRCGR& source = ((SRCGR*)arr_SRCGR.data)[candidate];
+                                    if (source.grID == tag.gr && source.isIf == srcLine.ifgroup) {
+                                        tagImageIndex = candidate;
+                                        break;
+                                    }
+                                }
+                                if (tagImageIndex < 0) {
+                                    for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
+                                        if (((SRCGR*)arr_SRCGR.data)[candidate].grID == tag.gr) {
+                                            tagImageIndex = candidate;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (tagImageIndex < 0) continue;
+                                EnsureSRCGRTexture(tagImageIndex);
+                                SRCGR& sourceImage = ((SRCGR*)arr_SRCGR.data)[tagImageIndex];
                                 const int tagW = tag.w == -1 ? sourceImage.sizeX - tag.x : tag.w;
                                 const int tagH = tag.h == -1 ? sourceImage.sizeY - tag.y : tag.h;
                                 if (sourceImage.texture && sourceImage.sizeX > 0 && sourceImage.sizeY > 0 &&
@@ -6451,6 +6894,8 @@ int WORKSPACE::drawObjectEditor() {
 
                 std::vector<int> srcRows;
                 std::vector<int> dstRows;
+                bool requestAddDstFrame = false;
+                bool requestRemoveDstFrame = false;
                 for (std::size_t ri = 0; ri < obj.rows.size(); ++ri) {
                     const int row = obj.rows[ri];
                     if (row < 0 || row >= skinfileLines.count) continue;
@@ -6472,8 +6917,19 @@ int WORKSPACE::drawObjectEditor() {
                     }
 
                     char dstTabLabel[64];
-                    snprintf(dstTabLabel, sizeof(dstTabLabel), "DST (%d)", (int)dstRows.size());
+                    // Keep the tab identity stable while its visible count
+                    // changes, so +DST/-DST does not switch back to SRC.
+                    snprintf(dstTabLabel, sizeof(dstTabLabel), "DST (%d)###ObjectDstTab", (int)dstRows.size());
                     if (ImGui::BeginTabItem(dstTabLabel)) {
+                        ImGui::BeginDisabled(dstRows.empty());
+                        if (ImGui::Button("+ DST")) requestAddDstFrame = true;
+                        ImGui::EndDisabled();
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled(dstRows.size() <= 1);
+                        if (ImGui::Button("- DST")) requestRemoveDstFrame = true;
+                        ImGui::EndDisabled();
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && dstRows.size() <= 1)
+                            ImGui::SetTooltip("An Object must keep at least one DST command.");
                         ImGui::SeparatorText(dstRows.size() > 1 ? "animation frames" : "basic");
                         if (dstRows.empty()) {
                             ImGui::TextDisabled("No DST properties.");
@@ -6598,6 +7054,80 @@ int WORKSPACE::drawObjectEditor() {
                         ImGui::EndTabItem();
                     }
                     ImGui::EndTabBar();
+                }
+
+                // Apply structural edits after all widgets referencing the
+                // current rows have been submitted. InsertLine/DeleteLine
+                // update source-row indices and are already integrated with
+                // Ctrl+Z history.
+                const std::string editedObjectId = obj.editorId;
+                const int editedObjectGroup = obj.group;
+                const int editedObjectAnchorRow = obj.rows.empty() ? -1 : obj.rows.front();
+                auto restoreEditedObjectSelection = [&]() {
+                    const std::vector<SEObjectInstance>& rebuilt = g_seObjectEditorModel.Objects();
+                    int restoredModel = -1;
+                    for (int modelIndex = 0; modelIndex < (int)rebuilt.size(); ++modelIndex) {
+                        const SEObjectInstance& candidate = rebuilt[modelIndex];
+                        if (!editedObjectId.empty() && candidate.editorId == editedObjectId) {
+                            restoredModel = modelIndex;
+                            break;
+                        }
+                        if (editedObjectId.empty() && candidate.group == editedObjectGroup &&
+                            std::find(candidate.rows.begin(), candidate.rows.end(), editedObjectAnchorRow) !=
+                            candidate.rows.end()) {
+                            restoredModel = modelIndex;
+                            break;
+                        }
+                    }
+                    if (restoredModel >= 0) {
+                        object_editor_select_request = restoredModel;
+                        preview_selected_object_model_indices.clear();
+                        preview_selected_object_model_indices.push_back(restoredModel);
+                        preview_selected_object_model_index = restoredModel;
+                        preview_selection_anchor_model_index = restoredModel;
+                    }
+                };
+                if (requestAddDstFrame && !dstRows.empty()) {
+                    const int sourceRow = dstRows.back();
+                    const int insertAt = sourceRow + 1;
+                    SKINFILELINEREAD& source = ((SKINFILELINEREAD*)skinfileLines.data)[sourceRow];
+                    CSTR duplicatedLine(source.line);
+                    CSTR sourceOwner(source.filename);
+                    const int sourceFileLine = source.num;
+                    const int sourceIfgroup = source.ifgroup;
+                    const int sourceObjID = source.objID;
+                    const int sourceObjType = source.objType;
+                    const int sourceObjInTypeID = source.objInTypeID;
+                    if (InsertLine(insertAt) == 0) {
+                        // Keep the insertion as the single undo record. The
+                        // content initialization is part of that insertion.
+                        applyingHistory = true;
+                        CSTR placeholder(((SKINFILELINEREAD*)skinfileLines.data)[insertAt].line);
+                        EditLine(insertAt, placeholder, duplicatedLine);
+                        applyingHistory = false;
+                        SKINFILELINEREAD& inserted =
+                            ((SKINFILELINEREAD*)skinfileLines.data)[insertAt];
+                        inserted.filename.assign(sourceOwner.body ? sourceOwner.outstr() : mainpath);
+                        inserted.num = sourceFileLine;
+                        inserted.ifgroup = sourceIfgroup;
+                        inserted.isDST = true;
+                        inserted.isSRC = false;
+                        inserted.isOther = false;
+                        inserted.objID = sourceObjID;
+                        inserted.objType = sourceObjType;
+                        inserted.objInTypeID = sourceObjInTypeID;
+                        g_seObjectEditorModel.Rebuild(*this);
+                        restoreEditedObjectSelection();
+                        previewReloadPending = true;
+                        previewReloadRequestedAt = GetTickCount64();
+                    }
+                } else if (requestRemoveDstFrame && dstRows.size() > 1) {
+                    if (DeleteLine(dstRows.back()) == 0) {
+                        g_seObjectEditorModel.Rebuild(*this);
+                        restoreEditedObjectSelection();
+                        previewReloadPending = true;
+                        previewReloadRequestedAt = GetTickCount64();
+                    }
                 }
             }
         } else {

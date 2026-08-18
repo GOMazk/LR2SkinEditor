@@ -66,7 +66,7 @@ int WORKSPACE::ModifyIMG(int pos, int gr, int x, int y, int w, int h) {
 }
 
 //check duplicated
-int WORKSPACE::FindIMG(int gr, int x, int y, int w, int h) {
+int WORKSPACE::FindIMG(int gr, int x, int y, int w, int h, int ifGroup) {
     int j = 0;
     for (j = 0; j < arr_IMG.count; j++) {
         IMG imgCompare = ((IMG*)arr_IMG.data)[j];
@@ -74,7 +74,8 @@ int WORKSPACE::FindIMG(int gr, int x, int y, int w, int h) {
             && imgCompare.x == x
             && imgCompare.y == y
             && imgCompare.w == w
-            && imgCompare.h == h)
+            && imgCompare.h == h
+            && (ifGroup < 0 || imgCompare.ifGroup == ifGroup))
             break;
     }
     return j;
@@ -97,9 +98,11 @@ int WORKSPACE::InsertLine(int pos) {
     line->modified = true;
     line->num = pos;
 
-    HISTORY* hs = (HISTORY*)arr_history.Get_new();
-    hs->op = insertLine;
-    hs->target = pos;
+    if (!applyingHistory) {
+        HISTORY* hs = (HISTORY*)arr_history.Get_new();
+        hs->op = insertLine;
+        hs->target = pos;
+    }
 
     for (int i = 0; i < skinfileLines.count; ++i)
         ((SKINFILELINEREAD*)skinfileLines.data)[i].numTotal = i;
@@ -114,11 +117,14 @@ int WORKSPACE::DeleteLine(int pos) {
 
     if (pos < 0 || pos >= skinfileLines.count) return -1;
 
-    skinfileLines.DeleteAt(pos);
+    if (!applyingHistory) {
+        HISTORY* hs = (HISTORY*)arr_history.Get_new();
+        hs->op = removeLine;
+        hs->target = pos;
+        hs->older.line.assign(((SKINFILELINEREAD*)skinfileLines.data)[pos].line);
+    }
 
-    HISTORY* hs = (HISTORY*)arr_history.Get_new();
-    hs->op = removeLine;;
-    hs->target = pos;
+    skinfileLines.DeleteAt(pos);
 
     for (int i = 0; i < skinfileLines.count; ++i)
         ((SKINFILELINEREAD*)skinfileLines.data)[i].numTotal = i;
@@ -157,12 +163,16 @@ int WORKSPACE::EditLine(int pos, CSTR oldlinebody, CSTR newlinebody) {
     }
     line.modified = true;
 
-    HISTORY* hs = (HISTORY*)arr_history.Get_new();
-    hs->op = overwriteLine;
-    hs->target = pos;
+    HISTORY* hs = applyingHistory ? NULL : (HISTORY*)arr_history.Get_new();
+    if (hs) {
+        hs->op = overwriteLine;
+        hs->target = pos;
+    }
     CsvToLine(pos);
-    hs->older.line.assign(oldlinebody);
-    hs->newer.line.assign(newlinebody);
+    if (hs) {
+        hs->older.line.assign(oldlinebody);
+        hs->newer.line.assign(newlinebody);
+    }
 
     previewReloadPending = true;
     previewReloadRequestedAt = GetTickCount64();
@@ -183,11 +193,13 @@ int WORKSPACE::EditValue(int pos, int column, const char* newVal) {
     line.modified = true;
     CsvToLine(pos);
 
-    HISTORY* hs = (HISTORY*)arr_history.Get_new();
-    hs->op = overwriteLine;
-    hs->target = pos;
-    hs->older.line.assign(oldLine);
-    hs->newer.line.assign(line.line);
+    if (!applyingHistory) {
+        HISTORY* hs = (HISTORY*)arr_history.Get_new();
+        hs->op = overwriteLine;
+        hs->target = pos;
+        hs->older.line.assign(oldLine);
+        hs->newer.line.assign(line.line);
+    }
 
     previewReloadPending = true;
     previewReloadRequestedAt = GetTickCount64();
@@ -207,16 +219,58 @@ int WORKSPACE::EditValue(int pos, int column, int newVal) {
     line.modified = true;
     CsvToLine(pos);
 
-    HISTORY* hs = (HISTORY*)arr_history.Get_new();
-    hs->op = overwriteLine;
-    hs->target = pos;
-    hs->older.line.assign(oldLine);
-    hs->newer.line.assign(line.line);
+    if (!applyingHistory) {
+        HISTORY* hs = (HISTORY*)arr_history.Get_new();
+        hs->op = overwriteLine;
+        hs->target = pos;
+        hs->older.line.assign(oldLine);
+        hs->newer.line.assign(line.line);
+    }
 
     previewReloadPending = true;
     previewReloadRequestedAt = GetTickCount64();
 
     return 0;
+}
+
+int WORKSPACE::UndoLastEdit() {
+    if (arr_history.count <= 0) return -1;
+
+    HISTORY& history = ((HISTORY*)arr_history.data)[arr_history.count - 1];
+    const HISTORYOP operation = history.op;
+    const int target = history.target;
+    CSTR oldLine(history.older.line);
+    --arr_history.count;
+
+    applyingHistory = true;
+    int result = 0;
+    if (operation == overwriteLine) {
+        if (target < 0 || target >= skinfileLines.count) result = -1;
+        else {
+            CSTR currentLine(((SKINFILELINEREAD*)skinfileLines.data)[target].line);
+            result = EditLine(target, currentLine, oldLine);
+        }
+    } else if (operation == insertLine) {
+        result = DeleteLine(target);
+    } else if (operation == removeLine) {
+        result = InsertLine(target);
+        if (result == 0) {
+            CSTR insertedLine(((SKINFILELINEREAD*)skinfileLines.data)[target].line);
+            result = EditLine(target, insertedLine, oldLine);
+        }
+    } else {
+        result = -1;
+    }
+    applyingHistory = false;
+
+    if (result == 0) {
+        g_seObjectEditorModel.Rebuild(*this);
+        preview_selected_obj_valid = false;
+        preview_selected_obj_last_valid = false;
+        previewReloadPending = true;
+        previewReloadRequestedAt = GetTickCount64();
+    }
+    return result;
 }
 
 int WORKSPACE::CsvToLine(int pos) {

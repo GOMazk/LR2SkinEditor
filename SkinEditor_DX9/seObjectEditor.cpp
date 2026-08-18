@@ -3,6 +3,7 @@
 #include "inputwrap.h"
 #include "seHelper.h"
 #include "op.h"
+#include "resource.h"
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
@@ -29,9 +30,18 @@ static bool numericIndex(SKINFILELINEREAD& r, int& value) {
 bool SEObjectEditorModel::LoadGroups(const char* path) {
     groups.clear();
     loadedPath = path ? path : "";
-    std::ifstream f(path, std::ios::in | std::ios::binary);
-    if (!f) return false;
+    std::string contents;
+    if (path && *path) {
+        std::ifstream source(path, std::ios::in | std::ios::binary);
+        if (source) {
+            std::ostringstream buffer;
+            buffer << source.rdbuf();
+            contents = buffer.str();
+        }
+    }
+    if (contents.empty() && !LoadEmbeddedTextResource(IDR_SKIN_OBJ_GROUP_TXT, contents)) return false;
 
+    std::istringstream f(contents);
     std::string line;
     SEObjectGroupDef* current = NULL;
     while (std::getline(f, line)) {

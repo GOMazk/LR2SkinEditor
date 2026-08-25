@@ -63,6 +63,9 @@
     <ClCompile Include="seObjectEditor.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="seUI.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="..\lib\md5.cpp">
       <Filter>LR2</Filter>
     </ClCompile>
@@ -246,6 +249,9 @@
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="seObjectEditor.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="seUI.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="..\LR2\dbgtool.h">

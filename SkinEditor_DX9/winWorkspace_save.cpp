@@ -62,6 +62,27 @@ int WORKSPACE::SaveSkinScript(char* path, bool split, bool nocomment) {
     };
     std::vector<PendingSave> pending;
 
+    auto persistedAssetIsUsed = [&](SKINFILELINEREAD& metadata) {
+        const char* text = metadata.line.body ? metadata.line.outstr() : "";
+        if (strncmp(text, "$SRC_IMAGE,", 11) != 0) return false;
+        CSVbuf asset;
+        SplitCSV(metadata.line, &asset, ",");
+        for (int row = 0; row < skinfileLines.count; ++row) {
+            SKINFILELINEREAD& candidate =
+                ((SKINFILELINEREAD*)skinfileLines.data)[row];
+            if (candidate.isComment || !candidate.csv.str[0].body ||
+                strncmp(candidate.csv.str[0].outstr(), "#SRC", 4) != 0 ||
+                candidate.csv.str[0].isSame("#SRC_TEXT")) continue;
+            if (candidate.ifgroup == metadata.ifgroup &&
+                candidate.csv.val[2] == asset.val[2] &&
+                candidate.csv.val[3] == asset.val[3] &&
+                candidate.csv.val[4] == asset.val[4] &&
+                candidate.csv.val[5] == asset.val[5] &&
+                candidate.csv.val[6] == asset.val[6]) return true;
+        }
+        return false;
+    };
+
     auto prepareOneFile = [&](const char* outputPath, const char* sourcePath, bool merged) -> int {
         std::string tempPath(outputPath);
         tempPath += ".skineditor.tmp";
@@ -78,7 +99,11 @@ int WORKSPACE::SaveSkinScript(char* path, bool split, bool nocomment) {
                 // Included files are already expanded in skinfileLines.
                 continue;
             }
-            const bool isEditorMetadata = line.isSEcomment && line.line.left(4).isSame("$SE_");
+            const bool isAssetMetadata = line.isSEcomment &&
+                line.line.left(11).isSame("$SRC_IMAGE,");
+            if (isAssetMetadata && persistedAssetIsUsed(line)) continue;
+            const bool isEditorMetadata = line.isSEcomment &&
+                (line.line.left(4).isSame("$SE_") || isAssetMetadata);
             if (nocomment && line.isComment && !isEditorMetadata) continue;
             if (fputs(line.line, pFile) < 0 || fputs("\n", pFile) < 0) { ok = false; break; }
         }

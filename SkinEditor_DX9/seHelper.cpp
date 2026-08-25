@@ -1,8 +1,12 @@
 #include "../LR2/En_fileutil.h"
 #include "../LR2/structure.h"
 #include "winWorkspace.h"
+#include "seHelper.h"
 #include "resource.h"
+#include "op.h"
 #include <Windows.h>
+#include <cstdlib>
+#include <cstring>
 #include <sstream>
 #include <string>
 
@@ -66,6 +70,56 @@ CSTR GetCommandHelp(const char* command, int column) {
 		else return cmd.str[column];
 	}
 	return "WIP";
+}
+
+SECommandValueKind GetCommandValueKind(const char* command, const char* columnHelp) {
+	if (!command || !columnHelp) return SE_VALUE_NONE;
+	if (_strnicmp(columnHelp, "$op", 3) == 0) return SE_VALUE_OPTION;
+	if (_strnicmp(columnHelp, "$st", 3) == 0) return SE_VALUE_TEXT;
+	if (_strnicmp(columnHelp, "$num", 4) == 0) return SE_VALUE_NUMBER;
+	if (_strnicmp(columnHelp, "$timer", 6) == 0) return SE_VALUE_TIMER;
+	if (_strnicmp(columnHelp, "$type", 5) != 0) return SE_VALUE_NONE;
+
+	// $type is command-specific in LR2. It is not always a skin scene type.
+	if (_stricmp(command, "#INFORMATION") == 0) return SE_VALUE_SKIN_TYPE;
+	if (_stricmp(command, "#SRC_BUTTON") == 0) return SE_VALUE_BUTTON;
+	if (_stricmp(command, "#SRC_SLIDER") == 0) return SE_VALUE_SLIDER;
+	if (_stricmp(command, "#SRC_BARGRAPH") == 0) return SE_VALUE_BARGRAPH;
+	return SE_VALUE_NONE;
+}
+
+const char* GetCommandValueName(SECommandValueKind kind, int value) {
+	extern const char* SKINTYPESTR[];
+	switch (kind) {
+	case SE_VALUE_SKIN_TYPE: return value >= 0 && value < 21 ? SKINTYPESTR[value] : "";
+	case SE_VALUE_OPTION: return dstName((unsigned)std::abs(value));
+	case SE_VALUE_TEXT: return value >= 0 ? textName((unsigned)value) : "";
+	case SE_VALUE_NUMBER: return value >= 0 ? numberName((unsigned)value) : "";
+	case SE_VALUE_TIMER: return value >= 0 ? timerName((unsigned)value) : "";
+	case SE_VALUE_BUTTON: return value >= 0 ? buttonName((unsigned)value) : "";
+	case SE_VALUE_SLIDER: return value >= 0 ? sliderName((unsigned)value) : "";
+	case SE_VALUE_BARGRAPH: return value >= 0 ? bargraphName((unsigned)value) : "";
+	default: return "";
+	}
+}
+
+int GetCommandValueItemCount(SECommandValueKind kind) {
+	switch (kind) {
+	case SE_VALUE_SKIN_TYPE: return 21;
+	case SE_VALUE_OPTION: return 1999; // 0..999 followed by NOT 1..999
+	case SE_VALUE_TEXT: return 200;
+	case SE_VALUE_NUMBER: return 300;
+	case SE_VALUE_TIMER: return 200;
+	case SE_VALUE_BUTTON: return 270;
+	case SE_VALUE_SLIDER: return 27;
+	case SE_VALUE_BARGRAPH: return 48;
+	default: return 0;
+	}
+}
+
+int GetCommandValueAt(SECommandValueKind kind, int item) {
+	if (kind == SE_VALUE_OPTION && item >= 1000) return -(item - 999);
+	return item;
 }
 
 ///////////////////////////////////////////////////////////////////////

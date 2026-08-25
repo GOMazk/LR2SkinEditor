@@ -1,0 +1,292 @@
+# SkinEditor UI architecture and debugging
+
+Project-wide feature status, file-format rules and scenario coverage are in
+[`PROJECT_STATE.md`](PROJECT_STATE.md). Build and manual regression procedures
+are in [`BUILD_AND_TEST.md`](BUILD_AND_TEST.md).
+
+This document describes the presentation layer introduced for the modern
+SkinEditor UI. Its first rule is that a visual refactor must not own or copy
+editor state. `WORKSPACE` and the existing skin/object models remain the source
+of truth.
+
+## Layers
+
+```text
+main.cpp
+  ImGui/DX9 lifecycle, fonts, application menu
+       |
+       v
+seUI.h / seUI.cpp
+  palette, spacing, reusable stateless components
+       |
+       v
+WORKSPACE::draw()
+  menus, quick-action toolbar, docking, tool visibility
+       |
+       +--> Preview / Image Manager / DST View
+       +--> Object Browser / Object Inspector / History
+       +--> Customize / Option List / other existing tools
+       |
+       v
+skin model, CSV rows, History and selection synchronization
+```
+
+`seUI` is deliberately stateless. A component may return a click or edited
+value, but it must not load skins, mutate CSV, select objects, or push History.
+Those actions belong to `WORKSPACE` or the existing domain helpers.
+
+## Design system
+
+`SEUI::ApplyModernTheme()` is called once after ImGui context creation. It owns:
+
+- application colors and contrast;
+- spacing, padding, corner radius and borders;
+- tab, table, docking and selection appearance;
+- DPI scaling of fixed UI metrics.
+
+Fonts are assembled in `main.cpp`: Segoe UI is the base face and Meiryo/Malgun
+glyphs are merged for Japanese and Korean metadata. Font/backend/device setup
+stays outside `seUI` because it is part of application lifetime management.
+
+Reusable components currently include:
+
+- `BeginToolbar()` / `EndToolbar()` for a consistent action surface;
+- `ActionButton()` for enabled/disabled commands and tooltips;
+- `StatusPill()` for short state indicators;
+- `SectionHeader()` for forms and property groups;
+- `EmptyState()` for a useful no-document screen;
+- `HelpMarker()` for local explanations without permanent visual noise.
+
+## Adding a tool window
+
+1. Add the window visibility flag and draw method to `WORKSPACE`.
+2. Add one entry to the `WindowToggle tools[]` table in `WORKSPACE::draw()`.
+3. Call the draw method in the subwindow dispatch section near the bottom of
+   `WORKSPACE::draw()`.
+4. If it belongs in the default layout, create its unique title with `##num`
+   and register it in the `DockBuilderDockWindow` block.
+5. Keep selection and mutations in `WORKSPACE`; use `seUI` only for rendering.
+6. Add a short state-flow/debugging note here if the tool introduces shared
+   selection, History, preview texture, or file ownership.
+
+The visible label may change, but the `##` suffix is the stable ImGui identity.
+Every per-workspace window must include `num`; otherwise two workspaces can
+share focus, scroll and docking state accidentally.
+
+## Default docking layout
+
+The default workspace is intentionally asymmetric and follows this structure:
+
+```text
+Object Browser | Object Inspector | Preview / ImageManager / dstView | OpList
+                                 |------------------------------------|----------
+                                 | Asset Browser                      | Customize
+```
+
+Browser and Inspector use the full workspace height. ImageManager and dstView
+share Preview's tab node in the center. Asset Browser occupies the lower center
+node so Preview remains visible while an asset is dragged upward. The right
+column is split into OpList above and Customize below. Keep this hierarchy when
+adjusting split ratios. The toolbar and Windows menu `Reset layout` action
+rebuilds this exact layout through `DockBuilder`.
+
+## Adding a common action
+
+Keep the complete command available in its existing menu. Add a toolbar button
+only as a shortcut:
+
+```cpp
+if (SEUI::ActionButton("Action", "What it does", canRun))
+    ExistingWorkspaceMethod();
+```
+
+Do not duplicate the operation inside the button handler. Menu, shortcut and
+toolbar must call the same domain method so save paths, History and selection
+updates cannot diverge.
+
+## State flows that must remain intact
+
+### Object selection
+
+```text
+Preview / right-click / DST View
+  -> workspace ObjectSelection (`$SE_OBJECT_ID` 중심 key)
+  -> current model index와 selection request를 계산
+  -> Object Browser submits and scrolls to the target row
+  -> Object Inspector reads the same selected model index
+  -> scroll request is consumed
+  -> Preview highlight reads the same selected object
+```
+
+Object Browser and Object Inspector are independent dockable windows, but only
+their visibility is independent. They must not acquire separate selection
+variables. The legacy `wObjectEditor` flag is a compatibility request that
+opens both panes; `wObjectBrowser` and `wObjectInspector` then control their
+visibility.
+
+`SEObjectEditorModel`, search/filter popup state, active-branch cache and tree
+open state are all owned by the corresponding `WORKSPACE`. Do not introduce a
+global Object model or function-local `static` state for a per-workspace pane.
+Model indices may change after any CSV rebuild; store `$SE_OBJECT_ID` plus the
+legacy group/anchor-row fallback in `SEObjectSelectionState`, then resolve the
+current indices through `RestoreObjectSelection()`.
+
+The Object Browser `Active objects only` filter uses the same predicate as its
+green active rows: the object has at least one DST command, all documented DST
+`$op` fields are enabled, and the owning IF/ELSEIF/ELSE branch is the currently
+active sibling branch. A selection arriving from Preview clears this filter
+along with Type/Group/Search so the requested object can always be submitted
+and scrolled into view.
+
+### Image asset selection
+
+```text
+Asset Browser card
+  -> shared IMG index (`src_selected`)
+  -> `ResolveIMGTextureIndex` resolves logical gr + IF/custom-file texture
+  -> Image Manager receives a one-shot scroll request
+```
+
+Asset Browser is a thumbnail view over the existing `arr_IMG` crop model; it
+does not own copied crop records or a second selection. A single click updates
+the shared Image Manager selection, and a double click activates Image Manager
+at the corresponding atlas position. Cards expose the stable
+`SKINEDITOR_IMG_ASSET` drag/drop payload containing one `int` IMG index so a
+future inspector or canvas drop target can consume assets without depending on
+Asset Browser rendering code.
+
+Each `IMG` records the declaring SRC row in `sourceDeclare`. `Animate SRC`
+resolves that row back to `arr_SRC` and previews its `div_x`, `div_y` and
+`cycle`; coordinate-only matching is only a compatibility fallback. This is
+required because duplicate SRC rectangles can intentionally use different
+animation grids. Animation changes UVs only—the card selection and drag/drop
+payload remain the original full crop.
+
+Dragging `SKINEDITOR_IMG_ASSET` onto Preview does not edit the CSV immediately.
+Preview converts the mouse position through its current zoom/scroll transform,
+shows a translucent crop ghost for one `div_x/div_y` animation cell, then opens
+the existing New Object form with the source division/cycle/timer preserved and
+`#SRC_IMAGE`, crop coordinates, destination position and current Object branch
+pre-filled. The normal OK path remains responsible for CSV insertion, model
+rebuild, Preview invalidation and History.
+
+Image Manager owns the simple `Pixel paint` mode. Canvas mouse coordinates are
+converted through `ImageManagerZoom` to one source-texture pixel. Left drag
+paints the selected RGBA color, right drag writes transparent pixels, and middle
+click samples a color. A Bresenham segment fills gaps between mouse frames while
+the brush remains exactly one pixel wide.
+
+Painting first updates every loaded `SRCGR` texture that shares the same source
+path. `SaveTextureToImageFileAtomic()` encodes the original file type to a
+temporary file, creates a one-time `.skineditor-pixel.bak`, then replaces the
+source. Revert releases same-path editor textures and reloads disk state. Do not
+route bitmap edits through CSV History: they modify an external image file, not
+`skinfileLines`.
+
+`New image` and `Merge image` are Image Manager modal workflows. New image
+creates a solid RGBA canvas. Merge uses the currently displayed full `SRCGR` as
+the base and an `arr_IMG` crop as the overlay. A one-pass vertical-run scan finds
+the first fully transparent rectangle large enough for the crop. If none exists,
+the packer compares right and bottom growth and chooses the smaller final canvas.
+There are no manual placement coordinates or expansion toggle. The image file is
+written atomically and never replaces an existing path.
+
+CSV registration is intentionally separate from bitmap creation. On success,
+`RegisterGeneratedImage()` appends `#IMAGE` and one full-size `$SRC_IMAGE`
+editor Asset immediately before the root owner's `$FILE ... end`. It computes
+the next logical gr using the same sibling-branch maximum rule as
+`ParseSkinGraphics()`; inserting next to the current declaration is forbidden
+because it would shift later gr IDs. A pending gr request survives the derived
+cache rebuild, resolves to the new IMG index, and synchronizes Image Manager and
+Asset Browser selection on the next frame.
+
+The insertion owner is explicit: a selected Object/branch keeps its source
+filename, while an unscoped drop uses the root skin. Rows are clamped before
+that owner's in-memory `$FILE ... end` marker so the Preview runtime mask and
+Save path both recognize them. After rebuild, the generated `$SE_OBJECT_ID`
+drives a one-shot Object Browser selection request; this clears filters/search,
+scrolls to the new row and shows the same Object in Inspector.
+
+For Object Browser labels, naming priority is explicit `$SE_OBJECT_NAME`, then
+the command-specific symbolic SRC value (NUMBER, SLIDER, BUTTON, BARGRAPH or
+TEXT), the first distinct `$op` names, and finally the first distinct non-zero
+`$timer` names. `MainTimer` (`0`) is skipped because it appears on most objects
+and does not provide a useful fallback identity. Automatic names are
+presentation only; they never write metadata back to the skin file.
+
+Do not store a second selected object in a UI component. When selection looks
+correct in one panel but not another, log `selected_obj`, the object ID, source
+row and pending scroll request at each arrow above.
+
+### Editing and undo
+
+```text
+property edit or preview drag
+  -> snapshot/history entry
+  -> CSV/model mutation
+  -> NotifyDocumentChanged(change kind)
+  -> editor cache / Object model / Preview rebuild as required
+  -> Ctrl+Z or toolbar Undo calls WORKSPACE::UndoLastEdit()
+```
+
+The toolbar does not maintain its own history. If the rectangle and object
+position separate after Undo, inspect the rebuild/invalidation stage rather
+than the button.
+
+Object Browser reordering is a special structural edit. An Object may consist
+of non-contiguous indexed rows, so it records one `SkinDocumentSnapshot`
+instead of a chain of line moves. The drag payload carries a model index only
+for the current ImGui frame; the queued operation stores stable selection keys,
+then resolves and applies at the next frame boundary. Reorder and snapshot
+Undo must complete before any texture-backed window submits draw commands.
+Cross-file and cross-Branch drops are rejected.
+
+### Files
+
+New, Open, Save, Save As and Export keep their domain methods. File menu,
+toolbar and Ctrl+S all call `SaveCurrentSkin()`; the toolbar only derives
+`SAVED/MODIFIED/SAVE FAILED` from workspace revision state. Save As uses the
+native file picker and must continue switching the active working path after
+success. The loaded-workspace resolution modal is the deliberate exception to
+ordinary undoable editing: after a clean-state guard it atomically changes the
+root `#INFORMATION` resolution and reloads the workspace. Panel components must
+not duplicate any of these file operations.
+
+## Debugging checklist
+
+When a UI change causes a regression, check in this order:
+
+1. **ImGui ID collision** — run with the ImGui debug tool and inspect duplicate
+   labels lacking a `##workspace` or pushed object ID.
+2. **Begin/End balance** — every `Begin`, `BeginChild`, table, tab, popup, style
+   push and disabled block must be paired on every early-return path.
+3. **Cursor extension assertions** — after `SetCursorPos` or
+   `SetCursorScreenPos`, submit a real item (`Dummy`, text, button, child) that
+   grows the parent bounds.
+4. **Wrong owner** — verify the component only reports intent and does not keep
+   a copy of model/selection/history state.
+5. **Dock title mismatch** — the title passed to `DockBuilderDockWindow` must
+   exactly match the title passed to `ImGui::Begin`.
+6. **Stale derived data** — after CSV mutation or Undo, confirm preview objects,
+   Image Manager sources and Object Editor rows were rebuilt together.
+7. **DPI/font issue** — reproduce at 100% and the target monitor scale; inspect
+   missing glyphs separately from layout sizes.
+
+## Visual regression pass
+
+Before merging a UI change, manually verify:
+
+- no skin loaded: New/Open empty state and both buttons;
+- PLAY, SELECT, DECIDE and RESULT workspaces at 640x480 and HD;
+- Preview, Image Manager and DST View zoom/scroll behavior;
+- Preview right-click selection and Object Editor auto-scroll;
+- add/remove DST and continued selection of the same object;
+- Ctrl+Z after property editing and preview dragging;
+- New Object fields, tagged-image thumbnail and `$` option combo boxes;
+- Text Edit mode and Shift-JIS text;
+- Save As working-path switch and existing-file protection;
+- reset layout followed by reopening every Windows menu entry.
+
+The Release x86 build remains the final compile gate. Existing compiler
+warnings should be tracked separately; a UI-only change must introduce no new
+errors or warnings.

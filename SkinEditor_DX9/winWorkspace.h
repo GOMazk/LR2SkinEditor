@@ -4,7 +4,45 @@
 #include <imgui.h>
 #include "ImageLoader.h"
 #include "seObjectEditor.h"
+#include <algorithm>
+#include <map>
+#include <memory>
+#include <string>
 #include <vector>
+
+enum DOCUMENTCHANGE {
+    DOCUMENT_CHANGE_VALUE = 1 << 0,
+    DOCUMENT_CHANGE_STRUCTURE = 1 << 1,
+    DOCUMENT_CHANGE_OBJECT_METADATA = 1 << 2,
+};
+
+struct SEObjectSelectionKey {
+    std::string editorId;
+    int group = -1;
+    int anchorRow = -1;
+
+    bool IsValid() const { return !editorId.empty() || group >= 0 || anchorRow >= 0; }
+};
+
+struct SEObjectSelectionState {
+    std::vector<SEObjectSelectionKey> selected;
+    SEObjectSelectionKey active;
+    SEObjectSelectionKey anchor;
+    bool focusBrowserRequested = false;
+};
+
+struct SkinLineSnapshot {
+    std::string filename;
+    std::string line;
+    int num = 0;
+    bool modified = false;
+    bool show = true;
+};
+
+struct SkinDocumentSnapshot {
+    std::vector<SkinLineSnapshot> lines;
+    SEObjectSelectionState selection;
+};
 
 typedef struct SKINFILELINEREAD {
     int numTotal;
@@ -55,6 +93,10 @@ typedef struct IMG {
     CSTR name;
     int gr, x, y, w, h;
     int ifGroup = 0;
+    // Coordinates alone cannot identify the animation when duplicate SRC
+    // declarations use the same crop with different div/cycle values.
+    int sourceDeclare = -1;
+    int editorDeclare = -1;
 }IMG;
 
 typedef struct SRCGR {
@@ -71,6 +113,7 @@ typedef struct SRCGR {
 
     int grID;
     int isIf;
+    int declare = -1;
 
     int LR2ID;
     int SEID;
@@ -178,13 +221,19 @@ typedef struct WORKSPACE {
     bool dockLayoutBuilt = false;
     bool previewReloadPending = false;
     unsigned long long previewReloadRequestedAt = 0;
+    bool editorDerivedRebuildPending = false;
+    unsigned long long editorDerivedRebuildRequestedAt = 0;
+    bool objectModelRebuildPending = false;
+    unsigned long long documentRevision = 0;
+    unsigned long long savedDocumentRevision = 0;
+    int lastSaveState = 0; // 0: no result, 1: saved, -1: failed
+    std::string lastSaveMessage;
+    unsigned long long lastSaveMessageAt = 0;
     int RefreshPreviewSelectionBounds();
     char mainpath[MAX_PATH];
 
     byte* filedata = NULL;
     unsigned int filedatasize = 0;
-
-    bool isTextmode = false;
 
     int skinSizeX = 640 , skinSizeY = 480;
 
@@ -202,9 +251,36 @@ typedef struct WORKSPACE {
     ARR arr_seobj; //SKINUNIT, SEOBJ
 
     ARR arr_history; //HISTORY
+    // moveLine history entries point into this vector. An Object may own
+    // non-contiguous SRC/DST rows, so reorders use a document-order snapshot.
+    std::vector<SkinDocumentSnapshot> historyDocumentSnapshots;
+    int pendingHistorySnapshotRestore = -1;
     bool applyingHistory = false;
     int UndoLastEdit();
+    void NotifyDocumentChanged(unsigned int changes);
+    bool IsDocumentDirty() const;
+    void MarkDocumentSaved();
+    int SaveCurrentSkin();
     int previewScreen = -1; //DxLib handle
+
+    // Every workspace owns its semantic Object model.  The previous global
+    // model let two open workspaces overwrite each other's Browser/Inspector.
+    SEObjectEditorModel objectEditorModel;
+    SEObjectSelectionState objectSelection;
+    SEObjectSelectionKey MakeObjectSelectionKey(int modelIndex) const;
+    int ResolveObjectSelectionKey(const SEObjectSelectionKey& key) const;
+    void ClearObjectSelection();
+    void SetObjectSelection(const std::vector<int>& modelIndices,
+        int activeModelIndex = -1, int anchorModelIndex = -1,
+        bool requestBrowserFocus = false);
+    void RestoreObjectSelection();
+    void RebuildObjectModel();
+    int SetObjectName(int modelIndex, const char* name);
+    SkinDocumentSnapshot CaptureDocumentSnapshot() const;
+    int RestoreDocumentSnapshot(const SkinDocumentSnapshot& snapshot);
+    bool CanReorderObject(int sourceModelIndex, int targetModelIndex) const;
+    bool QueueObjectReorder(int sourceModelIndex, int targetModelIndex, bool placeAfter);
+    int ApplyPendingObjectReorder();
 
     //mainwindow
     int num;
@@ -230,6 +306,12 @@ typedef struct WORKSPACE {
     int LoadSkin(char* path);
     int LoadSkinScript(char* path);
     int ParseSkin();
+    int ParseSkinConditions();
+    int ParseSkinLegacyObjectsAndAssets();
+    int ParseSkinGraphics();
+    int ParseSkinSourcesAndDestinations();
+    int LoadSkinGraphicMetadata();
+    int RebuildEditorDerivedState();
     int currentLeadDST = -1;
 
 
@@ -273,16 +355,53 @@ typedef struct WORKSPACE {
     //ImgManager
     bool wImgManager;
     int drawImgManager();
+    float ImageManagerZoom = 0.0f;
+    bool imagePixelPaintMode = false;
+    ImVec4 imagePixelPaintColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+    int imagePixelPaintLastX = -1;
+    int imagePixelPaintLastY = -1;
+    int imagePixelPaintLastButton = -1;
+    std::map<std::string, bool> imagePixelPaintDirtyPaths;
+    std::string imagePixelPaintStatus;
+    bool imageNewDialogRequested = false;
+    bool imageMergeDialogRequested = false;
+    char imageToolOutputPathUtf8[1024] = {};
+    int imageNewWidth = 1;
+    int imageNewHeight = 1;
+    ImVec4 imageNewColor = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    int imageMergeAssetIndex = 0;
+    bool imageToolRegisterInCsv = true;
+    std::string imageToolStatus;
+    int imageManagerGeneratedGrFocusRequest = -1;
     int grID_selected = 0;
     int gr_selected = 0;
     int src_selected = 0;
+    int imageManagerFocusRequest = -1;
     int loadSRC();
     ImVec4 bgColor;
     int oldIf = -1;
 
+    // Asset Browser shares Image Manager's IMG/SRCGR selection. It owns only
+    // presentation state so future drag/drop consumers can reuse the same
+    // asset index without creating another image model.
+    bool wAssetBrowser;
+    int drawAssetBrowser();
+    float assetThumbnailSize = 96.0f;
+    bool assetAnimateSrc = true;
+    char assetSearch[128] = {};
+    int assetBrowserFocusRequest = -1;
+    int ResolveIMGTextureIndex(int imageIndex);
+    int ResolveIMGSourceIndex(int imageIndex) const;
+    void ResolveIMGDivision(int imageIndex, int& divX, int& divY,
+        int& cycle, int& timer) const;
+    bool SelectIMGAsset(int imageIndex, bool requestImageManagerScroll = false);
+    bool OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY);
+    int RegisterGeneratedImage(const char* diskPath, int width, int height,
+        std::string& errorText);
+
     int printSrcImg(SRC src, bool button = 0);
     int printSrcImgButton(SRC src, int num, int w, int h);
-    int printSrcImgEx(SRC src, int w, int h);
+    int printSrcImgEx(SRC src, int w, int h, bool ignoreIfGroup = false);
 
     bool wFileManager;
     int drawFileManager();
@@ -292,6 +411,11 @@ typedef struct WORKSPACE {
     int split, nocomment, exist, success;
     bool wSaveMenuResult;
     char newPath[260] = "";
+    bool workspaceResolutionDialogRequested = false;
+    int workspaceResolutionWidth = 640;
+    int workspaceResolutionHeight = 480;
+    int workspaceResolutionState = 0; // 0: idle, 1: saved/reloaded, -1: failed
+    std::string workspaceResolutionMessage;
 
     //newfile
     bool wNewskin;
@@ -309,6 +433,8 @@ typedef struct WORKSPACE {
     bool wDstView;
     int drawDstView();
     int selected_dst;
+    int dst_view_scroll_request = -1;
+    float DstViewZoom = 0.0f;
     float DstViewTime;
     bool isDstViewTimeStop;
 
@@ -318,6 +444,16 @@ typedef struct WORKSPACE {
     int newObjectInsertPosition = -1;
     int newObjectIfgroup = 0;
     bool newCommandIncludeAll = false;
+    bool newObjectCsvInitialized = false;
+    int newObjectInitializedCommand = -1;
+    int newObjectAssetIndex = -1;
+    int newObjectDropX = 0;
+    int newObjectDropY = 0;
+    int newObjectDropW = 1;
+    int newObjectDropH = 1;
+    bool newObjectFocusRequest = false;
+    CSTR newObjectOwner;
+    CSTR newObjectName;
     CSVbuf nCsv;
 
     int MakeObjects();
@@ -325,10 +461,29 @@ typedef struct WORKSPACE {
     int drawObjectManager();
 
     bool wObjectEditor = false;
+    // wObjectEditor remains a compatibility request that opens both panes.
+    // The two panes own only visibility; selection stays in shared WORKSPACE state.
+    bool wObjectBrowser = false;
+    bool wObjectInspector = false;
+    bool objectBrowserActiveOnly = false;
     int selected_object_editor = 0;
     int selected_object_group = -1;
     int selected_user_object_group = -1;
     int object_editor_select_request = -1;
+    int objectEditorLastLineCount = -1;
+    char objectSearch[128] = {};
+    bool requestCreateGroupPopup = false;
+    char newObjectGroupName[128] = "New Group";
+    int objectStatusCacheLineCount = -1;
+    int objectStatusCacheIfCount = -1;
+    unsigned long long objectStatusCacheAt = 0;
+    std::vector<bool> objectBranchActive;
+    int objectBranchTreeIfCount = -1;
+    std::map<int, bool> objectBranchTreeOpen;
+    bool pendingObjectReorder = false;
+    bool pendingObjectReorderAfter = false;
+    SEObjectSelectionKey pendingObjectReorderSource;
+    SEObjectSelectionKey pendingObjectReorderTarget;
     int drawObjectEditor();
     int selected_obj;
 
@@ -367,7 +522,7 @@ typedef struct WORKSPACE {
     int drawOpList();
     bool op[1000];
     
-    int NewIMG(int gr, int x, int y, int w, int h);
+    int NewIMG(int gr, int x, int y, int w, int h, int ifGroup = 0);
     int DeleteIMG(int pos);
     int ModifyIMG(int pos, int gr, int x, int y, int w, int h);
     int FindIMG(int gr, int x, int y, int w, int h, int ifGroup = -1);
@@ -388,9 +543,10 @@ typedef struct WORKSPACE {
 //they have 
 
 
-extern ARR workspaceList;
+extern std::vector<std::unique_ptr<WORKSPACE> > workspaceList;
 
 int makeTransBackground();
 int AutoSRCObjectPos(SRCGR* gr, int* x, int* y, int* w, int* h);
 int CsvToCSTR(CSVbuf& csv, CSTR& line);
 int CountCsvColumns(CSTR& line);
+int RunAssetMetadataSelfTest();

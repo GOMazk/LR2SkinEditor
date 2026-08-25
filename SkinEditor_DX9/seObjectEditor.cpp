@@ -10,8 +10,6 @@
 #include <cstring>
 #include <map>
 
-SEObjectEditorModel g_seObjectEditorModel;
-
 static std::string commandOf(SKINFILELINEREAD& r) {
     if (r.csv.str[0].body == NULL) return std::string();
     return std::string(r.csv.str[0].outstr());
@@ -194,8 +192,9 @@ void SEObjectEditorModel::Rebuild(WORKSPACE& ws) {
         }
     }
 
-    // TEXT objects get a useful default name from the field described as $st
-    // in skinHelper.txt. Other object names remain user-editable and blank.
+    // Source commands with a symbolic value get a useful default Object name:
+    // NUMBER=$num, SLIDER/BUTTON/BARGRAPH=$type and TEXT=$st. Explicit
+    // $SE_OBJECT_NAME metadata below still has the final say.
     for (std::size_t oi = 0; oi < objects.size(); ++oi) {
         SEObjectInstance& object = objects[oi];
         for (std::size_t ri = 0; ri < object.rows.size() && object.name.empty(); ++ri) {
@@ -203,10 +202,16 @@ void SEObjectEditorModel::Rebuild(WORKSPACE& ws) {
             if (row < 0 || row >= ws.skinfileLines.count) continue;
             SKINFILELINEREAD& line = ((SKINFILELINEREAD*)ws.skinfileLines.data)[row];
             const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+            if (strncmp(command, "#SRC_", 5) != 0) continue;
             for (int col = 1; col < 30; ++col) {
                 CSTR help = GetCommandHelp(command, col);
-                if (!help.left(3).isSame("$st")) continue;
-                const char* defaultName = textName(line.csv.val[col]);
+                help.trimWhiteSpace();
+                const SECommandValueKind kind = GetCommandValueKind(command,
+                    help.body ? help.outstr() : "");
+                if (kind != SE_VALUE_NUMBER && kind != SE_VALUE_SLIDER &&
+                    kind != SE_VALUE_BUTTON && kind != SE_VALUE_BARGRAPH &&
+                    kind != SE_VALUE_TEXT) continue;
+                const char* defaultName = GetCommandValueName(kind, line.csv.val[col]);
                 if (defaultName && *defaultName) object.name = defaultName;
                 break;
             }
@@ -220,7 +225,11 @@ void SEObjectEditorModel::Rebuild(WORKSPACE& ws) {
             const char* text = meta.line.body ? meta.line.outstr() : "";
             if (strncmp(text, "$SE_OBJECT_ID,", 14) == 0) {
                 object.editorId = text + 14;
-                break;
+                continue;
+            }
+            if (strncmp(text, "$SE_OBJECT_NAME,", 16) == 0) {
+                object.name = text + 16;
+                continue;
             }
             if (*text == '#') break;
             if (*text && *text != '$' && strncmp(text, "//", 2) != 0) break;

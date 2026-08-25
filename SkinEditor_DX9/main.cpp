@@ -22,6 +22,7 @@
 
 #include "winWorkspace.h"
 #include "seHelper.h"
+#include "seUI.h"
 
 
 // Data
@@ -40,6 +41,9 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 // Main code
 int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
 {
+    if (cmdline && strstr(cmdline, "--self-test-asset-metadata"))
+        return RunAssetMetadataSelfTest();
+
     // Make process DPI aware and obtain main monitor scale
     ImGui_ImplWin32_EnableDpiAwareness();
     float main_scale = ImGui_ImplWin32_GetDpiScaleForMonitor(::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
@@ -59,6 +63,14 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return 1;
     }
 
+    if (cmdline && strstr(cmdline, "--self-test-pixel-paint")) {
+        const int result = RunPixelPaintSelfTest();
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        return result;
+    }
+
     // Show the window
     ::ShowWindow(hwnd, SW_MAXIMIZE);
     ::UpdateWindow(hwnd);
@@ -75,13 +87,9 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     //io.ConfigViewportsNoAutoMerge = true;
     //io.ConfigViewportsNoTaskBarIcon = true;
 
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-    //ImGui::StyleColorsLight();
-
-    // Setup scaling
+    // Setup the shared SkinEditor design system before individual windows are drawn.
     ImGuiStyle& style = ImGui::GetStyle();
-    style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
+    SEUI::ApplyModernTheme(main_scale);
     style.FontScaleDpi = main_scale;        // Set initial font scale. (in docking branch: using io.ConfigDpiScaleFonts=true automatically overrides this for every window depending on the current monitor)
     io.ConfigDpiScaleFonts = true;          // [Experimental] Automatically overwrite style.FontScaleDpi in Begin() when Monitor DPI changes. This will scale fonts but _NOT_ scale sizes/padding for now.
     io.ConfigDpiScaleViewports = true;      // [Experimental] Scale Dear ImGui and Platform Windows when Monitor DPI changes.
@@ -114,15 +122,27 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
     //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
     //IM_ASSERT(font != nullptr);
-    ImFont* japaneseFont = io.Fonts->AddFontFromFileTTF(
-        "C:\\Windows\\Fonts\\meiryo.ttc", 18.0f, NULL, io.Fonts->GetGlyphRangesJapanese());
-    if (japaneseFont) io.FontDefault = japaneseFont;
+    // Segoe UI gives the editor a native, web-like UI face. Japanese and
+    // Korean glyphs are merged into the same font so skin metadata remains
+    // readable without changing widget code.
+    ImFont* uiFont = io.Fonts->AddFontFromFileTTF(
+        "C:\\Windows\\Fonts\\segoeui.ttf", 17.0f, NULL, io.Fonts->GetGlyphRangesDefault());
+    if (uiFont) {
+        ImFontConfig mergeConfig;
+        mergeConfig.MergeMode = true;
+        mergeConfig.PixelSnapH = true;
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\meiryo.ttc", 17.0f,
+            &mergeConfig, io.Fonts->GetGlyphRangesJapanese());
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 17.0f,
+            &mergeConfig, io.Fonts->GetGlyphRangesKorean());
+        io.FontDefault = uiFont;
+    }
 
     // Our state
     bool show_demo_window = false;
     bool show_another_window = false;
     bool show_simple_window = false;
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    ImVec4 clear_color = ImVec4(0.035f, 0.043f, 0.060f, 1.00f);
 
     //DxLib init
     ChangeWindowMode(1);
@@ -138,7 +158,7 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     // back to the RCDATA copy embedded in the executable.
     LoadCommandHelp("..\\skinHelper.txt");
     makeTransBackground();
-    workspaceList.Alloc(sizeof(WORKSPACE), 1);
+    workspaceList.clear();
 
     // Main loop
     bool done = false;
@@ -214,18 +234,21 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
 
         //MainFrame and menu
         if (ImGui::BeginMainMenuBar()) {
-            if (ImGui::BeginMenu("Workspaces")) {
+            ImGui::TextColored(SEUI::Colors::Accent(), "LR2 Skin Editor");
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Workspace")) {
                 if (ImGui::MenuItem("New Workspace", NULL, false, true)) {
-                    WORKSPACE* work = (WORKSPACE*)(workspaceList.Get_new());
+                    workspaceList.push_back(std::unique_ptr<WORKSPACE>(new WORKSPACE()));
+                    WORKSPACE* work = workspaceList.back().get();
                     work->alive = true;
-                    work->num = workspaceList.count - 1;
-                    snprintf(work->title, 260, "Workspace %d", workspaceList.count - 1);
+                    work->num = (int)workspaceList.size() - 1;
+                    snprintf(work->title, 260, "Workspace %d", (int)workspaceList.size() - 1);
                     //work->init();
                 }
                 ImGui::Separator();
-                for (int i = 0; i < workspaceList.count; i++) {
-                    WORKSPACE* arr = (WORKSPACE*)(workspaceList.data);
-                    ImGui::MenuItem(arr[i].title, NULL, &arr[i].alive);
+                for (int i = 0; i < (int)workspaceList.size(); i++) {
+                    WORKSPACE& workspace = *workspaceList[i];
+                    ImGui::MenuItem(workspace.title, NULL, &workspace.alive);
                 }
                 ImGui::EndMenu();
             }
@@ -237,7 +260,7 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         }
 
         //draw workspaces
-        for (int i = 0; i < workspaceList.count; i++) {
+        for (int i = 0; i < (int)workspaceList.size(); i++) {
 
             //char dock[64];
             //snprintf(dock, sizeof(dock), "dock%d", i);
@@ -248,12 +271,12 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
             //style.WindowMinSize.x = minWinSizeX;
 
 
-            WORKSPACE* arr = (WORKSPACE*)(workspaceList.data);
+            WORKSPACE& workspace = *workspaceList[i];
             //if (arr[i].initFlag == 0) {
             //    arr[i].init();
             //}
-            if (arr[i].alive) {
-                arr[i].draw();
+            if (workspace.alive) {
+                workspace.draw();
             }
         }
 
@@ -294,7 +317,7 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
 
     //
     if (DxLib_IsInit()) DxLib_End();
-    workspaceList.Free();
+    workspaceList.clear();
 
     return 0;
 }

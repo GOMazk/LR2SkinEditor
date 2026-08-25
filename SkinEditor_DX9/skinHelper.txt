@@ -25,16 +25,16 @@
 #SRC_IMAGE,(NULL),gr,x,y,w,h,div_x,div_y,cycle,$timer,$op1,$op2,$op3
 #DST_IMAGE,(NULL),time,x,y,w,h,acc,a,r,g,b,blend,filter,angle,center,loop,$timer,$op1,$op2,$op3
 
-#SRC_NUMBER,(null),gr,x,y,w,h,div_x,div_y,cycle,$timer,num,align(0right1left2middle),keta
+#SRC_NUMBER,(null),gr,x,y,w,h,div_x,div_y,cycle,$timer,$num,align(0right1left2middle),keta
 #DST_NUMBER,(NULL),time,x,y,w,h,acc,a,r,g,b,blend,filter,angle,center,loop,$timer,$op1,$op2,$op3
 
-#SRC_SLIDER,(null),gr,x,y,w,h,div_x,div_y,cycle,$timer,muki,range,type,disable
+#SRC_SLIDER,(null),gr,x,y,w,h,div_x,div_y,cycle,$timer,muki,range,$type,disable
 #DST_SLIDER,(NULL),time,x,y,w,h,acc,a,r,g,b,blend,filter,angle,center,loop,$timer,$op1,$op2,$op3
 
-#SRC_BARGRAPH,(NULL),gr,x,y,w,h,div_x,div_y,cycle,$timer,type,muki,$op3
+#SRC_BARGRAPH,(NULL),gr,x,y,w,h,div_x,div_y,cycle,$timer,$type,muki,$op3
 #DST_BARGRAPH,time,x,y,w,h,acc,a,r,g,b,blend,filter,angle,center,loop,$timer,$op1,$op1,$op3
 
-#SRC_BUTTON,index,gr,x,y,w,h,div_x,div_y,cycle,$timer,type,click,panel
+#SRC_BUTTON,index,gr,x,y,w,h,div_x,div_y,cycle,$timer,$type,click,panel
 #DST_BUTTON,(NULL),time,x,y,w,h,acc,a,r,g,b,blend,filter,angle,center,loop,$timer,$op1,$op2,$op3
 
 #SRC_ONMOUSE,(NULL),gr,x,y,w,h,div_x,div_y,cycle,$timer,panel,x2,y2,w2,h2

@@ -193,6 +193,7 @@
     <ClCompile Include="op.cpp" />
     <ClCompile Include="seHelper.cpp" />
     <ClCompile Include="seObjectEditor.cpp" />
+    <ClCompile Include="seUI.cpp" />
     <ClCompile Include="skin.cpp" />
     <ClCompile Include="winWorkspace.cpp" />
     <ClCompile Include="winWorkspace2.cpp" />
@@ -255,6 +256,7 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="seHelper.h" />
     <ClInclude Include="seObjectEditor.h" />
+    <ClInclude Include="seUI.h" />
     <ClInclude Include="skin.h" />
     <ClInclude Include="winWorkspace.h" />
   </ItemGroup>

@@ -1,7 +1,7 @@
 #include "op.h"
 
 //dst OP
-const char* dstName(unsigned n, bool skipzero) {
+const char* dstName(unsigned n, bool skipzero) { //$op
 	if (n == 0 && skipzero) return "";
 	switch (n) {
 		case 0: return "AlwaysTrue";
@@ -625,7 +625,7 @@ const char* dstName(unsigned n, bool skipzero) {
 	}
 }
 
-const char* buttonName(unsigned n) {
+const char* buttonName(unsigned n) {//$type
 	switch (n) {
 
 	case 1: return "PANEL1";
@@ -850,7 +850,7 @@ const char* buttonName(unsigned n) {
 	}
 }
 
-const char* sliderName(unsigned n) {
+const char* sliderName(unsigned n) { //$type
 	switch (n) {
 	case 1: return "SongSelectPosition";
 
@@ -890,7 +890,7 @@ const char* sliderName(unsigned n) {
 	}
 }
 
-const char* numberName(unsigned n) {
+const char* numberName(unsigned n) { //$num
 	switch (n){
 		case 10: return "HS_1P";
 		case 11: return "HS_2P";
@@ -1118,7 +1118,7 @@ const char* numberName(unsigned n) {
 	}
 }
 
-const char* textName(unsigned n) {
+const char* textName(unsigned n) {//$st
 	switch (n) {
 		case 1: return "TargetName";
 		case 2: return "MyName";
@@ -1465,7 +1465,7 @@ const char* timerName(unsigned n, bool skipzero) {
 	}
 }
 
-const char* bargraphName(unsigned n) {
+const char* bargraphName(unsigned n) {//$type
 	switch (n){
 	case 1: return "songProgress";
 	case 2: return "songLoaded";

@@ -86,7 +86,8 @@ Object Browser | Object Inspector | Preview / ImageManager / dstView | OpList
 Browser and Inspector use the full workspace height. ImageManager and dstView
 share Preview's tab node in the center. Asset Browser occupies the lower center
 node so Preview remains visible while an asset is dragged upward. The right
-column is split into OpList above and Customize below. Keep this hierarchy when
+column is split into OpList above and a Customize/Timer Control tab node below.
+Timer manipulation is kept out of the Preview canvas. Keep this hierarchy when
 adjusting split ratios. The toolbar and Windows menu `Reset layout` action
 rebuilds this exact layout through `DockBuilder`.
 

@@ -129,6 +129,18 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 4. Preview, Image Manager, Asset Browser, DST View, Object Browser, Object Inspector가 보이는지
    확인한다. DST View를 처음 열었을 때 오른쪽 미리보기 열이 남은 폭을 즉시
    채우며, 폭을 확보하기 위해 splitter를 먼저 드래그할 필요가 없어야 한다.
+   skin을 열기 전에는 Timer Control이 나타나지 않고, load가 끝난 뒤에는 기본
+   layout에 나타나야 한다.
+   Preview 하단에는 timer 조작 UI가 없어야 하며 `Windows > Timer Control`에서
+   독립 창을 열어 scene restart를 수행하고, OpList 형식의 timer 항목을 체크/해제해
+   해당 timer를 시작/리셋할 수 있어야 한다.
+   runtime 상태인 timer는 기본 배경이고, 사용자가 직접 시작하거나 reset한 timer는
+   각각 빨간 배경의 체크/빈 칸이어야 한다. Restart scene 후 빨간 배경이 사라지는지도
+   확인한다.
+   PLAY scene을 restart한 뒤 sample BMS note가 내려오는 동안 timer 140이 활성화되고,
+   항목 tooltip 값이 BPM에 따라 증가하다가 BMS measure event에서 다시 0부터
+   진행하는지 확인한다. BGA와 BPM 변경 event도 Preview에 반영되어야 한다.
+   HI-SPEED 표시값은 200으로 시작하고 note가 judge line에 겹치지 않고 내려와야 한다.
 5. Preview, Image Manager, DST View 캔버스 위에서 Ctrl+MouseWheel을 사용해
    마우스 아래의 이미지 지점이 움직이지 않은 채 확대/축소되는지 확인한다.
    Fit과 100%도 확인하고, 100% 초과 확대에서 선형 보간으로 흐려지지 않고
@@ -190,8 +202,12 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
   `textName`의 이름이 ComboBox에 나오는지
 - 명시 이름이 없는 NUMBER/SLIDER/BUTTON/TEXT Object가 같은 symbolic 이름을
   Browser 이름으로 사용하는지
+- New Object에서 `$num/$type/$st`를 바꾸면 수동 편집 전의 Name이 즉시 같은
+  symbolic 이름으로 갱신되고, 직접 입력한 Name은 이후 값 변경에도 유지되는지
 - symbolic 이름이 없는 Object가 op 이름, 그마저 없으면 non-zero timer 이름을
   쓰는지
+- OpList의 자동 상태는 기본 배경이고, 강제 ON은 빨간 배경의 체크, 강제 OFF는 빨간
+  배경의 빈 칸으로 유지되는지. Restart scene 후 자동 상태로 복귀하는지도 확인한다.
 - timer 0만 가진 Object가 `MainTimer`로 도배되지 않는지
 - Tagged image ComboBox의 thumbnail과 실제 SRC crop이 일치하는지
 - preset에 일치할 때 `Custom coordinates`로 잘못 표시되지 않는지
@@ -254,6 +270,8 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
   현재 선택 Object의 IF branch가 미리 채워지는지
 - Drop modal에서 IMAGE/NUMBER/SLIDER/BUTTON을 바꿔도 gr/crop/div/cycle/timer와
   DST Drop 위치가 유지되고 선택한 command 쌍으로 생성되는지
+- 기존 `#SRC_NUMBER`에서 나온 Asset을 NUMBER로 선택하면 `num/align/keta`가
+  그대로 복사되는지. SLIDER/BUTTON도 같은 command-specific 복사 규칙을 따르는지
 - 분할 SRC Drop 시 New Object의 `div_x/div_y/cycle/timer`가 원본과 같고 DST w/h가
   전체 sheet가 아닌 한 frame 크기인지
 - ImageManager `Pixel paint`에서 좌클릭이 선택 RGBA 색을 1픽셀로 그리고,

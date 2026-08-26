@@ -221,6 +221,9 @@ Browser 순서 변경:
 - New Object는 `skinObjGroup.txt`에 포함된 Object 명령만 표시한다.
 - New Command / Setting은 header, condition, setting 명령까지 표시한다.
 - Object 생성 창에는 Name 입력이 있으며 값이 있으면 `$SE_OBJECT_NAME`을 쓴다.
+- NUMBER/SLIDER/BUTTON/BARGRAPH/TEXT의 Name은 사용자가 직접 편집하기 전까지
+  각각 `$num/$type/$st`의 symbolic 이름을 자동으로 따른다. 직접 입력한 이름은
+  이후 symbolic 값을 바꿔도 덮어쓰지 않는다.
 - 모든 `$` schema 필드는 ComboBox다.
 - SRC Object 생성 시 대응 DST 명령이 스키마에 있으면 기본 DST 하나를 함께 만든다.
 - `#IF` 생성은 선택 Object를 새 조건으로 감쌀 수 있고, 빈 위치에서는
@@ -260,6 +263,26 @@ Ctrl+MouseWheel로 확대/축소한다.
 - 방향키 이동도 동일 CSV 편집/History 경로를 사용한다.
 - Ctrl+Z 후 Preview object와 점멸 사각형이 어긋나지 않도록 모델과 Preview의
   파생 데이터를 함께 invalidate/rebuild한다.
+
+Preview 캔버스에는 Object 확인·선택·배치 기능만 둔다. 기존 하단의 MainStart와
+timer 조작은 독립된 **Timer Control** 도킹 창으로 이동했다. 이 창은 scene runtime
+재시작과 OpList 형식의 timer 0~199 체크 목록을 제공한다. 체크하면 해당 timer를
+시작하고 체크를 해제하면 리셋하며, 실행 시간은 항목 tooltip에서 확인할 수 있다.
+runtime 상태인 timer는 기본 배경으로 표시한다. 사용자가 직접 시작하거나 reset한
+timer는 체크박스 배경을 빨간색으로 표시하므로 수동 ON과 수동 OFF를 모두 구분할 수
+있다. scene restart 시 수동 timer 표시도 함께 초기화한다.
+Timer Control은 workspace가 skin을 성공적으로 연 뒤에만 생성되며,
+`Windows > Timer Control`에서 다시 열 수 있다.
+
+OpList도 scene이 계산한 option은 기본색으로 표시하고, 사용자가 값을 바꾼 option은
+runtime override로 유지한다. 사용자 override가 있는 option은 체크 여부와 관계없이
+체크박스 배경이 빨간색이며 scene restart 시 자동 계산 상태로 돌아간다.
+
+PLAY Preview는 별도 `ProcGameThread`를 만들지 않는다. UI thread의 scene tick에서
+`ProcGame`을 정확히 한 번 실행한 뒤 PLAY Object를 그려 BMS note뿐 아니라 BPM,
+BGA와 Rhythm timer 140 event도 같은 순서로 갱신한다. `flag_gameinput`은 legacy
+Draw loop가 drawing buffer마다 `ProcGame`을 중복 호출하지 않도록 꺼진 상태를 유지한다.
+PLAY Preview의 기본 HI-SPEED는 200이며 LR2 기본 허용 범위 10~900 안에서 동작한다.
 
 Preview 우클릭은 해당 좌표와 겹치는 Object 중 현재 op와 IF Branch가 성립하는
 Object만 목록에 표시한다. 각 항목은 Object 모델의 대응 SRC 명령과 index를 찾아
@@ -334,6 +357,10 @@ IMAGE/NUMBER/SLIDER/BUTTON 네 가지이며, 종류를 바꿔도 Asset의 `gr/x/
 `div_x/div_y/cycle/timer`, Drop 위치가 유지된다. 대응하는 SRC/DST command를
 만들고 현재 선택 Object의 IF branch를 사용한다. New Object의 SRC에는 원본
 분할/animation 값을 유지하고 DST 크기는 한 frame 크기로 초기화한다.
+Asset이 실제 SRC 선언에서 만들어졌고 새 Object type도 같은 command라면 공통
+crop뿐 아니라 command-specific 필드도 schema 이름으로 복사한다. 따라서 기존
+NUMBER Asset은 `num/align/keta`, SLIDER/BUTTON Asset은 각 type 관련 값을 유지한다.
+수동 `$SRC_IMAGE` crop처럼 원본 SRC가 없는 Asset은 안전한 기본값을 사용한다.
 실제 삽입은 사용자가 OK를 누를 때만 기존
 New Object 저장/History 경로에서 수행한다. Asset Drop으로 연 New Object는 기존
 도킹 위치를 재사용하지 않고 화면 중앙의 스크롤 가능한 modal로 표시한다. 우클릭

@@ -826,6 +826,11 @@ struct SkinObject {
 
 struct skstruct {
 	char op[1000];
+	// Optional runtime overrides used by interactive tools. Values in op[] are
+	// still the scene/customization state; these arrays only take precedence
+	// while the corresponding enabled byte is set.
+	unsigned char opOverrideEnabled[1000];
+	unsigned char opOverrideValue[1000];
 	int startinput_start;
 	int startinput_rank;
 	int startinput_update;

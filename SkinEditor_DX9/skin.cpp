@@ -346,6 +346,12 @@ static void LR2SEInitPlayPreviewState(game* g, int type) {
 	// notes overlap at the judge line and also displays HI-SPEED as 0.
 	g->config.play.hiSpeed[0] = 200;
 	g->config.play.hiSpeed[1] = 200;
+	// ReactInput clamps HI-SPEED every tick. The editor does not load LR2's
+	// player config, so supply the same safe defaults used by ReadConfig;
+	// otherwise zero-initialized bounds immediately clamp 200 back to 0.
+	g->config.play.hsmin = 10;
+	g->config.play.hsmax = 900;
+	g->config.play.hsmargin = 10;
 	g->config.play.basespeed = 100;
 	g->gameplay.isAutoplay = 1;
 	g->gameplay.song_runtime = 120000.0;
@@ -1238,6 +1244,10 @@ int LR2SESceneInit(game *g, int type) {
 		ParseBmsFile(&g->gameplay, mode.samplePath, &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide);
 		LoadBmsResource(&g->gameplay, mode.samplePath, &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide, 0);
 		g->gameplay.bmsResourceLoaded = 1;
+		// The editor advances ProcGame synchronously from LR2SESceneProc. Keep
+		// this flag clear so LR2SEDrawLoop cannot also run ProcGame once per
+		// drawing-buffer entry through LR2's legacy non-threaded path.
+		g->gameplay.flag_gameinput = 0;
 		g->procSelecter = 4;
 		// ProcGameThread normally establishes these timers. The editor runs PLAY
 		// without that worker, so start the chart explicitly and let its BGA
@@ -1341,6 +1351,13 @@ int LR2SESceneProc(game* g, int type) {
 	case SKINTYPE_7KEYSBATTLE:
 	case SKINTYPE_5KEYSBATTLE:
 	case SKINTYPE_9KEYSBATTLE:
+		// ProcGameThread is deliberately not started by the editor: it would
+		// mutate the same game/skin state that the UI and renderer inspect.
+		// Advance the parsed BMS exactly once on the UI thread before drawing so
+		// measure (Rhythm 140), BPM and BGA events reach the preview in order.
+		g_sceneProcStage = "LR2SESceneProc/ProcGame";
+		if (ProcGame(g) < 0) return -1;
+		g_sceneProcStage = "LR2SESceneProc/DrawPlay";
 		LR2SE_I_Play(g);
 		break;
 

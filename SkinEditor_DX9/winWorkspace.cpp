@@ -288,6 +288,46 @@ static void InitializeAssetBackedSource(CSVbuf& values, const char* command,
     AssignCommandField(values, command, "panel", 0);
 }
 
+static std::string CommandFieldKey(const char* command, int column) {
+    CSTR help = GetCommandHelp(command, column);
+    help.trimWhiteSpace();
+    const char* label = help.body ? help.outstr() : "";
+    if (*label == '$') ++label;
+    std::string key(label);
+    std::transform(key.begin(), key.end(), key.begin(),
+        [](unsigned char value) { return (char)std::tolower(value); });
+    return key;
+}
+
+static bool IsAssetBaseField(const std::string& field) {
+    return field == "(null)" || field == "index" || field == "gr" ||
+        field == "x" || field == "y" || field == "w" || field == "h" ||
+        field == "div_x" || field == "div_y" || field == "cycle" ||
+        field == "timer";
+}
+
+static bool IsPrimaryObjectNameKind(SECommandValueKind kind) {
+    return kind == SE_VALUE_NUMBER || kind == SE_VALUE_SLIDER ||
+        kind == SE_VALUE_BUTTON || kind == SE_VALUE_BARGRAPH ||
+        kind == SE_VALUE_TEXT;
+}
+
+static std::string SuggestedObjectName(const char* command, CSVbuf& values) {
+    if (!command || strncmp(command, "#SRC_", 5) != 0) return std::string();
+    for (int column = 1; column < 30; ++column) {
+        CSTR help = GetCommandHelp(command, column);
+        help.trimWhiteSpace();
+        const SECommandValueKind kind = GetCommandValueKind(command,
+            help.body ? help.outstr() : "");
+        if (!IsPrimaryObjectNameKind(kind)) continue;
+        const int value = values.str[column].body
+            ? atol(values.str[column].outstr()) : 0;
+        const char* name = GetCommandValueName(kind, value);
+        return name && *name ? std::string(name) : std::string();
+    }
+    return std::string();
+}
+
 // Loaded scripts are wrapped by in-memory $FILE start/end markers.  Rows
 // outside those markers are intentionally ignored by the Preview runtime and
 // are not owned by a file when saved.  New top-level commands therefore belong
@@ -530,6 +570,8 @@ int WORKSPACE::init() {
     newObjectAssetIndex = -1;
     newObjectFocusRequest = false;
     newObjectOwner.assign("");
+    newObjectNameManuallyEdited = false;
+    newObjectAutoName.clear();
 
     initFlag = 1;
     return 0;
@@ -595,7 +637,8 @@ int WORKSPACE::draw() {
             if (ImGui::BeginMenu("Windows")) {
                 struct WindowToggle { const char* label; bool* visible; };
                 const WindowToggle tools[] = {
-                    { "Preview", &wPreview }, { "Customize", &wCustomize },
+                    { "Preview", &wPreview }, { "Timer Control", &wTimerControl },
+                    { "Customize", &wCustomize },
                     { "Image Manager", &wImgManager }, { "Asset Browser", &wAssetBrowser },
                     { "Text Editor", &wTextEdit },
                     { "File Manager", &wFileManager }, { "Simple Preview", &wSimplePreview },
@@ -804,6 +847,7 @@ int WORKSPACE::draw() {
         char dstViewTitle[64];
         char opListTitle[64];
         char customizeTitle[64];
+        char timerControlTitle[64];
         snprintf(previewTitle, sizeof(previewTitle), "Preview##%d", num);
         snprintf(objectBrowserTitle, sizeof(objectBrowserTitle), "Object Browser##%d", num);
         snprintf(objectInspectorTitle, sizeof(objectInspectorTitle), "Object Inspector##%d", num);
@@ -812,6 +856,7 @@ int WORKSPACE::draw() {
         snprintf(dstViewTitle, sizeof(dstViewTitle), "dstView##%d", num);
         snprintf(opListTitle, sizeof(opListTitle), "OpList##%d", num);
         snprintf(customizeTitle, sizeof(customizeTitle), "Customize##%d", num);
+        snprintf(timerControlTitle, sizeof(timerControlTitle), "Timer Control##%d", num);
         ImGui::DockBuilderDockWindow(previewTitle, previewDock);
         ImGui::DockBuilderDockWindow(imageManagerTitle, previewDock);
         ImGui::DockBuilderDockWindow(assetBrowserTitle, assetBrowserDock);
@@ -819,6 +864,7 @@ int WORKSPACE::draw() {
         ImGui::DockBuilderDockWindow(objectBrowserTitle, objectBrowserDock);
         ImGui::DockBuilderDockWindow(objectInspectorTitle, objectInspectorDock);
         ImGui::DockBuilderDockWindow(opListTitle, opListDock);
+        ImGui::DockBuilderDockWindow(timerControlTitle, customizeDock);
         ImGui::DockBuilderDockWindow(customizeTitle, customizeDock);
         ImGui::DockBuilderFinish(dockspaceId);
         dockLayoutBuilt = true;
@@ -921,6 +967,8 @@ int WORKSPACE::draw() {
     if (wTextEdit) drawTextEdit();
 
     if (wPreview) drawPreview();
+    // Runtime timers only exist after a skin has initialized its scene.
+    if (loaded && wTimerControl) drawTimerControl();
     if (wCustomize) drawCustomize();
     if (wImgManager) drawImgManager();
     if (wAssetBrowser) drawAssetBrowser();
@@ -2093,6 +2141,7 @@ int WORKSPACE::LoadSkin(char* path) {
     remove("SkinEditor_load_crash.log");
     WriteSkinLoadLog("LoadSkin begin", path);
     editorDerivedRebuildPending = false;
+    previewPlaying = false;
     skinSizeX = meta.targetX;
     skinSizeY = meta.targetY;
 
@@ -2262,9 +2311,12 @@ int WORKSPACE::LoadSkin(char* path) {
     newObjectInitializedCommand = -1;
     newObjectAssetIndex = -1;
     newObjectFocusRequest = false;
+    newObjectNameManuallyEdited = false;
+    newObjectAutoName.clear();
     DstViewZoom = 0.0f;
     wOpList = true;
     wCustomize = true;
+    wTimerControl = true;
     wTreeView = false;
     dockLayoutBuilt = false;
     wObjectManagerTest = false;
@@ -2286,6 +2338,7 @@ int WORKSPACE::LoadSceneSE() {
     skstruct* sk = &g.skstruct;
 
     InitSkin(sk, 0, false);
+    memset(timerManualOverride, 0, sizeof(timerManualOverride));
 
     //copy of ReadSkinCustomize()
     sk->adjust.dark_type = 0;
@@ -3561,6 +3614,75 @@ int WORKSPACE::SeLoadInit() {
 
 }
 
+int WORKSPACE::drawTimerControl() {
+    char title[64];
+    snprintf(title, sizeof(title), "Timer Control##%d", num);
+    if (!ImGui::Begin(title, &wTimerControl)) {
+        ImGui::End();
+        return 0;
+    }
+
+    SEUI::SectionHeader("Scene preview");
+    if (SEUI::ActionButton("Restart scene", "Reinitialize the current scene preview", loaded)) {
+        LoadSceneSE();
+        previewPlaying = (LR2SESceneInitSafe(&g, meta.type) == 0);
+    }
+
+    ImGui::Dummy(ImVec2(0.0f, 2.0f));
+    SEUI::SectionHeader("Manual timer");
+    const bool drawTimerList = ImGui::BeginChild("TimerList", ImVec2(0.0f, 0.0f),
+        ImGuiChildFlags_Borders, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+    if (drawTimerList) {
+        ImGuiListClipper clipper;
+        clipper.Begin(200);
+        while (clipper.Step()) {
+            for (int timer = clipper.DisplayStart; timer < clipper.DisplayEnd; ++timer) {
+                const std::string nameUtf8 = Cp932ToUtf8(timerName(timer));
+                bool active = GetTimeLapse(timer, &g.timer1) >= 0.0;
+                if ((timerManualOverride[timer] > 0 && !active) ||
+                    (timerManualOverride[timer] < 0 && active))
+                    timerManualOverride[timer] = 0;
+                const bool userOverride = timerManualOverride[timer] != 0;
+                ImGui::PushID(timer);
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("%03d", timer);
+                ImGui::SameLine();
+                if (userOverride) {
+                    ImGui::PushStyleColor(ImGuiCol_FrameBg,
+                        ImVec4(0.52f, 0.10f, 0.12f, 0.90f));
+                    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered,
+                        ImVec4(0.66f, 0.14f, 0.16f, 1.00f));
+                    ImGui::PushStyleColor(ImGuiCol_FrameBgActive,
+                        SEUI::Colors::Danger());
+                }
+                if (ImGui::Checkbox(nameUtf8.c_str(), &active)) {
+                    if (active) {
+                        SetTimeLapse(timer, &g.timer1);
+                        timerManualOverride[timer] = 1;
+                    }
+                    else {
+                        ResetTimeLapse(timer, &g.timer1);
+                        timerManualOverride[timer] = -1;
+                    }
+                }
+                if (userOverride) ImGui::PopStyleColor(3);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                    if (active)
+                        ImGui::SetTooltip("Running: %.0f ms\nClear to reset this timer.",
+                            GetTimeLapse(timer, &g.timer1));
+                    else
+                        ImGui::SetTooltip("Check to start this timer.");
+                }
+                ImGui::PopID();
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::End();
+    return 0;
+}
+
 
 int WORKSPACE::drawCustomize() {
 
@@ -3756,8 +3878,6 @@ int WORKSPACE::drawPreview() {
     char title[260];
     snprintf(title, sizeof(title), "Preview##%d", num);
 
-    static bool playing = false;
-
     // An inactive dock tab returns false here. Do not run LR2 rendering or
     // transfer a full preview texture while the user cannot see it.
     if (!ImGui::Begin(title, &wPreview, ImGuiWindowFlags_HorizontalScrollbar)) {
@@ -3790,12 +3910,12 @@ int WORKSPACE::drawPreview() {
         // clears the buffer.  Running this after the draw loop made every
         // sample-BMS note get cleared at the start of the following frame
         // without ever reaching the preview texture.
-        if (playing && LR2SESceneProcSafe(&g, meta.type) == -1)
-            playing = false;
+        if (previewPlaying && LR2SESceneProcSafe(&g, meta.type) == -1)
+            previewPlaying = false;
 
         // SELECT still needs its editor-side bar/BGA placeholders while its
         // timers are running; the original selector loop is not driven here.
-        const bool staticSpecialPreview = !playing || meta.type == SKINTYPE_SELECT;
+        const bool staticSpecialPreview = !previewPlaying || meta.type == SKINTYPE_SELECT;
         if (LR2SEDrawLoopSafe(&g, previewScreen, skinSizeX, skinSizeY, staticSpecialPreview) == 0) {
             previewFrameUpdated = true;
             previewTextureDirty = true;
@@ -3974,40 +4094,6 @@ int WORKSPACE::drawPreview() {
         }
         if (sliderSelected) RefreshPreviewSelectionBounds();
     }
-
-    if (ImGui::Button("MainStart")) {
-        LoadSceneSE();
-        playing = (LR2SESceneInitSafe(&g, meta.type) == 0);
-    }
-
-    if (ImGui::BeginCombo("##Timer",timerName(timerSelected))) {
-        for (int timer = 0; timer < 200; timer++) {
-            ImGui::PushID(timer);
-            const bool is_selected = (timerSelected == timer);
-            char timerNameBuf[64];
-            sprintf(timerNameBuf, "%03d:%s", timer, timerName(timer));
-            if (ImGui::Selectable(timerNameBuf, is_selected))
-                timerSelected = timer;
-
-            // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
-            if (is_selected)
-                ImGui::SetItemDefaultFocus();
-            
-
-            ImGui::PopID();
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Start")) {
-        SetTimeLapse(timerSelected, &g.timer1);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Reset")) {
-        ResetTimeLapse(timerSelected, &g.timer1);
-    }
-
-    
 
     //D_IDirect3DSurface9* d9 = (D_IDirect3DSurface9*)GetUseDirect3D9BackBufferSurface();
     //d9->GetDC()
@@ -4966,6 +5052,76 @@ void WORKSPACE::ResolveIMGDivision(int imageIndex, int& divX, int& divY,
     timer = source.timer;
 }
 
+bool WORKSPACE::InitializeAssetBackedObjectSource(CSVbuf& values,
+    const char* command, int imageIndex) {
+    if (!IsAssetBackedObjectCommand(command) || imageIndex < 0 ||
+        imageIndex >= arr_IMG.count) return false;
+
+    IMG& asset = ((IMG*)arr_IMG.data)[imageIndex];
+    int divX = 1;
+    int divY = 1;
+    int cycle = 0;
+    int timer = 0;
+    ResolveIMGDivision(imageIndex, divX, divY, cycle, timer);
+    InitializeAssetBackedSource(values, command, asset,
+        divX, divY, cycle, timer);
+
+    // When a card originates from the same SRC command, retain its semantic
+    // fields as well as its crop. NUMBER therefore keeps num/align/keta;
+    // SLIDER and BUTTON keep their type-specific behavior. Index and common
+    // atlas fields are deliberately initialized by the new Object context.
+    const int sourceRow = asset.sourceDeclare;
+    if (sourceRow < 0 || sourceRow >= skinfileLines.count) return true;
+    SKINFILELINEREAD& sourceLine =
+        ((SKINFILELINEREAD*)skinfileLines.data)[sourceRow];
+    const char* sourceCommand = sourceLine.csv.str[0].body
+        ? sourceLine.csv.str[0].outstr() : "";
+    if (_stricmp(sourceCommand, command) != 0) return true;
+
+    for (int destinationColumn = 1; destinationColumn < 30; ++destinationColumn) {
+        const std::string destinationField =
+            CommandFieldKey(command, destinationColumn);
+        if (destinationField.empty() || destinationField == "wip" ||
+            IsAssetBaseField(destinationField)) continue;
+        for (int sourceColumn = 1; sourceColumn < 30; ++sourceColumn) {
+            if (CommandFieldKey(sourceCommand, sourceColumn) != destinationField)
+                continue;
+            if (sourceLine.csv.str[sourceColumn].body)
+                values.str[destinationColumn].assign(
+                    sourceLine.csv.str[sourceColumn]);
+            break;
+        }
+    }
+    return true;
+}
+
+void WORKSPACE::SynchronizeNewObjectAutoName(const char* command,
+    bool assetDropModal) {
+    std::string suggestion = SuggestedObjectName(command, nCsv);
+    if (suggestion.empty() && assetDropModal && newObjectAssetIndex >= 0 &&
+        newObjectAssetIndex < arr_IMG.count) {
+        IMG& asset = ((IMG*)arr_IMG.data)[newObjectAssetIndex];
+        const char* assetName = asset.name.body ? asset.name.outstr() : "";
+        if (*assetName && _strnicmp(assetName, "#SRC", 4) != 0 &&
+            _stricmp(assetName, "noname") != 0) {
+            suggestion = assetName;
+        } else {
+            char generatedName[64];
+            snprintf(generatedName, sizeof(generatedName),
+                "Asset %03d", newObjectAssetIndex);
+            suggestion = generatedName;
+        }
+    }
+
+    const std::string currentName = newObjectName.body
+        ? newObjectName.outstr() : "";
+    const bool stillAutomatic = !newObjectNameManuallyEdited &&
+        (newObjectAutoName.empty() || currentName == newObjectAutoName);
+    if (!stillAutomatic) return;
+    newObjectName.assign(suggestion.c_str());
+    newObjectAutoName = suggestion;
+}
+
 bool WORKSPACE::SelectIMGAsset(int imageIndex, bool requestImageManagerScroll) {
     if (imageIndex < 0 || imageIndex >= arr_IMG.count) return false;
     IMG& tag = ((IMG*)arr_IMG.data)[imageIndex];
@@ -5111,19 +5267,7 @@ bool WORKSPACE::OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY) {
 
     SplitCSV("", &nCsv, ",");
     nCsv.str[0].assign("#SRC_IMAGE");
-    AssignCommandField(nCsv, "#SRC_IMAGE", "(NULL)", 0);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "gr", asset.gr);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "x", asset.x);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "y", asset.y);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "w", asset.w);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "h", asset.h);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "div_x", assetDivX);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "div_y", assetDivY);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "cycle", assetCycle);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "timer", assetTimer);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "op1", 0);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "op2", 0);
-    AssignCommandField(nCsv, "#SRC_IMAGE", "op3", 0);
+    InitializeAssetBackedObjectSource(nCsv, "#SRC_IMAGE", imageIndex);
     newObjectCsvInitialized = true;
     newObjectInitializedCommand = imageCommand;
 
@@ -5136,6 +5280,8 @@ bool WORKSPACE::OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY) {
         snprintf(generatedName, sizeof(generatedName), "Asset %03d", imageIndex);
         newObjectName.assign(generatedName);
     }
+    newObjectNameManuallyEdited = false;
+    newObjectAutoName.assign(newObjectName.body ? newObjectName.outstr() : "");
 
     newObjectFocusRequest = true;
     wNewObject = true;
@@ -7529,6 +7675,10 @@ int WORKSPACE::drawNewObject() {
             else ImGui::End();
             return 0;
         }
+        if (!isCsvInit && initializedCommand < 0 && !assetDropModal) {
+            newObjectNameManuallyEdited = false;
+            newObjectAutoName.clear();
+        }
         if (selected_command < 0 || selected_command >= arr_CommandHelp.count ||
             !isSelectableCommand(csv[selected_command].str[0].outstr())) {
             selected_command = 0;
@@ -7579,19 +7729,14 @@ int WORKSPACE::drawNewObject() {
             nCsv.str[0].assign(csv[selected_command].str[0].outstr());
             if (newObjectAssetIndex >= 0 && newObjectAssetIndex < arr_IMG.count &&
                 IsAssetBackedObjectCommand(nCsv.str[0].outstr())) {
-                IMG& asset = ((IMG*)arr_IMG.data)[newObjectAssetIndex];
-                int assetDivX = 1;
-                int assetDivY = 1;
-                int assetCycle = 0;
-                int assetTimer = 0;
-                ResolveIMGDivision(newObjectAssetIndex, assetDivX, assetDivY,
-                    assetCycle, assetTimer);
-                InitializeAssetBackedSource(nCsv, nCsv.str[0].outstr(), asset,
-                    assetDivX, assetDivY, assetCycle, assetTimer);
+                InitializeAssetBackedObjectSource(nCsv,
+                    nCsv.str[0].outstr(), newObjectAssetIndex);
             }
             initializedCommand = selected_command;
             isCsvInit = true;
         }
+        SynchronizeNewObjectAutoName(
+            csv[selected_command].str[0].outstr(), assetDropModal);
         if (newObjectAssetIndex >= 0 && newObjectAssetIndex < arr_IMG.count) {
             IMG& asset = ((IMG*)arr_IMG.data)[newObjectAssetIndex];
             ImGui::SeparatorText("Dropped asset");
@@ -7614,8 +7759,15 @@ int WORKSPACE::drawNewObject() {
         }
         const bool selectedIsObjectCommand =
             isCreatableObjectCommand(csv[selected_command].str[0].outstr());
-        if (selectedIsObjectCommand)
-            CstrInputText("Name", &newObjectName, ImGuiInputTextFlags_None);
+        if (selectedIsObjectCommand) {
+            if (CstrInputText("Name", &newObjectName, ImGuiInputTextFlags_None)) {
+                newObjectNameManuallyEdited = true;
+                newObjectAutoName.clear();
+            }
+            if (!newObjectNameManuallyEdited)
+                ImGui::TextDisabled("Name follows the primary symbolic value until edited.");
+        }
+        bool primarySymbolicValueChanged = false;
         for (int column = 1; column < 30; column++) {
             ImGui::PushID(column);
             if (csv[selected_command].str[column].isDiff("")) {
@@ -7631,6 +7783,11 @@ int WORKSPACE::drawNewObject() {
                         char valueText[32];
                         snprintf(valueText, sizeof(valueText), "%d", selectedValue);
                         nCsv.str[column].assign(valueText);
+                        const SECommandValueKind valueKind =
+                            GetCommandValueKind(command,
+                                help.body ? help.outstr() : "");
+                        if (IsPrimaryObjectNameKind(valueKind))
+                            primarySymbolicValueChanged = true;
                     }
                 } else {
                     CstrInputText(csv[selected_command].str[column], &nCsv.str[column], ImGuiInputTextFlags_None);
@@ -7638,6 +7795,9 @@ int WORKSPACE::drawNewObject() {
             }
             ImGui::PopID();
         }
+        if (primarySymbolicValueChanged)
+            SynchronizeNewObjectAutoName(
+                csv[selected_command].str[0].outstr(), assetDropModal);
 
 
         if (ImGui::Button("OK")) {
@@ -7865,6 +8025,8 @@ int WORKSPACE::drawNewObject() {
         newObjectFocusRequest = false;
         newObjectInsertPosition = -1;
         newObjectOwner.assign("");
+        newObjectNameManuallyEdited = false;
+        newObjectAutoName.clear();
     }
     return 0;
 }
@@ -8267,15 +8429,34 @@ int WORKSPACE::drawOpList() {
     char title[260];
     snprintf(title, sizeof(title), "OpList##%d", num);
     if (ImGui::Begin(title, &wOpList)) {
-        //init ops
+        skstruct* optionSkin = g.procSelecter == 7 ? &g.skstruct2 : &g.skstruct;
         for (int i = 0; i < 1000; i++) {
             op[i] = GetOptionFlag_dst(&g, i);
-        }
-        for (int i = 0; i < 1000; i++) {
+            const bool userOverride = optionSkin->opOverrideEnabled[i] != 0;
             ImGui::PushID(i);
             ImGui::Text("%03d", i);
             ImGui::SameLine();
-            ImGui::Checkbox(dstName(i), &op[i]);
+            if (userOverride) {
+                ImGui::PushStyleColor(ImGuiCol_FrameBg,
+                    ImVec4(0.52f, 0.10f, 0.12f, 0.90f));
+                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered,
+                    ImVec4(0.66f, 0.14f, 0.16f, 1.00f));
+                ImGui::PushStyleColor(ImGuiCol_FrameBgActive,
+                    SEUI::Colors::Danger());
+            }
+            const bool changed = ImGui::Checkbox(dstName(i), &op[i]);
+            if (userOverride) ImGui::PopStyleColor(3);
+            if (changed && i != 0) {
+                // Compare the requested value with the live automatic state.
+                // Matching it clears the override; differing from it creates
+                // an explicit user override that GetOptionFlag_dst honors.
+                optionSkin->opOverrideEnabled[i] = 0;
+                const bool automaticValue = GetOptionFlag_dst(&g, i);
+                if (op[i] != automaticValue) {
+                    optionSkin->opOverrideValue[i] = op[i] ? 1 : 0;
+                    optionSkin->opOverrideEnabled[i] = 1;
+                }
+            }
             ImGui::PopID();
         }
     }

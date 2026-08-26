@@ -135,5 +135,12 @@ int SetTimeLapse(int timerID, Timer *T){
 		//TOFIX : forgot return?
 	}
 	T->clock[timerID] = GetTimeWrap();
+	// Timer 140 is read from the dedicated beat-phase accumulator instead of
+	// clock[140]. Keep the generic start API symmetric with Get/Reset so tools
+	// such as SkinEditor's Timer Control can start it intentionally.
+	if (timerID == 140) {
+		T->Rhythm = 0.0;
+		T->rhythmTick = GetTimeWrap();
+	}
 	return 1;
 }

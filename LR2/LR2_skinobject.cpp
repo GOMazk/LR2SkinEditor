@@ -13,6 +13,16 @@ bool GetOptionFlag_dst(game *gs, int option) {
 	bool ret = (option >= 0);
 	if (!ret) option = -option;
 
+	// Interactive editors may temporarily force an option without rewriting
+	// the scene/customization state in op[]. Preserve negative-option semantics
+	// by applying the sign after reading the forced positive value.
+	if (option > 0 && option < 1000) {
+		skstruct* optionSkin = gs->procSelecter == 7 ? &gs->skstruct2 : &gs->skstruct;
+		if (optionSkin->opOverrideEnabled[option]) {
+			const bool forced = optionSkin->opOverrideValue[option] != 0;
+			return forced ? ret : !ret;
+		}
+	}
 
 	switch (option) {
 		case 0:

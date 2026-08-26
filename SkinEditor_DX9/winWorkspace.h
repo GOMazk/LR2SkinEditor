@@ -344,13 +344,18 @@ typedef struct WORKSPACE {
     int texture_preview_height = 0;
     unsigned long long previewLastRenderAt = 0;
     bool previewTextureDirty = true;
-    int timerSelected;
+    bool previewPlaying = false;
     ImVec2 clickPos;
     bool drawRightClick;
     float zoom = 1.0f;
 
     bool wCustomize;
     int drawCustomize();
+
+    bool wTimerControl = false;
+    int drawTimerControl();
+    // 0: runtime state, 1: user started, -1: user reset.
+    signed char timerManualOverride[200] = {};
 
     //ImgManager
     bool wImgManager;
@@ -394,6 +399,10 @@ typedef struct WORKSPACE {
     int ResolveIMGSourceIndex(int imageIndex) const;
     void ResolveIMGDivision(int imageIndex, int& divX, int& divY,
         int& cycle, int& timer) const;
+    bool InitializeAssetBackedObjectSource(CSVbuf& values,
+        const char* command, int imageIndex);
+    void SynchronizeNewObjectAutoName(const char* command,
+        bool assetDropModal);
     bool SelectIMGAsset(int imageIndex, bool requestImageManagerScroll = false);
     bool OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY);
     int RegisterGeneratedImage(const char* diskPath, int width, int height,
@@ -454,6 +463,8 @@ typedef struct WORKSPACE {
     bool newObjectFocusRequest = false;
     CSTR newObjectOwner;
     CSTR newObjectName;
+    bool newObjectNameManuallyEdited = false;
+    std::string newObjectAutoName;
     CSVbuf nCsv;
 
     int MakeObjects();

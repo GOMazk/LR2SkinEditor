@@ -172,6 +172,8 @@ int ReadSRC_BAR_TITLE(SRCstruct *src, CSVbuf *csv, skstruct *sk){
 //49ed50 InitSkin
 int InitSkin(skstruct *sk, int p5, char font) {
 	SetTransColor(0, 255, 0);
+	memset(sk->opOverrideEnabled, 0, sizeof(sk->opOverrideEnabled));
+	memset(sk->opOverrideValue, 0, sizeof(sk->opOverrideValue));
 	sk->startinput_start = 0;
 	sk->startinput_rank = 0;
 	sk->startinput_update = 0;

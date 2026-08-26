@@ -30,6 +30,8 @@ int CountCsvColumns(CSTR& line) {
 }
 
 int RunAssetMetadataSelfTest() {
+    if (arr_CommandHelp.count <= 0 &&
+        LoadCommandHelp("..\\skinHelper.txt") != 0) return 9;
     char tempDirectory[MAX_PATH] = {};
     if (!GetTempPathA(MAX_PATH, tempDirectory)) return 10;
     char outputPath[MAX_PATH] = {};
@@ -62,7 +64,7 @@ int RunAssetMetadataSelfTest() {
     const char* usedMetadata =
         "$SRC_IMAGE,0,5,10,20,30,40,1,1,0,0,0,0,0";
     const char* actualSource =
-        "#SRC_IMAGE,0,5,10,20,30,40,1,1,0,0,0,0,0";
+        "#SRC_NUMBER,0,5,10,20,30,40,5,2,1000,77,212,2,4";
     const char* unusedMetadata =
         "$SRC_IMAGE,0,5,50,60,70,80,1,1,0,0,0,0,0";
     appendLine("#IF,900", 0);
@@ -91,6 +93,9 @@ int RunAssetMetadataSelfTest() {
     dividedSource->div_y = 2;
     dividedSource->cycle = 1000;
     dividedSource->timer = 77;
+    dividedSource->num = 212;
+    dividedSource->align = 2;
+    dividedSource->keta = 4;
     int testDivX = 0;
     int testDivY = 0;
     int testCycle = 0;
@@ -99,6 +104,32 @@ int RunAssetMetadataSelfTest() {
     if (testDivX != 5 || testDivY != 2 || testCycle != 1000 ||
         testTimer != 77 || used.w / testDivX != 6 || used.h / testDivY != 20)
         return 32;
+
+    SplitCSV("", &workspace.nCsv, ",");
+    workspace.nCsv.str[0].assign("#SRC_NUMBER");
+    if (!workspace.InitializeAssetBackedObjectSource(workspace.nCsv,
+        "#SRC_NUMBER", 0)) return 38;
+    if (atol(workspace.nCsv.str[2].outstr()) != 5 ||
+        atol(workspace.nCsv.str[7].outstr()) != 5 ||
+        atol(workspace.nCsv.str[8].outstr()) != 2 ||
+        atol(workspace.nCsv.str[11].outstr()) != 212 ||
+        atol(workspace.nCsv.str[12].outstr()) != 2 ||
+        atol(workspace.nCsv.str[13].outstr()) != 4) return 39;
+
+    workspace.newObjectName.assign("");
+    workspace.newObjectAutoName.clear();
+    workspace.newObjectNameManuallyEdited = false;
+    workspace.SynchronizeNewObjectAutoName("#SRC_NUMBER", false);
+    if (!workspace.newObjectName.body ||
+        strstr(workspace.newObjectName.outstr(), "Fast_P1") == NULL) return 40;
+    workspace.nCsv.str[11].assign("214");
+    workspace.SynchronizeNewObjectAutoName("#SRC_NUMBER", false);
+    if (!workspace.newObjectName.body ||
+        strstr(workspace.newObjectName.outstr(), "Slow_P1") == NULL) return 41;
+    workspace.newObjectName.assign("My counter");
+    workspace.newObjectNameManuallyEdited = true;
+    workspace.SynchronizeNewObjectAutoName("#SRC_NUMBER", false);
+    if (!workspace.newObjectName.isSame("My counter")) return 42;
 
     const int manualIndex = workspace.NewIMG(17, 1, 2, 3, 4, 23);
     if (manualIndex != 2) return 14;

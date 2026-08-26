@@ -1,5 +1,7 @@
-/SkinEditor_DX9/SkinEditor_DX9/Release
-/SkinEditor_DX9/SkinEditor_DX9/x64
-/SkinEditor_DX9/.vs
-/SkinEditor_DX9/Release
+/.build/
+/.vs/
+/SkinEditor_DX9/.vs/
+/SkinEditor_DX9/Release/
+/SkinEditor_DX9/x64/
+**/obj/
 /fmod.dll

@@ -19,15 +19,15 @@ namespace SEUI {
         ImGui::StyleColorsDark();
         ImGuiStyle& style = ImGui::GetStyle();
 
-        style.WindowPadding = ImVec2(12.0f, 10.0f);
-        style.FramePadding = ImVec2(10.0f, 6.0f);
-        style.CellPadding = ImVec2(8.0f, 5.0f);
-        style.ItemSpacing = ImVec2(8.0f, 7.0f);
-        style.ItemInnerSpacing = ImVec2(6.0f, 5.0f);
+        style.WindowPadding = ImVec2(10.0f, 8.0f);
+        style.FramePadding = ImVec2(8.0f, 4.0f);
+        style.CellPadding = ImVec2(7.0f, 4.0f);
+        style.ItemSpacing = ImVec2(7.0f, 5.0f);
+        style.ItemInnerSpacing = ImVec2(5.0f, 4.0f);
         style.TouchExtraPadding = ImVec2(0.0f, 0.0f);
-        style.IndentSpacing = 20.0f;
-        style.ScrollbarSize = 12.0f;
-        style.GrabMinSize = 10.0f;
+        style.IndentSpacing = 16.0f;
+        style.ScrollbarSize = 10.0f;
+        style.GrabMinSize = 9.0f;
 
         style.WindowBorderSize = 1.0f;
         style.ChildBorderSize = 1.0f;
@@ -35,13 +35,13 @@ namespace SEUI {
         style.FrameBorderSize = 0.0f;
         style.TabBorderSize = 0.0f;
 
-        style.WindowRounding = 8.0f;
-        style.ChildRounding = 7.0f;
-        style.FrameRounding = 5.0f;
-        style.PopupRounding = 7.0f;
-        style.ScrollbarRounding = 8.0f;
-        style.GrabRounding = 5.0f;
-        style.TabRounding = 5.0f;
+        style.WindowRounding = 6.0f;
+        style.ChildRounding = 5.0f;
+        style.FrameRounding = 4.0f;
+        style.PopupRounding = 6.0f;
+        style.ScrollbarRounding = 6.0f;
+        style.GrabRounding = 4.0f;
+        style.TabRounding = 4.0f;
 
         const ImVec4 accent = Colors::Accent();
         ImVec4* c = style.Colors;
@@ -98,7 +98,7 @@ namespace SEUI {
     }
 
     float ToolbarHeight() { return ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.y * 1.35f; }
-    float FooterHeight() { return ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y; }
+    float FooterHeight() { return ImGui::GetFrameHeight() + 6.0f; }
 
     bool BeginToolbar(const char* id) {
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.070f, 0.085f, 0.115f, 1.00f));
@@ -109,6 +109,20 @@ namespace SEUI {
     }
 
     void EndToolbar() {
+        ImGui::EndChild();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+    }
+
+    bool BeginStatusBar(const char* id) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.050f, 0.062f, 0.084f, 1.00f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 3.0f));
+        return ImGui::BeginChild(id, ImVec2(0.0f, FooterHeight()), ImGuiChildFlags_Borders,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    }
+
+    void EndStatusBar() {
         ImGui::EndChild();
         ImGui::PopStyleVar(2);
         ImGui::PopStyleColor();

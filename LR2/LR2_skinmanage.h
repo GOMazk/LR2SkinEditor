@@ -2,6 +2,7 @@
 #include "structure.h"
 
 int InitSkinData(SkinManage * skm);
+int ResetSkinData(SkinManage * skm);
 int ExpandSkinMax(SkinManage * skm);
 //find and make list
 int ParseLR2SkinCustom(SkinManage * skm, CSTR filepath);

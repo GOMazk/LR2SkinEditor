@@ -190,6 +190,43 @@ int InitSkinData(SkinManage *skm){
 	return 1;
 }
 
+// Reuse the large legacy SkinManage allocation when the editor changes scan
+// locations. InitSkinData allocates one label table for every possible custom
+// entry, so calling it for every refresh leaked a substantial block each time.
+int ResetSkinData(SkinManage *skm) {
+	if (!skm || !skm->Data || skm->Max <= 0) return 0;
+	for (int skinIndex = 0; skinIndex < skm->Max; ++skinIndex) {
+		SkinHeader& skin = skm->Data[skinIndex];
+		skin.skinFile.~CSTR(); skin.skinFile.body = NULL;
+		skin.thumbnail.~CSTR(); skin.thumbnail.body = NULL;
+		skin.title.~CSTR(); skin.title.body = NULL;
+		skin.maker.~CSTR(); skin.maker.body = NULL;
+		for (int customIndex = 0; customIndex < 100; ++customIndex) {
+			SkinCustom& custom = skin.customs[customIndex];
+			custom.title.~CSTR(); custom.title.body = NULL;
+			for (int labelIndex = 0; labelIndex < custom.labelCapacity; ++labelIndex) {
+				custom.op_label[labelIndex].~CSTR();
+				custom.op_label[labelIndex].body = NULL;
+			}
+			custom.dst_op_selected = 0;
+			custom.dst_op_start = 0xffffffff;
+			custom.dst_op_count = 0;
+		}
+		skin.custom_count = 0;
+		skin.type = (SKINTYPE)0;
+		skin.unused18 = 0;
+		skin.informationP5 = 0;
+		skin.targetX = 640;
+		skin.targetY = 480;
+	}
+	skm->Count = 0;
+	skm->select = 0;
+	skm->previewID = 0;
+	skm->previewCustomID = 0;
+	memset(skm->skinID, 0, sizeof(skm->skinID));
+	return 1;
+}
+
 //4a7450
 int ExpandSkinMax(SkinManage *skm){
 	skm->Data = (SkinHeader *)realloc(skm->Data, (skm->Max + 100) * 0xb14);

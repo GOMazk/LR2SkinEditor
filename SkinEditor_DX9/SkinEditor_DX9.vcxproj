@@ -70,6 +70,9 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <D3DXPackageRoot Condition="'$(D3DXPackageRoot)'==''">$(ProjectDir)..\.build\packages\microsoft.dxsdk.d3dx\9.29.952.8</D3DXPackageRoot>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ExternalIncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(DXSDK_DIR)Include;$(IncludePath)</ExternalIncludePath>
     <LibraryPath>$(VC_LibraryPath_x86);$(WindowsSDK_LibraryPath_x86);$(DXSDK_DIR)Lib\x86;$(LibraryPath)</LibraryPath>
@@ -95,7 +98,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)imgui;$(ProjectDir)zep;$(ProjectDir)..\lib;$(ProjectDir)SDL3\include;%(AdditionalIncludeDirectories);$(DXSDK_DIR)include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)imgui;$(ProjectDir)zep;$(ProjectDir)..\lib;$(ProjectDir)SDL3\include;$(D3DXPackageRoot)\build\native\include;%(AdditionalIncludeDirectories);$(DXSDK_DIR)include</AdditionalIncludeDirectories>
       <AdditionalOptions>/execution-charset:shift-JIS %(AdditionalOptions)</AdditionalOptions>
       <LanguageStandard>stdcpp23</LanguageStandard>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
@@ -105,7 +108,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>winmm.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\lib;$(ProjectDir)..\lib\DxLib;$(ProjectDir)..\lib\FMOD</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(D3DXPackageRoot)\build\native\release\lib\x86;$(ProjectDir)..\lib;$(ProjectDir)..\lib\DxLib;$(ProjectDir)..\lib\FMOD</AdditionalLibraryDirectories>
       <DelayLoadDLLs>fmod.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
@@ -193,6 +196,7 @@
     <ClCompile Include="op.cpp" />
     <ClCompile Include="seHelper.cpp" />
     <ClCompile Include="seObjectEditor.cpp" />
+    <ClCompile Include="selfTests.cpp" />
     <ClCompile Include="seUI.cpp" />
     <ClCompile Include="skin.cpp" />
     <ClCompile Include="winWorkspace.cpp" />
@@ -256,8 +260,11 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="seHelper.h" />
     <ClInclude Include="seObjectEditor.h" />
+    <ClInclude Include="selfTests.h" />
     <ClInclude Include="seUI.h" />
     <ClInclude Include="skin.h" />
+    <ClInclude Include="skinBrowser.h" />
+    <ClInclude Include="uiCatalog.h" />
     <ClInclude Include="winWorkspace.h" />
   </ItemGroup>
   <ItemGroup>

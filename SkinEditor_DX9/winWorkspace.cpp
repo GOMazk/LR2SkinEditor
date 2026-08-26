@@ -19,6 +19,8 @@
 #include "arr.hpp"
 #include "seHelper.h"
 #include "seUI.h"
+#include "skinBrowser.h"
+#include "uiCatalog.h"
 #include "inputwrap.h"
 #include "imgui/imgui_internal.h"
 #include <algorithm>
@@ -32,11 +34,13 @@
 #include <map>
 #include <sstream>
 #include <shellapi.h>
+#include <shobjidl.h>
 #include <commdlg.h>
 #include <string>
 #include <vector>
 
 #pragma comment(lib, "Comdlg32.lib")
+#pragma comment(lib, "Ole32.lib")
 
 static void WriteSkinLoadLog(const char* stage, const char* detail = NULL) {
     FILE* fp = fopen("SkinEditor_load_crash.log", "a");
@@ -99,6 +103,79 @@ static bool BrowseSkinSavePath(const char* initialPath, char* selectedPath,
     if (!GetSaveFileNameA(&dialog)) return false;
     strncpy_s(selectedPath, selectedPathSize, path, _TRUNCATE);
     return true;
+}
+
+static bool BrowseSkinFolder(std::string& selectedPath,
+    std::string& selectedLabelUtf8, std::string& errorMessage) {
+    selectedPath.clear();
+    selectedLabelUtf8.clear();
+    errorMessage.clear();
+
+    const HRESULT initializeResult = CoInitializeEx(NULL,
+        COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    const bool uninitialize = SUCCEEDED(initializeResult);
+
+    IFileOpenDialog* dialog = NULL;
+    HRESULT result = CoCreateInstance(CLSID_FileOpenDialog, NULL,
+        CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+    if (FAILED(result) || !dialog) {
+        if (uninitialize) CoUninitialize();
+        errorMessage = "Windows could not open the folder picker.";
+        return false;
+    }
+
+    DWORD options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM |
+        FOS_PATHMUSTEXIST | FOS_DONTADDTORECENT);
+    dialog->SetTitle(L"Open another skin location");
+    result = dialog->Show(GetActiveWindow());
+    if (result == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+        dialog->Release();
+        if (uninitialize) CoUninitialize();
+        return false;
+    }
+
+    IShellItem* item = NULL;
+    if (FAILED(result) || FAILED(dialog->GetResult(&item)) || !item) {
+        dialog->Release();
+        if (uninitialize) CoUninitialize();
+        errorMessage = "The selected folder could not be read.";
+        return false;
+    }
+
+    PWSTR widePath = NULL;
+    result = item->GetDisplayName(SIGDN_FILESYSPATH, &widePath);
+    if (SUCCEEDED(result) && widePath) {
+        BOOL usedDefaultCharacter = FALSE;
+        const int ansiLength = WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS,
+            widePath, -1, NULL, 0, NULL, &usedDefaultCharacter);
+        const int utf8Length = WideCharToMultiByte(CP_UTF8, 0,
+            widePath, -1, NULL, 0, NULL, NULL);
+        if (usedDefaultCharacter || ansiLength <= 0 || ansiLength > MAX_PATH ||
+            utf8Length <= 0) {
+            errorMessage = "The selected path cannot be represented by the legacy LR2 path format.";
+        } else {
+            std::vector<char> ansiPath((size_t)ansiLength);
+            std::vector<char> utf8Path((size_t)(std::max)(utf8Length, 1));
+            WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, widePath, -1,
+                ansiPath.data(), ansiLength, NULL, &usedDefaultCharacter);
+            WideCharToMultiByte(CP_UTF8, 0, widePath, -1,
+                utf8Path.data(), utf8Length, NULL, NULL);
+            if (!usedDefaultCharacter) {
+                selectedPath.assign(ansiPath.data());
+                selectedLabelUtf8.assign(utf8Path.data());
+            }
+        }
+    } else {
+        errorMessage = "The selected folder does not have a filesystem path.";
+    }
+
+    if (widePath) CoTaskMemFree(widePath);
+    item->Release();
+    dialog->Release();
+    if (uninitialize) CoUninitialize();
+    return !selectedPath.empty();
 }
 
 const char* SKINTYPESTR[]= {
@@ -572,14 +649,47 @@ int WORKSPACE::draw() {
         ImGuiWindowFlags_NoBringToFrontOnFocus;
     ImGui::Begin(title, &alive, workspaceFlags);
 
+    struct WindowToggle { SEUIWindowId id; bool* visible; };
+    const WindowToggle windowToggles[] = {
+        { SEUIWindowId::Preview, &wPreview },
+        { SEUIWindowId::Customize, &wCustomize },
+        { SEUIWindowId::ImageManager, &wImgManager },
+        { SEUIWindowId::AssetBrowser, &wAssetBrowser },
+        { SEUIWindowId::TextEditor, &wTextEdit },
+        { SEUIWindowId::FileManager, &wFileManager },
+        { SEUIWindowId::SimplePreview, &wSimplePreview },
+        { SEUIWindowId::DstView, &wDstView },
+        { SEUIWindowId::ObjectBrowser, &wObjectBrowser },
+        { SEUIWindowId::ObjectInspector, &wObjectInspector },
+        { SEUIWindowId::ObjectManager, &wObjectManager },
+        { SEUIWindowId::ObjectManagerTest, &wObjectManagerTest },
+        { SEUIWindowId::ObjectProperty, &wProperty },
+        { SEUIWindowId::OptionList, &wOpList },
+        { SEUIWindowId::History, &wHistory }
+    };
+    const auto setWindowVisible = [&](SEUIWindowId id, bool visible) {
+        for (const WindowToggle& tool : windowToggles) {
+            if (tool.id == id) {
+                *tool.visible = visible;
+                return;
+            }
+        }
+    };
+    const auto hideAllWindows = [&]() {
+        for (const WindowToggle& tool : windowToggles) *tool.visible = false;
+    };
+
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New", NULL, &wNewskin)) {
                 //
             }
-            if (ImGui::MenuItem("Open", NULL, &wSkinList)) {
+            if (ImGui::MenuItem("Open registered skins")) {
                 ScanSkins();
+                wSkinList = true;
             }
+            if (ImGui::MenuItem("Open another location..."))
+                OpenSkinFolderDialog();
             if (loaded) {
                 if (ImGui::MenuItem("Save", "Ctrl+S")) SaveCurrentSkin();
                 if (ImGui::MenuItem("Save as", "Ctrl+Shift+S")) {
@@ -591,23 +701,48 @@ int WORKSPACE::draw() {
             ImGui::EndMenu();
         }
         if (loaded) {
-            
-            if (ImGui::BeginMenu("Windows")) {
-                struct WindowToggle { const char* label; bool* visible; };
-                const WindowToggle tools[] = {
-                    { "Preview", &wPreview }, { "Customize", &wCustomize },
-                    { "Image Manager", &wImgManager }, { "Asset Browser", &wAssetBrowser },
-                    { "Text Editor", &wTextEdit },
-                    { "File Manager", &wFileManager }, { "Simple Preview", &wSimplePreview },
-                    { "DST View", &wDstView }, { "Object Browser", &wObjectBrowser },
-                    { "Object Inspector", &wObjectInspector }, { "Object Manager", &wObjectManager },
-                    { "Object Manager Test", &wObjectManagerTest }, { "Object Property", &wProperty },
-                    { "Option List", &wOpList }, { "History", &wHistory }
-                };
-                for (const WindowToggle& tool : tools)
-                    ImGui::MenuItem(tool.label, NULL, tool.visible);
+            if (ImGui::BeginMenu("Layout")) {
+                if (ImGui::MenuItem("Balanced workspace")) {
+                    for (const WindowToggle& tool : windowToggles)
+                        *tool.visible = SEUIWindowSpecFor(tool.id).defaultVisible;
+                    dockLayoutBuilt = false;
+                }
+                if (ImGui::MenuItem("Focus workspace")) {
+                    hideAllWindows();
+                    setWindowVisible(SEUIWindowId::Preview, true);
+                    setWindowVisible(SEUIWindowId::ObjectBrowser, true);
+                    setWindowVisible(SEUIWindowId::ObjectInspector, true);
+                    dockLayoutBuilt = false;
+                }
+                if (ImGui::MenuItem("Asset workspace")) {
+                    hideAllWindows();
+                    setWindowVisible(SEUIWindowId::Preview, true);
+                    setWindowVisible(SEUIWindowId::ImageManager, true);
+                    setWindowVisible(SEUIWindowId::AssetBrowser, true);
+                    setWindowVisible(SEUIWindowId::DstView, true);
+                    setWindowVisible(SEUIWindowId::ObjectBrowser, true);
+                    setWindowVisible(SEUIWindowId::ObjectInspector, true);
+                    dockLayoutBuilt = false;
+                }
+                if (ImGui::MenuItem("Show all windows")) {
+                    for (const WindowToggle& tool : windowToggles) *tool.visible = true;
+                    dockLayoutBuilt = false;
+                }
                 ImGui::Separator();
-                if (ImGui::MenuItem("Reset default layout")) dockLayoutBuilt = false;
+                if (ImGui::MenuItem("Rebuild current docking")) dockLayoutBuilt = false;
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Windows")) {
+                const char* groups[] = { "Workspace", "Assets", "Data", "Advanced" };
+                for (const char* group : groups) {
+                    if (!ImGui::BeginMenu(group)) continue;
+                    for (const WindowToggle& tool : windowToggles) {
+                        const SEUIWindowSpec& spec = SEUIWindowSpecFor(tool.id);
+                        if (strcmp(spec.group, group) == 0)
+                            ImGui::MenuItem(spec.title, NULL, tool.visible);
+                    }
+                    ImGui::EndMenu();
+                }
                 ImGui::EndMenu();
             }
         }
@@ -628,11 +763,6 @@ int WORKSPACE::draw() {
         if (SEUI::ActionButton("Save", "Save changes to the current skin (Ctrl+S)", loaded))
             SaveCurrentSkin();
         ImGui::SameLine();
-        if (SEUI::ActionButton("Save as", "Save a copy and switch the working path", loaded)) {
-            newPath[0] = '\0';
-            wSaveMenu = true;
-        }
-        ImGui::SameLine();
         if (SEUI::ActionButton("Undo", "Undo the last Object Editor change (Ctrl+Z)", loaded))
             UndoLastEdit();
         SEUI::ToolbarSeparator();
@@ -648,29 +778,7 @@ int WORKSPACE::draw() {
             workspaceResolutionDialogRequested = true;
         }
         ImGui::SameLine();
-        if (SEUI::ActionButton("Reset layout", "Restore the default editor panel arrangement", loaded))
-            dockLayoutBuilt = false;
-        ImGui::SameLine();
-        SEUI::HelpMarker("All tools are still available from Windows. Add future common actions to this toolbar; keep their domain logic in WORKSPACE.");
-        ImGui::SameLine(0.0f, 16.0f);
-        const bool recentSaveFailure = lastSaveState < 0 &&
-            GetTickCount64() - lastSaveMessageAt < 8000;
-        const char* statusLabel = !loaded ? "NO SKIN" :
-            recentSaveFailure ? "SAVE FAILED" :
-            IsDocumentDirty() ? "MODIFIED" :
-            !imagePixelPaintDirtyPaths.empty() ? "IMAGE EDIT" : "SAVED";
-        const ImVec4 statusColor = !loaded ? SEUI::Colors::Muted() :
-            recentSaveFailure ? SEUI::Colors::Danger() :
-            (IsDocumentDirty() || !imagePixelPaintDirtyPaths.empty())
-                ? SEUI::Colors::Warning() : SEUI::Colors::Success();
-        SEUI::StatusPill(statusLabel, statusColor);
-        if (!lastSaveMessage.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-            ImGui::SetTooltip("%s", lastSaveMessage.c_str());
-        if (loaded) {
-            ImGui::SameLine(0.0f, 10.0f);
-            ImGui::TextDisabled("%s  |  %d x %d  |  %d objects", SKINTYPESTR[meta.type],
-                meta.targetX, meta.targetY, arr_seobj.count);
-        }
+        SEUI::HelpMarker("Use Layout for task-focused arrangements and Windows for individual panels. Save As remains in File.");
     }
     SEUI::EndToolbar();
 
@@ -758,142 +866,117 @@ int WORKSPACE::draw() {
     }
 
     if (loaded) {
-    char dockName[64];
-    snprintf(dockName, sizeof(dockName), "WorkspaceDock##%d", num);
-    const ImGuiID dockspaceId = ImGui::GetID(dockName);
-    ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+        char dockName[64];
+        snprintf(dockName, sizeof(dockName), "WorkspaceDock##%d", num);
+        const ImGuiID dockspaceId = ImGui::GetID(dockName);
+        ImVec2 dockspaceSize = ImGui::GetContentRegionAvail();
+        dockspaceSize.y = (std::max)(1.0f,
+            dockspaceSize.y - SEUI::FooterHeight() - ImGui::GetStyle().ItemSpacing.y);
+        ImGui::DockSpace(dockspaceId, dockspaceSize, ImGuiDockNodeFlags_None);
 
-    if (!dockLayoutBuilt) {
-        ImGui::DockBuilderRemoveNode(dockspaceId);
-        ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
-        ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
-        // Default workspace, from left to right:
-        // Object Browser | Object Inspector | Preview tools | OpList.
-        // Asset Browser stays below Preview for drag/drop. Customize returns
-        // to the compact right column below OpList.
-        ImGuiID objectBrowserDock = 0;
-        ImGuiID remainingDock = dockspaceId;
-        ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.19f,
-            &objectBrowserDock, &remainingDock);
+        if (!dockLayoutBuilt) {
+            ImGui::DockBuilderRemoveNode(dockspaceId);
+            ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+            ImGui::DockBuilderSetNodeSize(dockspaceId, dockspaceSize);
 
-        ImGuiID objectInspectorDock = 0;
-        ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.235f,
-            &objectInspectorDock, &remainingDock);
+            // Three-column workspace: object navigation, work canvas, and data.
+            // Every catalogued window has a deterministic tab group, so the
+            // all-windows layout stays organized instead of spawning floats.
+            ImGuiID leftDock = 0;
+            ImGuiID remainingDock = dockspaceId;
+            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.28f,
+                &leftDock, &remainingDock);
 
-        ImGuiID opListDock = 0;
-        ImGuiID centerDock = remainingDock;
-        ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Right, 0.21f,
-            &opListDock, &centerDock);
+            ImGuiID rightDock = 0;
+            ImGuiID centerDock = remainingDock;
+            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Right, 0.18f,
+                &rightDock, &centerDock);
 
-        ImGuiID customizeDock = 0;
-        ImGuiID opListUpperDock = opListDock;
-        ImGui::DockBuilderSplitNode(opListDock, ImGuiDir_Down, 0.32f,
-            &customizeDock, &opListUpperDock);
-        opListDock = opListUpperDock;
+            ImGuiID objectInspectorDock = 0;
+            ImGuiID objectBrowserDock = leftDock;
+            ImGui::DockBuilderSplitNode(leftDock, ImGuiDir_Down, 0.42f,
+                &objectInspectorDock, &objectBrowserDock);
 
-        ImGuiID assetBrowserDock = 0;
-        ImGuiID previewDock = centerDock;
-        ImGui::DockBuilderSplitNode(centerDock, ImGuiDir_Down, 0.30f,
-            &assetBrowserDock, &previewDock);
+            ImGuiID customizeDock = 0;
+            ImGuiID opListDock = rightDock;
+            ImGui::DockBuilderSplitNode(rightDock, ImGuiDir_Down, 0.38f,
+                &customizeDock, &opListDock);
 
-        char previewTitle[64];
-        char objectBrowserTitle[64];
-        char objectInspectorTitle[64];
-        char imageManagerTitle[64];
-        char assetBrowserTitle[64];
-        char dstViewTitle[64];
-        char opListTitle[64];
-        char customizeTitle[64];
-        snprintf(previewTitle, sizeof(previewTitle), "Preview##%d", num);
-        snprintf(objectBrowserTitle, sizeof(objectBrowserTitle), "Object Browser##%d", num);
-        snprintf(objectInspectorTitle, sizeof(objectInspectorTitle), "Object Inspector##%d", num);
-        snprintf(imageManagerTitle, sizeof(imageManagerTitle), "ImageManager##%d", num);
-        snprintf(assetBrowserTitle, sizeof(assetBrowserTitle), "Asset Browser##%d", num);
-        snprintf(dstViewTitle, sizeof(dstViewTitle), "dstView##%d", num);
-        snprintf(opListTitle, sizeof(opListTitle), "OpList##%d", num);
-        snprintf(customizeTitle, sizeof(customizeTitle), "Customize##%d", num);
-        ImGui::DockBuilderDockWindow(previewTitle, previewDock);
-        ImGui::DockBuilderDockWindow(imageManagerTitle, previewDock);
-        ImGui::DockBuilderDockWindow(assetBrowserTitle, assetBrowserDock);
-        ImGui::DockBuilderDockWindow(dstViewTitle, previewDock);
-        ImGui::DockBuilderDockWindow(objectBrowserTitle, objectBrowserDock);
-        ImGui::DockBuilderDockWindow(objectInspectorTitle, objectInspectorDock);
-        ImGui::DockBuilderDockWindow(opListTitle, opListDock);
-        ImGui::DockBuilderDockWindow(customizeTitle, customizeDock);
-        ImGui::DockBuilderFinish(dockspaceId);
-        dockLayoutBuilt = true;
-    }
-    }
+            ImGuiID assetBrowserDock = 0;
+            ImGuiID previewDock = centerDock;
+            ImGui::DockBuilderSplitNode(centerDock, ImGuiDir_Down, 0.28f,
+                &assetBrowserDock, &previewDock);
 
-    if (loaded && false) {
-        char tempTitle[260];
+            char previewTitle[64];
+            char customizeTitle[64];
+            char imageManagerTitle[64];
+            char assetBrowserTitle[64];
+            char textEditorTitle[64];
+            char fileManagerTitle[64];
+            char simplePreviewTitle[64];
+            char dstViewTitle[64];
+            char objectBrowserTitle[64];
+            char objectInspectorTitle[64];
+            char objectManagerTitle[64];
+            char objectManagerTestTitle[64];
+            char objectPropertyTitle[64];
+            char opListTitle[64];
+            char historyTitle[64];
+            FormatSEUIWindowTitle(previewTitle, sizeof(previewTitle), SEUIWindowId::Preview, num);
+            FormatSEUIWindowTitle(customizeTitle, sizeof(customizeTitle), SEUIWindowId::Customize, num);
+            FormatSEUIWindowTitle(imageManagerTitle, sizeof(imageManagerTitle), SEUIWindowId::ImageManager, num);
+            FormatSEUIWindowTitle(assetBrowserTitle, sizeof(assetBrowserTitle), SEUIWindowId::AssetBrowser, num);
+            FormatSEUIWindowTitle(textEditorTitle, sizeof(textEditorTitle), SEUIWindowId::TextEditor, num);
+            FormatSEUIWindowTitle(fileManagerTitle, sizeof(fileManagerTitle), SEUIWindowId::FileManager, num);
+            FormatSEUIWindowTitle(simplePreviewTitle, sizeof(simplePreviewTitle), SEUIWindowId::SimplePreview, num);
+            FormatSEUIWindowTitle(dstViewTitle, sizeof(dstViewTitle), SEUIWindowId::DstView, num);
+            FormatSEUIWindowTitle(objectBrowserTitle, sizeof(objectBrowserTitle), SEUIWindowId::ObjectBrowser, num);
+            FormatSEUIWindowTitle(objectInspectorTitle, sizeof(objectInspectorTitle), SEUIWindowId::ObjectInspector, num);
+            FormatSEUIWindowTitle(objectManagerTitle, sizeof(objectManagerTitle), SEUIWindowId::ObjectManager, num);
+            FormatSEUIWindowTitle(objectManagerTestTitle, sizeof(objectManagerTestTitle), SEUIWindowId::ObjectManagerTest, num);
+            FormatSEUIWindowTitle(objectPropertyTitle, sizeof(objectPropertyTitle), SEUIWindowId::ObjectProperty, num);
+            FormatSEUIWindowTitle(opListTitle, sizeof(opListTitle), SEUIWindowId::OptionList, num);
+            FormatSEUIWindowTitle(historyTitle, sizeof(historyTitle), SEUIWindowId::History, num);
 
-        snprintf(tempTitle, sizeof(tempTitle), "objList##%d", num);
-        if (ImGui::BeginChild(tempTitle, { 230,400 }, ImGuiChildFlags_ResizeX | ImGuiChildFlags_FrameStyle)) {
-            for (int i = 0; i < arr_seobj.count; i++) {
-                ImGui::PushID(i);
-                SEOBJ& seobj = ((SEOBJ*)arr_seobj.data)[i];
-
-                char buf[260];
-                sprintf(buf, "%03d(%s)", i, seobj.name.outstr());
-
-                if (ImGui::Selectable(buf, selected_obj == i)) {
-                    selected_obj = i;
-                }
-                ImGui::PopID();
-            }
+            ImGui::DockBuilderDockWindow(previewTitle, previewDock);
+            ImGui::DockBuilderDockWindow(imageManagerTitle, previewDock);
+            ImGui::DockBuilderDockWindow(textEditorTitle, previewDock);
+            ImGui::DockBuilderDockWindow(simplePreviewTitle, previewDock);
+            ImGui::DockBuilderDockWindow(dstViewTitle, previewDock);
+            ImGui::DockBuilderDockWindow(assetBrowserTitle, assetBrowserDock);
+            ImGui::DockBuilderDockWindow(fileManagerTitle, assetBrowserDock);
+            ImGui::DockBuilderDockWindow(historyTitle, assetBrowserDock);
+            ImGui::DockBuilderDockWindow(objectBrowserTitle, objectBrowserDock);
+            ImGui::DockBuilderDockWindow(objectManagerTitle, objectBrowserDock);
+            ImGui::DockBuilderDockWindow(objectManagerTestTitle, objectBrowserDock);
+            ImGui::DockBuilderDockWindow(objectInspectorTitle, objectInspectorDock);
+            ImGui::DockBuilderDockWindow(objectPropertyTitle, objectInspectorDock);
+            ImGui::DockBuilderDockWindow(opListTitle, opListDock);
+            ImGui::DockBuilderDockWindow(customizeTitle, customizeDock);
+            ImGui::DockBuilderFinish(dockspaceId);
+            dockLayoutBuilt = true;
         }
-        ImGui::EndChild();
-        
-        //ImGui::SameLine();
-        //preview
 
-        ImGui::Separator();
-        SEOBJ& seobj = ((SEOBJ*)arr_seobj.data)[selected_obj];
-        snprintf(tempTitle, sizeof(tempTitle), "objProperty##%d", num);
-        if (ImGui::BeginChild(tempTitle, { 400,-1 }, ImGuiChildFlags_ResizeX | ImGuiChildFlags_FrameStyle)) {
-            ImGui::PushID(selected_obj);
-
-            for (int b = 0; b < seobj.body.count; b++) {
-                ImGui::Text("%s", ((CSTR*)seobj.body.data)[b]);
-            }
-
-            if (seobj.type2 == 0) {
-                if (ImGui::BeginTabBar("MyTabBar", ImGuiTabBarFlags_None))
-                {
-                    if (ImGui::BeginTabItem("SRC"))
-                    {
-                        ImGui::SeparatorText("basic");
-                        ImGui::InputText("gr", ((CSVbuf*)seobj.bodyCSV.data)[0].str[2], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[2].outstr()), ImGuiInputTextFlags_CharsDecimal);
-                        ImGui::InputText("x", ((CSVbuf*)seobj.bodyCSV.data)[0].str[3], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[3].outstr()), ImGuiInputTextFlags_CharsDecimal);
-                        ImGui::InputText("y", ((CSVbuf*)seobj.bodyCSV.data)[0].str[4], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[4].outstr()), ImGuiInputTextFlags_CharsDecimal);
-                        ImGui::InputText("w", ((CSVbuf*)seobj.bodyCSV.data)[0].str[5], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[5].outstr()), ImGuiInputTextFlags_CharsDecimal);
-                        ImGui::InputText("h", ((CSVbuf*)seobj.bodyCSV.data)[0].str[6], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[6].outstr()), ImGuiInputTextFlags_CharsDecimal);
-                        ImGui::SeparatorText("animation");
-                        ImGui::InputText("div_x", ((CSVbuf*)seobj.bodyCSV.data)[0].str[7], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[7].outstr()), ImGuiInputTextFlags_CharsDecimal);
-                        ImGui::InputText("div_y", ((CSVbuf*)seobj.bodyCSV.data)[0].str[8], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[8].outstr()), ImGuiInputTextFlags_CharsDecimal);
-                        ImGui::InputText("cycle", ((CSVbuf*)seobj.bodyCSV.data)[0].str[9], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[9].outstr()), ImGuiInputTextFlags_CharsDecimal);
-                        //ImGui::InputText("timer", ((CSVbuf*)seobj.bodyCSV.data)[0].str[10], IM_COUNTOF(((CSVbuf*)seobj.bodyCSV.data)[0].str[10].outstr()), ImGuiInputTextFlags_CharsDecimal);
-                        CstrInputText("timer", &((CSVbuf*)seobj.bodyCSV.data)[0].str[10], ImGuiInputTextFlags_None);
-                        ImGui::Text("Data: %p\nSize: %d\nCapacity: %d", (void*)((CSVbuf*)seobj.bodyCSV.data)[0].str[10].body, ((CSVbuf*)seobj.bodyCSV.data)[0].str[10].length(), ((CSVbuf*)seobj.bodyCSV.data)[0].str[10].msize());
-
-
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("DST"))
-                    {
-                        ImGui::Text("This is the Broccoli tab!\nblah blah blah blah blah");
-                        ImGui::EndTabItem();
-                    }
-                    ImGui::EndTabBar();
-                }
-            }
-
-            ImGui::PopID();
+        if (SEUI::BeginStatusBar("##WorkspaceStatusBar")) {
+            const bool recentSaveFailure = lastSaveState < 0 &&
+                GetTickCount64() - lastSaveMessageAt < 8000;
+            const char* statusLabel = recentSaveFailure ? "SAVE FAILED" :
+                IsDocumentDirty() ? "MODIFIED" :
+                !imagePixelPaintDirtyPaths.empty() ? "IMAGE EDIT" : "SAVED";
+            const ImVec4 statusColor = recentSaveFailure ? SEUI::Colors::Danger() :
+                (IsDocumentDirty() || !imagePixelPaintDirtyPaths.empty())
+                    ? SEUI::Colors::Warning() : SEUI::Colors::Success();
+            SEUI::StatusPill(statusLabel, statusColor);
+            if (!lastSaveMessage.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                ImGui::SetTooltip("%s", lastSaveMessage.c_str());
+            ImGui::SameLine(0.0f, 10.0f);
+            ImGui::TextDisabled("%s  |  %d x %d  |  %d objects", SKINTYPESTR[meta.type],
+                meta.targetX, meta.targetY, arr_seobj.count);
         }
-        ImGui::EndChild();
+        SEUI::EndStatusBar();
     }
-    else if (!loaded) {
+
+    if (!loaded) {
         SEUI::EmptyState("Start with a skin",
             "Open an existing LR2 skin or create a scene preset. Preview, Image Manager, DST View and Object Editor will appear in the default workspace layout.");
         const float buttonsWidth = 210.0f;
@@ -903,6 +986,9 @@ int WORKSPACE::draw() {
             ScanSkins();
             wSkinList = true;
         }
+        ImGui::SameLine();
+        if (SEUI::ActionButton("Open folder", "Choose another folder containing LR2 skins"))
+            OpenSkinFolderDialog();
         ImGui::SameLine();
         if (SEUI::ActionButton("New skin", "Create from a scene preset")) wNewskin = true;
     }
@@ -962,31 +1048,149 @@ int WORKSPACE::draw() {
     return 0;
 }
 
-int WORKSPACE::ScanSkins() {
-    InitSkinData(&g.skinData);
-    MakeSkinList(&g.skinData, CSTR("LR2files\\Theme\\"));
-    MakeSkinList(&g.skinData, CSTR("LR2files\\Sound\\"));
+int WORKSPACE::ScanSkins(const char* folder, const char* folderLabelUtf8) {
+    const std::string requestedFolder = folder ? folder : "";
+    const std::string requestedLabel = folderLabelUtf8 ? folderLabelUtf8 : "";
+    if (skinBrowserDataInitialized) ResetSkinData(&g.skinData);
+    else {
+        InitSkinData(&g.skinData);
+        skinBrowserDataInitialized = true;
+    }
+
+    skinBrowserFolder = requestedFolder;
+    skinBrowserFolderLabelUtf8 = !requestedLabel.empty()
+        ? requestedLabel : (!requestedFolder.empty()
+            ? requestedFolder : "LR2 default locations");
+    skinBrowserMessage.clear();
+    skinBrowserState = 0;
+
+    std::vector<std::string> skinFiles;
+    int skippedLongPaths = 0;
+    if (!requestedFolder.empty()) {
+        const SESkinFolderScanResult scan = SEScanSkinFolder(requestedFolder.c_str());
+        if (!scan.success) {
+            skinBrowserMessage = scan.message;
+            skinBrowserState = -1;
+            ++skinBrowserScanRevision;
+            return 0;
+        }
+        skinFiles = scan.files;
+        skippedLongPaths = scan.skippedLongPaths;
+    } else {
+        const char* defaultFolders[] = {
+            "LR2files\\Theme\\",
+            "LR2files\\Sound\\"
+        };
+        bool foundDefaultFolder = false;
+        for (const char* defaultFolder : defaultFolders) {
+            const SESkinFolderScanResult scan = SEScanSkinFolder(defaultFolder);
+            if (!scan.success) continue;
+            foundDefaultFolder = true;
+            skinFiles.insert(skinFiles.end(), scan.files.begin(), scan.files.end());
+            skippedLongPaths += scan.skippedLongPaths;
+        }
+        if (!foundDefaultFolder) {
+            skinBrowserMessage = "The default LR2 skin folders were not found. Choose another location.";
+            skinBrowserState = -1;
+            ++skinBrowserScanRevision;
+            return 0;
+        }
+    }
+
+    for (const std::string& skinFile : skinFiles)
+        ParseLR2SkinCustom(&g.skinData, CSTR(skinFile.c_str()));
+
+    char resultMessage[160];
+    snprintf(resultMessage, sizeof(resultMessage),
+        g.skinData.Count == 1 ? "Found 1 skin." : "Found %d skins.",
+        g.skinData.Count);
+    skinBrowserMessage = resultMessage;
+    if (skippedLongPaths > 0)
+        skinBrowserMessage += " Some paths were skipped because they exceed MAX_PATH.";
+    skinBrowserState = 1;
+    ++skinBrowserScanRevision;
     return 1;
 }
 
+int WORKSPACE::OpenSkinFolderDialog() {
+    std::string selectedPath;
+    std::string selectedLabelUtf8;
+    std::string errorMessage;
+    if (!BrowseSkinFolder(selectedPath, selectedLabelUtf8, errorMessage)) {
+        if (!errorMessage.empty()) {
+            skinBrowserMessage = errorMessage;
+            skinBrowserState = -1;
+            wSkinList = true;
+        }
+        return errorMessage.empty() ? 0 : -1;
+    }
+    const int result = ScanSkins(selectedPath.c_str(), selectedLabelUtf8.c_str());
+    wSkinList = true;
+    return result;
+}
+
 int WORKSPACE::drawSkinList() {
-    static int item_selected_idx = 0;
-    int oldSelected = item_selected_idx;
-    static PDIRECT3DTEXTURE9 preview_tex;
-    static int preview_size_x, preview_size_y;
-    static bool isPreview = false;
-    static int resolutionSaveState = 0; // 0: untouched, 1: saved, -1: failed
-    static std::string resolutionSavePath;
+    int& item_selected_idx = skinBrowserSelectedIndex;
+    PDIRECT3DTEXTURE9& preview_tex = skinBrowserPreviewTexture;
+    int& preview_size_x = skinBrowserPreviewWidth;
+    int& preview_size_y = skinBrowserPreviewHeight;
+    bool& isPreview = skinBrowserPreviewAvailable;
+    int& resolutionSaveState = skinBrowserResolutionSaveState;
+    std::string& resolutionSavePath = skinBrowserResolutionSavePath;
+    unsigned long& observedScanRevision = skinBrowserObservedScanRevision;
+    const auto synchronizeScanRevision = [&]() {
+        if (observedScanRevision == skinBrowserScanRevision) return;
+        observedScanRevision = skinBrowserScanRevision;
+        item_selected_idx = 0;
+        isPreview = false;
+        if (preview_tex) {
+            preview_tex->Release();
+            preview_tex = NULL;
+        }
+        resolutionSaveState = 0;
+        resolutionSavePath.clear();
+    };
+    synchronizeScanRevision();
 
     const ImVec2 workSize = ImGui::GetMainViewport()->WorkSize;
     const ImVec2 minimumSize(
         (std::min)(820.0f, workSize.x),
         (std::min)(540.0f, workSize.y));
     ImGui::SetNextWindowSizeConstraints(minimumSize, workSize);
-    ImGui::Begin("Open from skinlist", &wSkinList);
+    char skinBrowserTitle[64];
+    FormatSEUISurfaceTitle(skinBrowserTitle, sizeof(skinBrowserTitle),
+        SEUISurfaceId::SkinBrowser);
+    ImGui::Begin(skinBrowserTitle, &wSkinList);
+
+    SEUI::SectionHeader("Skin library", "Registered LR2 folders or another location");
+    if (SEUI::ActionButton("Open another location...",
+        "Choose a folder and find .lr2skin/.lr2ss files recursively"))
+        OpenSkinFolderDialog();
+    ImGui::SameLine();
+    if (SEUI::ActionButton("Refresh", "Scan the current location again")) {
+        if (skinBrowserFolder.empty()) ScanSkins();
+        else ScanSkins(skinBrowserFolder.c_str(), skinBrowserFolderLabelUtf8.c_str());
+    }
+    if (!skinBrowserFolder.empty()) {
+        ImGui::SameLine();
+        if (SEUI::ActionButton("Default locations", "Return to LR2files/Theme and LR2files/Sound"))
+            ScanSkins();
+    }
+    ImGui::TextDisabled("Location: %s", skinBrowserFolderLabelUtf8.empty()
+        ? "LR2 default locations" : skinBrowserFolderLabelUtf8.c_str());
+    if (!skinBrowserMessage.empty()) {
+        if (skinBrowserState < 0)
+            ImGui::TextColored(SEUI::Colors::Danger(), "%s", skinBrowserMessage.c_str());
+        else
+            ImGui::TextDisabled("%s", skinBrowserMessage.c_str());
+    }
+    ImGui::Separator();
+    synchronizeScanRevision();
+    int oldSelected = item_selected_idx;
 
     if (g.skinData.Count <= 0) {
-        ImGui::TextUnformatted("No skins found.");
+        SEUI::EmptyState("No skins found",
+            "Choose another location or refresh this folder. Subfolders are searched automatically for .lr2skin and .lr2ss files.");
         ImGui::End();
         return 0;
     }
@@ -3565,7 +3769,7 @@ int WORKSPACE::SeLoadInit() {
 int WORKSPACE::drawCustomize() {
 
     char title[260];
-    snprintf(title, sizeof(title), "Customize##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Customize, num);
     ImGui::Begin(title, &wCustomize);
 
     for (int i = 0; i < meta.custom_count; i++) {
@@ -3754,7 +3958,7 @@ int WORKSPACE::drawPreview() {
     // the loaded skin resolution changes.
     
     char title[260];
-    snprintf(title, sizeof(title), "Preview##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Preview, num);
 
     static bool playing = false;
 
@@ -4398,7 +4602,7 @@ int WORKSPACE::drawPreview() {
 
 int WORKSPACE::drawTextEdit() {
     char title[260];
-    snprintf(title, sizeof(title), "TextEdit##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::TextEditor, num);
 
     ImGui::Begin(title, &wTextEdit, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
@@ -5144,7 +5348,7 @@ bool WORKSPACE::OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY) {
 
 int WORKSPACE::drawAssetBrowser() {
     char title[64];
-    snprintf(title, sizeof(title), "Asset Browser##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::AssetBrowser, num);
     if (!ImGui::Begin(title, &wAssetBrowser)) {
         ImGui::End();
         return 0;
@@ -5259,7 +5463,8 @@ int WORKSPACE::drawAssetBrowser() {
                     if (activated) SelectIMGAsset(imageIndex, true);
 
                     char managerTitle[64];
-                    snprintf(managerTitle, sizeof(managerTitle), "ImageManager##%d", num);
+                    FormatSEUIWindowTitle(managerTitle, sizeof(managerTitle),
+                        SEUIWindowId::ImageManager, num);
                     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                         SelectIMGAsset(imageIndex, true);
                         ImGui::SetWindowFocus(managerTitle);
@@ -5444,7 +5649,7 @@ int WORKSPACE::drawAssetBrowser() {
 
 int WORKSPACE::drawImgManager() {
     char title[260];
-    snprintf(title, sizeof(title), "ImageManager##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::ImageManager, num);
     if (!ImGui::Begin(title, &wImgManager, ImGuiWindowFlags_HorizontalScrollbar)) {
         ImGui::End();
         return 0;
@@ -6470,7 +6675,7 @@ int WORKSPACE::drawSaveMenu2() {
 
 int WORKSPACE::drawFileManager() {
     char title[260];
-    snprintf(title, sizeof(title), "FileManager##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::FileManager, num);
 
     ImGui::Begin(title, &wFileManager);
     //ImGui::Text("they are related files. %d scripts, %d images", arr_subpath.count, arr_imgpath.count);
@@ -6991,7 +7196,7 @@ int WORKSPACE::drawNewskin() {
 
 int WORKSPACE::drawSimplePreview() {
     char title[260];
-    snprintf(title, sizeof(title), "SimplePreview##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::SimplePreview, num);
     if (ImGui::Begin(title, &wSimplePreview, ImGuiWindowFlags_AlwaysHorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
         //ImDrawList* draw_list = ImGui::GetWindowDrawList();
         //
@@ -7125,7 +7330,7 @@ int WORKSPACE::drawSimplePreview() {
 int WORKSPACE::drawDstView() {
 
     char title[260];
-    snprintf(title, sizeof(title), "dstView##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::DstView, num);
     if (ImGui::Begin(title, &wDstView)) {
         if (arr_DST.count <= 0) {
             selected_dst = -1;
@@ -7365,7 +7570,7 @@ int WORKSPACE::drawDstView() {
 int WORKSPACE::drawObjectManagerTest() {
 
     char title[260];
-    snprintf(title, sizeof(title), "objectManagerTest##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::ObjectManagerTest, num);
 
     int objcount = 0;
     if (ImGui::Begin(title, &wObjectManagerTest)) {
@@ -7872,7 +8077,7 @@ int WORKSPACE::drawNewObject() {
 int WORKSPACE::drawObjectManager() {
 
     char title[260];
-    snprintf(title, sizeof(title), "objectManager##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::ObjectManager, num);
     if (ImGui::Begin(title, &wObjectManager)) {
 
         snprintf(title, sizeof(title), "objList##%d", num);
@@ -8252,7 +8457,7 @@ int WORKSPACE::drawObjectManager() {
 int WORKSPACE::drawProperty() {
 
     char title[260];
-    snprintf(title, sizeof(title), "objectProperty##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::ObjectProperty, num);
     if (ImGui::Begin(title, &wProperty)) {
         selectedObjectTest;
 
@@ -8265,7 +8470,7 @@ int WORKSPACE::drawProperty() {
 int WORKSPACE::drawOpList() {
 
     char title[260];
-    snprintf(title, sizeof(title), "OpList##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::OptionList, num);
     if (ImGui::Begin(title, &wOpList)) {
         //init ops
         for (int i = 0; i < 1000; i++) {
@@ -8286,8 +8491,10 @@ int WORKSPACE::drawOpList() {
 int WORKSPACE::drawHistory() {
 
 
+    char title[260];
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::History, num);
     ImGui::PushID(num);
-    if (ImGui::Begin("History", &wHistory)) {
+    if (ImGui::Begin(title, &wHistory)) {
 
         int item_selected_idx = 0;
     
@@ -8338,8 +8545,8 @@ std::vector<std::unique_ptr<WORKSPACE> > workspaceList;
 int WORKSPACE::drawObjectEditor() {
     char browserTitle[128];
     char inspectorTitle[128];
-    snprintf(browserTitle, sizeof(browserTitle), "Object Browser##%d", num);
-    snprintf(inspectorTitle, sizeof(inspectorTitle), "Object Inspector##%d", num);
+    FormatSEUIWindowTitle(browserTitle, sizeof(browserTitle), SEUIWindowId::ObjectBrowser, num);
+    FormatSEUIWindowTitle(inspectorTitle, sizeof(inspectorTitle), SEUIWindowId::ObjectInspector, num);
 
     if (object_editor_select_request >= 0 && wObjectBrowser)
         ImGui::SetNextWindowFocus();
@@ -8587,7 +8794,8 @@ int WORKSPACE::drawObjectEditor() {
         }
         if (focusDstView && wDstView) {
             char dstWindowTitle[64];
-            snprintf(dstWindowTitle, sizeof(dstWindowTitle), "dstView##%d", num);
+            FormatSEUIWindowTitle(dstWindowTitle, sizeof(dstWindowTitle),
+                SEUIWindowId::DstView, num);
             ImGui::SetWindowFocus(dstWindowTitle);
         }
     };

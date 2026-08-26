@@ -20,7 +20,7 @@ $BuildRoot = [System.IO.Path]::GetFullPath($BuildRoot)
 
 $projectPath = Join-Path $repositoryRoot 'SkinEditor_DX9\SkinEditor_DX9.vcxproj'
 $variant = "$Configuration-$Platform"
-$outputDirectory = Join-Path $BuildRoot "bin\$variant"
+$outputDirectory = Join-Path $repositoryRoot 'SkinEditor_DX9\Release'
 $intermediateDirectory = Join-Path $BuildRoot "obj\$variant"
 $logDirectory = Join-Path $BuildRoot 'logs'
 $packageRoot = Join-Path $BuildRoot `

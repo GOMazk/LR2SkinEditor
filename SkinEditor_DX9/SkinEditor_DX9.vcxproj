@@ -74,6 +74,8 @@
     <D3DXPackageRoot Condition="'$(D3DXPackageRoot)'==''">$(ProjectDir)..\.build\packages\microsoft.dxsdk.d3dx\9.29.952.8</D3DXPackageRoot>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>$(ProjectDir)Release\</OutDir>
+    <IntDir>$(ProjectDir)..\.build\obj\$(Configuration)-$(Platform)\</IntDir>
     <ExternalIncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(DXSDK_DIR)Include;$(IncludePath)</ExternalIncludePath>
     <LibraryPath>$(VC_LibraryPath_x86);$(WindowsSDK_LibraryPath_x86);$(DXSDK_DIR)Lib\x86;$(LibraryPath)</LibraryPath>
     <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);$(ProjectDir)lib;$(ProjectDir)lib/DxLib;$(IncludePath)</IncludePath>

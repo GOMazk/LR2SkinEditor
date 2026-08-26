@@ -276,6 +276,7 @@ typedef struct WORKSPACE {
     void RestoreObjectSelection();
     void RebuildObjectModel();
     int SetObjectName(int modelIndex, const char* name);
+    int DeleteObject(int modelIndex);
     SkinDocumentSnapshot CaptureDocumentSnapshot() const;
     int RestoreDocumentSnapshot(const SkinDocumentSnapshot& snapshot);
     bool CanReorderObject(int sourceModelIndex, int targetModelIndex) const;
@@ -359,10 +360,8 @@ typedef struct WORKSPACE {
     int texture_preview_height = 0;
     unsigned long long previewLastRenderAt = 0;
     bool previewTextureDirty = true;
-    bool previewPlaying = false;
     bool previewSimulationPlaying = false;
-    std::string previewSimulationMessage;
-    int timerSelected;
+    bool previewChartFull = false;
     ImVec2 clickPos;
     bool drawRightClick;
     float zoom = 1.0f;
@@ -513,6 +512,8 @@ typedef struct WORKSPACE {
     bool pendingObjectReorderAfter = false;
     SEObjectSelectionKey pendingObjectReorderSource;
     SEObjectSelectionKey pendingObjectReorderTarget;
+    bool objectDeleteDialogRequested = false;
+    SEObjectSelectionKey pendingObjectDelete;
     int drawObjectEditor();
     int selected_obj;
 

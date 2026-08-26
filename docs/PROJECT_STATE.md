@@ -209,6 +209,9 @@ Browser 선택:
 - Ctrl+클릭: 선택 추가/제거
 - Shift+클릭: anchor부터 범위 선택
 - Preview/DST View에서 들어온 선택: 필터를 해제하고 해당 행으로 자동 스크롤
+- Delete: 활성 Object의 종류와 이름을 확인하는 modal을 거친 뒤 삭제한다. 입력
+  field나 다른 modal이 활성화된 동안에는 Delete shortcut을 받지 않는다.
+- 우클릭 `Remove Object`도 같은 확인 modal과 CSV/History 삭제 경로를 사용한다.
 
 Browser 순서 변경:
 
@@ -253,15 +256,23 @@ Browser 순서 변경:
 
 ### PLAY 장면 시뮬레이터
 
-PLAY 계열 Preview의 `MainStart`는 외부 LR2 sample BMS/keyconfig를 읽지 않는다.
-현재 키 모드에 맞는 시간순 `LaneStruct`/`NoteStruct` chart를 메모리에서 만들고
-LR2 원본 `ProcI_Play`와 `DrawNotes`가 이를 소비한다. 편집기 코드가 노트 좌표나
+PLAY 계열 Preview는 **Timer Control**의 `Restart scene`으로 시작한다. 기본
+`Simple`은 현재 키 모드에 맞는 LR2의 기존 sample BMS/PMS를 동기 파싱하고,
+`Full`은 시간순 `LaneStruct`/`NoteStruct` chart를 메모리에서 만든다. 두 경로 모두
+LR2 원본 `ProcI_Play`와 `DrawNotes`가 소비한다. 편집기 코드가 노트 좌표나
 judge/combo 상태를 직접 만들지 않으므로 판정 시 `ApplyJudgeNote`가 설정하는
 lane별 50/100/120 타이머를 key beam, note explosion, judge/combo를 포함한 실제
 스킨 Object가 LR2와 같은 방식으로 소비한다. 오디오만 의도적으로 비활성 상태다.
 시뮬레이터 실행 상태는 각 WORKSPACE가 소유하므로 여러 스킨 탭 사이에서 공유되지
 않고, 실행 중 Object 편집으로 Preview가 재구성되면 장면도 안전하게 재시작한다.
-내장 chart가 끝나면 동일한 scene init을 거쳐 반복한다.
+선택한 chart가 끝나면 동일한 scene init을 거쳐 반복한다.
+
+Timer Control의 `Simple / Full`은 CSV에 저장하지 않는 Workspace Preview 설정이다.
+기본 `Simple`은 LR2의 기존 `sample_5/7/10/14.bme`, `sample_9.pms`를 사용해
+예전의 성긴 Preview를 그대로 재생한다. 해당 파일이 없는 독립 배포 환경에서는
+16개짜리 내장 패턴으로 안전하게 대체한다. `Full`은 기존 180개 메모리 패턴으로
+LN, mine, 동시치기와 judge 효과를 집중 검사한다. 모드를 누르면 현재 장면이 즉시
+재시작되며 두 모드 모두 LR2 원본 재생 경로와 Rhythm 140 event를 사용한다.
 
 ### 확대/축소
 
@@ -284,24 +295,27 @@ Ctrl+MouseWheel로 확대/축소한다.
 - Ctrl+Z 후 Preview object와 점멸 사각형이 어긋나지 않도록 모델과 Preview의
   파생 데이터를 함께 invalidate/rebuild한다.
 
-Preview 캔버스에는 Object 확인·선택·배치 기능만 둔다. 기존 하단의 MainStart와
-timer 조작은 독립된 **Timer Control** 도킹 창으로 이동했다. 이 창은 scene runtime
+Preview 캔버스에는 Object 확인·선택·배치 기능만 둔다. scene restart와 timer 조작은
+독립된 **Timer Control** 도킹 창에 둔다. 이 창은 scene runtime
 재시작과 OpList 형식의 timer 0~199 체크 목록을 제공한다. 체크하면 해당 timer를
 시작하고 체크를 해제하면 리셋하며, 실행 시간은 항목 tooltip에서 확인할 수 있다.
 runtime 상태인 timer는 기본 배경으로 표시한다. 사용자가 직접 시작하거나 reset한
 timer는 체크박스 배경을 빨간색으로 표시하므로 수동 ON과 수동 OFF를 모두 구분할 수
 있다. scene restart 시 수동 timer 표시도 함께 초기화한다.
 Timer Control은 workspace가 skin을 성공적으로 연 뒤에만 생성되며,
-`Windows > Timer Control`에서 다시 열 수 있다.
+`Windows > Workspace > Timer Control`에서 다시 열 수 있다.
 
 OpList도 scene이 계산한 option은 기본색으로 표시하고, 사용자가 값을 바꾼 option은
 runtime override로 유지한다. 사용자 override가 있는 option은 체크 여부와 관계없이
 체크박스 배경이 빨간색이며 scene restart 시 자동 계산 상태로 돌아간다.
 
 PLAY Preview는 별도 `ProcGameThread`를 만들지 않는다. UI thread의 scene tick에서
-`ProcGame`을 정확히 한 번 실행한 뒤 PLAY Object를 그려 BMS note뿐 아니라 BPM,
-BGA와 Rhythm timer 140 event도 같은 순서로 갱신한다. `flag_gameinput`은 legacy
-Draw loop가 drawing buffer마다 `ProcGame`을 중복 호출하지 않도록 꺼진 상태를 유지한다.
+`ProcGame`을 정확히 한 번 실행한 뒤 PLAY Object를 그린다. `Full` 메모리 chart와
+`Simple`의 16-note fallback은 `bmsobj_note`뿐 아니라 LR2 event queue인 `bmsobj`에도
+measure event와 종료 sentinel을 넣는다. `Full`에서는 Rhythm timer 140이 BPM 150에
+따라 증가하고 1.6초마다 measure event에서 0으로 돌아가며, `Simple` sample은 파일에
+기록된 BPM과 measure event를 그대로 따른다. `flag_gameinput`은 legacy Draw loop가 drawing
+buffer마다 `ProcGame`을 중복 호출하지 않도록 꺼진 상태를 유지한다.
 PLAY Preview의 기본 HI-SPEED는 200이며 LR2 기본 허용 범위 10~900 안에서 동작한다.
 
 Preview 우클릭은 해당 좌표와 겹치는 Object 중 현재 op와 IF Branch가 성립하는
@@ -529,7 +543,7 @@ FMOD는 delay-load이며 Preview 진입 시 오디오 경로를 비활성화한�
 - `uiCatalog.h`: 도킹 창과 dialog/shell의 stable key, title, 목적, owner, 메뉴 group,
   기본 위치
 - `main.cpp`: ImGui/DX9 lifetime, font와 전역 theme 초기화
-- `WORKSPACE::draw()`: grouped menu, layout preset, three-column docking, toolbar,
+- `WORKSPACE::draw()`: grouped menu, layout preset, four-column docking, toolbar,
   status bar, tool visibility, 실제 command 실행
 - Object/CSV/Preview state는 기존 WORKSPACE와 모델이 단일 source of truth
 

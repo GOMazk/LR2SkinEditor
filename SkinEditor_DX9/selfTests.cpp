@@ -1,5 +1,6 @@
 #include "selfTests.h"
 
+#include "../LR2/En_timer.h"
 #include "../LR2/LR2_skinmanage.h"
 #include "seHelper.h"
 #include "seObjectEditor.h"
@@ -111,13 +112,17 @@ int RunUiCatalogSelfTest() {
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::History, 3);
     if (std::strcmp(title, "History##history-3") != 0) return 13;
     if (std::strcmp(SEUIWindowSpecFor(SEUIWindowId::ObjectBrowser).defaultDock,
-        "left-upper") != 0) return 14;
+        "left-browser") != 0) return 14;
     if (std::strcmp(SEUIWindowSpecFor(SEUIWindowId::ObjectInspector).defaultDock,
-        "left-lower") != 0) return 15;
+        "left-inspector") != 0) return 15;
     if (std::strcmp(SEUIWindowSpecFor(SEUIWindowId::TextEditor).defaultDock,
         "center-tabs") != 0) return 16;
     if (std::strcmp(SEUIWindowSpecFor(SEUIWindowId::ObjectProperty).group,
         "Advanced") != 0) return 17;
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::TimerControl, 5);
+    if (std::strcmp(title, "Timer Control##timer-control-5") != 0) return 18;
+    if (std::strcmp(SEUIWindowSpecFor(SEUIWindowId::TimerControl).defaultDock,
+        "right-lower") != 0) return 19;
 
     return 0;
 }
@@ -192,7 +197,8 @@ int RunSkinBrowserSelfTest() {
 
 int RunPreviewSimulatorSelfTest() {
     LR2SEPreviewChartNote notes[256] = {};
-    int count = LR2SEBuildPreviewChart(SKINTYPE_7KEYS, notes, 256);
+    int count = LR2SEBuildPreviewChart(SKINTYPE_7KEYS,
+        LR2SE_PREVIEW_CHART_FULL, notes, 256);
     if (count != 180) return 1;
     if (notes[0].lane != 0 || notes[0].timingMs != 2200 ||
         notes[0].kind != LR2SE_PREVIEW_NOTE_NORMAL)
@@ -228,7 +234,8 @@ int RunPreviewSimulatorSelfTest() {
     }
     if (longNotes == 0 || mines == 0) return 9;
 
-    count = LR2SEBuildPreviewChart(SKINTYPE_14KEYS, notes, 256);
+    count = LR2SEBuildPreviewChart(SKINTYPE_14KEYS,
+        LR2SE_PREVIEW_CHART_FULL, notes, 256);
     if (count != 180) return 10;
     bool firstPlayer = false;
     bool secondPlayer = false;
@@ -238,16 +245,59 @@ int RunPreviewSimulatorSelfTest() {
     }
     if (!firstPlayer || !secondPlayer) return 11;
 
-    count = LR2SEBuildPreviewChart(SKINTYPE_9KEYS, notes, 256);
+    count = LR2SEBuildPreviewChart(SKINTYPE_9KEYS,
+        LR2SE_PREVIEW_CHART_FULL, notes, 256);
     if (count != 180) return 12;
     for (int index = 0; index < count; ++index) {
         if (notes[index].lane < 1 || notes[index].lane > 9) return 13;
     }
 
-    if (LR2SEBuildPreviewChart(SKINTYPE_14KEYS, notes, 5) != 5)
+    if (LR2SEBuildPreviewChart(SKINTYPE_14KEYS,
+        LR2SE_PREVIEW_CHART_FULL, notes, 5) != 5)
         return 14;
-    if (LR2SEBuildPreviewChart(SKINTYPE_7KEYS, nullptr, 256) != 0)
+    if (LR2SEBuildPreviewChart(SKINTYPE_7KEYS,
+        LR2SE_PREVIEW_CHART_FULL, nullptr, 256) != 0)
         return 15;
+
+    count = LR2SEBuildPreviewChart(SKINTYPE_7KEYS,
+        LR2SE_PREVIEW_CHART_SIMPLE, notes, 256);
+    if (count != 16) return 16;
+    longNotes = 0;
+    mines = 0;
+    previousTiming = 0;
+    for (int index = 0; index < count; ++index) {
+        const LR2SEPreviewChartNote& note = notes[index];
+        if (note.timingMs < previousTiming) return 17;
+        previousTiming = note.timingMs;
+        if (note.kind == LR2SE_PREVIEW_NOTE_LONG) longNotes++;
+        if (note.kind == LR2SE_PREVIEW_NOTE_MINE) mines++;
+    }
+    if (longNotes == 0 || mines == 0) return 18;
+
+    LR2SEPreviewTimelineEvent timeline[32] = {};
+    count = LR2SEBuildPreviewTimeline(timeline, 32);
+    if (count != 23) return 19;
+    for (int index = 0; index < count - 1; ++index) {
+        if (timeline[index].timingMs != (unsigned int)index * 1600U ||
+            timeline[index].op != 2 || timeline[index].value != 0.0 ||
+            timeline[index].terminal)
+            return 20;
+    }
+    if (timeline[count - 1].timingMs != 34000U ||
+        timeline[count - 1].op != 2 || !timeline[count - 1].terminal)
+        return 21;
+    if (LR2SEBuildPreviewTimeline(timeline, 2) != 2 ||
+        LR2SEBuildPreviewTimeline(nullptr, 32) != 0)
+        return 22;
+
+    Timer rhythmTimer = {};
+    rhythmTimer.Rhythm = -1.0;
+    if (SetTimeLapse(140, &rhythmTimer) != 1 ||
+        GetTimeLapse(140, &rhythmTimer) != 0.0)
+        return 23;
+    if (ResetTimeLapse(140, &rhythmTimer) != 1 ||
+        GetTimeLapse(140, &rhythmTimer) != -1.0)
+        return 24;
 
     return 0;
 }

@@ -886,6 +886,51 @@ int WORKSPACE::SetObjectName(int modelIndex, const char* name) {
     }
     return 0;
 }
+
+int WORKSPACE::DeleteObject(int modelIndex) {
+    const std::vector<SEObjectInstance>& allObjects = objectEditorModel.Objects();
+    if (modelIndex < 0 || modelIndex >= (int)allObjects.size()) return -1;
+
+    // Copy the model entry before removing source rows. DeleteLine shifts every
+    // following row and schedules the same editor/Preview rebuild used by the
+    // existing CSV editing path.
+    const SEObjectInstance deleting = allObjects[modelIndex];
+    std::vector<int> deleteRows = deleting.rows;
+    if (!deleting.rows.empty()) {
+        for (int row = deleting.rows.front() - 1; row >= 0; --row) {
+            SKINFILELINEREAD& meta = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+            const char* text = meta.line.body ? meta.line.outstr() : "";
+            if (strncmp(text, "$SE_OBJECT_ID,", 14) == 0 ||
+                strncmp(text, "$SE_OBJECT_NAME,", 16) == 0) {
+                deleteRows.push_back(row);
+                continue;
+            }
+            if (*text == '#') break;
+            if (*text && *text != '$' && strncmp(text, "//", 2) != 0) break;
+        }
+    }
+    if (!deleting.editorId.empty()) {
+        const std::string memberLine = "$SE_GROUP_MEMBER," + deleting.editorId;
+        for (int row = 0; row < skinfileLines.count; ++row) {
+            SKINFILELINEREAD& meta = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+            if (meta.line.body && memberLine == meta.line.outstr()) deleteRows.push_back(row);
+        }
+    }
+
+    std::sort(deleteRows.begin(), deleteRows.end());
+    deleteRows.erase(std::unique(deleteRows.begin(), deleteRows.end()), deleteRows.end());
+    if (deleteRows.empty()) return -1;
+    for (std::vector<int>::reverse_iterator it = deleteRows.rbegin();
+        it != deleteRows.rend(); ++it) {
+        if (DeleteLine(*it) != 0) return -1;
+    }
+
+    ClearObjectSelection();
+    RebuildObjectModel();
+    selected_object_editor = 0;
+    return 0;
+}
+
 int WORKSPACE::DeleteLine(int pos) {
 
     if (pos < 0 || pos >= skinfileLines.count) return -1;

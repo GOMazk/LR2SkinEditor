@@ -28,8 +28,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\ai-context.ps1 -Check
 `build.ps1`은 Visual Studio 2022 C++ Build Tools를 `vswhere`로 찾는다. 구형
 DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버전과 SHA-512로
 검증하여 준비한 다음 `Release | Win32`를 빌드한다. 기존
-`SkinEditor_DX9\Release`를 덮지 않으며 결과는 `.build\bin\Release-Win32`,
-텍스트/binlog는 `.build\logs`에 둔다.
+개발·배포 실행 경로와 동일한 `SkinEditor_DX9\Release`에 실행 파일과 런타임을
+출력한다. 중간 생성물은 `.build\obj`, 텍스트/binlog는 `.build\logs`에 둔다.
 
 `test.ps1`은 다음 계약 테스트를 각각 별도 프로세스로 실행한다.
 
@@ -37,8 +37,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 - `ui-contract`: 창 카탈로그의 고유 key/title, owner, dock, workspace별 ImGui ID
 - `skin-browser`: 외부 폴더의 대소문자 확장자, 하위 폴더 탐색, 비스킨 파일 제외,
   잘못된 위치 거부
-- `preview-simulator`: PLAY 키 모드별 내장 chart의 시간순 lane 배치, 동시치기,
-  LN/mine 및 2P lane 계약
+- `preview-simulator`: PLAY 키 모드별 메모리 chart의 시간순 lane 배치, 동시치기,
+  LN/mine, 2P lane, measure event/sentinel 및 Rhythm 140 시작·리셋 계약
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제 및 graphic ID 배정
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
 
@@ -192,34 +192,39 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    채우며, 폭을 확보하기 위해 splitter를 먼저 드래그할 필요가 없어야 한다.
    skin을 열기 전에는 Timer Control이 나타나지 않고, load가 끝난 뒤에는 기본
    layout에 나타나야 한다.
-   Preview 하단에는 timer 조작 UI가 없어야 하며 `Windows > Timer Control`에서
+   Preview 하단에는 timer 조작 UI가 없어야 하며
+   `Windows > Workspace > Timer Control`에서
    독립 창을 열어 scene restart를 수행하고, OpList 형식의 timer 항목을 체크/해제해
    해당 timer를 시작/리셋할 수 있어야 한다.
    runtime 상태인 timer는 기본 배경이고, 사용자가 직접 시작하거나 reset한 timer는
    각각 빨간 배경의 체크/빈 칸이어야 한다. Restart scene 후 빨간 배경이 사라지는지도
    확인한다.
-   PLAY scene을 restart한 뒤 sample BMS note가 내려오는 동안 timer 140이 활성화되고,
-   항목 tooltip 값이 BPM에 따라 증가하다가 BMS measure event에서 다시 0부터
-   진행하는지 확인한다. BGA와 BPM 변경 event도 Preview에 반영되어야 한다.
+   PLAY scene을 restart하면 선택한 무음 Preview chart가 LR2의 원본
+   `ProcI_Play`/`DrawNotes` 경로로 실행되어야 한다. normal/LN/mine과 함께 key beam,
+   note explosion, judge/combo가 해당 스킨 정의대로 반응하는지 확인한다. `Full`에서
+   Timer Control의 140 Rhythm이 활성화되고 BPM 150에 따라 증가하다가 1.6초 간격의
+   measure event에서 0부터 다시 시작하는지 확인한다. `Simple`은 sample 파일의 BPM과
+   measure event를 따라야 한다. 140 tooltip은 ms가 아니라 `1000 = 1 beat`인 beat
+   phase로 표시되어야 한다.
+   기본 패턴은 `Simple`이며 현재 key mode에 맞는 기존 `sample_*.bme/pms`를
+   재생해야 한다. `Full`을 누르면 장면이 즉시 재시작되고 기존 180개 밀집 패턴으로
+   바뀌며, 다시 `Simple`로 돌아갈 수 있어야 한다. sample 파일이 없을 때는
+   크래시하지 않고 16개 내장 패턴으로 동작해야 하며, 이 선택은 스킨 CSV에
+   기록되지 않아야 한다.
    HI-SPEED 표시값은 200으로 시작하고 note가 judge line에 겹치지 않고 내려와야 한다.
 5. Preview, Image Manager, DST View 캔버스 위에서 Ctrl+MouseWheel을 사용해
    마우스 아래의 이미지 지점이 움직이지 않은 채 확대/축소되는지 확인한다.
    Fit과 100%도 확인하고, 100% 초과 확대에서 선형 보간으로 흐려지지 않고
    원본 픽셀 경계가 선명하게 표시되는지 확인한다.
-6. PLAY 스킨의 Preview에서 `MainStart`를 누르면 무음 내장 chart가 LR2의 원본
-   `ProcI_Play`/`DrawNotes` 경로로 실행되는지 확인한다. 노트가 판정선에 도착할 때
-   normal/LN/mine과 함께 key beam, note explosion, judge/combo가 해당 스킨 정의대로
-   반응해야 한다. `Stop scene`으로 멈춘 뒤 `MainStart`로 다시 시작할 수 있어야
-   하며, 외부 sample BMS나 keyconfig 파일은 요구하지 않는다.
-7. Object 속성 하나를 변경하고 Ctrl+Z로 복구한다.
-8. 변경 후 하단 status bar가 `MODIFIED`, Ctrl+S 성공 후 `SAVED`인지 확인한다.
-9. Save As의 BROWSE가 파일 선택기를 열고, 성공 후 새 경로가 workspace의 현재
+6. Object 속성 하나를 변경하고 Ctrl+Z로 복구한다.
+7. 변경 후 하단 status bar가 `MODIFIED`, Ctrl+S 성공 후 `SAVED`인지 확인한다.
+8. Save As의 BROWSE가 파일 선택기를 열고, 성공 후 새 경로가 workspace의 현재
    경로가 되는지 확인한다.
-10. toolbar의 해상도 버튼에서 크기를 바꾸면 즉시 저장·재로드되며 Object 좌표가
+9. toolbar의 해상도 버튼에서 크기를 바꾸면 즉시 저장·재로드되며 Object 좌표가
    자동 확대되지 않는지 확인한다. 미저장 script/pixel edit 중에는 Apply가
    차단되는지도 확인한다.
-11. `Layout > Show all windows`에서 15개 창이 여섯 dock tab group 안에 정돈되고,
-    `Balanced workspace`가 기본 표시 상태를 복원하는지 확인한다.
+10. `Layout > Show all windows`에서 16개 창이 여섯 dock tab group 안에 정돈되고,
+    `Balanced workspace`가 기본 표시 상태와 4열 배치를 복원하는지 확인한다.
 
 ## 회귀 테스트
 
@@ -300,6 +305,11 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 ### E. 선택 동기화
 
 - Object Browser 선택이 Inspector, DST View, Preview에 반영되는지
+- Object 선택 후 Delete를 누르면 확인 modal이 뜨고 Cancel은 문서를 바꾸지 않는지
+- 확인 modal의 Delete를 누르면 해당 Object의 SRC/DST와 `$SE_OBJECT_ID`,
+  `$SE_OBJECT_NAME`, `$SE_GROUP_MEMBER` 참조가 함께 삭제되는지
+- Object Inspector의 Name 등 text field를 편집할 때 Delete가 Object 삭제로
+  동작하지 않는지
 - DST View 선택이 Browser의 정확한 행으로 이동하고 자동 스크롤되는지
 - Preview 우클릭 목록을 선택하면 Browser와 Inspector가 바뀌는지
 - Browser filter가 걸려 있어도 Preview 요청이 대상을 보이게 만드는지
@@ -385,7 +395,7 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 - 해상도 변경 즉시 원본 파일에 반영되는지
 - 로드 후 toolbar 해상도 modal에서도 같은 즉시 저장 정책이 적용되고 정상적으로
   재로드되는지
-- PLAY sample BMS note가 정상적으로 내려오는지
+- PLAY 무음 내장 chart note가 정상적으로 내려오는지
 
 ### H. New 프리셋
 

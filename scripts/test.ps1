@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
     $ExecutablePath = Join-Path $repositoryRoot `
-        '.build\bin\Release-Win32\SkinEditor_DX9.exe'
+        'SkinEditor_DX9\Release\SkinEditor_DX9.exe'
 }
 if ([string]::IsNullOrWhiteSpace($ResultsDirectory)) {
     $ResultsDirectory = Join-Path $repositoryRoot '.build\test-results'

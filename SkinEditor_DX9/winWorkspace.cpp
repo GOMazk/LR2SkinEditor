@@ -649,6 +649,8 @@ int WORKSPACE::init() {
     newObjectOwner.assign("");
     newObjectNameManuallyEdited = false;
     newObjectAutoName.clear();
+    objectDeleteDialogRequested = false;
+    pendingObjectDelete = SEObjectSelectionKey();
 
     initFlag = 1;
     return 0;
@@ -694,6 +696,7 @@ int WORKSPACE::draw() {
     struct WindowToggle { SEUIWindowId id; bool* visible; };
     const WindowToggle windowToggles[] = {
         { SEUIWindowId::Preview, &wPreview },
+        { SEUIWindowId::TimerControl, &wTimerControl },
         { SEUIWindowId::Customize, &wCustomize },
         { SEUIWindowId::ImageManager, &wImgManager },
         { SEUIWindowId::AssetBrowser, &wAssetBrowser },
@@ -774,26 +777,6 @@ int WORKSPACE::draw() {
                 if (ImGui::MenuItem("Rebuild current docking")) dockLayoutBuilt = false;
                 ImGui::EndMenu();
             }
-            
-            if (ImGui::BeginMenu("Windows")) {
-                struct WindowToggle { const char* label; bool* visible; };
-                const WindowToggle tools[] = {
-                    { "Preview", &wPreview }, { "Timer Control", &wTimerControl },
-                    { "Customize", &wCustomize },
-                    { "Image Manager", &wImgManager }, { "Asset Browser", &wAssetBrowser },
-                    { "Text Editor", &wTextEdit },
-                    { "File Manager", &wFileManager }, { "Simple Preview", &wSimplePreview },
-                    { "DST View", &wDstView }, { "Object Browser", &wObjectBrowser },
-                    { "Object Inspector", &wObjectInspector }, { "Object Manager", &wObjectManager },
-                    { "Object Manager Test", &wObjectManagerTest }, { "Object Property", &wProperty },
-                    { "Option List", &wOpList }, { "History", &wHistory }
-                };
-                for (const WindowToggle& tool : tools)
-                    ImGui::MenuItem(tool.label, NULL, tool.visible);
-                ImGui::Separator();
-                if (ImGui::MenuItem("Rebuild current docking")) dockLayoutBuilt = false;
-                ImGui::EndMenu();
-            }
             if (ImGui::BeginMenu("Windows")) {
                 const char* groups[] = { "Workspace", "Assets", "Data", "Advanced" };
                 for (const char* group : groups) {
@@ -843,6 +826,80 @@ int WORKSPACE::draw() {
         SEUI::HelpMarker("Use Layout for task-focused arrangements and Windows for individual panels. Save As remains in File.");
     }
     SEUI::EndToolbar();
+
+    // Delete applies to the active Object selection, but never steals the key
+    // from a text field or another modal editor. The stable key keeps the
+    // confirmation bound to the same Object if the model is rebuilt while the
+    // dialog is waiting for input.
+    ImGuiIO& workspaceIO = ImGui::GetIO();
+    if (loaded && !workspaceIO.WantTextInput && !ImGui::IsAnyItemActive() &&
+        !wNewObject && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) &&
+        ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
+        const int activeObject = ResolveObjectSelectionKey(objectSelection.active);
+        if (activeObject >= 0) {
+            pendingObjectDelete = MakeObjectSelectionKey(activeObject);
+            objectDeleteDialogRequested = pendingObjectDelete.IsValid();
+        }
+    }
+
+    char objectDeletePopupTitle[64];
+    snprintf(objectDeletePopupTitle, sizeof(objectDeletePopupTitle),
+        "Delete Object?##%d", num);
+    if (objectDeleteDialogRequested) {
+        if (pendingObjectDelete.IsValid()) ImGui::OpenPopup(objectDeletePopupTitle);
+        objectDeleteDialogRequested = false;
+    }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
+        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal(objectDeletePopupTitle, NULL,
+        ImGuiWindowFlags_AlwaysAutoResize)) {
+        const int deletingModel = ResolveObjectSelectionKey(pendingObjectDelete);
+        const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+        if (deletingModel < 0 || deletingModel >= (int)objects.size()) {
+            pendingObjectDelete = SEObjectSelectionKey();
+            ImGui::CloseCurrentPopup();
+        } else {
+            const SEObjectInstance& deleting = objects[deletingModel];
+            const SEObjectGroupDef* group = objectEditorModel.Group(deleting.group);
+            const std::string nameUtf8 = deleting.name.empty()
+                ? std::string("(unnamed)") : Cp932ToUtf8(deleting.name.c_str());
+            ImGui::TextUnformatted("Delete the selected Object?");
+            ImGui::Spacing();
+            ImGui::TextDisabled("Type");
+            ImGui::SameLine(90.0f);
+            ImGui::TextUnformatted(group ? group->name.c_str() : "OBJECT");
+            ImGui::TextDisabled("Name");
+            ImGui::SameLine(90.0f);
+            ImGui::TextUnformatted(nameUtf8.c_str());
+            ImGui::TextDisabled("CSV rows");
+            ImGui::SameLine(90.0f);
+            ImGui::Text("%d", (int)deleting.rows.size());
+            ImGui::Spacing();
+            ImGui::TextColored(SEUI::Colors::Warning(),
+                "This removes the Object's SRC/DST rows and editor metadata.");
+            ImGui::Spacing();
+
+            ImGui::PushStyleColor(ImGuiCol_Button, SEUI::Colors::Danger());
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                ImVec4(0.78f, 0.20f, 0.20f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                ImVec4(0.62f, 0.12f, 0.12f, 1.0f));
+            const bool confirmDelete = ImGui::Button("Delete", ImVec2(100.0f, 0.0f));
+            ImGui::PopStyleColor(3);
+            ImGui::SameLine();
+            const bool cancelDelete = ImGui::Button("Cancel", ImVec2(100.0f, 0.0f)) ||
+                ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+            if (confirmDelete) {
+                DeleteObject(deletingModel);
+                pendingObjectDelete = SEObjectSelectionKey();
+                ImGui::CloseCurrentPopup();
+            } else if (cancelDelete) {
+                pendingObjectDelete = SEObjectSelectionKey();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
 
     char resolutionPopupTitle[64];
     snprintf(resolutionPopupTitle, sizeof(resolutionPopupTitle),
@@ -941,35 +998,38 @@ int WORKSPACE::draw() {
             ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
             ImGui::DockBuilderSetNodeSize(dockspaceId, dockspaceSize);
 
-            // Three-column workspace: object navigation, work canvas, and data.
-            // Every catalogued window has a deterministic tab group, so the
-            // all-windows layout stays organized instead of spawning floats.
-            ImGuiID leftDock = 0;
+            // Restore the editing layout used while Object Editor was split:
+            // Object Browser | Object Inspector | Preview tools | Option List.
+            // Browser and Inspector keep their full height. Asset Browser stays
+            // below Preview, while Customize and Timer Control share the lower
+            // part of the compact right column.
+            ImGuiID objectBrowserDock = 0;
             ImGuiID remainingDock = dockspaceId;
-            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.28f,
-                &leftDock, &remainingDock);
-
-            ImGuiID rightDock = 0;
-            ImGuiID centerDock = remainingDock;
-            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Right, 0.18f,
-                &rightDock, &centerDock);
+            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.19f,
+                &objectBrowserDock, &remainingDock);
 
             ImGuiID objectInspectorDock = 0;
-            ImGuiID objectBrowserDock = leftDock;
-            ImGui::DockBuilderSplitNode(leftDock, ImGuiDir_Down, 0.42f,
-                &objectInspectorDock, &objectBrowserDock);
+            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.235f,
+                &objectInspectorDock, &remainingDock);
 
-            ImGuiID customizeDock = 0;
-            ImGuiID opListDock = rightDock;
-            ImGui::DockBuilderSplitNode(rightDock, ImGuiDir_Down, 0.38f,
-                &customizeDock, &opListDock);
+            ImGuiID opListDock = 0;
+            ImGuiID centerDock = remainingDock;
+            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Right, 0.21f,
+                &opListDock, &centerDock);
+
+            ImGuiID rightLowerDock = 0;
+            ImGuiID opListUpperDock = opListDock;
+            ImGui::DockBuilderSplitNode(opListDock, ImGuiDir_Down, 0.32f,
+                &rightLowerDock, &opListUpperDock);
+            opListDock = opListUpperDock;
 
             ImGuiID assetBrowserDock = 0;
             ImGuiID previewDock = centerDock;
-            ImGui::DockBuilderSplitNode(centerDock, ImGuiDir_Down, 0.28f,
+            ImGui::DockBuilderSplitNode(centerDock, ImGuiDir_Down, 0.30f,
                 &assetBrowserDock, &previewDock);
 
             char previewTitle[64];
+            char timerControlTitle[64];
             char customizeTitle[64];
             char imageManagerTitle[64];
             char assetBrowserTitle[64];
@@ -985,6 +1045,7 @@ int WORKSPACE::draw() {
             char opListTitle[64];
             char historyTitle[64];
             FormatSEUIWindowTitle(previewTitle, sizeof(previewTitle), SEUIWindowId::Preview, num);
+            FormatSEUIWindowTitle(timerControlTitle, sizeof(timerControlTitle), SEUIWindowId::TimerControl, num);
             FormatSEUIWindowTitle(customizeTitle, sizeof(customizeTitle), SEUIWindowId::Customize, num);
             FormatSEUIWindowTitle(imageManagerTitle, sizeof(imageManagerTitle), SEUIWindowId::ImageManager, num);
             FormatSEUIWindowTitle(assetBrowserTitle, sizeof(assetBrowserTitle), SEUIWindowId::AssetBrowser, num);
@@ -1014,7 +1075,8 @@ int WORKSPACE::draw() {
             ImGui::DockBuilderDockWindow(objectInspectorTitle, objectInspectorDock);
             ImGui::DockBuilderDockWindow(objectPropertyTitle, objectInspectorDock);
             ImGui::DockBuilderDockWindow(opListTitle, opListDock);
-            ImGui::DockBuilderDockWindow(customizeTitle, customizeDock);
+            ImGui::DockBuilderDockWindow(timerControlTitle, rightLowerDock);
+            ImGui::DockBuilderDockWindow(customizeTitle, rightLowerDock);
             ImGui::DockBuilderFinish(dockspaceId);
             dockLayoutBuilt = true;
         }
@@ -2361,7 +2423,6 @@ int WORKSPACE::LoadSkin(char* path) {
     remove("SkinEditor_load_crash.log");
     WriteSkinLoadLog("LoadSkin begin", path);
     editorDerivedRebuildPending = false;
-    previewPlaying = false;
     skinSizeX = meta.targetX;
     skinSizeY = meta.targetY;
 
@@ -2408,6 +2469,8 @@ int WORKSPACE::LoadSkin(char* path) {
     pendingObjectReorder = false;
     pendingObjectReorderSource = SEObjectSelectionKey();
     pendingObjectReorderTarget = SEObjectSelectionKey();
+    objectDeleteDialogRequested = false;
+    pendingObjectDelete = SEObjectSelectionKey();
     assetBrowserFocusRequest = -1;
 
     //LR2
@@ -2436,7 +2499,6 @@ int WORKSPACE::LoadSkin(char* path) {
     previewLastRenderAt = 0;
     previewTextureDirty = true;
     previewSimulationPlaying = false;
-    previewSimulationMessage.clear();
     SetGraphMode(skinSizeX, skinSizeY, 32, 60);
     SetDrawScreen(DX_SCREEN_BACK);
 
@@ -3838,20 +3900,42 @@ int WORKSPACE::SeLoadInit() {
 
 int WORKSPACE::drawTimerControl() {
     char title[64];
-    snprintf(title, sizeof(title), "Timer Control##%d", num);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::TimerControl, num);
     if (!ImGui::Begin(title, &wTimerControl)) {
         ImGui::End();
         return 0;
     }
 
-    SEUI::SectionHeader("Scene preview");
-    if (SEUI::ActionButton("Restart scene", "Reinitialize the current scene preview", loaded)) {
+    bool restartScene = SEUI::ActionButton("Restart scene",
+        "Reinitialize the current scene preview", loaded);
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Simple", !previewChartFull)) {
+        if (previewChartFull) {
+            previewChartFull = false;
+            restartScene = true;
+        }
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("Use LR2's bundled sample_*.bme/pms Preview chart.");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Full", previewChartFull)) {
+        if (!previewChartFull) {
+            previewChartFull = true;
+            restartScene = true;
+        }
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("Dense Preview chart for LN, mine, chord and judge testing.");
+
+    if (restartScene) {
         LoadSceneSE();
-        previewPlaying = (LR2SESceneInitSafe(&g, meta.type) == 0);
+        LR2SEResetRenderFault();
+        const LR2SEPreviewChartMode chartMode = previewChartFull
+            ? LR2SE_PREVIEW_CHART_FULL : LR2SE_PREVIEW_CHART_SIMPLE;
+        previewSimulationPlaying = (LR2SESceneInitSafe(&g, meta.type, chartMode) == 0);
+        previewLastRenderAt = 0;
     }
 
-    ImGui::Dummy(ImVec2(0.0f, 2.0f));
-    SEUI::SectionHeader("Manual timer");
     const bool drawTimerList = ImGui::BeginChild("TimerList", ImVec2(0.0f, 0.0f),
         ImGuiChildFlags_Borders, ImGuiWindowFlags_AlwaysVerticalScrollbar);
     if (drawTimerList) {
@@ -3889,7 +3973,10 @@ int WORKSPACE::drawTimerControl() {
                 }
                 if (userOverride) ImGui::PopStyleColor(3);
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-                    if (active)
+                    if (active && timer == 140)
+                        ImGui::SetTooltip("Beat phase: %.0f\n1000 = 1 beat; resets at each measure.\nClear to reset this timer.",
+                            GetTimeLapse(timer, &g.timer1));
+                    else if (active)
                         ImGui::SetTooltip("Running: %.0f ms\nClear to reset this timer.",
                             GetTimeLapse(timer, &g.timer1));
                     else
@@ -4109,6 +4196,8 @@ int WORKSPACE::drawPreview() {
 
     const unsigned long long previewNow = GetTickCount64();
     bool previewFrameUpdated = false;
+    const LR2SEPreviewChartMode chartMode = previewChartFull
+        ? LR2SE_PREVIEW_CHART_FULL : LR2SE_PREVIEW_CHART_SIMPLE;
 
     // Object Editor changes first update the in-memory CSV. Rebuild the LR2
     // preview objects shortly after the last edit so coordinates and all DST
@@ -4116,10 +4205,8 @@ int WORKSPACE::drawPreview() {
     if (previewReloadPending && previewNow - previewReloadRequestedAt >= 80) {
         LoadSceneSE();
         LR2SEResetRenderFault();
-        if (previewSimulationPlaying && LR2SESceneInitSafe(&g, meta.type) != 0) {
+        if (previewSimulationPlaying && LR2SESceneInitSafe(&g, meta.type, chartMode) != 0) {
             previewSimulationPlaying = false;
-            previewSimulationMessage =
-                "Scene simulator failed after reload. See SkinEditor_load_crash.log.";
         }
         previewReloadPending = false;
         previewLastRenderAt = 0;
@@ -4135,12 +4222,10 @@ int WORKSPACE::drawPreview() {
         // objects in skstruct.drBuf.  It must run before LR2SEDrawLoop: that
         // function draws the queued objects, captures the preview and then
         // clears the buffer.  Running this after the draw loop made every
-        // sample-BMS note get cleared at the start of the following frame
+        // preview-chart note get cleared at the start of the following frame
         // without ever reaching the preview texture.
-        if (previewSimulationPlaying && LR2SESceneProcSafe(&g, meta.type) == -1) {
+        if (previewSimulationPlaying && LR2SESceneProcSafe(&g, meta.type, chartMode) == -1) {
             previewSimulationPlaying = false;
-            previewSimulationMessage =
-                "Scene simulator stopped after an error. See SkinEditor_load_crash.log.";
         }
 
         // SELECT still needs its editor-side bar/BGA placeholders while its
@@ -4325,61 +4410,6 @@ int WORKSPACE::drawPreview() {
         }
         if (sliderSelected) RefreshPreviewSelectionBounds();
     }
-
-    if (ImGui::Button("MainStart")) {
-        LoadSceneSE();
-        LR2SEResetRenderFault();
-        previewSimulationPlaying = (LR2SESceneInitSafe(&g, meta.type) == 0);
-        previewSimulationMessage = previewSimulationPlaying
-            ? "Scene simulator running"
-            : "Scene simulator failed. See SkinEditor_load_crash.log.";
-        previewLastRenderAt = 0;
-    }
-    if (previewSimulationPlaying) {
-        ImGui::SameLine();
-        if (ImGui::Button("Stop scene")) {
-            previewSimulationPlaying = false;
-            previewSimulationMessage = "Scene simulator stopped";
-        }
-    }
-    if (!previewSimulationMessage.empty()) {
-        ImGui::SameLine();
-        if (previewSimulationPlaying)
-            ImGui::TextColored(ImVec4(0.40f, 0.85f, 0.55f, 1.0f), "RUNNING");
-        else
-            ImGui::TextDisabled("%s", previewSimulationMessage.c_str());
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s", previewSimulationMessage.c_str());
-    }
-
-    if (ImGui::BeginCombo("##Timer",timerName(timerSelected))) {
-        for (int timer = 0; timer < 200; timer++) {
-            ImGui::PushID(timer);
-            const bool is_selected = (timerSelected == timer);
-            char timerNameBuf[64];
-            sprintf(timerNameBuf, "%03d:%s", timer, timerName(timer));
-            if (ImGui::Selectable(timerNameBuf, is_selected))
-                timerSelected = timer;
-
-            // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
-            if (is_selected)
-                ImGui::SetItemDefaultFocus();
-            
-
-            ImGui::PopID();
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Start")) {
-        SetTimeLapse(timerSelected, &g.timer1);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Reset")) {
-        ResetTimeLapse(timerSelected, &g.timer1);
-    }
-    //D_IDirect3DSurface9* d9 = (D_IDirect3DSurface9*)GetUseDirect3D9BackBufferSurface();
-    //d9->GetDC()
 
     // Drag the highlighted Object. All DST animation rows receive the same
     // delta, preserving animation while EditValue records CSV and History.
@@ -9804,7 +9834,12 @@ int WORKSPACE::drawObjectEditor() {
         ImGui::EndChild();
     }
 
-    if (contextCreateModel >= 0 || contextDeleteModel >= 0) {
+    if (contextDeleteModel >= 0) {
+        pendingObjectDelete = MakeObjectSelectionKey(contextDeleteModel);
+        objectDeleteDialogRequested = pendingObjectDelete.IsValid();
+    }
+
+    if (contextCreateModel >= 0) {
         const std::vector<SEObjectInstance>& allObjects = objectEditorModel.Objects();
         if (contextCreateModel >= 0 && contextCreateModel < (int)allObjects.size()) {
             const SEObjectInstance sourceObject = allObjects[contextCreateModel];
@@ -9867,35 +9902,6 @@ int WORKSPACE::drawObjectEditor() {
                     }
                 }
             }
-        } else if (contextDeleteModel >= 0 && contextDeleteModel < (int)allObjects.size()) {
-            const SEObjectInstance deleting = allObjects[contextDeleteModel];
-            std::vector<int> deleteRows = deleting.rows;
-            if (!deleting.rows.empty()) {
-                for (int row = deleting.rows.front() - 1; row >= 0; --row) {
-                    SKINFILELINEREAD& meta = ((SKINFILELINEREAD*)skinfileLines.data)[row];
-                    const char* text = meta.line.body ? meta.line.outstr() : "";
-                    if (strncmp(text, "$SE_OBJECT_ID,", 14) == 0 ||
-                        strncmp(text, "$SE_OBJECT_NAME,", 16) == 0) {
-                        deleteRows.push_back(row);
-                        continue;
-                    }
-                    if (*text == '#') break;
-                    if (*text && *text != '$' && strncmp(text, "//", 2) != 0) break;
-                }
-            }
-            if (!deleting.editorId.empty()) {
-                const std::string memberLine = "$SE_GROUP_MEMBER," + deleting.editorId;
-                for (int row = 0; row < skinfileLines.count; ++row) {
-                    SKINFILELINEREAD& meta = ((SKINFILELINEREAD*)skinfileLines.data)[row];
-                    if (meta.line.body && memberLine == meta.line.outstr()) deleteRows.push_back(row);
-                }
-            }
-            std::sort(deleteRows.begin(), deleteRows.end());
-            deleteRows.erase(std::unique(deleteRows.begin(), deleteRows.end()), deleteRows.end());
-            for (std::vector<int>::reverse_iterator it = deleteRows.rbegin(); it != deleteRows.rend(); ++it)
-                DeleteLine(*it);
-            RebuildObjectModel();
-            selected_object_editor = 0;
         }
         if (browserWasBegun) ImGui::End();
         return 0;

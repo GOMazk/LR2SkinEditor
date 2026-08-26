@@ -11,7 +11,7 @@ of truth.
 
 ## Layers
 
-
+```text
 main.cpp
   ImGui/DX9 lifecycle, fonts, application menu
        |
@@ -33,7 +33,7 @@ WORKSPACE::draw()
        |
        v
 skin model, CSV rows, History and selection synchronization
-
+```
 
 `seUI` is deliberately stateless. A component may return a click or edited
 value, but it must not load skins, mutate CSV, select objects, or push History.
@@ -87,26 +87,26 @@ share focus, scroll and docking state accidentally.
 The default workspace is intentionally asymmetric and follows this structure:
 
 ```text
-Object Browser   | Preview / Image Manager / DST View / Text Editor | Option List
------------------|--------------------------------------------------|------------
-Object Inspector | Asset Browser / File Manager / History           | Customize
+Object Browser | Object Inspector | Preview / Image Manager / DST View / Text Editor | Option List
+               |                  |--------------------------------------------------|------------
+               |                  | Asset Browser / File Manager / History           | Customize / Timer Control
 ```
 
-The left column stacks navigation over inspection, the wide center keeps the
-canvas above assets, and the narrow right column keeps option data above
-customization. Legacy and developer windows are also assigned to one of these
-six tab groups, so `Layout > Show all windows` stays organized instead of
-creating floating panels. `Layout > Balanced workspace` restores default
-visibility; `Rebuild current docking` preserves visibility and only repairs
-placement.
+Object Browser and Object Inspector are separate full-height columns. The wide
+center keeps the canvas above assets, and the narrow right column keeps option
+data above customization and timer controls. Legacy and developer windows are
+also assigned to one of these six tab groups, so `Layout > Show all windows`
+stays organized instead of creating floating panels. `Layout > Balanced
+workspace` restores default visibility; `Rebuild current docking` preserves
+visibility and only repairs placement.
 
 Browser and Inspector use the full workspace height. ImageManager and dstView
 share Preview's tab node in the center. Asset Browser occupies the lower center
 node so Preview remains visible while an asset is dragged upward. The right
 column is split into OpList above and a Customize/Timer Control tab node below.
 Timer manipulation is kept out of the Preview canvas. Keep this hierarchy when
-adjusting split ratios. The toolbar and Windows menu `Reset layout` action
-rebuilds this exact layout through `DockBuilder`.
+adjusting split ratios. `Layout > Rebuild current docking` rebuilds this exact
+layout through `DockBuilder`.
 
 ## Adding a common action
 
@@ -254,7 +254,7 @@ than the button.
 ### PLAY preview simulation
 
 ```text
-Preview MainStart
+Timer Control > Restart scene
   -> LoadSceneSE rebuilds the current skin runtime objects
   -> LR2SESceneInit builds silent LaneStruct / NoteStruct chart data
   -> LR2SESceneProc calls LR2's original ProcI_Play

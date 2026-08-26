@@ -159,7 +159,7 @@ foreach ($duplicate in $duplicateTitles) {
     })
 }
 $allowedGroups = @('Workspace', 'Assets', 'Data', 'Advanced')
-$allowedDocks = @('left-upper', 'left-lower', 'center-tabs', 'center-bottom',
+$allowedDocks = @('left-browser', 'left-inspector', 'center-tabs', 'center-bottom',
     'right-upper', 'right-lower')
 foreach ($window in $windows) {
     if ($allowedGroups -notcontains $window.group) {

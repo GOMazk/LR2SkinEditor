@@ -8,6 +8,7 @@
 // while the runtime uses the same titles and stable IDs for ImGui windows.
 enum class SEUIWindowId {
     Preview,
+    TimerControl,
     Customize,
     ImageManager,
     AssetBrowser,
@@ -38,6 +39,7 @@ struct SEUIWindowSpec {
 
 inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
     { SEUIWindowId::Preview, "preview", "Preview", "Render and directly manipulate the loaded skin canvas.", "WORKSPACE::drawPreview", "Workspace", "center-tabs", true },
+    { SEUIWindowId::TimerControl, "timer-control", "Timer Control", "Restart the scene runtime and inspect or override LR2 timers.", "WORKSPACE::drawTimerControl", "Workspace", "right-lower", true },
     { SEUIWindowId::Customize, "customize", "Customize", "Choose skin-defined customization options.", "WORKSPACE::drawCustomize", "Data", "right-lower", true },
     { SEUIWindowId::ImageManager, "image-manager", "Image Manager", "Inspect source atlases and edit or generate image files.", "WORKSPACE::drawImgManager", "Assets", "center-tabs", true },
     { SEUIWindowId::AssetBrowser, "asset-browser", "Asset Browser", "Search, preview and drag tagged image crops.", "WORKSPACE::drawAssetBrowser", "Assets", "center-bottom", true },
@@ -45,11 +47,11 @@ inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
     { SEUIWindowId::FileManager, "file-manager", "File Manager", "Inspect scripts and images referenced by the workspace.", "WORKSPACE::drawFileManager", "Data", "center-bottom", false },
     { SEUIWindowId::SimplePreview, "simple-preview", "Simple Preview", "Show the legacy lightweight preview surface.", "WORKSPACE::drawSimplePreview", "Advanced", "center-tabs", false },
     { SEUIWindowId::DstView, "dst-view", "DST View", "Inspect destination rows and preview their animation frames.", "WORKSPACE::drawDstView", "Assets", "center-tabs", true },
-    { SEUIWindowId::ObjectBrowser, "object-browser", "Object Browser", "Filter, group, select and reorder parsed skin objects.", "WORKSPACE::drawObjectEditor", "Workspace", "left-upper", true },
-    { SEUIWindowId::ObjectInspector, "object-inspector", "Object Inspector", "Edit properties of the shared Object Browser selection.", "WORKSPACE::drawObjectEditor", "Workspace", "left-lower", true },
-    { SEUIWindowId::ObjectManager, "object-manager", "Object Manager", "Inspect the legacy object list and property editor.", "WORKSPACE::drawObjectManager", "Advanced", "left-upper", false },
-    { SEUIWindowId::ObjectManagerTest, "object-manager-test", "Object Manager Test", "Exercise the legacy runtime object model for development.", "WORKSPACE::drawObjectManagerTest", "Advanced", "left-upper", false },
-    { SEUIWindowId::ObjectProperty, "object-property", "Object Property", "Show the legacy standalone object property surface.", "WORKSPACE::drawProperty", "Advanced", "left-lower", false },
+    { SEUIWindowId::ObjectBrowser, "object-browser", "Object Browser", "Filter, group, select and reorder parsed skin objects.", "WORKSPACE::drawObjectEditor", "Workspace", "left-browser", true },
+    { SEUIWindowId::ObjectInspector, "object-inspector", "Object Inspector", "Edit properties of the shared Object Browser selection.", "WORKSPACE::drawObjectEditor", "Workspace", "left-inspector", true },
+    { SEUIWindowId::ObjectManager, "object-manager", "Object Manager", "Inspect the legacy object list and property editor.", "WORKSPACE::drawObjectManager", "Advanced", "left-browser", false },
+    { SEUIWindowId::ObjectManagerTest, "object-manager-test", "Object Manager Test", "Exercise the legacy runtime object model for development.", "WORKSPACE::drawObjectManagerTest", "Advanced", "left-browser", false },
+    { SEUIWindowId::ObjectProperty, "object-property", "Object Property", "Show the legacy standalone object property surface.", "WORKSPACE::drawProperty", "Advanced", "left-inspector", false },
     { SEUIWindowId::OptionList, "option-list", "Option List", "Inspect and toggle LR2 option flags used by previews.", "WORKSPACE::drawOpList", "Data", "right-upper", true },
     { SEUIWindowId::History, "history", "History", "Inspect legacy row-level edit history.", "WORKSPACE::drawHistory", "Data", "center-bottom", false }
 };

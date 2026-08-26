@@ -11,13 +11,17 @@ of truth.
 
 ## Layers
 
-```text
+
 main.cpp
   ImGui/DX9 lifecycle, fonts, application menu
        |
        v
 seUI.h / seUI.cpp
   palette, spacing, reusable stateless components
+       |
+       v
+uiCatalog.h
+  window names, intent, owner function and default dock contract
        |
        v
 WORKSPACE::draw()
@@ -29,7 +33,7 @@ WORKSPACE::draw()
        |
        v
 skin model, CSV rows, History and selection synchronization
-```
+
 
 `seUI` is deliberately stateless. A component may return a click or edited
 value, but it must not load skins, mutate CSV, select objects, or push History.
@@ -51,6 +55,7 @@ stays outside `seUI` because it is part of application lifetime management.
 Reusable components currently include:
 
 - `BeginToolbar()` / `EndToolbar()` for a consistent action surface;
+- `BeginStatusBar()` / `EndStatusBar()` for document state and workspace metadata;
 - `ActionButton()` for enabled/disabled commands and tooltips;
 - `StatusPill()` for short state indicators;
 - `SectionHeader()` for forms and property groups;
@@ -60,13 +65,17 @@ Reusable components currently include:
 ## Adding a tool window
 
 1. Add the window visibility flag and draw method to `WORKSPACE`.
-2. Add one entry to the `WindowToggle tools[]` table in `WORKSPACE::draw()`.
+2. Add one `SEUIWindowSpec` entry to `uiCatalog.h` and use
+   `FormatSEUIWindowTitle()` for the runtime title.
 3. Call the draw method in the subwindow dispatch section near the bottom of
    `WORKSPACE::draw()`.
-4. If it belongs in the default layout, create its unique title with `##num`
-   and register it in the `DockBuilderDockWindow` block.
-5. Keep selection and mutations in `WORKSPACE`; use `seUI` only for rendering.
-6. Add a short state-flow/debugging note here if the tool introduces shared
+4. Add its visibility pointer to `WindowToggle windowToggles[]`. The visible
+   menu label and group must come from the catalog instead of a second string.
+5. Register the catalog-derived title in the matching `DockBuilderDockWindow`
+   tab group even when the window is hidden by default.
+6. Keep selection and mutations in `WORKSPACE`; use `seUI` only for rendering.
+7. Run `scripts\ui-map.ps1 -Check` and add a short state-flow/debugging note if
+   the tool introduces shared
    selection, History, preview texture, or file ownership.
 
 The visible label may change, but the `##` suffix is the stable ImGui identity.
@@ -78,10 +87,18 @@ share focus, scroll and docking state accidentally.
 The default workspace is intentionally asymmetric and follows this structure:
 
 ```text
-Object Browser | Object Inspector | Preview / ImageManager / dstView | OpList
-                                 |------------------------------------|----------
-                                 | Asset Browser                      | Customize
+Object Browser   | Preview / Image Manager / DST View / Text Editor | Option List
+-----------------|--------------------------------------------------|------------
+Object Inspector | Asset Browser / File Manager / History           | Customize
 ```
+
+The left column stacks navigation over inspection, the wide center keeps the
+canvas above assets, and the narrow right column keeps option data above
+customization. Legacy and developer windows are also assigned to one of these
+six tab groups, so `Layout > Show all windows` stays organized instead of
+creating floating panels. `Layout > Balanced workspace` restores default
+visibility; `Rebuild current docking` preserves visibility and only repairs
+placement.
 
 Browser and Inspector use the full workspace height. ImageManager and dstView
 share Preview's tab node in the center. Asset Browser occupies the lower center
@@ -234,6 +251,29 @@ The toolbar does not maintain its own history. If the rectangle and object
 position separate after Undo, inspect the rebuild/invalidation stage rather
 than the button.
 
+### PLAY preview simulation
+
+```text
+Preview MainStart
+  -> LoadSceneSE rebuilds the current skin runtime objects
+  -> LR2SESceneInit builds silent LaneStruct / NoteStruct chart data
+  -> LR2SESceneProc calls LR2's original ProcI_Play
+  -> DrawNotes moves notes and ApplyJudgeNote starts lane effect timers
+  -> LR2 skin objects consume note, key-beam, explosion and judge/combo timers
+  -> LR2SEDrawLoop captures them into the Preview texture
+```
+
+The simulator must remain independent of external LR2 sample BMS and keyconfig
+files, because packaged/editor-only environments do not contain them. Playback
+state belongs to `WORKSPACE`, never to a function-local static, so two open
+skins cannot start or stop one another. A preview rebuild while running must
+reinitialize the scene before the next draw-buffer pass.
+
+The editor may synthesize chart data, but it must not synthesize note screen
+coordinates, judgement state, combo values or effect timers. Those remain
+owned by LR2's PLAY pipeline so a skin preview cannot silently diverge from
+runtime behavior.
+
 Object Browser reordering is a special structural edit. An Object may consist
 of non-contiguous indexed rows, so it records one `SkinDocumentSnapshot`
 instead of a chain of line moves. The drag payload carries a model index only
@@ -245,13 +285,21 @@ Cross-file and cross-Branch drops are rejected.
 ### Files
 
 New, Open, Save, Save As and Export keep their domain methods. File menu,
-toolbar and Ctrl+S all call `SaveCurrentSkin()`; the toolbar only derives
+toolbar and Ctrl+S all call `SaveCurrentSkin()`; the bottom status bar derives
 `SAVED/MODIFIED/SAVE FAILED` from workspace revision state. Save As uses the
 native file picker and must continue switching the active working path after
 success. The loaded-workspace resolution modal is the deliberate exception to
 ordinary undoable editing: after a clean-state guard it atomically changes the
 root `#INFORMATION` resolution and reloads the workspace. Panel components must
 not duplicate any of these file operations.
+
+Skin Browser uses the native folder picker for `Open another location`, then
+`SEScanSkinFolder()` discovers `.lr2skin` and `.lr2ss` recursively before the
+existing `ParseLR2SkinCustom()`/`LoadSkin()` path takes over. Refresh reuses the
+current location; Default locations returns to `LR2files/Theme` and
+`LR2files/Sound`. The scan must skip reparse-point directories and reject
+unrepresentable or over-`MAX_PATH` paths because the legacy loader is ANSI and
+fixed-path based.
 
 ## Debugging checklist
 
@@ -286,7 +334,7 @@ Before merging a UI change, manually verify:
 - New Object fields, tagged-image thumbnail and `$` option combo boxes;
 - Text Edit mode and Shift-JIS text;
 - Save As working-path switch and existing-file protection;
-- reset layout followed by reopening every Windows menu entry.
+- `Layout > Show all windows`, then reopen every grouped Windows menu entry.
 
 The Release x86 build remains the final compile gate. Existing compiler
 warnings should be tracked separately; a UI-only change must introduce no new

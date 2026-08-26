@@ -299,7 +299,22 @@ typedef struct WORKSPACE {
     //HOW TO ADD FEATURE - STEP 1 : declare flag and function
     int wildcardTOAll(char* path);
 
-    int ScanSkins();
+    int ScanSkins(const char* folder = nullptr, const char* folderLabelUtf8 = nullptr);
+    int OpenSkinFolderDialog();
+    bool skinBrowserDataInitialized = false;
+    std::string skinBrowserFolder;
+    std::string skinBrowserFolderLabelUtf8;
+    std::string skinBrowserMessage;
+    unsigned long skinBrowserScanRevision = 0;
+    int skinBrowserState = 0; // 0: idle, 1: scanned, -1: failed
+    int skinBrowserSelectedIndex = 0;
+    PDIRECT3DTEXTURE9 skinBrowserPreviewTexture = NULL;
+    int skinBrowserPreviewWidth = 0;
+    int skinBrowserPreviewHeight = 0;
+    bool skinBrowserPreviewAvailable = false;
+    int skinBrowserResolutionSaveState = 0;
+    std::string skinBrowserResolutionSavePath;
+    unsigned long skinBrowserObservedScanRevision = 0;
     bool wSkinList;
     int drawSkinList();
 
@@ -345,6 +360,9 @@ typedef struct WORKSPACE {
     unsigned long long previewLastRenderAt = 0;
     bool previewTextureDirty = true;
     bool previewPlaying = false;
+    bool previewSimulationPlaying = false;
+    std::string previewSimulationMessage;
+    int timerSelected;
     ImVec2 clickPos;
     bool drawRightClick;
     float zoom = 1.0f;

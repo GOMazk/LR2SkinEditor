@@ -63,6 +63,9 @@
     <ClCompile Include="seObjectEditor.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="selfTests.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="seUI.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
@@ -383,8 +386,17 @@
     <ClInclude Include="skin.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
+    <ClInclude Include="skinBrowser.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
     <ClInclude Include="inputwrap.h">
       <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="selfTests.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="uiCatalog.h">
+      <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

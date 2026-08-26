@@ -8,10 +8,68 @@
 - Project: `SkinEditor_DX9\SkinEditor_DX9.vcxproj`
 - 기본 검증 구성: `Release | Win32(x86)`
 - Direct3D 9 / DxLib
+- `Microsoft.DXSDK.D3DX` NuGet package `9.29.952.8`
 
 프로젝트에는 Win32와 x64 구성이 모두 있지만 현재 배포와 반복 검증 기준은 x86다.
 새 PC에서는 Visual Studio Installer에서 **Desktop development with C++**와
 Windows 10/11 SDK를 설치한다.
+
+## 자동 빌드와 테스트
+
+저장소 루트에서 다음 두 명령을 순서대로 실행한다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\docs-check.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\ai-context.ps1 -Check
+```
+
+`build.ps1`은 Visual Studio 2022 C++ Build Tools를 `vswhere`로 찾는다. 구형
+DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버전과 SHA-512로
+검증하여 준비한 다음 `Release | Win32`를 빌드한다. 기존
+`SkinEditor_DX9\Release`를 덮지 않으며 결과는 `.build\bin\Release-Win32`,
+텍스트/binlog는 `.build\logs`에 둔다.
+
+`test.ps1`은 다음 계약 테스트를 각각 별도 프로세스로 실행한다.
+
+- `schema-contract`: 실행 파일에 포함된 command/object 스키마와 symbolic field
+- `ui-contract`: 창 카탈로그의 고유 key/title, owner, dock, workspace별 ImGui ID
+- `skin-browser`: 외부 폴더의 대소문자 확장자, 하위 폴더 탐색, 비스킨 파일 제외,
+  잘못된 위치 거부
+- `preview-simulator`: PLAY 키 모드별 내장 chart의 시간순 lane 배치, 동시치기,
+  LN/mine 및 2P lane 계약
+- `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제 및 graphic ID 배정
+- `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
+
+결과는 `.build\test-results\skineditor-self-tests.xml` JUnit 파일로 남는다. 테스트
+하나라도 실패하면 스크립트와 CI job이 실패한다.
+
+`ai-context.ps1`은 UI 지도 계약을 다시 검사하고 주요 문서/스크립트의 SHA-256,
+현재 UI summary, 사용 가능한 마지막 JUnit 결과를 다음 파일로 묶는다.
+
+- `.build\ai-context\context-manifest.json`: 자동화가 비교하는 기계용 상태
+- `.build\ai-context\context-pack.md`: 다른 AI가 먼저 읽는 짧은 인계 자료
+
+특정 화면만 넘기려면 `-UiKey`를 사용한다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\ai-context.ps1 `
+  -UiKey object-inspector -Check
+```
+
+이 경우 `.build\ai-context\object-inspector`에 해당 화면의 owner, 목적과 컨트롤
+source 위치만 포함한 focus pack이 생성된다.
+
+`docs-check.ps1`은 루트, `docs`, `.github`의 Markdown 코드 fence와 상대 링크 대상을
+검사하고 `.build\docs-check\docs-check.json`을 남긴다.
+
+`.github\workflows\ci.yml`은 push, pull request와 수동 실행에서 UI 지도 검증,
+빌드, 자체 테스트와 AI context 생성을 Windows Server 2022에서 실행한다. 로그,
+JUnit, UI 지도, 문서 검사와 AI 인계 자료는 실패 여부와 관계없이 CI
+artifact로 보존한다. 러너는 현재 프로젝트의 Visual Studio 2022/`v143`
+기준을 지키기 위해 `windows-2022`로 고정하고, checkout과 artifact action은 현행
+major version을 사용한다.
 
 ## 저장소 배치
 
@@ -123,7 +181,10 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 
 1. `fmod.dll`, 외부 `skinHelper.txt`, 외부 `skinObjGroup.txt`가 없는 별도 폴더에서
    exe가 시작되는지 확인한다.
-2. New/Open toolbar와 Windows menu를 열고 Text Editor 항목이 있는지 확인한다.
+2. New/Open toolbar와 grouped Windows menu를 열고 Data 아래 Text Editor 항목이
+   있는지 확인한다. `File > Open another location`에서 임의의 스킨 폴더를 고르면
+   하위 폴더의 `.lr2skin`/`.lr2ss`가 목록에 나타나고, Refresh와 Default locations가
+   정상 동작해야 한다.
    스킨 목록에는 별도의 `LOAD(TEXT)` 버튼이 없어야 한다.
 3. 640x480 스킨 하나와 1280x720 이상 HD 스킨 하나를 각각 연다.
 4. Preview, Image Manager, Asset Browser, DST View, Object Browser, Object Inspector가 보이는지
@@ -145,13 +206,20 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    마우스 아래의 이미지 지점이 움직이지 않은 채 확대/축소되는지 확인한다.
    Fit과 100%도 확인하고, 100% 초과 확대에서 선형 보간으로 흐려지지 않고
    원본 픽셀 경계가 선명하게 표시되는지 확인한다.
-6. Object 속성 하나를 변경하고 Ctrl+Z로 복구한다.
-7. 변경 후 toolbar가 `MODIFIED`, Ctrl+S 성공 후 `SAVED`인지 확인한다.
-8. Save As의 BROWSE가 파일 선택기를 열고, 성공 후 새 경로가 workspace의 현재
+6. PLAY 스킨의 Preview에서 `MainStart`를 누르면 무음 내장 chart가 LR2의 원본
+   `ProcI_Play`/`DrawNotes` 경로로 실행되는지 확인한다. 노트가 판정선에 도착할 때
+   normal/LN/mine과 함께 key beam, note explosion, judge/combo가 해당 스킨 정의대로
+   반응해야 한다. `Stop scene`으로 멈춘 뒤 `MainStart`로 다시 시작할 수 있어야
+   하며, 외부 sample BMS나 keyconfig 파일은 요구하지 않는다.
+7. Object 속성 하나를 변경하고 Ctrl+Z로 복구한다.
+8. 변경 후 하단 status bar가 `MODIFIED`, Ctrl+S 성공 후 `SAVED`인지 확인한다.
+9. Save As의 BROWSE가 파일 선택기를 열고, 성공 후 새 경로가 workspace의 현재
    경로가 되는지 확인한다.
-9. toolbar의 해상도 버튼에서 크기를 바꾸면 즉시 저장·재로드되며 Object 좌표가
+10. toolbar의 해상도 버튼에서 크기를 바꾸면 즉시 저장·재로드되며 Object 좌표가
    자동 확대되지 않는지 확인한다. 미저장 script/pixel edit 중에는 Apply가
    차단되는지도 확인한다.
+11. `Layout > Show all windows`에서 15개 창이 여섯 dock tab group 안에 정돈되고,
+    `Balanced workspace`가 기본 표시 상태를 복원하는지 확인한다.
 
 ## 회귀 테스트
 

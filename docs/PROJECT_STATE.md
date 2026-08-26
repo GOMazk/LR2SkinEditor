@@ -1,7 +1,7 @@
 # SkinEditor 현재 개발 상태
 
-기준일: 2026-08-25  
-기준 브랜치: `AI`  
+기준일: 2026-08-26
+기준 브랜치: `AI`
 주 대상: `Release | Win32(x86)`
 
 이 문서는 지금까지 진행한 작업의 의도와 현재 구현 상태를 다음 작업자가 코드와
@@ -36,6 +36,8 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - Ctrl+Z 기반 CSV/구조 편집 복구
 - 현재 include 구조를 유지하는 Save/Ctrl+S와 `SAVED/MODIFIED` 상태 표시
 - Windows 파일 선택기를 쓰는 Save As와 성공 후 새 메인 스크립트로 작업 경로 전환
+- `File > Open another location` 또는 Skin Browser에서 지정한 외부 폴더의
+  `.lr2skin`/`.lr2ss`를 하위 폴더까지 찾아 기존 로더로 열기
 
 주의할 항목:
 
@@ -45,6 +47,12 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - Save As는 스크립트 경로를 전환하지만 이미지, 폰트 등 리소스 파일을 복제하지
   않는다. 정상 Save As 흐름이 있으므로 별도 Clone 기능은 현재 필수 기능이 아니다.
 - 실제 스킨별 좌표·경로·조건 조합은 수동 회귀 테스트가 필요하다.
+
+Skin Browser는 현재 탐색 위치와 검색 결과 수를 표시한다. 외부 위치에서는 Refresh와
+Default locations 전환을 제공하며, 파일을 복사하거나 LR2 설정에 등록하지 않고 원래
+경로에서 직접 연다. 재귀 탐색은 junction/symlink를 따라가지 않는다. 기존 LR2/CSTR
+로더의 제약 때문에 Windows 현재 ANSI 코드 페이지로 표현할 수 없거나 `MAX_PATH`를
+넘는 경로는 잘라서 열지 않고 오류 또는 건너뜀 상태로 표시한다.
 
 ### 시나리오 B: 새 스킨 생성
 
@@ -242,6 +250,18 @@ Browser 순서 변경:
   않는다.
 
 ## 5. Preview, Image Manager, DST View
+
+### PLAY 장면 시뮬레이터
+
+PLAY 계열 Preview의 `MainStart`는 외부 LR2 sample BMS/keyconfig를 읽지 않는다.
+현재 키 모드에 맞는 시간순 `LaneStruct`/`NoteStruct` chart를 메모리에서 만들고
+LR2 원본 `ProcI_Play`와 `DrawNotes`가 이를 소비한다. 편집기 코드가 노트 좌표나
+judge/combo 상태를 직접 만들지 않으므로 판정 시 `ApplyJudgeNote`가 설정하는
+lane별 50/100/120 타이머를 key beam, note explosion, judge/combo를 포함한 실제
+스킨 Object가 LR2와 같은 방식으로 소비한다. 오디오만 의도적으로 비활성 상태다.
+시뮬레이터 실행 상태는 각 WORKSPACE가 소유하므로 여러 스킨 탭 사이에서 공유되지
+않고, 실행 중 Object 편집으로 Preview가 재구성되면 장면도 안전하게 재시작한다.
+내장 chart가 끝나면 동일한 scene init을 거쳐 반복한다.
 
 ### 확대/축소
 
@@ -457,7 +477,7 @@ TextEdit은 `Windows > Text Editor`에서 여는 일반 도킹 창이다.
 - CSV 행과 포함 파일 소유권은 `SKINFILELINEREAD.filename`으로 추적한다.
 - toolbar/File의 Save와 Ctrl+S는 현재 main path에 저장하며 include 구조와 memo를
   유지한다. 성공하면 현재 `documentRevision`을 saved revision으로 확정한다.
-- 편집 revision이 saved revision과 다르면 toolbar 상태는 `MODIFIED`, 같으면
+- 편집 revision이 saved revision과 다르면 하단 status bar는 `MODIFIED`, 같으면
   `SAVED`다. 저장 실패는 일정 시간 `SAVE FAILED`로 표시하며 dirty 상태는 유지한다.
 - Pixel paint의 texture 변경은 script revision과 별도로 `IMAGE EDIT`로 표시한다.
 - Save As의 BROWSE는 Windows 파일 선택기와 overwrite 확인을 사용한다.
@@ -504,11 +524,19 @@ FMOD는 delay-load이며 Preview 진입 시 오디오 경로를 비활성화한�
 현대화의 원칙은 기존 기능과 상태를 유지하면서 표현 계층만 재사용 가능하게
 분리하는 것이다.
 
-- `seUI.h/.cpp`: palette, spacing, toolbar, action button, status pill, section header,
-  empty state, help marker
+- `seUI.h/.cpp`: palette, compact spacing, toolbar/status bar, action button,
+  status pill, section header, empty state, help marker
+- `uiCatalog.h`: 도킹 창과 dialog/shell의 stable key, title, 목적, owner, 메뉴 group,
+  기본 위치
 - `main.cpp`: ImGui/DX9 lifetime, font와 전역 theme 초기화
-- `WORKSPACE::draw()`: menu, toolbar, docking, tool visibility, 실제 command 실행
+- `WORKSPACE::draw()`: grouped menu, layout preset, three-column docking, toolbar,
+  status bar, tool visibility, 실제 command 실행
 - Object/CSV/Preview state는 기존 WORKSPACE와 모델이 단일 source of truth
+
+`scripts\ui-map.ps1`은 이 카탈로그와 ImGui 호출을 결합해 JSON/Markdown/HTML을
+만들며 CI에서 title/owner/ID 계약을 검사한다. AI 간 인계는 루트 `AGENTS.md`와
+`docs/AI_COLLABORATION.md`를 시작점으로 삼고, `scripts\ai-context.ps1`이 문서 hash,
+UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 
 창을 추가하거나 selection flow를 변경할 때는
 [UI 구조 문서](UI_ARCHITECTURE.md)를 함께 갱신한다.
@@ -543,14 +571,17 @@ FMOD는 delay-load이며 Preview 진입 시 오디오 경로를 비활성화한�
 | FMOD | Preview 편집에서는 선택 의존성. DLL이 없어도 실행 가능하게 유지 |
 | Object Editor 구조 | Browser와 Inspector를 별도 도킹 창으로 유지 |
 | Object 이름 fallback | 명시 이름, SRC symbolic 이름, op, non-zero timer 순서. 자동 이름은 저장하지 않음 |
+| AI/UI 계약 | `uiCatalog.h`와 자동 UI map을 기준으로 하고 handoff는 context pack과 검증 증거를 포함 |
 
 ## 11. 다음 작업 전 확인
 
-1. `git status --short`와 `git diff --stat`로 미커밋 작업을 확인한다.
-2. `Release|Win32`가 빌드되는지 확인한다.
-3. `SkinEditor_DX9\Release\LR2files`가 테스트할 스킨을 포함하는지 확인한다.
-4. tricoro HD와 bluewhite를 순서대로 열어 연속 로딩을 확인한다.
-5. [회귀 테스트](BUILD_AND_TEST.md#회귀-테스트)를 실행한다.
+1. 루트 `AGENTS.md`와 [AI 협업 가이드](AI_COLLABORATION.md)를 읽는다.
+2. `git status --short`와 `git diff --stat`로 미커밋 작업을 확인한다.
+3. `scripts\ai-context.ps1 -Check`로 최신 context pack을 만든다.
+4. `Release|Win32`가 빌드되는지 확인한다.
+5. `SkinEditor_DX9\Release\LR2files`가 테스트할 스킨을 포함하는지 확인한다.
+6. tricoro HD와 bluewhite를 순서대로 열어 연속 로딩을 확인한다.
+7. [회귀 테스트](BUILD_AND_TEST.md#회귀-테스트)를 실행한다.
 
 현재 기능의 상세 UI 상태 흐름과 ImGui 디버깅 순서는
 [UI_ARCHITECTURE.md](UI_ARCHITECTURE.md)에 정리되어 있다.

@@ -12,6 +12,9 @@ Object Editor와 현대화 UI 관련 미커밋 변경이 포함될 수 있으므
 - [현재 개발 상태와 설계](docs/PROJECT_STATE.md)
 - [빌드, 실행 및 회귀 테스트](docs/BUILD_AND_TEST.md)
 - [UI 구조와 디버깅 규칙](docs/UI_ARCHITECTURE.md)
+- [AI/UI 지도 생성 및 활용](docs/UI_MAP.md)
+- [AI 협업 시작 가이드](docs/AI_COLLABORATION.md)
+- [변경 인계 템플릿](docs/HANDOFF_TEMPLATE.md)
 
 ## 핵심 데이터 흐름
 
@@ -32,7 +35,22 @@ Command/argument schema        Object grouping schema
 
 ## 빠른 빌드
 
-Visual Studio 2022 Developer PowerShell에서:
+저장소 루트에서 현재 기준인 `Release | Win32` 빌드와 자동 테스트를 실행합니다.
+산출물과 로그는 모두 `.build` 아래에 생성됩니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\ui-map.ps1 -Check
+powershell -ExecutionPolicy Bypass -File .\scripts\docs-check.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\ai-context.ps1 -Check
+```
+
+GitHub Actions도 같은 스크립트를 사용하므로 로컬과 CI의 검증 경로가 같습니다.
+다른 AI에게 작업을 넘길 때는 `.build\ai-context\context-pack.md`와
+`context-manifest.json`을 함께 전달하십시오.
+
+수동으로 MSBuild를 실행해야 한다면 Visual Studio 2022 Developer PowerShell에서:
 
 ```powershell
 cd D:\Github\SkinEditor\SkinEditor_DX9

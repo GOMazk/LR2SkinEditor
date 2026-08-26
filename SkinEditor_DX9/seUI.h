@@ -19,6 +19,8 @@ namespace SEUI {
 
     bool BeginToolbar(const char* id);
     void EndToolbar();
+    bool BeginStatusBar(const char* id);
+    void EndStatusBar();
     bool ActionButton(const char* label, const char* tooltip = nullptr, bool enabled = true);
     void ToolbarSeparator();
 

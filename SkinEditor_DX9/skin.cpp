@@ -1,12 +1,15 @@
 ﻿#include "skin.h"
 #include "../LR2/LR2.h"
 #include "../LR2/Scenes.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 
 static const char* g_previewRenderStage = "not started";
 static int g_previewRenderIndex = -1;
 static bool g_previewRenderFaulted = false;
+static const char* g_sceneInitStage = "not started";
 static const char* g_sceneProcStage = "not started";
 
 void LR2SEResetRenderFault() {
@@ -45,7 +48,7 @@ int LR2SESceneInitSafe(game* g, int type) {
 		return LR2SESceneInit(g, type);
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER) {
-		LogSceneException("LR2SESceneInit", GetExceptionCode());
+		LogSceneException(g_sceneInitStage, GetExceptionCode());
 		return -1;
 	}
 }
@@ -292,31 +295,193 @@ static void LR2SEInitDecidePreviewState(game* g) {
 
 struct LR2SEPlayModeInfo {
 	int keymode;
-	const char* samplePath;
-	const char* keyConfigPath;
 	bool battle;
 };
 
 static LR2SEPlayModeInfo LR2SEGetPlayModeInfo(int type) {
 	switch (type) {
 	case SKINTYPE_5KEYS:
-		return { 5, "LR2files\\Config\\sample_5.bme", "LR2files\\Config\\keyconfig_5.xml", false };
+		return { 5, false };
 	case SKINTYPE_9KEYS:
-		return { 9, "LR2files\\Config\\sample_9.pms", "LR2files\\Config\\keyconfig_p.xml", false };
+		return { 9, false };
 	case SKINTYPE_10KEYS:
-		return { 10, "LR2files\\Config\\sample_10.bme", "LR2files\\Config\\keyconfig_5.xml", false };
+		return { 10, false };
 	case SKINTYPE_14KEYS:
-		return { 14, "LR2files\\Config\\sample_14.bme", "LR2files\\Config\\keyconfig.xml", false };
+		return { 14, false };
 	case SKINTYPE_5KEYSBATTLE:
-		return { 5, "LR2files\\Config\\sample_5.bme", "LR2files\\Config\\keyconfig_5.xml", true };
+		return { 5, true };
 	case SKINTYPE_7KEYSBATTLE:
-		return { 7, "LR2files\\Config\\sample_7.bme", "LR2files\\Config\\keyconfig.xml", true };
+		return { 7, true };
 	case SKINTYPE_9KEYSBATTLE:
-		return { 9, "LR2files\\Config\\sample_9.pms", "LR2files\\Config\\keyconfig_p.xml", true };
+		return { 9, true };
 	case SKINTYPE_7KEYS:
 	default:
-		return { 7, "LR2files\\Config\\sample_7.bme", "LR2files\\Config\\keyconfig.xml", false };
+		return { 7, false };
 	}
+}
+
+static int LR2SEPreviewLaneAt(int type, int ordinal) {
+	const LR2SEPlayModeInfo mode = LR2SEGetPlayModeInfo(type);
+	int keysPerPlayer = mode.keymode;
+	if (keysPerPlayer == 10) keysPerPlayer = 5;
+	else if (keysPerPlayer == 14) keysPerPlayer = 7;
+	const bool hasScratch = keysPerPlayer != 9;
+	const int lanesPerPlayer = keysPerPlayer + (hasScratch ? 1 : 0);
+	const int playerCount = mode.battle || mode.keymode == 10 || mode.keymode == 14 ? 2 : 1;
+	if (ordinal < 0 || ordinal >= lanesPerPlayer * playerCount) return -1;
+	const int player = ordinal / lanesPerPlayer;
+	const int lane = ordinal % lanesPerPlayer;
+	return player * 10 + lane + (hasScratch ? 0 : 1);
+}
+
+int LR2SEBuildPreviewChart(int type, LR2SEPreviewChartNote* notes, int capacity) {
+	if (!notes || capacity <= 0) return 0;
+	int lanes[20] = {};
+	int laneCount = 0;
+	for (int ordinal = 0; ordinal < 20; ++ordinal) {
+		const int lane = LR2SEPreviewLaneAt(type, ordinal);
+		if (lane < 0) break;
+		lanes[laneCount++] = lane;
+	}
+	if (laneCount <= 0) return 0;
+
+	constexpr int pulseCount = 160;
+	constexpr unsigned int firstNoteMs = 2200;
+	constexpr unsigned int pulseIntervalMs = 180;
+	int count = 0;
+	for (int pulse = 0; pulse < pulseCount; ++pulse) {
+		const unsigned int timing = firstNoteMs + pulse * pulseIntervalMs;
+		const int ordinal = (pulse * 5 + pulse / laneCount) % laneCount;
+		LR2SEPreviewNoteKind kind = LR2SE_PREVIEW_NOTE_NORMAL;
+		if (pulse % 19 == 18) kind = LR2SE_PREVIEW_NOTE_MINE;
+		else if (pulse % 13 == 12) kind = LR2SE_PREVIEW_NOTE_LONG;
+		if (count >= capacity) return count;
+		notes[count++] = {
+			lanes[ordinal], timing,
+			kind == LR2SE_PREVIEW_NOTE_LONG ? timing + 450U : 0U,
+			kind
+		};
+
+		// Periodic two-note chords exercise simultaneous lane explosions while
+		// preserving ascending time order within every LR2 LaneStruct.
+		if (pulse % 8 == 4 && laneCount > 1) {
+			if (count >= capacity) return count;
+			notes[count++] = {
+				lanes[(ordinal + laneCount / 2) % laneCount], timing, 0U,
+				LR2SE_PREVIEW_NOTE_NORMAL
+			};
+		}
+	}
+	return count;
+}
+
+static constexpr unsigned int LR2SEPreviewChartDurationMs = 34000U;
+
+static int LR2SEPopulatePreviewChart(game* g, int type) {
+	if (!g) return -1;
+	LR2SEPreviewChartNote chart[256] = {};
+	const int chartCount = LR2SEBuildPreviewChart(type, chart,
+		(int)(sizeof(chart) / sizeof(chart[0])));
+	if (chartCount <= 0) return -1;
+
+	gameplay& preview = g->gameplay;
+	if (preview.bpmt_buffersize < 2 || !preview.bpmt_data) {
+		BPMtiming* timing = (BPMtiming*)realloc(preview.bpmt_data,
+			sizeof(BPMtiming) * 2);
+		if (!timing) return -1;
+		preview.bpmt_data = timing;
+		preview.bpmt_buffersize = 2;
+	}
+	preview.bpmt_count = 2;
+	preview.bpmt_start = 1;
+	preview.bpmt_data[0] = { 0.0, 150.0, 0.0 };
+	preview.bpmt_data[1] = {
+		(double)LR2SEPreviewChartDurationMs, 150.0,
+		(double)LR2SEPreviewChartDurationMs
+	};
+	preview.BPM_fix = 150.0;
+	preview.BPM = 150.0;
+	preview.minBPM = 150.0;
+	preview.maxBPM = 150.0;
+	preview.song_runtime = LR2SEPreviewChartDurationMs;
+	preview.keymode = LR2SEGetPlayModeInfo(type).keymode;
+
+	for (int laneIndex = 0; laneIndex < 20; ++laneIndex) {
+		LaneStruct& lane = preview.bmsobj_note[laneIndex];
+		lane.count = 0;
+		lane.note_count = 0;
+		lane.draw_count = 0;
+		lane.noteVal = -1;
+		lane.autoplay = 0;
+	}
+
+	int totalNotes[2] = {};
+	const LR2SEPlayModeInfo mode = LR2SEGetPlayModeInfo(type);
+	for (int index = 0; index < chartCount; ++index) {
+		const LR2SEPreviewChartNote& sample = chart[index];
+		LaneStruct& lane = preview.bmsobj_note[sample.lane];
+		if (!lane.notes || lane.size <= 0)
+			InitNoteBuffer(&lane, 100);
+		if (lane.count >= lane.size)
+			ExpandNoteBuffer(&lane, 100);
+
+		NoteStruct& note = lane.notes[lane.count++];
+		note.bmsTiming = sample.timingMs;
+		note.realTiming = sample.timingMs;
+		note.val = 0.0;
+		note.active = -1;
+		note.lnHeadFast = false;
+		note.bmsTiming_ln = sample.kind == LR2SE_PREVIEW_NOTE_LONG
+			? (double)sample.endTimingMs : -1.0;
+		note.realTiming_ln = note.bmsTiming_ln;
+		note.op = 10 + sample.lane;
+		note.mine = sample.kind == LR2SE_PREVIEW_NOTE_MINE ? 1 : -1;
+		note.stage = 0;
+
+		if (sample.kind != LR2SE_PREVIEW_NOTE_MINE) {
+			const int player = mode.battle && sample.lane >= 10 ? 1 : 0;
+			totalNotes[player]++;
+		}
+	}
+
+	preview.bmsobj_line.count = 0;
+	preview.bmsobj_line.note_count = 0;
+	preview.bmsobj_line.draw_count = 0;
+	if (g->skstruct.dst_LINE[0].dstCount > 0) {
+		for (unsigned int timing = 0; timing < LR2SEPreviewChartDurationMs;
+			timing += 2000U) {
+			LaneStruct& lines = preview.bmsobj_line;
+			if (!lines.notes || lines.size <= 0)
+				InitNoteBuffer(&lines, 100);
+			if (lines.count >= lines.size)
+				ExpandNoteBuffer(&lines, 100);
+			NoteStruct& line = lines.notes[lines.count++];
+			line.bmsTiming = timing;
+			line.realTiming = timing;
+			line.bmsTiming_ln = -1.0;
+			line.realTiming_ln = -1.0;
+			line.val = 0.0;
+			line.active = -1;
+			line.op = 2;
+			line.mine = -1;
+			line.stage = 0;
+		}
+	}
+
+	for (int player = 0; player < 2; ++player) {
+		preview.player[player].totalnotes = totalNotes[player];
+		preview.player[player].total_note = totalNotes[player];
+		preview.player[player].recent_judge = 5;
+		preview.player[player].judge_draw = 5;
+		preview.player[player].combo_draw = 0;
+		preview.player[player].flag_active = player == 0 || mode.battle;
+	}
+	// LoadBmsResource normally owns this initialization.  The preview builds
+	// the same gameplay data in memory, so prepare the judge history before
+	// DrawNotes' autoplay path reaches ApplyJudgeNote for the first note.
+	preview.p1Score.InitJudgeQueue();
+	preview.p1Score.ResetJudgeQueue((std::max)(2, totalNotes[0] * 2));
+	return 0;
 }
 
 static void LR2SEInitPlayPreviewState(game* g, int type) {
@@ -325,14 +490,14 @@ static void LR2SEInitPlayPreviewState(game* g, int type) {
 	// explicitly because the editor can open every PLAY skin in isolation.
 	LR2SEInitSelectPreviewState(g);
 	SONGDATA& song = g->sSelect.bmsList[g->sSelect.cur_song];
-	song.filepath = mode.samplePath;
+	song.filepath = "SkinEditor://preview-chart";
 	song.keymode = mode.keymode;
 	g->sSelect.metaSelected.title = song.title;
 	g->sSelect.metaSelected.subtitle = song.subtitle;
 	g->sSelect.metaSelected.artist = song.artist;
 	g->sSelect.metaSelected.subartist = song.subartist;
 	g->sSelect.metaSelected.genre = song.genre;
-	g->sSelect.metaSelected.filepath = mode.samplePath;
+	g->sSelect.metaSelected.filepath = song.filepath;
 	g->sSelect.metaSelected.keymode = mode.keymode;
 	g->sSelect.metaSelected.minbpm = song.minBPM;
 	g->sSelect.metaSelected.maxbpm = song.maxBPM;
@@ -353,6 +518,9 @@ static void LR2SEInitPlayPreviewState(game* g, int type) {
 	g->config.play.hsmax = 900;
 	g->config.play.hsmargin = 10;
 	g->config.play.basespeed = 100;
+	// Preview interaction belongs to the editor.  Do not let ProcI_Play treat
+	// an editor right-click as LR2's gameplay-exit shortcut.
+	g->config.play.disableleftclickexit = 1;
 	g->gameplay.isAutoplay = 1;
 	g->gameplay.song_runtime = 120000.0;
 	g->gameplay.loadObject_total = 100;
@@ -1210,7 +1378,9 @@ int LR2SESceneInit(game *g, int type) {
 	
 	//g->skstruct.GrHandle[GrH_Stage] = LoadGraph("LR2files\\Config\\title.bmp", 0);
 
+	g_sceneInitStage = "LR2SESceneInit/InitGameplay";
 	InitGameplay(&g->gameplay, &g->config.play);
+	g_sceneInitStage = "LR2SESceneInit/PreparePreviewState";
 	LR2SEPreparePreviewState(g, type);
 	
 
@@ -1228,61 +1398,30 @@ int LR2SESceneInit(game *g, int type) {
 	case SKINTYPE_5KEYSBATTLE:
 	case SKINTYPE_9KEYSBATTLE:
 	{
+		g_sceneInitStage = "LR2SESceneInit/PreviewChart";
 		const LR2SEPlayModeInfo mode = LR2SEGetPlayModeInfo(type);
-		InitKeysound(g);
-		const int scratchSide = g->skstruct.scratchside_1 + g->skstruct.scratchside_2 * 2;
-		ConfigStruct tCfg = g->config;
-		tCfg.play.battle = mode.battle ? 1 : 0;
+		// The editor used to load LR2files/Config/sample_*.bme and keyconfig*.xml
+		// here. Those files are not part of SkinEditor, so MainStart crashed as
+		// soon as a standalone build tried to parse the missing chart. Preview is
+		// deliberately silent; use its deterministic in-memory chart instead.
 		g->gameplay.isAutoplay = 1;
-		ProcS_Select(g);
-		ReleaseBGA(g);
-		ReadKeyConfig(g, mode.keyConfigPath);
-		g->sSelect.metaSelected.keymode = mode.keymode;
-		g->sSelect.metaSelected.filepath = mode.samplePath;
-		InitGameplay(&g->gameplay, &tCfg.play);
-		g->gameplay.isAutoplay = 1;
-		ParseBmsFile(&g->gameplay, mode.samplePath, &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide);
-		LoadBmsResource(&g->gameplay, mode.samplePath, &g->audio, &tCfg, &g->sSelect.metaSelected, 1, scratchSide, 0);
+		g->config.play.battle = mode.battle ? 1 : 0;
+		g->config.play.hiSpeed[0] = 200;
+		g->config.play.hiSpeed[1] = 200;
+		g->config.play.basespeed = 100;
 		g->gameplay.bmsResourceLoaded = 1;
 		// The editor advances ProcGame synchronously from LR2SESceneProc. Keep
 		// this flag clear so LR2SEDrawLoop cannot also run ProcGame once per
 		// drawing-buffer entry through LR2's legacy non-threaded path.
 		g->gameplay.flag_gameinput = 0;
 		g->procSelecter = 4;
-		// ProcGameThread normally establishes these timers. The editor runs PLAY
-		// without that worker, so start the chart explicitly and let its BGA
-		// events choose the active layer instead of forcing image #1 over every
-		// skin background.
+		// The editor supplies an in-memory chart, but the normal LR2 PLAY
+		// renderer consumes it. Start the same chart/judge clocks as gameplay.
 		SetTimeLapse(40, &g->timer1);
 		SetTimeLapse(41, &g->timer1);
 		SetTimeLapse(142, &g->timer1);
 		g->gameplay.timetick = 0;
-		if (g->skinData.select == 7) {
-			g->gameplay.player[0].clearType = (GetRand(1) == 0) ? 5 : 1;
-			g->gameplay.player[1].clearType = g->gameplay.player[0].clearType;
-			for (int p = 0; p < 2; p++) {
-				g->gameplay.player[p].rate = 100.0;
-				g->gameplay.player[p].totalnotes = 1000;
-				g->gameplay.player[p].max_combo = 1000;
-				g->gameplay.player[p].judgecount[5] = 1000;
-				g->gameplay.player[p].exscore = 2000;
-				g->gameplay.player[p].score = 200000;
-
-				for (int i = 0; i < 1000; i++) {
-					g->gameplay.statgraph[p].combo[i] = g->gameplay.player[p].totalnotes * i / 1000;
-					g->gameplay.statgraph[p].exscore[i] = g->gameplay.player[p].totalnotes * i * 16 / 9000;
-					g->gameplay.statgraph[p].hp[i] = (100 * i) / 1000;
-					if (p == 0) {
-						g->gameplay.rategraph[0].val[i] = g->gameplay.statgraph[0].exscore[0] * 7 / 8;
-						g->gameplay.rategraph[1].val[i] = g->gameplay.statgraph[0].exscore[0] * 6 / 8;
-					}
-				}
-
-				g->gameplay.statgraph[p].cursor = 1000;
-				g->gameplay.rategraph[0].cursor = 1000;
-				g->gameplay.rategraph[1].cursor = 1000;
-			}
-		}
+		if (LR2SEPopulatePreviewChart(g, type) != 0) return -1;
 	}
 		break;
 
@@ -1323,6 +1462,7 @@ int LR2SESceneInit(game *g, int type) {
 	}
 
 	g->procPhase = 1;
+	g_sceneInitStage = "LR2SESceneInit/complete";
 
 	return 0;
 }
@@ -1351,14 +1491,16 @@ int LR2SESceneProc(game* g, int type) {
 	case SKINTYPE_7KEYSBATTLE:
 	case SKINTYPE_5KEYSBATTLE:
 	case SKINTYPE_9KEYSBATTLE:
-		// ProcGameThread is deliberately not started by the editor: it would
-		// mutate the same game/skin state that the UI and renderer inspect.
-		// Advance the parsed BMS exactly once on the UI thread before drawing so
-		// measure (Rhythm 140), BPM and BGA events reach the preview in order.
-		g_sceneProcStage = "LR2SESceneProc/ProcGame";
-		if (ProcGame(g) < 0) return -1;
-		g_sceneProcStage = "LR2SESceneProc/DrawPlay";
-		LR2SE_I_Play(g);
+		if (GetTimeLapse(41, &g->timer1) >= LR2SEPreviewChartDurationMs) {
+			g_sceneProcStage = "LR2SESceneProc/RestartPreviewChart";
+			if (LR2SESceneInit(g, type) != 0) return -1;
+		}
+		// Do not duplicate PLAY drawing here. The in-memory chart must travel
+		// through the same DrawNotes -> ApplyJudgeNote -> 50/100/120 timer
+		// pipeline as LR2 so key beams, note explosions and judge/combo objects
+		// react exactly as they do during real autoplay.
+		g_sceneProcStage = "LR2SESceneProc/ProcI_Play";
+		ProcI_Play(g);
 		break;
 
 	case SKINTYPE_RESULT:
@@ -1396,66 +1538,6 @@ int LR2SESceneProc(game* g, int type) {
 		break;
 	}
 
+	g_sceneProcStage = "LR2SESceneProc/complete";
 	return 0;
-}
-
-int LR2SE_I_Play(game* g) {
-	int timeLimit;
-	double gameTime;
-
-	g_sceneProcStage = "LR2SE_I_Play/DrawHPgauge";
-	DrawHPgauge(g);
-	g_sceneProcStage = "LR2SE_I_Play/SoundGetCurrentTime";
-	SoundGetCurrentTime(&g->audio, &g->gameplay.muon);
-	g_sceneProcStage = "LR2SE_I_Play/NONE_004b6770";
-	NONE_004b6770();
-
-	g_sceneProcStage = "LR2SE_I_Play/DrawNotes";
-	if (GetTimeLapse(41, &g->timer1) > 0.0 && g->config.play.m_lunaris == 0) {
-		DrawNotes(g, &g->skstruct, &g->timer1, &g->config.play);
-		g_sceneProcStage = "LR2SE_I_Play/DrawJudgeCombo";
-		DrawJudgeCombo(g, &g->skstruct, &g->timer1, &g->config.play);
-	}
-	else if (GetTimeLapse(41, &g->timer1) > 0.0 && g->config.play.m_lunaris) {
-		g_sceneProcStage = "LR2SE_I_Play/DrawLunaris";
-		DrawLunaris(g);
-		g_sceneProcStage = "LR2SE_I_Play/DrawJudgeComboLunaris";
-		DrawJudgeCombo(g, &g->skstruct, &g->timer1, &g->config.play);
-	}
-
-	g_sceneProcStage = "LR2SE_I_Play/JudgeLine";
-	if (g->skstruct.dst_JUDGELINE[0].dstCount > 0) {
-		AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, &g->skstruct.src_JUDGELINE[0], &g->skstruct.dst_JUDGELINE[0], &g->timer1,
-			(float)g->skstruct.adjust.note_1p_x + g->gameplay.nabeatsu_x, (float)g->skstruct.adjust.note_1p_y + g->gameplay.nabeatsu_y, -1,
-			(float)g->skstruct.adjust.size_x, (float)g->skstruct.adjust.size_y, 0);
-	}
-	if (g->skstruct.dst_JUDGELINE[1].dstCount > 0) {
-		AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, &g->skstruct.src_JUDGELINE[1], &g->skstruct.dst_JUDGELINE[1], &g->timer1,
-			(float)g->skstruct.adjust.note_2p_x + g->gameplay.nabeatsu_x, (float)g->skstruct.adjust.note_2p_y + g->gameplay.nabeatsu_y, -1,
-			(float)g->skstruct.adjust.size_x, (float)g->skstruct.adjust.size_y, 0);
-	}
-
-	if (((g->KeyInput.inputID[KEY_INPUT_ESCAPE] == 2 || (g->KeyInput.mouse_buttonR == 2 && g->config.play.disableleftclickexit == 0))
-		|| (g->KeyInput.p1_buttonInput[13] == 2 && g->KeyInput.p1_buttonInput[12] == 2)
-		|| (g->KeyInput.p2_buttonInput[13] == 2 && g->KeyInput.p2_buttonInput[12] == 2)
-		|| (g->gameplay.player[0].totalnotes <= g->gameplay.player[0].note_current && (g->KeyInput.p1_buttonInput[13] == 2 || g->KeyInput.p1_buttonInput[12] == 2 || g->KeyInput.p2_buttonInput[13] == 2 || g->KeyInput.p2_buttonInput[12] == 2)))
-		&& g->procPhase == 1) {
-		SetTimeLapse(2, &g->timer1);
-		g->procPhase = 2;
-		g->gameplay.flag_closingPhase = 1;
-		return 1;
-	}
-
-	if (g->procPhase == 2) {
-		timeLimit = g->skstruct.fadeout;
-		gameTime = GetTimeLapse(2, &g->timer1);
-		if (timeLimit < gameTime || timeLimit == 0) g->procSelecter = 5;
-	}
-	else if (g->procPhase == 3) {
-		timeLimit = g->skstruct.close;
-		gameTime = GetTimeLapse(3, &g->timer1);
-		if (timeLimit < gameTime || timeLimit == 0) g->procSelecter = 5;
-	}
-	g_sceneProcStage = "LR2SE_I_Play/complete";
-	return 1;
 }

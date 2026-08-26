@@ -23,6 +23,8 @@
 #include "winWorkspace.h"
 #include "seHelper.h"
 #include "seUI.h"
+#include "selfTests.h"
+#include "uiCatalog.h"
 
 
 // Data
@@ -38,9 +40,45 @@ void CleanupDeviceD3D();
 void ResetDevice();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+static void DrawHelpWindow(bool* open)
+{
+    char title[64];
+    FormatSEUISurfaceTitle(title, sizeof(title), SEUISurfaceId::Help);
+    if (!ImGui::Begin(title, open, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::End();
+        return;
+    }
+
+    SEUI::SectionHeader("Getting started");
+    ImGui::TextUnformatted("1. Create or open a workspace from the Workspace menu.");
+    ImGui::TextUnformatted("2. Choose an LR2 skin script, then inspect it in Preview.");
+    ImGui::TextUnformatted("3. Select objects in Object Browser and edit them in Object Inspector.");
+    ImGui::TextUnformatted("4. Use Asset Browser and Image Manager for source images.");
+
+    SEUI::SectionHeader("Workspace map");
+    ImGui::TextUnformatted("Left: object navigation and selection");
+    ImGui::TextUnformatted("Center: preview, images, destinations and assets");
+    ImGui::TextUnformatted("Right: options, properties and customization");
+    ImGui::TextDisabled("Window visibility can be changed from Workspace > Windows.");
+
+    ImGui::Separator();
+    if (ImGui::Button("Close"))
+        *open = false;
+    ImGui::End();
+}
+
 // Main code
 int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
 {
+    if (cmdline && strstr(cmdline, "--self-test-schema-contract"))
+        return RunSchemaContractSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-ui-contract"))
+        return RunUiCatalogSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-skin-browser"))
+        return RunSkinBrowserSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-preview-simulator"))
+        return RunPreviewSimulatorSelfTest();
+
     if (cmdline && strstr(cmdline, "--self-test-asset-metadata"))
         return RunAssetMetadataSelfTest();
 
@@ -139,9 +177,7 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     }
 
     // Our state
-    bool show_demo_window = false;
-    bool show_another_window = false;
-    bool show_simple_window = false;
+    bool show_help_window = false;
     ImVec4 clear_color = ImVec4(0.035f, 0.043f, 0.060f, 1.00f);
 
     //DxLib init
@@ -205,32 +241,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-        if (show_demo_window)
-            ImGui::ShowDemoWindow(&show_demo_window);
-
-        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
-        if (show_simple_window) {
-            static float f = 0.0f;
-            static int counter = 0;
-
-            ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-
-            ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-            ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-            ImGui::Checkbox("Another Window", &show_another_window);
-
-            ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-            ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-
-            if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-                counter++;
-            ImGui::SameLine();
-            ImGui::Text("counter = %d", counter);
-
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-            ImGui::End();
-        }
+        if (show_help_window)
+            DrawHelpWindow(&show_help_window);
 
         //MainFrame and menu
         if (ImGui::BeginMainMenuBar()) {
@@ -253,7 +265,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
                 ImGui::EndMenu();
             }
 
-            ImGui::MenuItem("Help", NULL, &show_simple_window);
+            const SEUISurfaceSpec& helpSpec = SEUISurfaceSpecFor(SEUISurfaceId::Help);
+            ImGui::MenuItem(helpSpec.title, NULL, &show_help_window);
             //ImGui::MenuItem("Info", NULL, );
 
             ImGui::EndMainMenuBar();
@@ -337,10 +350,25 @@ bool CreateDeviceD3D(HWND hWnd)
     g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
     g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;           // Present with vsync
     //g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;   // Present without vsync, maximum unthrottled framerate
-    if (g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
-        return false;
+    if (SUCCEEDED(g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+        hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp,
+        &g_pd3dDevice)))
+        return true;
 
-    return true;
+    // Hosted CI and remote Windows sessions may expose Direct3D 9 without
+    // hardware vertex processing. Keep the normal fast path above, then use a
+    // software vertex device so graphics self-tests remain meaningful there.
+    if (SUCCEEDED(g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+        hWnd, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &g_d3dpp,
+        &g_pd3dDevice)))
+        return true;
+
+    if (SUCCEEDED(g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_REF,
+        hWnd, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &g_d3dpp,
+        &g_pd3dDevice)))
+        return true;
+
+    return false;
 }
 
 void CleanupDeviceD3D()

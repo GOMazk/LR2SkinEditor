@@ -39,6 +39,10 @@ $tests = @(
         Argument = '--self-test-skin-browser'
     },
     [pscustomobject]@{
+        Name = 'preview-simulator'
+        Argument = '--self-test-preview-simulator'
+    },
+    [pscustomobject]@{
         Name = 'asset-metadata'
         Argument = '--self-test-asset-metadata'
     },

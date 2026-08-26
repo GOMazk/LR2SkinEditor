@@ -359,6 +359,8 @@ typedef struct WORKSPACE {
     int texture_preview_height = 0;
     unsigned long long previewLastRenderAt = 0;
     bool previewTextureDirty = true;
+    bool previewSimulationPlaying = false;
+    std::string previewSimulationMessage;
     int timerSelected;
     ImVec2 clickPos;
     bool drawRightClick;

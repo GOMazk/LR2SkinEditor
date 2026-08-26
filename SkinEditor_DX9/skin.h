@@ -17,8 +17,21 @@ int LR2SESceneProcSafe(game* g, int type);
 void LR2SEResetRenderFault();
 void LR2SEPreparePreviewState(game* g, int type);
 
+enum LR2SEPreviewNoteKind {
+	LR2SE_PREVIEW_NOTE_NORMAL = 0,
+	LR2SE_PREVIEW_NOTE_LONG = 1,
+	LR2SE_PREVIEW_NOTE_MINE = 2,
+};
+
+struct LR2SEPreviewChartNote {
+	int lane;
+	unsigned int timingMs;
+	unsigned int endTimingMs;
+	LR2SEPreviewNoteKind kind;
+};
+
+int LR2SEBuildPreviewChart(int type, LR2SEPreviewChartNote* notes, int capacity);
+
 int LR2SESceneInit(game* g, int type);
 
 int LR2SESceneProc(game* g, int type);
-
-int LR2SE_I_Play(game* g);

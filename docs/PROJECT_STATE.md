@@ -248,6 +248,18 @@ Browser 순서 변경:
 
 ## 5. Preview, Image Manager, DST View
 
+### PLAY 장면 시뮬레이터
+
+PLAY 계열 Preview의 `MainStart`는 외부 LR2 sample BMS/keyconfig를 읽지 않는다.
+현재 키 모드에 맞는 시간순 `LaneStruct`/`NoteStruct` chart를 메모리에서 만들고
+LR2 원본 `ProcI_Play`와 `DrawNotes`가 이를 소비한다. 편집기 코드가 노트 좌표나
+judge/combo 상태를 직접 만들지 않으므로 판정 시 `ApplyJudgeNote`가 설정하는
+lane별 50/100/120 타이머를 key beam, note explosion, judge/combo를 포함한 실제
+스킨 Object가 LR2와 같은 방식으로 소비한다. 오디오만 의도적으로 비활성 상태다.
+시뮬레이터 실행 상태는 각 WORKSPACE가 소유하므로 여러 스킨 탭 사이에서 공유되지
+않고, 실행 중 Object 편집으로 Preview가 재구성되면 장면도 안전하게 재시작한다.
+내장 chart가 끝나면 동일한 scene init을 거쳐 반복한다.
+
 ### 확대/축소
 
 Preview, Image Manager, DST View 모두 포인터가 canvas 위에 있을 때

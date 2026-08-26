@@ -2370,6 +2370,8 @@ int WORKSPACE::LoadSkin(char* path) {
     texture_preview_height = 0;
     previewLastRenderAt = 0;
     previewTextureDirty = true;
+    previewSimulationPlaying = false;
+    previewSimulationMessage.clear();
     SetGraphMode(skinSizeX, skinSizeY, 32, 60);
     SetDrawScreen(DX_SCREEN_BACK);
 
@@ -3960,8 +3962,6 @@ int WORKSPACE::drawPreview() {
     char title[260];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Preview, num);
 
-    static bool playing = false;
-
     // An inactive dock tab returns false here. Do not run LR2 rendering or
     // transfer a full preview texture while the user cannot see it.
     if (!ImGui::Begin(title, &wPreview, ImGuiWindowFlags_HorizontalScrollbar)) {
@@ -3978,6 +3978,11 @@ int WORKSPACE::drawPreview() {
     if (previewReloadPending && previewNow - previewReloadRequestedAt >= 80) {
         LoadSceneSE();
         LR2SEResetRenderFault();
+        if (previewSimulationPlaying && LR2SESceneInitSafe(&g, meta.type) != 0) {
+            previewSimulationPlaying = false;
+            previewSimulationMessage =
+                "Scene simulator failed after reload. See SkinEditor_load_crash.log.";
+        }
         previewReloadPending = false;
         previewLastRenderAt = 0;
         RefreshPreviewSelectionBounds();
@@ -3994,12 +3999,16 @@ int WORKSPACE::drawPreview() {
         // clears the buffer.  Running this after the draw loop made every
         // sample-BMS note get cleared at the start of the following frame
         // without ever reaching the preview texture.
-        if (playing && LR2SESceneProcSafe(&g, meta.type) == -1)
-            playing = false;
+        if (previewSimulationPlaying && LR2SESceneProcSafe(&g, meta.type) == -1) {
+            previewSimulationPlaying = false;
+            previewSimulationMessage =
+                "Scene simulator stopped after an error. See SkinEditor_load_crash.log.";
+        }
 
         // SELECT still needs its editor-side bar/BGA placeholders while its
         // timers are running; the original selector loop is not driven here.
-        const bool staticSpecialPreview = !playing || meta.type == SKINTYPE_SELECT;
+        const bool staticSpecialPreview =
+            !previewSimulationPlaying || meta.type == SKINTYPE_SELECT;
         if (LR2SEDrawLoopSafe(&g, previewScreen, skinSizeX, skinSizeY, staticSpecialPreview) == 0) {
             previewFrameUpdated = true;
             previewTextureDirty = true;
@@ -4181,7 +4190,28 @@ int WORKSPACE::drawPreview() {
 
     if (ImGui::Button("MainStart")) {
         LoadSceneSE();
-        playing = (LR2SESceneInitSafe(&g, meta.type) == 0);
+        LR2SEResetRenderFault();
+        previewSimulationPlaying = (LR2SESceneInitSafe(&g, meta.type) == 0);
+        previewSimulationMessage = previewSimulationPlaying
+            ? "Scene simulator running"
+            : "Scene simulator failed. See SkinEditor_load_crash.log.";
+        previewLastRenderAt = 0;
+    }
+    if (previewSimulationPlaying) {
+        ImGui::SameLine();
+        if (ImGui::Button("Stop scene")) {
+            previewSimulationPlaying = false;
+            previewSimulationMessage = "Scene simulator stopped";
+        }
+    }
+    if (!previewSimulationMessage.empty()) {
+        ImGui::SameLine();
+        if (previewSimulationPlaying)
+            ImGui::TextColored(ImVec4(0.40f, 0.85f, 0.55f, 1.0f), "RUNNING");
+        else
+            ImGui::TextDisabled("%s", previewSimulationMessage.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", previewSimulationMessage.c_str());
     }
 
     if (ImGui::BeginCombo("##Timer",timerName(timerSelected))) {

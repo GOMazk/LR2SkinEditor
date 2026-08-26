@@ -243,6 +243,29 @@ The toolbar does not maintain its own history. If the rectangle and object
 position separate after Undo, inspect the rebuild/invalidation stage rather
 than the button.
 
+### PLAY preview simulation
+
+```text
+Preview MainStart
+  -> LoadSceneSE rebuilds the current skin runtime objects
+  -> LR2SESceneInit builds silent LaneStruct / NoteStruct chart data
+  -> LR2SESceneProc calls LR2's original ProcI_Play
+  -> DrawNotes moves notes and ApplyJudgeNote starts lane effect timers
+  -> LR2 skin objects consume note, key-beam, explosion and judge/combo timers
+  -> LR2SEDrawLoop captures them into the Preview texture
+```
+
+The simulator must remain independent of external LR2 sample BMS and keyconfig
+files, because packaged/editor-only environments do not contain them. Playback
+state belongs to `WORKSPACE`, never to a function-local static, so two open
+skins cannot start or stop one another. A preview rebuild while running must
+reinitialize the scene before the next draw-buffer pass.
+
+The editor may synthesize chart data, but it must not synthesize note screen
+coordinates, judgement state, combo values or effect timers. Those remain
+owned by LR2's PLAY pipeline so a skin preview cannot silently diverge from
+runtime behavior.
+
 Object Browser reordering is a special structural edit. An Object may consist
 of non-contiguous indexed rows, so it records one `SkinDocumentSnapshot`
 instead of a chain of line moves. The drag payload carries a model index only

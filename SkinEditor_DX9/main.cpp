@@ -76,6 +76,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunUiCatalogSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-skin-browser"))
         return RunSkinBrowserSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-preview-simulator"))
+        return RunPreviewSimulatorSelfTest();
 
     if (cmdline && strstr(cmdline, "--self-test-asset-metadata"))
         return RunAssetMetadataSelfTest();

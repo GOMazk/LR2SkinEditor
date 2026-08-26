@@ -37,6 +37,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 - `ui-contract`: 창 카탈로그의 고유 key/title, owner, dock, workspace별 ImGui ID
 - `skin-browser`: 외부 폴더의 대소문자 확장자, 하위 폴더 탐색, 비스킨 파일 제외,
   잘못된 위치 거부
+- `preview-simulator`: PLAY 키 모드별 내장 chart의 시간순 lane 배치, 동시치기,
+  LN/mine 및 2P lane 계약
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제 및 graphic ID 배정
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
 
@@ -192,14 +194,19 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    마우스 아래의 이미지 지점이 움직이지 않은 채 확대/축소되는지 확인한다.
    Fit과 100%도 확인하고, 100% 초과 확대에서 선형 보간으로 흐려지지 않고
    원본 픽셀 경계가 선명하게 표시되는지 확인한다.
-6. Object 속성 하나를 변경하고 Ctrl+Z로 복구한다.
-7. 변경 후 하단 status bar가 `MODIFIED`, Ctrl+S 성공 후 `SAVED`인지 확인한다.
-8. Save As의 BROWSE가 파일 선택기를 열고, 성공 후 새 경로가 workspace의 현재
+6. PLAY 스킨의 Preview에서 `MainStart`를 누르면 무음 내장 chart가 LR2의 원본
+   `ProcI_Play`/`DrawNotes` 경로로 실행되는지 확인한다. 노트가 판정선에 도착할 때
+   normal/LN/mine과 함께 key beam, note explosion, judge/combo가 해당 스킨 정의대로
+   반응해야 한다. `Stop scene`으로 멈춘 뒤 `MainStart`로 다시 시작할 수 있어야
+   하며, 외부 sample BMS나 keyconfig 파일은 요구하지 않는다.
+7. Object 속성 하나를 변경하고 Ctrl+Z로 복구한다.
+8. 변경 후 하단 status bar가 `MODIFIED`, Ctrl+S 성공 후 `SAVED`인지 확인한다.
+9. Save As의 BROWSE가 파일 선택기를 열고, 성공 후 새 경로가 workspace의 현재
    경로가 되는지 확인한다.
-9. toolbar의 해상도 버튼에서 크기를 바꾸면 즉시 저장·재로드되며 Object 좌표가
+10. toolbar의 해상도 버튼에서 크기를 바꾸면 즉시 저장·재로드되며 Object 좌표가
    자동 확대되지 않는지 확인한다. 미저장 script/pixel edit 중에는 Apply가
    차단되는지도 확인한다.
-10. `Layout > Show all windows`에서 15개 창이 여섯 dock tab group 안에 정돈되고,
+11. `Layout > Show all windows`에서 15개 창이 여섯 dock tab group 안에 정돈되고,
     `Balanced workspace`가 기본 표시 상태를 복원하는지 확인한다.
 
 ## 회귀 테스트

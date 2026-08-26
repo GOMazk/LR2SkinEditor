@@ -3,6 +3,7 @@
 #include "../LR2/LR2_skinmanage.h"
 #include "seHelper.h"
 #include "seObjectEditor.h"
+#include "skin.h"
 #include "skinBrowser.h"
 #include "uiCatalog.h"
 
@@ -187,4 +188,66 @@ int RunSkinBrowserSelfTest() {
         }
     }
     return result;
+}
+
+int RunPreviewSimulatorSelfTest() {
+    LR2SEPreviewChartNote notes[256] = {};
+    int count = LR2SEBuildPreviewChart(SKINTYPE_7KEYS, notes, 256);
+    if (count != 180) return 1;
+    if (notes[0].lane != 0 || notes[0].timingMs != 2200 ||
+        notes[0].kind != LR2SE_PREVIEW_NOTE_NORMAL)
+        return 2;
+
+    bool laneSeen[20] = {};
+    bool laneHasPrevious[20] = {};
+    unsigned int lanePrevious[20] = {};
+    int longNotes = 0;
+    int mines = 0;
+    unsigned int previousTiming = 0;
+    for (int index = 0; index < count; ++index) {
+        const LR2SEPreviewChartNote& note = notes[index];
+        if (note.lane < 0 || note.lane > 7) return 3;
+        if (note.timingMs < previousTiming) return 4;
+        if (laneHasPrevious[note.lane] && note.timingMs <= lanePrevious[note.lane])
+            return 5;
+        previousTiming = note.timingMs;
+        lanePrevious[note.lane] = note.timingMs;
+        laneHasPrevious[note.lane] = true;
+        laneSeen[note.lane] = true;
+        if (note.kind == LR2SE_PREVIEW_NOTE_LONG) {
+            if (note.endTimingMs <= note.timingMs) return 6;
+            longNotes++;
+        }
+        else {
+            if (note.endTimingMs != 0) return 7;
+            if (note.kind == LR2SE_PREVIEW_NOTE_MINE) mines++;
+        }
+    }
+    for (int lane = 0; lane <= 7; ++lane) {
+        if (!laneSeen[lane]) return 8;
+    }
+    if (longNotes == 0 || mines == 0) return 9;
+
+    count = LR2SEBuildPreviewChart(SKINTYPE_14KEYS, notes, 256);
+    if (count != 180) return 10;
+    bool firstPlayer = false;
+    bool secondPlayer = false;
+    for (int index = 0; index < count; ++index) {
+        firstPlayer = firstPlayer || (notes[index].lane >= 0 && notes[index].lane <= 7);
+        secondPlayer = secondPlayer || (notes[index].lane >= 10 && notes[index].lane <= 17);
+    }
+    if (!firstPlayer || !secondPlayer) return 11;
+
+    count = LR2SEBuildPreviewChart(SKINTYPE_9KEYS, notes, 256);
+    if (count != 180) return 12;
+    for (int index = 0; index < count; ++index) {
+        if (notes[index].lane < 1 || notes[index].lane > 9) return 13;
+    }
+
+    if (LR2SEBuildPreviewChart(SKINTYPE_14KEYS, notes, 5) != 5)
+        return 14;
+    if (LR2SEBuildPreviewChart(SKINTYPE_7KEYS, nullptr, 256) != 0)
+        return 15;
+
+    return 0;
 }

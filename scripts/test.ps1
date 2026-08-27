@@ -43,6 +43,14 @@ $tests = @(
         Argument = '--self-test-preview-simulator'
     },
     [pscustomobject]@{
+        Name = 'resolution-estimator'
+        Argument = '--self-test-resolution-estimator'
+    },
+    [pscustomobject]@{
+        Name = 'olr-package'
+        Argument = '--self-test-olr-package'
+    },
+    [pscustomobject]@{
         Name = 'asset-metadata'
         Argument = '--self-test-asset-metadata'
     },

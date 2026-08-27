@@ -84,6 +84,7 @@ enum class SEUISurfaceId {
     SkinBrowser,
     SaveAs,
     Export,
+    OlrImport,
     NewSkin,
     NewObject,
     Help,
@@ -104,7 +105,8 @@ inline constexpr SEUISurfaceSpec kSEUISurfaceSpecs[] = {
     { SEUISurfaceId::WorkspaceShell, "workspace-shell", "Workspace Shell", "Own file commands, the toolbar, tool visibility and default docking.", "WORKSPACE::draw", "shell" },
     { SEUISurfaceId::SkinBrowser, "skin-browser", "Skin Browser", "Choose a registered LR2 skin or recursively scan another folder.", "WORKSPACE::drawSkinList", "dialog" },
     { SEUISurfaceId::SaveAs, "save-as", "Save As", "Choose the output script and switch the active working path.", "WORKSPACE::drawSaveMenu", "dialog" },
-    { SEUISurfaceId::Export, "export", "Export", "Configure and write an exported skin script.", "WORKSPACE::drawSaveMenu2", "dialog" },
+    { SEUISurfaceId::Export, "export", "Export OLR", "Package semantic JSON, LR2 compatibility data and resolved images into one .olrskin file.", "WORKSPACE::drawSaveMenu2", "dialog" },
+    { SEUISurfaceId::OlrImport, "olr-import", "Import OLR", "Validate and extract an .olrskin package to a new LR2 folder, then load it.", "WORKSPACE::ImportOlrSkinInteractive", "flow" },
     { SEUISurfaceId::NewSkin, "new-skin", "New Skin", "Create a protected initial skin preset for a scene and resolution.", "WORKSPACE::drawNewskin", "dialog" },
     { SEUISurfaceId::NewObject, "new-object", "New Object", "Create an Object or raw command in the selected file and branch.", "WORKSPACE::drawNewObject", "dialog" },
     { SEUISurfaceId::Help, "help", "Help", "Explain the editor workflow and the role of each primary workspace panel.", "DrawHelpWindow", "dialog" }

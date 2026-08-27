@@ -198,10 +198,16 @@
     <ClCompile Include="op.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="olrSkin.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="..\LR2\En_audio.cpp">
       <Filter>LR2</Filter>
     </ClCompile>
     <ClCompile Include="skin.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="skinResolution.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="winWorkspace2.cpp">
@@ -255,6 +261,9 @@
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="seUI.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="skinResolution.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="..\LR2\dbgtool.h">
@@ -378,6 +387,9 @@
       <Filter>LR2</Filter>
     </ClInclude>
     <ClInclude Include="op.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="olrSkin.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="..\LR2\En_audio.h">

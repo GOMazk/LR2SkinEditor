@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include "ImageLoader.h"
 #include "seObjectEditor.h"
+#include "skinResolution.h"
 #include <algorithm>
 #include <map>
 #include <memory>
@@ -216,6 +217,9 @@ typedef struct WORKSPACE {
     game g;
 
     SkinHeader meta;
+    SESkinResolutionSource skinResolutionSource =
+        SESkinResolutionSource::Default640x480;
+    int skinResolutionEvidenceCount = 0;
 
     bool loaded = false;
     bool dockLayoutBuilt = false;
@@ -229,6 +233,9 @@ typedef struct WORKSPACE {
     int lastSaveState = 0; // 0: no result, 1: saved, -1: failed
     std::string lastSaveMessage;
     unsigned long long lastSaveMessageAt = 0;
+    std::string olrPackageMessage;
+    int olrPackageState = 0;
+    bool olrImportResultPopupRequested = false;
     int RefreshPreviewSelectionBounds();
     char mainpath[MAX_PATH];
 
@@ -261,6 +268,8 @@ typedef struct WORKSPACE {
     bool IsDocumentDirty() const;
     void MarkDocumentSaved();
     int SaveCurrentSkin();
+    int ExportOlrSkin(const char* packagePath, std::string& resultMessage);
+    int ImportOlrSkinInteractive();
     int previewScreen = -1; //DxLib handle
 
     // Every workspace owns its semantic Object model.  The previous global

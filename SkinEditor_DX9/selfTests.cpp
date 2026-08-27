@@ -2,16 +2,23 @@
 
 #include "../LR2/En_timer.h"
 #include "../LR2/LR2_skinmanage.h"
+#include "olrSkin.h"
 #include "seHelper.h"
 #include "seObjectEditor.h"
 #include "skin.h"
 #include "skinBrowser.h"
+#include "skinResolution.h"
 #include "uiCatalog.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -73,6 +80,187 @@ int RunSchemaContractSelfTest() {
         return 14;
 
     return 0;
+}
+
+int RunResolutionEstimatorSelfTest() {
+    // Resolution inference reads the same embedded command schema as the
+    // editor, so packaged builds exercise the complete contract here.
+    if (LoadCommandHelp(nullptr) != 0) return 1;
+
+    SESkinResolutionDecision decision = SEResolveSkinResolution({
+        "#INFORMATION,0,title,maker,,,1920,1080",
+        "#RESOLUTION,1280,720",
+        "#DST_IMAGE,0,0,0,0,3840,2160"
+    });
+    if (decision.width != 1920 || decision.height != 1080 ||
+        decision.source != SESkinResolutionSource::Information)
+        return 2;
+
+    decision = SEResolveSkinResolution({
+        "#INFORMATION,0,title,maker,,,,",
+        "#RESOLUTION,1280,720",
+        "#DST_IMAGE,0,0,0,0,1920,1080"
+    });
+    if (decision.width != 1280 || decision.height != 720 ||
+        decision.source != SESkinResolutionSource::ResolutionCommand)
+        return 3;
+
+    decision = SEResolveSkinResolution({ "#RESOLUTION,1" });
+    if (decision.width != 1280 || decision.height != 720 ||
+        decision.source != SESkinResolutionSource::ResolutionCommand)
+        return 4;
+
+    std::vector<std::string> hdRows;
+    for (int index = 0; index < 19; ++index) {
+        hdRows.push_back("#DST_IMAGE,0,0,1000,600,260,110");
+    }
+    // A single transition frame should not inflate a 720p skin to 4K.
+    hdRows.push_back("#DST_IMAGE,0,0,5000,3000,1000,1000");
+    decision = SEResolveSkinResolution(hdRows);
+    if (decision.width != 1280 || decision.height != 720 ||
+        decision.source != SESkinResolutionSource::DestinationBounds ||
+        decision.destinationEvidenceCount != 20)
+        return 5;
+
+    decision = SEResolveSkinResolution({
+        "#DST_IMAGE,0,0,0,0,1920,1080"
+    });
+    if (decision.width != 1920 || decision.height != 1080 ||
+        decision.source != SESkinResolutionSource::DestinationBounds ||
+        decision.destinationEvidenceCount != 1)
+        return 6;
+
+    decision = SEResolveSkinResolution({
+        "#INFORMATION,0,title,maker,,,0,0",
+        "#DST_IMAGE,0,0,0,0,1280,720"
+    });
+    if (decision.width != 1280 || decision.height != 720 ||
+        decision.source != SESkinResolutionSource::DestinationBounds)
+        return 7;
+
+    decision = SEResolveSkinResolution({ "#IMAGE,background.png" });
+    if (decision.width != 640 || decision.height != 480 ||
+        decision.source != SESkinResolutionSource::Default640x480 ||
+        decision.destinationEvidenceCount != 0)
+        return 8;
+
+    return 0;
+}
+
+int RunOlrPackageSelfTest() {
+    char temporaryRoot[MAX_PATH] = {};
+    char testRoot[MAX_PATH] = {};
+    if (!GetTempPathA(MAX_PATH, temporaryRoot)) return 1;
+    if (!GetTempFileNameA(temporaryRoot, "OLR", 0, testRoot)) return 2;
+    DeleteFileA(testRoot);
+    if (!CreateDirectoryA(testRoot, NULL)) return 3;
+
+    const std::string root = testRoot;
+    const std::string assetPath = root + "\\asset.bin";
+    const std::string packagePath = root + "\\test.olrskin";
+    const std::string tamperedPath = root + "\\tampered.olrskin";
+    const std::string extractedPath = root + "\\imported";
+    const unsigned char assetBytes[] = {
+        'O', 'L', 'R', '_', 'A', 'S', 'S', 'E', 'T', '_', 'T', 'E', 'S', 'T', '!'
+    };
+    int result = 0;
+    FILE* assetFile = fopen(assetPath.c_str(), "wb");
+    if (!assetFile) result = 4;
+    else {
+        if (fwrite(assetBytes, 1, sizeof(assetBytes), assetFile) != sizeof(assetBytes))
+            result = 5;
+        fclose(assetFile);
+    }
+
+    SEOLRSkinDocument document;
+    document.title = "OLR self test";
+    document.maker = "SkinEditor";
+    document.scene = "PLAY 7KEYS";
+    document.canvasWidth = 1280;
+    document.canvasHeight = 720;
+    document.resolutionSource = "#RESOLUTION";
+    document.lr2Script =
+        "#INFORMATION,0,OLR self test,SkinEditor,,,1280,720\r\n"
+        "#IMAGE,assets/image_0000.bin\r\n"
+        "#SRC_IMAGE,0,0,0,0,16,16,1,1,0,0\r\n"
+        "#DST_IMAGE,0,0,100,200,16,16,0,255,255,255,255,1,0,0,0,0\r\n";
+    SEOLRSemanticObject semanticObject;
+    semanticObject.id = "obj_test";
+    semanticObject.category = "misc";
+    semanticObject.name = "Test image";
+    semanticObject.group = "IMAGE";
+    semanticObject.sourceCommand = "#SRC_IMAGE";
+    semanticObject.destinationCommand = "#DST_IMAGE";
+    semanticObject.sourceRows = { 2, 3 };
+    semanticObject.hasDestination = true;
+    semanticObject.x = 100;
+    semanticObject.y = 200;
+    semanticObject.width = 16;
+    semanticObject.height = 16;
+    document.objects.push_back(semanticObject);
+    document.sourceMap.push_back({ 0, 0, "main.lr2skin" });
+    document.assets.push_back({ 1, assetPath, "lr2/assets/image_0000.bin" });
+
+    SEOLRPackageInfo packageInfo;
+    std::string errorMessage;
+    if (result == 0 && !SEWriteOLRSkinPackage(packagePath.c_str(), document,
+        packageInfo, errorMessage)) result = 6;
+    if (result == 0 && (packageInfo.entries.size() != 5 ||
+        packageInfo.objectCount != 1 || packageInfo.assetCount != 1))
+        result = 7;
+
+    std::string extractedMain;
+    if (result == 0 && !SEExtractOLRSkinPackage(packagePath.c_str(),
+        extractedPath.c_str(), extractedMain, packageInfo, errorMessage))
+        result = 8;
+    if (result == 0 && extractedMain != extractedPath + "\\main.lr2skin")
+        result = 9;
+    if (result == 0) {
+        std::ifstream script(extractedMain, std::ios::binary);
+        const std::string scriptBytes((std::istreambuf_iterator<char>(script)),
+            std::istreambuf_iterator<char>());
+        if (scriptBytes != document.lr2Script) result = 10;
+    }
+    if (result == 0) {
+        std::ifstream asset(extractedPath + "\\assets\\image_0000.bin",
+            std::ios::binary);
+        const std::vector<unsigned char> extractedBytes(
+            (std::istreambuf_iterator<char>(asset)),
+            std::istreambuf_iterator<char>());
+        if (extractedBytes.size() != sizeof(assetBytes) ||
+            memcmp(extractedBytes.data(), assetBytes, sizeof(assetBytes)) != 0)
+            result = 11;
+    }
+
+    if (result == 0) {
+        SEOLRSkinDocument unsafeDocument = document;
+        unsafeDocument.assets[0].packagePath = "lr2/assets/../escape.bin";
+        if (SEWriteOLRSkinPackage((root + "\\unsafe.olrskin").c_str(),
+            unsafeDocument, packageInfo, errorMessage))
+            result = 12;
+    }
+
+    if (result == 0) {
+        std::ifstream input(packagePath, std::ios::binary);
+        std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(input)),
+            std::istreambuf_iterator<char>());
+        const auto match = std::search(bytes.begin(), bytes.end(),
+            std::begin(assetBytes), std::end(assetBytes));
+        if (match == bytes.end()) result = 13;
+        else {
+            *match ^= 0x20;
+            std::ofstream output(tamperedPath, std::ios::binary | std::ios::trunc);
+            output.write((const char*)bytes.data(), bytes.size());
+            output.close();
+            if (SEInspectOLRSkinPackage(tamperedPath.c_str(), packageInfo,
+                errorMessage)) result = 14;
+        }
+    }
+
+    std::error_code cleanupError;
+    std::filesystem::remove_all(root, cleanupError);
+    if (result == 0 && cleanupError) result = 15;
+    return result;
 }
 
 int RunUiCatalogSelfTest() {
@@ -167,6 +355,34 @@ int RunSkinBrowserSelfTest() {
         if (SEScanSkinFolder(missing.c_str()).success) result = 12;
     }
 
+    if (result == 0) {
+        FILE* skinFile = fopen(rootSkin.c_str(), "wb");
+        if (!skinFile) result = 13;
+        else {
+            fputs("#INFORMATION,0,Resolution test,Self test,,,,\r\n", skinFile);
+            fputs("#RESOLUTION,1280,720\r\n", skinFile);
+            fclose(skinFile);
+
+            SkinManage parsedSkin = {};
+            if (!InitSkinData(&parsedSkin)) result = 14;
+            else {
+                char originalWorkingDirectory[MAX_PATH] = {};
+                if (!GetCurrentDirectoryA(MAX_PATH, originalWorkingDirectory) ||
+                    !SetCurrentDirectoryA(scanRoot)) {
+                    result = 15;
+                }
+                if (result == 0)
+                    ParseLR2SkinCustom(&parsedSkin, CSTR(rootSkin.c_str()));
+                if (*originalWorkingDirectory)
+                    SetCurrentDirectoryA(originalWorkingDirectory);
+                if (result == 0 && (parsedSkin.Count != 1 ||
+                    parsedSkin.Data[0].targetX != 1280 ||
+                    parsedSkin.Data[0].targetY != 720))
+                    result = 16;
+            }
+        }
+    }
+
     DeleteFileA(ignored.c_str());
     DeleteFileA(nestedSkin.c_str());
     DeleteFileA(rootSkin.c_str());
@@ -175,7 +391,7 @@ int RunSkinBrowserSelfTest() {
 
     if (result == 0) {
         SkinManage skinData = {};
-        if (!InitSkinData(&skinData)) result = 13;
+        if (!InitSkinData(&skinData)) result = 17;
         else {
             skinData.Data[0].skinFile.assign("first.lr2skin");
             skinData.Data[0].customs[0].title.assign("Option");
@@ -184,12 +400,12 @@ int RunSkinBrowserSelfTest() {
             skinData.Data[0].custom_count = 1;
             skinData.Count = 1;
             CSTR* const labelTable = skinData.Data[0].customs[0].op_label;
-            if (!ResetSkinData(&skinData)) result = 14;
+            if (!ResetSkinData(&skinData)) result = 18;
             else if (skinData.Count != 0 || skinData.Data[0].skinFile.body ||
                 skinData.Data[0].customs[0].title.body ||
                 skinData.Data[0].customs[0].op_label != labelTable ||
                 skinData.Data[0].customs[0].op_label[0].body ||
-                skinData.Data[0].customs[0].dst_op_count != 0) result = 15;
+                skinData.Data[0].customs[0].dst_op_count != 0) result = 19;
         }
     }
     return result;

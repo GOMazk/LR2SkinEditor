@@ -78,6 +78,10 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunSkinBrowserSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-preview-simulator"))
         return RunPreviewSimulatorSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-resolution-estimator"))
+        return RunResolutionEstimatorSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-olr-package"))
+        return RunOlrPackageSelfTest();
 
     if (cmdline && strstr(cmdline, "--self-test-asset-metadata"))
         return RunAssetMetadataSelfTest();

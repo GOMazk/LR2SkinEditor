@@ -12,6 +12,7 @@ Object Editor와 현대화 UI 관련 미커밋 변경이 포함될 수 있으므
 - [현재 개발 상태와 설계](docs/PROJECT_STATE.md)
 - [빌드, 실행 및 회귀 테스트](docs/BUILD_AND_TEST.md)
 - [UI 구조와 디버깅 규칙](docs/UI_ARCHITECTURE.md)
+- [OLR Skin V0.1 포맷](docs/OLRSKIN_FORMAT.md)
 - [AI/UI 지도 생성 및 활용](docs/UI_MAP.md)
 - [AI 협업 시작 가이드](docs/AI_COLLABORATION.md)
 - [변경 인계 템플릿](docs/HANDOFF_TEMPLATE.md)
@@ -39,10 +40,10 @@ Command/argument schema        Object grouping schema
 산출물과 로그는 모두 `.build` 아래에 생성됩니다.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\ui-map.ps1 -Check
 powershell -ExecutionPolicy Bypass -File .\scripts\docs-check.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\ai-context.ps1 -Check
 ```
 

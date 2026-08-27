@@ -196,11 +196,13 @@
     <ClCompile Include="inputwrap.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="op.cpp" />
+    <ClCompile Include="olrSkin.cpp" />
     <ClCompile Include="seHelper.cpp" />
     <ClCompile Include="seObjectEditor.cpp" />
     <ClCompile Include="selfTests.cpp" />
     <ClCompile Include="seUI.cpp" />
     <ClCompile Include="skin.cpp" />
+    <ClCompile Include="skinResolution.cpp" />
     <ClCompile Include="winWorkspace.cpp" />
     <ClCompile Include="winWorkspace2.cpp" />
     <ClCompile Include="winWorkspace_save.cpp" />
@@ -259,6 +261,7 @@
     <ClInclude Include="imgui\imstb_truetype.h" />
     <ClInclude Include="inputwrap.h" />
     <ClInclude Include="op.h" />
+    <ClInclude Include="olrSkin.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="seHelper.h" />
     <ClInclude Include="seObjectEditor.h" />
@@ -266,6 +269,7 @@
     <ClInclude Include="seUI.h" />
     <ClInclude Include="skin.h" />
     <ClInclude Include="skinBrowser.h" />
+    <ClInclude Include="skinResolution.h" />
     <ClInclude Include="uiCatalog.h" />
     <ClInclude Include="winWorkspace.h" />
   </ItemGroup>

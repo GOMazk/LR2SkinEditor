@@ -293,6 +293,15 @@ ordinary undoable editing: after a clean-state guard it atomically changes the
 root `#INFORMATION` resolution and reloads the workspace. Panel components must
 not duplicate any of these file operations.
 
+`skinResolution.cpp` owns the loaded canvas resolution decision. `LoadSkin()`
+passes it the fully expanded script after includes have been read, and applies
+the result before LR2 graph handles are created. The precedence is valid
+`#INFORMATION`, `#RESOLUTION`, robust `#DST_*` bounds, then 640x480. DST field
+positions come from `skinHelper.txt` through `GetCommandHelp()` rather than a
+second hard-coded schema. An inferred result is workspace state only; the UI
+may display it but must not persist it until the user explicitly applies a
+resolution through the existing modal.
+
 Skin Browser uses the native folder picker for `Open another location`, then
 `SEScanSkinFolder()` discovers `.lr2skin` and `.lr2ss` recursively before the
 existing `ParseLR2SkinCustom()`/`LoadSkin()` path takes over. Refresh reuses the
@@ -300,6 +309,20 @@ current location; Default locations returns to `LR2files/Theme` and
 `LR2files/Sound`. The scan must skip reparse-point directories and reject
 unrepresentable or over-`MAX_PATH` paths because the legacy loader is ANSI and
 fixed-path based.
+
+OLR uses two explicit `WORKSPACE` file flows. `ExportOlrSkin()` reads the same
+expanded CSV rows and per-workspace Object Model used by the editor, then hands
+an `SEOLRSkinDocument` to `olrSkin.cpp`; it does not create another editable
+model. The Export modal blocks while Image Manager has unsaved pixel edits,
+because bundled assets are read from disk. Export does not mark the workspace
+saved and does not change `mainpath`.
+
+`ImportOlrSkinInteractive()` validates the complete archive before creating a
+directory, extracts only `lr2/` to a newly named folder, reparses its
+`#INFORMATION`, and enters the normal `LoadSkin()` path. It never follows owner
+labels from `compatibility/source-map.json` and never overwrites an existing
+folder. The result popup is presentation state only; the loaded document and
+selection continue to be owned by `WORKSPACE`.
 
 ## Debugging checklist
 

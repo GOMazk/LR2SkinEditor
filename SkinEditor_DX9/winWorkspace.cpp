@@ -16,6 +16,7 @@
 
 #include "skin.h"
 #include "op.h"
+#include "olrSkin.h"
 #include "arr.hpp"
 #include "seHelper.h"
 #include "seUI.h"
@@ -105,8 +106,47 @@ static bool BrowseSkinSavePath(const char* initialPath, char* selectedPath,
     return true;
 }
 
+static bool BrowseOlrSavePath(const char* initialPath, char* selectedPath,
+    size_t selectedPathSize) {
+    if (!selectedPath || selectedPathSize == 0) return false;
+    char path[MAX_PATH] = {};
+    if (initialPath && *initialPath)
+        strncpy_s(path, initialPath, _TRUNCATE);
+
+    OPENFILENAMEA dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = GetActiveWindow();
+    dialog.lpstrFilter = "OLR skin package (*.olrskin)\0*.olrskin\0All files (*.*)\0*.*\0\0";
+    dialog.lpstrFile = path;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.lpstrDefExt = "olrskin";
+    dialog.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR |
+        OFN_OVERWRITEPROMPT;
+    if (!GetSaveFileNameA(&dialog)) return false;
+    strncpy_s(selectedPath, selectedPathSize, path, _TRUNCATE);
+    return true;
+}
+
+static bool BrowseOlrOpenPath(char* selectedPath, size_t selectedPathSize) {
+    if (!selectedPath || selectedPathSize == 0) return false;
+    char path[MAX_PATH] = {};
+    OPENFILENAMEA dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = GetActiveWindow();
+    dialog.lpstrFilter = "OLR skin package (*.olrskin)\0*.olrskin\0All files (*.*)\0*.*\0\0";
+    dialog.lpstrFile = path;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.lpstrDefExt = "olrskin";
+    dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
+        OFN_NOCHANGEDIR;
+    if (!GetOpenFileNameA(&dialog)) return false;
+    strncpy_s(selectedPath, selectedPathSize, path, _TRUNCATE);
+    return true;
+}
+
 static bool BrowseSkinFolder(std::string& selectedPath,
-    std::string& selectedLabelUtf8, std::string& errorMessage) {
+    std::string& selectedLabelUtf8, std::string& errorMessage,
+    const wchar_t* dialogTitle = L"Open another skin location") {
     selectedPath.clear();
     selectedLabelUtf8.clear();
     errorMessage.clear();
@@ -128,7 +168,7 @@ static bool BrowseSkinFolder(std::string& selectedPath,
     dialog->GetOptions(&options);
     dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM |
         FOS_PATHMUSTEXIST | FOS_DONTADDTORECENT);
-    dialog->SetTitle(L"Open another skin location");
+    dialog->SetTitle(dialogTitle);
     result = dialog->Show(GetActiveWindow());
     if (result == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
         dialog->Release();
@@ -735,13 +775,20 @@ int WORKSPACE::draw() {
             }
             if (ImGui::MenuItem("Open another location..."))
                 OpenSkinFolderDialog();
+            if (ImGui::MenuItem("Import OLR package..."))
+                ImportOlrSkinInteractive();
             if (loaded) {
                 if (ImGui::MenuItem("Save", "Ctrl+S")) SaveCurrentSkin();
                 if (ImGui::MenuItem("Save as", "Ctrl+Shift+S")) {
                     newPath[0] = '\0';
                     wSaveMenu = true;
                 }
-                ImGui::MenuItem("Export", NULL, &wSaveMenu2); //todo
+                if (ImGui::MenuItem("Export OLR package...")) {
+                    newPath[0] = '\0';
+                    olrPackageMessage.clear();
+                    olrPackageState = 0;
+                    wSaveMenu2 = true;
+                }
             }
             ImGui::EndMenu();
         }
@@ -794,6 +841,22 @@ int WORKSPACE::draw() {
         ImGui::EndMenuBar();
     }
 
+    char olrImportPopup[64];
+    snprintf(olrImportPopup, sizeof(olrImportPopup), "OLR import result##%d", num);
+    if (olrImportResultPopupRequested) {
+        ImGui::OpenPopup(olrImportPopup);
+        olrImportResultPopupRequested = false;
+    }
+    if (ImGui::BeginPopupModal(olrImportPopup, NULL,
+        ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextColored(olrPackageState > 0
+            ? SEUI::Colors::Success() : SEUI::Colors::Danger(),
+            olrPackageState > 0 ? "OLR package imported" : "OLR import failed");
+        ImGui::TextWrapped("%s", olrPackageMessage.c_str());
+        if (ImGui::Button("OK")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
     // The toolbar exposes common actions without removing their menu entries.
     // It only emits intent; existing WORKSPACE methods remain the single source
     // of truth for loading, saving and history behavior.
@@ -812,10 +875,21 @@ int WORKSPACE::draw() {
             UndoLastEdit();
         SEUI::ToolbarSeparator();
         char resolutionLabel[48];
+        char resolutionTooltip[192];
         snprintf(resolutionLabel, sizeof(resolutionLabel), "%d x %d",
             loaded ? meta.targetX : 0, loaded ? meta.targetY : 0);
+        if (loaded && SEIsInferredSkinResolution(skinResolutionSource)) {
+            snprintf(resolutionTooltip, sizeof(resolutionTooltip),
+                "Change the loaded workspace resolution. Current size was inferred from %d DST rows and has not been written to the skin file.",
+                skinResolutionEvidenceCount);
+        }
+        else {
+            snprintf(resolutionTooltip, sizeof(resolutionTooltip),
+                "Change the loaded workspace resolution (%s)",
+                loaded ? SESkinResolutionSourceText(skinResolutionSource) : "no skin loaded");
+        }
         if (SEUI::ActionButton(resolutionLabel,
-            "Change the loaded workspace resolution", loaded)) {
+            resolutionTooltip, loaded)) {
             workspaceResolutionWidth = meta.targetX;
             workspaceResolutionHeight = meta.targetY;
             workspaceResolutionState = 0;
@@ -916,6 +990,11 @@ int WORKSPACE::draw() {
         ImGui::TextDisabled("Object coordinates are kept as-is; they are not scaled.");
         ImGui::TextColored(SEUI::Colors::Warning(),
             "Apply writes #INFORMATION to the current skin immediately and reloads the workspace.");
+        if (SEIsInferredSkinResolution(skinResolutionSource)) {
+            ImGui::TextColored(SEUI::Colors::Warning(),
+                "Estimated from %d DST rows; the source file is unchanged.",
+                skinResolutionEvidenceCount);
+        }
         ImGui::SetNextItemWidth(240.0f);
         int resolution[2] = { workspaceResolutionWidth, workspaceResolutionHeight };
         if (ImGui::InputInt2("Width / Height", resolution)) {
@@ -1094,8 +1173,10 @@ int WORKSPACE::draw() {
             if (!lastSaveMessage.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
                 ImGui::SetTooltip("%s", lastSaveMessage.c_str());
             ImGui::SameLine(0.0f, 10.0f);
-            ImGui::TextDisabled("%s  |  %d x %d  |  %d objects", SKINTYPESTR[meta.type],
-                meta.targetX, meta.targetY, arr_seobj.count);
+            ImGui::TextDisabled("%s  |  %d x %d%s  |  %d objects", SKINTYPESTR[meta.type],
+                meta.targetX, meta.targetY,
+                SEIsInferredSkinResolution(skinResolutionSource) ? " inferred" : "",
+                arr_seobj.count);
         }
         SEUI::EndStatusBar();
     }
@@ -2499,8 +2580,6 @@ int WORKSPACE::LoadSkin(char* path) {
     previewLastRenderAt = 0;
     previewTextureDirty = true;
     previewSimulationPlaying = false;
-    SetGraphMode(skinSizeX, skinSizeY, 32, 60);
-    SetDrawScreen(DX_SCREEN_BACK);
 
     for (int i = 0; i < 200; i++) g.skstruct.caption[i].fillzero();
     for (int i = 0; i < 10; i++) g.skstruct.helpfilePath[i].fillzero();
@@ -2532,6 +2611,33 @@ int WORKSPACE::LoadSkin(char* path) {
         return -1;
     }
     WriteSkinLoadLog("LoadSkinScript complete");
+
+    std::vector<std::string> resolutionLines;
+    resolutionLines.reserve(skinfileLines.count);
+    for (int lineIndex = 0; lineIndex < skinfileLines.count; ++lineIndex) {
+        SKINFILELINEREAD& line =
+            ((SKINFILELINEREAD*)skinfileLines.data)[lineIndex];
+        if (line.line.body) resolutionLines.emplace_back(line.line.outstr());
+    }
+    const SESkinResolutionDecision resolution =
+        SEResolveSkinResolution(resolutionLines);
+    skinSizeX = resolution.width;
+    skinSizeY = resolution.height;
+    meta.targetX = resolution.width;
+    meta.targetY = resolution.height;
+    skinResolutionSource = resolution.source;
+    skinResolutionEvidenceCount = resolution.destinationEvidenceCount;
+    char resolutionSummary[192];
+    snprintf(resolutionSummary, sizeof(resolutionSummary),
+        "%d x %d source=%s evidence=%d", skinSizeX, skinSizeY,
+        SESkinResolutionSourceText(skinResolutionSource),
+        skinResolutionEvidenceCount);
+    WriteSkinLoadLog("Resolution resolved", resolutionSummary);
+
+    // Graph mode must be selected after the complete include tree has supplied
+    // resolution evidence, but before LR2 loads any graph handles.
+    SetGraphMode(skinSizeX, skinSizeY, 32, 60);
+    SetDrawScreen(DX_SCREEN_BACK);
 
     // Dynamic #IF options (clear/fail, rank, key mode, difficulty, etc.) are
     // used while ParseSkin decides which image branches to keep. Prepare the
@@ -2609,6 +2715,8 @@ int WORKSPACE::LoadSkin(char* path) {
     lastSaveState = 0;
     lastSaveMessage.clear();
     lastSaveMessageAt = 0;
+    olrPackageMessage.clear();
+    olrPackageState = 0;
     newPath[0] = '\0';
     workspaceResolutionDialogRequested = false;
     workspaceResolutionState = 0;
@@ -6869,62 +6977,445 @@ int WORKSPACE::drawSaveMenu() {
     }
     return 0;
 }
-//{
-//    CSTR savepath(mainpath);
-//    savepath.add("_master");
-//    SaveMaster(savepath);
-//}
+namespace {
+
+std::string OlrUpperAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+        [](unsigned char ch) { return (char)std::toupper(ch); });
+    return value;
+}
+
+std::string OlrSemanticCategory(const std::string& group,
+    const std::string& sourceCommand) {
+    const std::string key = OlrUpperAscii(group + " " + sourceCommand);
+    if (key.find("NOTE") != std::string::npos) return "notes";
+    if (key.find("NOWJUDGE") != std::string::npos) return "judge";
+    if (key.find("NOWCOMBO") != std::string::npos) return "combo";
+    if (key.find("GROOVEGAUGE") != std::string::npos ||
+        key.find("GAUGECHART") != std::string::npos ||
+        key.find("SCORECHART") != std::string::npos)
+        return "gauge";
+    if (key.find("JUDGELINE") != std::string::npos ||
+        key.find("$LINE") != std::string::npos ||
+        key.find("SRC_LINE") != std::string::npos)
+        return "gear";
+    if (key.find("BGA") != std::string::npos) return "bga";
+    if (key.find("EVENT") != std::string::npos ||
+        key.find("FLASH") != std::string::npos ||
+        key.find("BOMB") != std::string::npos)
+        return "effects";
+    if (key.find("TEXT") != std::string::npos ||
+        key.find("NUMBER") != std::string::npos)
+        return "texts";
+    if (key.find("BUTTON") != std::string::npos ||
+        key.find("SLIDER") != std::string::npos ||
+        key.find("ONMOUSE") != std::string::npos ||
+        key.find("BAR_") != std::string::npos)
+        return "ui";
+    return "misc";
+}
+
+std::string OlrOwnerLabel(const char* owner, const char* mainSkinPath) {
+    if (!owner || !*owner || !mainSkinPath || !*mainSkinPath ||
+        IsSameOwnerPath(owner, mainSkinPath))
+        return "main.lr2skin";
+
+    std::error_code error;
+    std::filesystem::path mainFile = std::filesystem::absolute(
+        std::filesystem::path(mainSkinPath), error).lexically_normal();
+    if (!error) {
+        std::filesystem::path ownerFile = std::filesystem::absolute(
+            std::filesystem::path(owner), error).lexically_normal();
+        if (!error) {
+            std::filesystem::path relative = std::filesystem::relative(
+                ownerFile, mainFile.parent_path(), error);
+            bool escapesRoot = error || relative.empty();
+            if (!escapesRoot) {
+                for (const std::filesystem::path& segment : relative) {
+                    if (segment == "..") {
+                        escapesRoot = true;
+                        break;
+                    }
+                }
+            }
+            if (!escapesRoot)
+                return Cp932ToUtf8(relative.generic_string().c_str());
+        }
+    }
+
+    const std::filesystem::path filename = std::filesystem::path(owner).filename();
+    const std::string basename = filename.empty() ? "unknown.lr2skin" : filename.string();
+    return "<external>/" + Cp932ToUtf8(basename.c_str());
+}
+
+bool OlrResolveAssetPath(const char* assetPath, const char* mainSkinPath,
+    std::string& resolvedPath) {
+    resolvedPath.clear();
+    if (!assetPath || !*assetPath || !mainSkinPath || !*mainSkinPath)
+        return false;
+    std::error_code error;
+    std::filesystem::path candidate(assetPath);
+    if (candidate.is_relative())
+        candidate = std::filesystem::path(mainSkinPath).parent_path() / candidate;
+    candidate = std::filesystem::absolute(candidate, error).lexically_normal();
+    if (!error && std::filesystem::is_regular_file(candidate, error) && !error) {
+        resolvedPath = candidate.string();
+        return true;
+    }
+
+    char siblingPath[MAX_PATH] = {};
+    if (ResolveSiblingPlayPath(assetPath, mainSkinPath,
+        siblingPath, sizeof(siblingPath))) {
+        candidate = std::filesystem::path(siblingPath);
+        if (std::filesystem::is_regular_file(candidate, error) && !error) {
+            resolvedPath = candidate.string();
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string OlrSafeAssetExtension(const std::string& sourcePath) {
+    std::string extension = std::filesystem::path(sourcePath).extension().string();
+    if (!extension.empty() && extension.front() == '.') extension.erase(0, 1);
+    if (extension.empty() || extension.size() > 8) return ".bin";
+    for (unsigned char ch : extension) {
+        if (!std::isalnum(ch)) return ".bin";
+    }
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char ch) { return (char)std::tolower(ch); });
+    return "." + extension;
+}
+
+bool OlrIsBundledImagePath(const std::string& sourcePath) {
+    std::string extension = std::filesystem::path(sourcePath).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char ch) { return (char)std::tolower(ch); });
+    return extension == ".bmp" || extension == ".png" ||
+        extension == ".jpg" || extension == ".jpeg" ||
+        extension == ".gif" || extension == ".tga" ||
+        extension == ".dds";
+}
+
+std::string OlrWithoutLineEnding(const char* text) {
+    std::string line = text ? text : "";
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+        line.pop_back();
+    return line;
+}
+
+} // namespace
+
+int WORKSPACE::ExportOlrSkin(const char* packagePath,
+    std::string& resultMessage) {
+    resultMessage.clear();
+    if (!loaded || !mainpath[0]) {
+        resultMessage = "Load an LR2 skin before exporting an OLR package.";
+        return -1;
+    }
+    if (!packagePath || !*packagePath) {
+        resultMessage = "Choose an .olrskin destination.";
+        return -1;
+    }
+    if (!imagePixelPaintDirtyPaths.empty()) {
+        resultMessage = "Image Manager has unsaved pixel edits. Save them before export.";
+        return -1;
+    }
+
+    SEOLRSkinDocument document;
+    document.title = Cp932ToUtf8(meta.title.body ? meta.title.outstr() : "");
+    document.maker = Cp932ToUtf8(meta.maker.body ? meta.maker.outstr() : "");
+    document.scene = meta.type >= 0 && meta.type < 21
+        ? SKINTYPESTR[meta.type] : "UNKNOWN";
+    document.canvasWidth = skinSizeX;
+    document.canvasHeight = skinSizeY;
+    document.resolutionSource = SESkinResolutionSourceText(skinResolutionSource);
+    document.resolutionInferred = SEIsInferredSkinResolution(skinResolutionSource);
+
+    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+    for (const SEObjectInstance& object : objects) {
+        SEOLRSemanticObject semantic;
+        semantic.id = object.editorId.empty() && !object.rows.empty()
+            ? "legacy_row_" + std::to_string(object.rows.front() + 1)
+            : object.editorId;
+        semantic.name = Cp932ToUtf8(object.name.c_str());
+        const SEObjectGroupDef* group = objectEditorModel.Group(object.group);
+        semantic.group = group ? Cp932ToUtf8(group->name.c_str()) : "Unknown";
+
+        for (int rowIndex : object.rows) {
+            if (rowIndex < 0 || rowIndex >= skinfileLines.count) continue;
+            SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
+            semantic.sourceRows.push_back(rowIndex + 1);
+            const char* command = row.csv.str[0].body ? row.csv.str[0].outstr() : "";
+            if (semantic.sourceCommand.empty() && !strncmp(command, "#SRC_", 5))
+                semantic.sourceCommand = command;
+            if (semantic.destinationCommand.empty() && !strncmp(command, "#DST_", 5)) {
+                semantic.destinationCommand = command;
+                semantic.hasDestination = true;
+                ReadCommandField(row.csv, command, "x", semantic.x);
+                ReadCommandField(row.csv, command, "y", semantic.y);
+                ReadCommandField(row.csv, command, "w", semantic.width);
+                if (!ReadCommandField(row.csv, command, "h", semantic.height))
+                    ReadCommandField(row.csv, command, "size", semantic.height);
+                ReadCommandField(row.csv, command, "timer", semantic.timer);
+                ReadCommandField(row.csv, command, "loop", semantic.loop);
+                ReadCommandField(row.csv, command, "op1", semantic.op1);
+                ReadCommandField(row.csv, command, "op2", semantic.op2);
+                ReadCommandField(row.csv, command, "op3", semantic.op3);
+            }
+        }
+        semantic.category = OlrSemanticCategory(semantic.group,
+            semantic.sourceCommand);
+        document.objects.push_back(std::move(semantic));
+    }
+
+    std::map<int, std::string> packagedImageRows;
+    for (int rowIndex = 0; rowIndex < skinfileLines.count; ++rowIndex) {
+        SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
+        if (row.isComment || !row.csv.str[0].body ||
+            !row.csv.str[0].isSame("#IMAGE"))
+            continue;
+        const char* declaredPath = row.csv.str[1].body
+            ? row.csv.str[1].outstr() : "";
+        if (!*declaredPath || !_stricmp(declaredPath, "CONTINUE")) continue;
+        if (strchr(declaredPath, '*')) {
+            ++document.unresolvedImageCount;
+            continue;
+        }
+
+        std::string sourcePath;
+        bool hasResolvedImage = false;
+        for (int imageIndex = 0; imageIndex < arr_SRCGR.count; ++imageIndex) {
+            SRCGR& image = ((SRCGR*)arr_SRCGR.data)[imageIndex];
+            if (image.declare != rowIndex || image.fromWildcard || !image.path.body)
+                continue;
+            if (OlrResolveAssetPath(image.path.outstr(), mainpath, sourcePath)) {
+                hasResolvedImage = true;
+                break;
+            }
+        }
+        if (!hasResolvedImage &&
+            !OlrResolveAssetPath(declaredPath, mainpath, sourcePath)) {
+            ++document.unresolvedImageCount;
+            continue;
+        }
+        if (!OlrIsBundledImagePath(sourcePath)) {
+            ++document.unresolvedImageCount;
+            continue;
+        }
+
+        const int assetNumber = (int)document.assets.size();
+        char assetStem[64];
+        snprintf(assetStem, sizeof(assetStem), "image_%04d", assetNumber);
+        const std::string packageRelative = std::string("assets/") +
+            assetStem + OlrSafeAssetExtension(sourcePath);
+        SEOLRAssetInput asset;
+        asset.declarationRow = rowIndex;
+        asset.sourcePath = sourcePath;
+        asset.packagePath = "lr2/" + packageRelative;
+        document.assets.push_back(std::move(asset));
+        packagedImageRows[rowIndex] = packageRelative;
+    }
+
+    int packagedRow = 0;
+    std::ostringstream lr2;
+    for (int rowIndex = 0; rowIndex < skinfileLines.count; ++rowIndex) {
+        SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
+        const char* original = row.line.body ? row.line.outstr() : "";
+        if (row.isSEcomment && !strncmp(original, "$FILE ", 6)) continue;
+        if (!row.isComment && row.csv.str[0].body &&
+            row.csv.str[0].isSame("#INCLUDE"))
+            continue;
+
+        const auto image = packagedImageRows.find(rowIndex);
+        if (image != packagedImageRows.end())
+            lr2 << "#IMAGE," << image->second;
+        else
+            lr2 << OlrWithoutLineEnding(original);
+        lr2 << "\r\n";
+
+        SEOLRSourceMapEntry source;
+        source.expandedRow = rowIndex + 1;
+        source.packagedRow = ++packagedRow;
+        source.owner = OlrOwnerLabel(row.filename.body
+            ? row.filename.outstr() : mainpath, mainpath);
+        document.sourceMap.push_back(std::move(source));
+    }
+    document.lr2Script = lr2.str();
+
+    SEOLRPackageInfo packageInfo;
+    std::string errorMessage;
+    if (!SEWriteOLRSkinPackage(packagePath, document, packageInfo, errorMessage)) {
+        resultMessage = errorMessage;
+        return -1;
+    }
+    std::ostringstream summary;
+    summary << "Exported " << packageInfo.objectCount << " semantic objects and "
+        << packageInfo.assetCount << " fixed image assets.";
+    if (packageInfo.unresolvedImageCount > 0)
+        summary << " " << packageInfo.unresolvedImageCount
+            << " dynamic or unresolved #IMAGE declarations remain external.";
+    resultMessage = summary.str();
+    return 0;
+}
+
+int WORKSPACE::ImportOlrSkinInteractive() {
+    char packagePath[MAX_PATH] = {};
+    if (!BrowseOlrOpenPath(packagePath, sizeof(packagePath))) return 0;
+
+    std::string parentFolder;
+    std::string parentLabelUtf8;
+    std::string pickerError;
+    if (!BrowseSkinFolder(parentFolder, parentLabelUtf8, pickerError,
+        L"Choose a parent folder for the imported OLR skin")) {
+        if (!pickerError.empty()) {
+            olrPackageState = -1;
+            olrPackageMessage = pickerError;
+            olrImportResultPopupRequested = true;
+        }
+        return pickerError.empty() ? 0 : -1;
+    }
+
+    std::filesystem::path package(packagePath);
+    std::string stem = package.stem().string();
+    if (stem.empty()) stem = "imported-skin";
+    std::filesystem::path target = std::filesystem::path(parentFolder) /
+        (stem + "-lr2");
+    std::error_code filesystemError;
+    for (int suffix = 2; std::filesystem::exists(target, filesystemError); ++suffix) {
+        if (filesystemError) break;
+        target = std::filesystem::path(parentFolder) /
+            (stem + "-lr2-" + std::to_string(suffix));
+    }
+    if (filesystemError) {
+        olrPackageState = -1;
+        olrPackageMessage = "The selected import folder could not be inspected.";
+        olrImportResultPopupRequested = true;
+        return -1;
+    }
+
+    std::string extractedMainPath;
+    SEOLRPackageInfo packageInfo;
+    if (!SEExtractOLRSkinPackage(packagePath, target.string().c_str(),
+        extractedMainPath, packageInfo, olrPackageMessage)) {
+        olrPackageState = -1;
+        olrImportResultPopupRequested = true;
+        return -1;
+    }
+    if (extractedMainPath.size() >= MAX_PATH) {
+        olrPackageState = -1;
+        olrPackageMessage = "The package was extracted, but its LR2 path exceeds MAX_PATH: " +
+            extractedMainPath;
+        olrImportResultPopupRequested = true;
+        return -1;
+    }
+
+    if (skinBrowserDataInitialized) ResetSkinData(&g.skinData);
+    else {
+        InitSkinData(&g.skinData);
+        skinBrowserDataInitialized = true;
+    }
+    ParseLR2SkinCustom(&g.skinData, CSTR(extractedMainPath.c_str()));
+    if (g.skinData.Count <= 0) {
+        olrPackageState = -1;
+        olrPackageMessage = "The package was extracted, but main.lr2skin has no valid #INFORMATION row: " +
+            extractedMainPath;
+        olrImportResultPopupRequested = true;
+        return -1;
+    }
+
+    meta = g.skinData.Data[0];
+    snprintf(title, sizeof(title), "%s -%s", meta.title.outstr(),
+        meta.type >= 0 && meta.type < 21 ? SKINTYPESTR[meta.type] : "UNKNOWN");
+    strncpy_s(mainpath, extractedMainPath.c_str(), _TRUNCATE);
+    loaded = LoadSkin(mainpath) == 0;
+    if (!loaded) {
+        olrPackageState = -1;
+        olrPackageMessage = "The package was extracted, but SkinEditor could not load it: " +
+            extractedMainPath;
+        olrImportResultPopupRequested = true;
+        return -1;
+    }
+
+    olrPackageState = 1;
+    std::ostringstream result;
+    result << "Imported " << packageInfo.objectCount << " semantic objects and "
+        << packageInfo.assetCount << " assets to " << extractedMainPath;
+    if (packageInfo.unresolvedImageCount > 0)
+        result << ". " << packageInfo.unresolvedImageCount
+            << " external image declarations may still require the original LR2 environment";
+    olrPackageMessage = result.str();
+    lastSaveState = 0;
+    lastSaveMessage = olrPackageMessage;
+    lastSaveMessageAt = GetTickCount64();
+    olrImportResultPopupRequested = true;
+    return 1;
+}
 
 int WORKSPACE::drawSaveMenu2() {
     char title[260], input[32], result[32];
-    snprintf(title, sizeof(title), "SaveMenu##%d", num);
-    snprintf(input, sizeof(input), "##savePathInput%d", num);
+    snprintf(title, sizeof(title), "Export OLR package##%d", num);
+    snprintf(input, sizeof(input), "##olrExportPath%d", num);
+    snprintf(result, sizeof(result), "OLR export result##%d", num);
 
-
-    if (ImGui::Begin(title, &wSaveMenu2, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_Modal)) {
-
-        ImGui::Text("old path is %s ", mainpath);
-        if (newPath[0] == '\0') { //very init
-            strncpy(newPath, mainpath, sizeof(newPath));
+    const bool visible = ImGui::Begin(title, &wSaveMenu2,
+        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_Modal);
+    if (visible) {
+        if (newPath[0] == '\0') {
+            std::filesystem::path suggested(mainpath);
+            suggested.replace_extension(".olrskin");
+            strncpy_s(newPath, suggested.string().c_str(), _TRUNCATE);
         }
 
-        if (ImGui::Button("BROWSE", { 0, 0 })) {
-            //TODO
-        }
-        ImGui::SameLine(0, 0);
+        ImGui::TextWrapped("Create one portable .olrskin file from the loaded LR2 workspace.");
+        ImGui::TextDisabled("V0.1 writes an AI-readable semantic index plus the merged LR2 compatibility script.");
+        if (ImGui::Button("BROWSE"))
+            BrowseOlrSavePath(newPath, newPath, sizeof(newPath));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-1.0f);
         ImGui::InputText(input, newPath, IM_ARRAYSIZE(newPath));
-        exist = IsFileExist(newPath) || !strcmp(mainpath, newPath); //TODO reduce cpu usage
 
-        if (exist) ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "CAUTION: OVERWRITE");
-        ImGui::SeparatorText("Script files");
-        ImGui::RadioButton("merge scripts", &split, 0);
-        ImGui::RadioButton("split scripts", &split, 1);
-        ImGui::SeparatorText("Comments");
-        ImGui::RadioButton("maintain memo", &nocomment, 0);
-        ImGui::RadioButton("delete memo", &nocomment, 1);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone) && ImGui::BeginTooltip()) {
-            ImGui::Text("this will remove all group, only for Scene start speed on LR2.\nAre your sure this?");
-            ImGui::EndTooltip();
+        exist = IsFileExist(newPath);
+        if (exist)
+            ImGui::TextColored(SEUI::Colors::Warning(),
+                "The selected package already exists and will be replaced.");
+
+        ImGui::SeparatorText("Portability boundary");
+        ImGui::BulletText("Fixed #IMAGE files resolved by the editor are bundled.");
+        ImGui::BulletText("LR2 commands, comments, timers, conditions and editor metadata are preserved.");
+        ImGui::BulletText("Wildcard/custom files, fonts, video and sound may remain external in V0.1.");
+        ImGui::BulletText("skin.json is descriptive; lr2/main.lr2skin remains authoritative.");
+
+        const bool hasUnsavedImageEdits = !imagePixelPaintDirtyPaths.empty();
+        if (hasUnsavedImageEdits) {
+            ImGui::TextColored(SEUI::Colors::Danger(),
+                "Save or discard Image Manager pixel edits before exporting.");
         }
 
-        if (ImGui::Button("SAVE", { 0, 0 })) {
-            success = (SaveSkinScript2(newPath, split, nocomment) == 0);
-            if (success) snprintf(result, sizeof(result), "SaveResult##Save%d", num);
+        ImGui::BeginDisabled(newPath[0] == '\0' || hasUnsavedImageEdits);
+        if (ImGui::Button("EXPORT OLR")) {
+            success = ExportOlrSkin(newPath, olrPackageMessage) == 0;
+            olrPackageState = success ? 1 : -1;
             ImGui::OpenPopup(result);
         }
+        ImGui::EndDisabled();
 
-        snprintf(result, sizeof(result), "SaveResult##Save%d", num);
-        if (ImGui::BeginPopupModal(result, NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextUnformatted(success ? "save success" : "save failed - original files were preserved");
+        if (ImGui::BeginPopupModal(result, NULL,
+            ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextColored(success ? SEUI::Colors::Success() : SEUI::Colors::Danger(),
+                success ? "OLR package created" : "OLR export failed");
+            ImGui::TextWrapped("%s", olrPackageMessage.c_str());
+            if (success) ImGui::TextDisabled("%s", newPath);
             if (ImGui::Button("OK")) {
-                wSaveMenu2 = 0;
+                wSaveMenu2 = false;
                 success = 0;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
         }
-        ImGui::End();
     }
+    ImGui::End();
     return 0;
 }
 

@@ -1891,16 +1891,41 @@ int WORKSPACE::ParseSkinGraphics() {
                 CSTR str2(line.right(line.length() - str1.length() - 1));
                 CSTR str3(str1);
                 str3.add("*");
+                const bool wildcardSelectsDirectory = !str2.body ||
+                    str2.length() == 0 || str2.outstr()[0] == '\\' ||
+                    str2.outstr()[0] == '/';
+                // LR2 searches the complete pattern for file wildcards such
+                // as *.png. GetRandomFile(..., 1) then removes the extension
+                // before replacing '*', yielding OFF + .png, not OFF.png.png.
+                if (!wildcardSelectsDirectory && str2.body)
+                    str3.add(str2.outstr());
 
                 hFindFile = FindFirstFileA(str3, (LPWIN32_FIND_DATAA)&FindFileData);
                 if (hFindFile != (HANDLE)-1) {
                     do {
                         if (strcmp("..", (char*)FindFileData.cFileName) && strcmp(".", (char*)FindFileData.cFileName)) {
+                            if (wildcardSelectsDirectory &&
+                                (FindFileData.dwFileAttributes &
+                                    FILE_ATTRIBUTE_DIRECTORY) == 0)
+                                continue;
 
+                            // Keep every LR2 wildcard match as a candidate,
+                            // but resolve the complete #IMAGE path for loading.
+                            // For Frame\*\main.png the candidate remains
+                            // "Default" while its texture path becomes
+                            // Frame\Default\main.png.
+                            std::string wildcardValue = FindFileData.cFileName;
+                            if (!wildcardSelectsDirectory) {
+                                const size_t extension = wildcardValue.find('.');
+                                if (extension != std::string::npos)
+                                    wildcardValue.resize(extension);
+                            }
+                            CSTR resolvedPath(str1);
+                            resolvedPath.add(wildcardValue.c_str());
+                            if (str2.body) resolvedPath.add(str2.outstr());
                             SRCGR* tmp2 = (SRCGR*)(arr_SRCGR.Get_new());
-                            tmp2->path.assign(str1);
-                            tmp2->path.add(FindFileData.cFileName);
-                            tmp2->filename.assign(FindFileData.cFileName);
+                            tmp2->path.assign(resolvedPath.outstr());
+                            tmp2->filename.assign(wildcardValue.c_str());
 
                             tmp2->fromWildcard = true;
                             tmp2->grID = grCount;
@@ -2492,8 +2517,12 @@ int WORKSPACE::RebuildEditorDerivedState() {
     const int result = ParseSkin();
     if (src_selected >= arr_IMG.count) src_selected = arr_IMG.count - 1;
     if (src_selected < 0) src_selected = 0;
-    if (gr_selected >= arr_SRCGR.count) gr_selected = arr_SRCGR.count - 1;
-    if (gr_selected < 0) gr_selected = 0;
+    if (arr_IMG.count > 0) {
+        SelectIMGAsset(src_selected, false);
+    } else {
+        grID_selected = -1;
+        gr_selected = -1;
+    }
     if (selected_dst >= arr_DST.count) selected_dst = arr_DST.count - 1;
     if (selected_dst < 0) selected_dst = 0;
     imageManagerFocusRequest = -1;
@@ -2648,6 +2677,15 @@ int WORKSPACE::LoadSkin(char* path) {
     WriteSkinLoadLog("LR2SE preview state prepared");
     ParseSkin();
     WriteSkinLoadLog("ParseSkin complete");
+    if (arr_IMG.count > 0) {
+        src_selected = (std::max)(0,
+            (std::min)(src_selected, arr_IMG.count - 1));
+        SelectIMGAsset(src_selected, false);
+    } else {
+        src_selected = -1;
+        grID_selected = -1;
+        gr_selected = -1;
+    }
     if (objectEditorModel.Groups().empty())
         objectEditorModel.LoadGroups("..\\skinObjGroup.txt");
     RebuildObjectModel();
@@ -4982,6 +5020,8 @@ int WORKSPACE::drawTextEdit() {
         }
         if (isHide && !head) continue;
 
+        const float textRowTop = ImGui::GetCursorScreenPos().y;
+
         ImGui::PushID(n);
         ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV((head + isHide) / 3.0f, 0.6f, 0.6f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV((head + isHide) / 3.0f, 0.7f, 0.7f));
@@ -5155,6 +5195,27 @@ int WORKSPACE::drawTextEdit() {
                     }
                 }
                 ImGui::EndTable();
+            }
+        }
+
+        const float textRowBottom = ImGui::GetCursorScreenPos().y;
+        const ImVec2 mousePosition = ImGui::GetIO().MousePos;
+        if (textRowBottom > textRowTop && ImGui::IsWindowHovered() &&
+            ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+            mousePosition.y >= textRowTop && mousePosition.y < textRowBottom) {
+            const int objectModelIndex = SEFindObjectForRow(
+                objectEditorModel.Objects(), n);
+            if (objectModelIndex >= 0) {
+                // Use the same stable workspace selection path as Preview and
+                // DST View. The one-shot request opens the tree path, clears
+                // filters that hide the Object and scrolls Browser to it.
+                wObjectEditor = true;
+                SetObjectSelection(std::vector<int>(1, objectModelIndex),
+                    objectModelIndex, objectModelIndex, true);
+                preview_object_dragging = false;
+                preview_selected_obj_valid = false;
+                preview_selected_obj_last_valid = false;
+                RefreshPreviewSelectionBounds();
             }
         }
         
@@ -5420,7 +5481,10 @@ int WORKSPACE::ResolveIMGTextureIndex(int imageIndex) {
     for (const std::pair<int, int>& candidate : candidates) {
         if (EnsureSRCGRTexture(candidate.second)) return candidate.second;
     }
-    return candidates.empty() ? -1 : candidates.front().second;
+    // Keep every LR2 wildcard candidate in arr_SRCGR, including directories
+    // and non-image files, but never make an unloadable entry the automatic
+    // Image Manager selection. The user may still inspect it in the combo.
+    return -1;
 }
 
 int WORKSPACE::ResolveIMGSourceIndex(int imageIndex) const {
@@ -6143,22 +6207,7 @@ int WORKSPACE::drawImgManager() {
     if (gr_selected < 0 || gr_selected >= arr_SRCGR.count ||
         ((SRCGR*)arr_SRCGR.data)[gr_selected].grID != grID_selected ||
         ((SRCGR*)arr_SRCGR.data)[gr_selected].isIf != selectedImageTag.ifGroup) {
-        for (int i = 0; i < arr_SRCGR.count; i++) {
-            SRCGR& gr = ((SRCGR*)arr_SRCGR.data)[i];
-            if (gr.grID == grID_selected && gr.isIf == selectedImageTag.ifGroup) {
-                gr_selected = i;
-                break;
-            }
-        }
-        if (gr_selected < 0 || gr_selected >= arr_SRCGR.count ||
-            ((SRCGR*)arr_SRCGR.data)[gr_selected].grID != grID_selected) {
-            for (int i = 0; i < arr_SRCGR.count; ++i) {
-                if (((SRCGR*)arr_SRCGR.data)[i].grID == grID_selected) {
-                    gr_selected = i;
-                    break;
-                }
-            }
-        }
+        gr_selected = ResolveIMGTextureIndex(src_selected);
     }
     if (gr_selected >= 0 && gr_selected < arr_SRCGR.count) {
         SRCGR& selectedGraphic = ((SRCGR*)arr_SRCGR.data)[gr_selected];
@@ -6677,7 +6726,7 @@ int WORKSPACE::drawImgManager() {
                     draw_list->AddRect(srcposLU, srcposRB, color, 0.0f, ImDrawFlags_Closed, 1.0f);
 
                     if (ImGui::IsItemClicked()) {
-                        src_selected = i;
+                        SelectIMGAsset(i, false);
                     }
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone) && ImGui::BeginTooltip())
                     {
@@ -7866,6 +7915,9 @@ namespace {
 int WORKSPACE::drawNewskin() {
     char windowTitle[260];
     snprintf(windowTitle, sizeof(windowTitle), "NewSkin##%d", num);
+    // Keep the result/error line visible when the dialog first opens instead
+    // of requiring a vertical scroll after Create and open fails.
+    ImGui::SetNextWindowSize(ImVec2(620.0f, 400.0f), ImGuiCond_Appearing);
     if (ImGui::Begin(windowTitle, &wNewskin)) {
         static char skinTitle[128] = "New Skin";
         static char maker[128] = "SkinEditor";
@@ -7935,8 +7987,8 @@ int WORKSPACE::drawNewskin() {
             ImGui::TextColored(createSucceeded ? ImVec4(0.35f, 0.85f, 0.40f, 1.0f) :
                 ImVec4(1.0f, 0.30f, 0.30f, 1.0f), "%s", createMessage.c_str());
         }
-        ImGui::End();
     }
+    ImGui::End();
     return 0;
 }
 
@@ -10495,15 +10547,7 @@ int WORKSPACE::drawObjectEditor() {
                                     const int values[5] = { tag.gr, tag.x, tag.y, tag.w, tag.h };
                                     EditValue(row, columns[field], values[field]);
                                 }
-                                src_selected = tagIndex;
-                                gr_selected = -1;
-                                for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
-                                    SRCGR& source = ((SRCGR*)arr_SRCGR.data)[candidate];
-                                    if (source.grID == tag.gr && source.isIf == tag.ifGroup) {
-                                        gr_selected = candidate;
-                                        break;
-                                    }
-                                }
+                                SelectIMGAsset(tagIndex, false);
                             }
                             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone) &&
                                 tag.gr >= 0) {

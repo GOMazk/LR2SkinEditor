@@ -191,6 +191,15 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    하위 폴더의 `.lr2skin`/`.lr2ss`가 목록에 나타나고, Refresh와 Default locations가
    정상 동작해야 한다.
    스킨 목록에는 별도의 `LOAD(TEXT)` 버튼이 없어야 한다.
+   New Skin 창은 열릴 때 `620 x 400` 크기로 표시되고, 생성 실패 메시지가 세로
+   스크롤 없이 하단에 보여야 한다.
+   Image Manager의 같은 gr 콤보에는 LR2 와일드카드에 잡힌 폴더와 비이미지 파일도
+   후보로 유지되어야 한다. 다만 처음 열거나 tagged image를 바꿀 때는 그 항목을
+   자동 기본값으로 선택하지 않고, 실제로 로드 가능한 첫 이미지가 표시되어야 한다.
+   `...\\*\\main.png`는 후보 `Default`를 그대로 표시하면서 실제로는
+   `...\\Default\\main.png`를 로드해야 한다.
+   `...\\*.png`는 다른 확장자의 파일을 후보로 포함하지 않고 `OFF` 후보를
+   `...\\OFF.png`로 해석해야 하며, `OFF.png.png`를 만들면 안 된다.
 3. 640x480 스킨 하나와 1280x720 이상 HD 스킨 하나를 각각 연다.
    HD 스킨은 `#INFORMATION` 크기가 없고 include 안의 DST 좌표만 있는 사례도
    포함한다. toolbar tooltip과 status bar가 `inferred`를 표시하고 Preview가 추정
@@ -207,6 +216,9 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    runtime 상태인 timer는 기본 배경이고, 사용자가 직접 시작하거나 reset한 timer는
    각각 빨간 배경의 체크/빈 칸이어야 한다. Restart scene 후 빨간 배경이 사라지는지도
    확인한다.
+   Text Editor에서 SRC 또는 DST Object 명령 행을 좌클릭하면 Object Browser/Inspector가
+   열리고 Type/Group/Search/Active-only 필터에 가려지지 않은 채 해당 Object로 자동
+   스크롤되어야 한다. IF 헤더나 주석을 누르면 기존 Object 선택이 유지되어야 한다.
    PLAY scene을 restart하면 선택한 무음 Preview chart가 LR2의 원본
    `ProcI_Play`/`DrawNotes` 경로로 실행되어야 한다. normal/LN/mine과 함께 key beam,
    note explosion, judge/combo가 해당 스킨 정의대로 반응하는지 확인한다. `Full`에서

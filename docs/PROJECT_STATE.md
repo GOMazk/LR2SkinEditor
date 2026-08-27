@@ -495,7 +495,12 @@ runtime을 함께 invalidate하고, `$SE_...` metadata만 바뀌면 Object 모�
 
 1. `ParseSkinConditions()` — IF/ELSEIF/ELSE sibling 및 nested 관계
 2. `ParseSkinLegacyObjectsAndAssets()` — legacy Object와 tagged crop
-3. `ParseSkinGraphics()` — 논리 gr와 Branch별 `#IMAGE` 후보
+3. `ParseSkinGraphics()` — 논리 gr와 Branch별 `#IMAGE` 후보. LR2 와일드카드에
+   포함되는 폴더와 비이미지도 후보 목록에는 유지하되, Image Manager의 자동 기본값은
+   실제로 로드 가능한 이미지로만 결정한다. `*` 뒤에 경로가 있으면 후보명은 유지하고
+   실제 texture 경로는 `prefix + 후보명 + suffix`로 해석한다. LR2와 같이 파일
+   와일드카드 `*.png`는 확장자를 제외한 후보값을 치환해 `png.png`를 만들지 않으며,
+   폴더 와일드카드는 디렉터리만 후보로 삼는다.
 4. `ParseSkinSourcesAndDestinations()` — SRC/DST 및 animation 연결
 5. `LoadSkinGraphicMetadata()` — 이미지 크기만 lazy texture와 별도로 조사
 
@@ -522,6 +527,9 @@ ComboBox로 표시한다.
 
 Text 전용 로드 모드는 사용하지 않는다. 모든 스킨은 동일한 Workspace로 로드하며,
 TextEdit은 `Windows > Text Editor`에서 여는 일반 도킹 창이다.
+TextEdit의 Object 명령 행을 좌클릭하면 동일한 Workspace Object selection을 사용해
+Object Browser/Inspector를 열고 해당 Object로 자동 스크롤한다. Object에 속하지 않는
+IF 제어 행, 주석과 기타 행은 현재 Object 선택을 변경하지 않는다.
 
 ### 저장
 

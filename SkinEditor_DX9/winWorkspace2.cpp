@@ -19,6 +19,8 @@
 #include "arr.hpp"
 #include "seHelper.h"
 
+#include <filesystem>
+
 int CountCsvColumns(CSTR& line) {
     if (!line.body || line.length() <= 0) return 0;
     int count = 1;
@@ -42,6 +44,7 @@ int RunAssetMetadataSelfTest() {
     WORKSPACE workspace;
     workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 8);
     workspace.arr_IMG.Alloc(sizeof(IMG), 8);
+    workspace.arr_SRCGR.Alloc(sizeof(SRCGR), 4);
     workspace.arr_SRC.Alloc(sizeof(SRC), 4);
     workspace.arr_seobj.Alloc(sizeof(SEOBJ), 8);
     workspace.arr_ifunit.Alloc(sizeof(IFUNIT), 4);
@@ -73,6 +76,46 @@ int RunAssetMetadataSelfTest() {
     appendLine(unusedMetadata, 0);
     appendLine("#ENDIF", 0);
 
+    // LR2 wildcard candidates include directory and non-image matches. Keep
+    // both in Image Manager, preserve the suffix after '*', and automatically
+    // resolve only a loadable final image path.
+    const std::string graphicRoot = std::string(outputPath) + "_graphics";
+    const std::string graphicVariant = graphicRoot + "\\Default";
+    const std::string brokenVariant = graphicRoot + "\\Broken";
+    const std::string graphicImage = graphicVariant + "\\main.bmp";
+    const std::string graphicFileCandidate = graphicRoot + "\\Default.png";
+    if (!CreateDirectoryA(graphicRoot.c_str(), NULL) ||
+        !CreateDirectoryA(graphicVariant.c_str(), NULL) ||
+        !CreateDirectoryA(brokenVariant.c_str(), NULL)) return 43;
+    const unsigned char onePixelBmp[] = {
+        0x42, 0x4d, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x36, 0x00, 0x00, 0x00, 0x28, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x18, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00,
+        0x00, 0x00
+    };
+    FILE* graphicFile = fopen(graphicImage.c_str(), "wb");
+    if (!graphicFile) return 44;
+    const bool wroteGraphic = fwrite(onePixelBmp, 1, sizeof(onePixelBmp),
+        graphicFile) == sizeof(onePixelBmp);
+    fclose(graphicFile);
+    if (!wroteGraphic) return 44;
+    FILE* candidateFile = fopen(graphicFileCandidate.c_str(), "wb");
+    if (!candidateFile) return 44;
+    const bool wroteCandidate = fwrite(onePixelBmp, 1, sizeof(onePixelBmp),
+        candidateFile) == sizeof(onePixelBmp);
+    fclose(candidateFile);
+    if (!wroteCandidate) return 44;
+    const std::string wildcardGraphic =
+        std::string("#IMAGE,") + graphicRoot + "\\*\\main.bmp";
+    appendLine(wildcardGraphic.c_str(), 0);
+    const std::string wildcardFileGraphic =
+        std::string("#IMAGE,") + graphicRoot + "\\*.png";
+    appendLine(wildcardFileGraphic.c_str(), 0);
+
     if (workspace.ParseSkinConditions() != 0) return 11;
     const int assetIfgroup =
         ((SKINFILELINEREAD*)workspace.skinfileLines.data)[1].ifgroup;
@@ -81,6 +124,50 @@ int RunAssetMetadataSelfTest() {
         return 12;
     if (workspace.ParseSkinLegacyObjectsAndAssets() != 0 ||
         workspace.arr_IMG.count != 2) return 11;
+    if (workspace.ParseSkinGraphics() != 0 ||
+        workspace.arr_SRCGR.count != 3) return 45;
+    int invalidCandidate = -1;
+    int directoryImageCandidate = -1;
+    int fileImageCandidate = -1;
+    for (int candidate = 0; candidate < workspace.arr_SRCGR.count; ++candidate) {
+        SRCGR& graphic = ((SRCGR*)workspace.arr_SRCGR.data)[candidate];
+        if (graphic.grID == 0 && graphic.filename.isSame("Default") &&
+            graphic.path.body &&
+            _stricmp(graphic.path.outstr(), graphicImage.c_str()) == 0)
+            directoryImageCandidate = candidate;
+        else if (graphic.grID == 0 && graphic.filename.isSame("Broken") &&
+            graphic.path.body && GetFileAttributesA(graphic.path.outstr()) ==
+                INVALID_FILE_ATTRIBUTES)
+            invalidCandidate = candidate;
+        else if (graphic.grID == 1 && graphic.filename.isSame("Default") &&
+            graphic.path.body &&
+            _stricmp(graphic.path.outstr(), graphicFileCandidate.c_str()) == 0)
+            fileImageCandidate = candidate;
+    }
+    if (invalidCandidate < 0 || directoryImageCandidate < 0 ||
+        fileImageCandidate < 0) return 46;
+    SRCGR& invalidGraphic =
+        ((SRCGR*)workspace.arr_SRCGR.data)[invalidCandidate];
+    SRCGR& directoryImage =
+        ((SRCGR*)workspace.arr_SRCGR.data)[directoryImageCandidate];
+    SRCGR& fileImage = ((SRCGR*)workspace.arr_SRCGR.data)[fileImageCandidate];
+    invalidGraphic.loaded = true;
+    directoryImage.texture = reinterpret_cast<PDIRECT3DTEXTURE9>(1);
+    const int resolverTag = workspace.NewIMG(0, 0, 0, 1, 1, 0);
+    if (resolverTag != 2 ||
+        workspace.ResolveIMGTextureIndex(resolverTag) != directoryImageCandidate)
+        return 47;
+    directoryImage.texture = NULL;
+    directoryImage.loaded = true;
+    if (workspace.ResolveIMGTextureIndex(resolverTag) != -1) return 48;
+    if (workspace.DeleteIMG(resolverTag) != 0) return 49;
+    fileImage.texture = reinterpret_cast<PDIRECT3DTEXTURE9>(1);
+    const int fileResolverTag = workspace.NewIMG(1, 0, 0, 1, 1, 0);
+    if (fileResolverTag != 2 ||
+        workspace.ResolveIMGTextureIndex(fileResolverTag) != fileImageCandidate)
+        return 50;
+    fileImage.texture = NULL;
+    if (workspace.DeleteIMG(fileResolverTag) != 0) return 51;
     IMG& used = ((IMG*)workspace.arr_IMG.data)[0];
     IMG& unused = ((IMG*)workspace.arr_IMG.data)[1];
     if (used.sourceDeclare != 2 || used.editorDeclare != -1 ||
@@ -265,6 +352,8 @@ int RunAssetMetadataSelfTest() {
     remove(outputPath);
     remove((std::string(outputPath) + ".skineditor.tmp").c_str());
     remove((std::string(outputPath) + ".skineditor.bak").c_str());
+    std::error_code graphicCleanupError;
+    std::filesystem::remove_all(graphicRoot, graphicCleanupError);
     return 0;
 }
 

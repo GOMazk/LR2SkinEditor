@@ -79,6 +79,14 @@ int RunSchemaContractSelfTest() {
         !GroupContains(*note, "#DST_NOTE"))
         return 14;
 
+    std::vector<SEObjectInstance> rowObjects(2);
+    rowObjects[0].rows.push_back(3);
+    rowObjects[0].rows.push_back(5);
+    rowObjects[1].rows.push_back(8);
+    if (SEFindObjectForRow(rowObjects, 3) != 0) return 15;
+    if (SEFindObjectForRow(rowObjects, 8) != 1) return 16;
+    if (SEFindObjectForRow(rowObjects, 4) != -1) return 17;
+
     return 0;
 }
 

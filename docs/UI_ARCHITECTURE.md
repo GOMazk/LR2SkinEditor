@@ -127,7 +127,7 @@ updates cannot diverge.
 ### Object selection
 
 ```text
-Preview / right-click / DST View
+Preview / right-click / DST View / Text Editor Object row
   -> workspace ObjectSelection (`$SE_OBJECT_ID` 중심 key)
   -> current model index와 selection request를 계산
   -> Object Browser submits and scrolls to the target row
@@ -141,6 +141,12 @@ their visibility is independent. They must not acquire separate selection
 variables. The legacy `wObjectEditor` flag is a compatibility request that
 opens both panes; `wObjectBrowser` and `wObjectInspector` then control their
 visibility.
+
+A left click on an Object command row in Text Editor resolves that source row
+through `SEFindObjectForRow()` and enters the same workspace selection flow.
+The Browser and Inspector open, filters/search are cleared and the Browser
+scrolls to the Object. Control-flow, comment and other rows that do not belong
+to an Object leave the current selection unchanged.
 
 `SEObjectEditorModel`, search/filter popup state, active-branch cache and tree
 open state are all owned by the corresponding `WORKSPACE`. Do not introduce a

@@ -5,10 +5,10 @@
 
 ## 작업 기준
 
-- 기준 브랜치: `AI`
+- 기준 브랜치: `AI_2`
 - 기준 빌드: `Release | Win32(x86)`
 - 도구 체인: Visual Studio 2022 C++ (`v143`), Windows SDK, Direct3D 9
-- 게시 대상: `https://github.com/GOMazk/SkinEditor`, branch `AI`
+- 게시 대상: `https://github.com/GOMazk/SkinEditor`, branch `AI_2`
 - 현재 폴더에 `.git`이 없을 수 있다. 이 경우 export 작업본으로 취급하고 push를
   시도하지 않는다. 게시 요청을 받으면 실제 checkout과 remote/branch를 먼저 검증한다.
 - force-push, 기존 변경 폐기, 실제 LR2 사용자 데이터 수정은 명시적 요청 없이 하지 않는다.

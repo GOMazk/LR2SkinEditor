@@ -207,6 +207,9 @@
     <ClCompile Include="skin.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="skinPathResolver.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="skinResolution.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
@@ -399,6 +402,9 @@
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="skinBrowser.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="skinPathResolver.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="inputwrap.h">

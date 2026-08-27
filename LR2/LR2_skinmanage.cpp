@@ -286,23 +286,27 @@ int ParseLR2SkinCustom(SkinManage *skm, CSTR filepath) {
 			}
 		}
 		else if (buffer.left(11).isSame("#RESOLUTION")) {
-			SplitCSV(buffer, &csvBuf, ",");
-			if (skm->Count <= 0) continue;
-			SkinHeader &rSkin = skm->Data[skm->Count - 1];
-			if (csvBuf.val[1] > 0 && csvBuf.val[2] > 0) {
-				rSkin.targetX = csvBuf.val[1];
-				rSkin.targetY = csvBuf.val[2];
-				continue;
-			}
 
-			// Retain the legacy single-value preset form while honoring the
-			// width/height schema used by current LR2 skins.
 			switch (csvBuf.val[1]) {
-			case 0: rSkin.targetX = 640; rSkin.targetY = 480; break;
-			case 1: rSkin.targetX = 1280; rSkin.targetY = 720; break;
-			case 2: rSkin.targetX = 1920; rSkin.targetY = 1080; break;
-			case 3: rSkin.targetX = 3840; rSkin.targetY = 2160; break;
-			default: break;
+			case 0:
+				skm->Data[skm->Count].targetX = 640;
+				skm->Data[skm->Count].targetY = 480;
+				break;
+			case 1:
+				skm->Data[skm->Count].targetX = 1280;
+				skm->Data[skm->Count].targetY = 720;
+				break;
+			case 2:
+				skm->Data[skm->Count].targetX = 1920;
+				skm->Data[skm->Count].targetY = 1080;
+				break;
+			case 3:
+				skm->Data[skm->Count].targetX = 3840;
+				skm->Data[skm->Count].targetY = 2160;
+
+			default:
+				skm->Data[skm->Count].targetX = csvBuf.val[1] >= 640 ? 640 : csvBuf.val[1];
+				skm->Data[skm->Count].targetY = csvBuf.val[2] >= 480 ? 480 : csvBuf.val[2];
 			}
 		}
 		else if (buffer.left(13).isSame("#CUSTOMOPTION")) {

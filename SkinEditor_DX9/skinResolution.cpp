@@ -1,16 +1,13 @@
 #include "skinResolution.h"
 
 #include "../LR2/En_fileutil.h"
-#include "seHelper.h"
 
 #include <algorithm>
-#include <cctype>
 #include <climits>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <limits>
 #include <unordered_map>
-#include <vector>
 
 namespace {
 
@@ -18,45 +15,26 @@ constexpr int kMinimumWidth = 64;
 constexpr int kMinimumHeight = 64;
 constexpr int kMaximumWidth = 7680;
 constexpr int kMaximumHeight = 4320;
-constexpr int kFallbackWidth = 640;
-constexpr int kFallbackHeight = 480;
 
-struct ResolutionPreset {
-    int width;
-    int height;
+// Automatic resolution detection below is adapted from TenRiff's
+// src/app/Lr2Skin.cpp (MIT License, Copyright (c) 2026 TenRiff contributors;
+// see docs/THIRD_PARTY_NOTICES.md).
+// TenRiff deliberately recognises only LR2's SD, HD and FHD authoring families.
+constexpr int kCanvasOriginTolerance = 4;
+constexpr int kMinimumCanvasWidth = 400;
+constexpr int kMinimumCanvasHeight = 300;
+
+enum class TenRiffResolutionFamily {
+    Sd,
+    Hd,
+    Fhd,
 };
 
-constexpr ResolutionPreset kResolutionPresets[] = {
-    { 640, 480 },
-    { 800, 600 },
-    { 960, 540 },
-    { 1024, 576 },
-    { 1024, 768 },
-    { 1280, 720 },
-    { 1366, 768 },
-    { 1280, 960 },
-    { 1600, 900 },
-    { 1920, 1080 },
-    { 2560, 1440 },
-    { 3840, 2160 },
-    { 7680, 4320 },
-};
-
-struct DestinationExtent {
-    int right;
-    int bottom;
-    int x;
-    int y;
-    int width;
-    int height;
-};
-
-struct DestinationSchema {
-    int xColumn = -1;
-    int yColumn = -1;
-    int widthColumn = -1;
-    int heightColumn = -1;
-    int sizeColumn = -1;
+struct TenRiffResolutionEvidence {
+    std::unordered_map<int, int> visibleLaneX;
+    int canvasWidth = 0;
+    int canvasHeight = 0;
+    int canvasRowCount = 0;
 };
 
 bool IsValidResolution(int width, int height) {
@@ -85,7 +63,8 @@ bool TryReadResolutionCommand(CSVbuf& csv, int& width, int& height) {
         return true;
     }
 
-    // Older LR2 skins may use a preset id instead of explicit dimensions.
+    // Preserve the editor's existing explicit-header contract. TenRiff's
+    // algorithm is used only when neither explicit form supplies a canvas.
     if (csv.val[2] != 0) return false;
     switch (csv.val[1]) {
     case 0: width = 640; height = 480; return true;
@@ -96,117 +75,102 @@ bool TryReadResolutionCommand(CSVbuf& csv, int& width, int& height) {
     }
 }
 
-int FindSchemaColumn(const char* command, const char* fieldName) {
-    if (!command || !fieldName) return -1;
-    for (int column = 1; column < 30; ++column) {
-        CSTR field = GetCommandHelp(command, column);
-        field.trimWhiteSpace();
-        if (field.body && _stricmp(field.outstr(), fieldName) == 0)
-            return column;
-    }
-    return -1;
-}
-
 int PositiveMagnitude(int value) {
     if (value == INT_MIN) return INT_MAX;
     return value < 0 ? -value : value;
 }
 
-const DestinationSchema& DestinationSchemaFor(const char* command,
-    std::unordered_map<std::string, DestinationSchema>& schemaCache) {
-    std::string normalizedCommand = command ? command : "";
-    std::transform(normalizedCommand.begin(), normalizedCommand.end(),
-        normalizedCommand.begin(), [](unsigned char ch) {
-            return (char)std::toupper(ch);
-        });
-
-    const auto existing = schemaCache.find(normalizedCommand);
-    if (existing != schemaCache.end()) return existing->second;
-
-    DestinationSchema schema;
-    schema.xColumn = FindSchemaColumn(normalizedCommand.c_str(), "x");
-    schema.yColumn = FindSchemaColumn(normalizedCommand.c_str(), "y");
-    schema.widthColumn = FindSchemaColumn(normalizedCommand.c_str(), "w");
-    schema.heightColumn = FindSchemaColumn(normalizedCommand.c_str(), "h");
-    schema.sizeColumn = FindSchemaColumn(normalizedCommand.c_str(), "size");
-    return schemaCache.emplace(normalizedCommand, schema).first->second;
-}
-
-bool TryReadDestinationExtent(CSVbuf& csv,
-    std::unordered_map<std::string, DestinationSchema>& schemaCache,
-    DestinationExtent& extent) {
-    const char* command = csv.str[0].body ? csv.str[0].outstr() : "";
-    if (_strnicmp(command, "#DST_", 5) != 0) return false;
-
-    const DestinationSchema& schema =
-        DestinationSchemaFor(command, schemaCache);
-    if (schema.xColumn < 0 || schema.yColumn < 0) return false;
-
-    const int x = csv.val[schema.xColumn];
-    const int y = csv.val[schema.yColumn];
-    const int width = schema.widthColumn >= 0
-        ? PositiveMagnitude(csv.val[schema.widthColumn]) : 0;
-    int height = schema.heightColumn >= 0
-        ? PositiveMagnitude(csv.val[schema.heightColumn]) : 0;
-    if (height == 0 && schema.sizeColumn >= 0)
-        height = PositiveMagnitude(csv.val[schema.sizeColumn]);
-    if (width == 0 && height == 0) return false;
-
-    const long long right = (long long)x + (std::max)(1, width);
-    const long long bottom = (long long)y + (std::max)(1, height);
-    if (right <= 0 || bottom <= 0) return false;
-
-    // Coordinates this far outside the editor's supported canvas are usually
-    // transition sentinels or malformed rows, not usable resolution evidence.
-    if (right > (long long)kMaximumWidth * 2 ||
-        bottom > (long long)kMaximumHeight * 2)
-        return false;
-
-    extent.right = (int)right;
-    extent.bottom = (int)bottom;
-    extent.x = x;
-    extent.y = y;
-    extent.width = width;
-    extent.height = height;
-    return true;
-}
-
-int RobustUpperBound(std::vector<int> values) {
-    if (values.empty()) return 0;
-    std::sort(values.begin(), values.end());
-    if (values.size() < 10) return values.back();
-
-    // The 90th percentile keeps a few off-canvas animation frames from
-    // turning an otherwise ordinary skin into a 4K canvas.
-    const size_t index = ((values.size() - 1) * 9) / 10;
-    return values[index];
-}
-
-bool MatchesPreset(const DestinationExtent& extent,
-    const ResolutionPreset& preset) {
-    return std::abs(extent.x) <= 2 && std::abs(extent.y) <= 2 &&
-        std::abs(extent.width - preset.width) <= 2 &&
-        std::abs(extent.height - preset.height) <= 2;
-}
-
-ResolutionPreset SmallestContainingPreset(int requiredWidth,
-    int requiredHeight) {
-    ResolutionPreset best = { 0, 0 };
-    long long bestArea = (std::numeric_limits<long long>::max)();
-    for (const ResolutionPreset& preset : kResolutionPresets) {
-        if (preset.width < requiredWidth || preset.height < requiredHeight)
-            continue;
-        const long long area = (long long)preset.width * preset.height;
-        if (area < bestArea) {
-            best = preset;
-            bestArea = area;
+void CollectTenRiffEvidence(CSVbuf& csv,
+    TenRiffResolutionEvidence& evidence) {
+    if (IsCommand(csv, "#DST_NOTE")) {
+        if (csv.str[1].length() == 0 || csv.str[3].length() == 0 ||
+            csv.str[4].length() == 0 || csv.str[5].length() == 0 ||
+            csv.str[6].length() == 0)
+            return;
+        const int lane = csv.val[1];
+        const int alpha = csv.str[8].length() > 0 ? csv.val[8] : 255;
+        if (alpha <= 0) {
+            evidence.visibleLaneX.erase(lane);
         }
+        else {
+            // TenRiff keeps the final visible destination for each lane.
+            evidence.visibleLaneX[lane] = csv.val[3];
+        }
+        return;
     }
-    return best;
+
+    if (!IsCommand(csv, "#DST_IMAGE")) return;
+    if (csv.str[1].length() == 0 || csv.str[3].length() == 0 ||
+        csv.str[4].length() == 0 || csv.str[5].length() == 0 ||
+        csv.str[6].length() == 0)
+        return;
+    const int x = csv.val[3];
+    const int y = csv.val[4];
+    const int width = PositiveMagnitude(csv.val[5]);
+    const int height = PositiveMagnitude(csv.val[6]);
+
+    // A full-canvas backdrop must be anchored at the top-left. Large panels
+    // parked off-screen for animation are intentionally ignored.
+    if (PositiveMagnitude(x) > kCanvasOriginTolerance ||
+        PositiveMagnitude(y) > kCanvasOriginTolerance ||
+        width < kMinimumCanvasWidth || height < kMinimumCanvasHeight)
+        return;
+
+    evidence.canvasWidth = (std::max)(evidence.canvasWidth, width);
+    evidence.canvasHeight = (std::max)(evidence.canvasHeight, height);
+    ++evidence.canvasRowCount;
 }
 
-int RoundUpToEight(int value) {
-    return value > INT_MAX - 7 ? INT_MAX : ((value + 7) & ~7);
+TenRiffResolutionFamily DetectLaneFamily(
+    const TenRiffResolutionEvidence& evidence) {
+    int maxX = 0;
+    for (const auto& lane : evidence.visibleLaneX)
+        maxX = (std::max)(maxX, lane.second);
+    if (maxX <= 960) return TenRiffResolutionFamily::Sd;
+    if (maxX <= 1600) return TenRiffResolutionFamily::Hd;
+    return TenRiffResolutionFamily::Fhd;
+}
+
+TenRiffResolutionFamily DetectCanvasFamily(int width, int height) {
+    const auto axisFamily = [](int value, int sdToHd, int hdToFhd) {
+        if (value <= sdToHd) return TenRiffResolutionFamily::Sd;
+        return value <= hdToFhd
+            ? TenRiffResolutionFamily::Hd
+            : TenRiffResolutionFamily::Fhd;
+    };
+    return (std::max)(axisFamily(width, 960, 1600),
+        axisFamily(height, 600, 900));
+}
+
+TenRiffResolutionFamily DetectAutomaticFamily(
+    const TenRiffResolutionEvidence& evidence) {
+    const TenRiffResolutionFamily laneFamily = DetectLaneFamily(evidence);
+    if (evidence.canvasWidth <= 0 || evidence.canvasHeight <= 0)
+        return laneFamily;
+    return (std::max)(laneFamily,
+        DetectCanvasFamily(evidence.canvasWidth, evidence.canvasHeight));
+}
+
+SESkinResolutionDecision DecisionForFamily(TenRiffResolutionFamily family,
+    int evidenceCount) {
+    SESkinResolutionDecision decision;
+    switch (family) {
+    case TenRiffResolutionFamily::Hd:
+        decision.width = 1280;
+        decision.height = 720;
+        break;
+    case TenRiffResolutionFamily::Fhd:
+        decision.width = 1920;
+        decision.height = 1080;
+        break;
+    default:
+        decision.width = 640;
+        decision.height = 480;
+        break;
+    }
+    decision.source = SESkinResolutionSource::TenRiffAuto;
+    decision.destinationEvidenceCount = evidenceCount;
+    return decision;
 }
 
 }
@@ -217,8 +181,7 @@ SESkinResolutionDecision SEResolveSkinResolution(
     int informationHeight = 0;
     int resolutionCommandWidth = 0;
     int resolutionCommandHeight = 0;
-    std::vector<DestinationExtent> destinationExtents;
-    std::unordered_map<std::string, DestinationSchema> destinationSchemas;
+    TenRiffResolutionEvidence evidence;
 
     for (const std::string& line : csvLines) {
         if (line.empty() || line[0] != '#') continue;
@@ -238,10 +201,7 @@ SESkinResolutionDecision SEResolveSkinResolution(
             resolutionCommandWidth = declaredWidth;
             resolutionCommandHeight = declaredHeight;
         }
-
-        DestinationExtent extent = {};
-        if (TryReadDestinationExtent(csv, destinationSchemas, extent))
-            destinationExtents.push_back(extent);
+        CollectTenRiffEvidence(csv, evidence);
     }
 
     if (informationWidth > 0) {
@@ -252,63 +212,38 @@ SESkinResolutionDecision SEResolveSkinResolution(
         return { resolutionCommandWidth, resolutionCommandHeight,
             SESkinResolutionSource::ResolutionCommand, 0 };
     }
-    if (destinationExtents.empty()) return {};
 
-    std::vector<int> rightEdges;
-    std::vector<int> bottomEdges;
-    rightEdges.reserve(destinationExtents.size());
-    bottomEdges.reserve(destinationExtents.size());
-    int anchoredWidth = 0;
-    int anchoredHeight = 0;
-    long long anchoredArea = 0;
-    for (const DestinationExtent& extent : destinationExtents) {
-        rightEdges.push_back(extent.right);
-        bottomEdges.push_back(extent.bottom);
-        for (const ResolutionPreset& preset : kResolutionPresets) {
-            if (!MatchesPreset(extent, preset)) continue;
-            const long long area = (long long)preset.width * preset.height;
-            if (area > anchoredArea) {
-                anchoredWidth = preset.width;
-                anchoredHeight = preset.height;
-                anchoredArea = area;
-            }
-        }
-    }
+    const int evidenceCount = (int)evidence.visibleLaneX.size() +
+        evidence.canvasRowCount;
+    if (evidenceCount == 0) return {};
+    return DecisionForFamily(DetectAutomaticFamily(evidence), evidenceCount);
+}
 
-    int requiredWidth = (std::max)(kFallbackWidth,
-        RobustUpperBound(rightEdges));
-    int requiredHeight = (std::max)(kFallbackHeight,
-        RobustUpperBound(bottomEdges));
-    requiredWidth = (std::max)(requiredWidth, anchoredWidth);
-    requiredHeight = (std::max)(requiredHeight, anchoredHeight);
+bool SEResolveSkinResolutionFile(const char* path,
+    SESkinResolutionDecision& decision) {
+    if (!path || !*path) return false;
+    FILE* file = fopen(path, "rb");
+    if (!file) return false;
 
-    const ResolutionPreset preset = SmallestContainingPreset(requiredWidth,
-        requiredHeight);
-    SESkinResolutionDecision decision;
-    if (preset.width > 0) {
-        decision.width = preset.width;
-        decision.height = preset.height;
-    }
-    else {
-        decision.width = (std::min)(kMaximumWidth,
-            RoundUpToEight(requiredWidth));
-        decision.height = (std::min)(kMaximumHeight,
-            RoundUpToEight(requiredHeight));
-    }
-    decision.source = SESkinResolutionSource::DestinationBounds;
-    decision.destinationEvidenceCount = (int)destinationExtents.size();
-    return decision;
+    std::vector<std::string> csvLines;
+    char line[4096] = {};
+    while (fgets(line, sizeof(line), file))
+        csvLines.emplace_back(line);
+    fclose(file);
+
+    decision = SEResolveSkinResolution(csvLines);
+    return true;
 }
 
 const char* SESkinResolutionSourceText(SESkinResolutionSource source) {
     switch (source) {
     case SESkinResolutionSource::Information: return "#INFORMATION";
     case SESkinResolutionSource::ResolutionCommand: return "#RESOLUTION";
-    case SESkinResolutionSource::DestinationBounds: return "inferred DST bounds";
+    case SESkinResolutionSource::TenRiffAuto: return "TenRiff auto inference";
     default: return "640 x 480 fallback";
     }
 }
 
 bool SEIsInferredSkinResolution(SESkinResolutionSource source) {
-    return source == SESkinResolutionSource::DestinationBounds;
+    return source == SESkinResolutionSource::TenRiffAuto;
 }

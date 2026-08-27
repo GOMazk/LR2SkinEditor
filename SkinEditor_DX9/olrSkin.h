@@ -35,6 +35,13 @@ struct SEOLRAssetInput {
     std::string packagePath;
 };
 
+struct SEOLRVirtualRootInput {
+    // Slash-normalized path such as LR2files/Theme/IIDX. It never contains
+    // a drive or parent traversal and becomes lr2/vfs/<logicalRoot>.
+    std::string logicalRoot;
+    std::string sourceDirectory;
+};
+
 struct SEOLRSkinDocument {
     std::string title;
     std::string maker;
@@ -47,14 +54,26 @@ struct SEOLRSkinDocument {
     std::vector<SEOLRSourceMapEntry> sourceMap;
     std::string lr2Script;
     std::vector<SEOLRAssetInput> assets;
+    std::vector<SEOLRVirtualRootInput> virtualRoots;
+    std::string lr2ExportMainPath;
     int unresolvedImageCount = 0;
+    int unresolvedResourceCount = 0;
 };
 
 struct SEOLRPackageInfo {
     std::vector<std::string> entries;
     int objectCount = 0;
     int assetCount = 0;
+    int virtualRootCount = 0;
+    int virtualFileCount = 0;
+    int skippedVirtualFileCount = 0;
     int unresolvedImageCount = 0;
+    int unresolvedResourceCount = 0;
+};
+
+struct SEOLRLr2ExportInfo {
+    int copiedFileCount = 0;
+    std::string mainSkinPath;
 };
 
 // Writes a deterministic, stored-method ZIP package through a temporary file.
@@ -73,3 +92,12 @@ bool SEInspectOLRSkinPackage(const char* packagePath,
 bool SEExtractOLRSkinPackage(const char* packagePath,
     const char* outputDirectory, std::string& mainSkinPath,
     SEOLRPackageInfo& packageInfo, std::string& errorMessage);
+
+// Returns true only for an extracted V0.2 workspace with export metadata.
+bool SEIsOLRVirtualWorkspace(const char* mainSkinPath);
+
+// Materializes an extracted V0.2 workspace into a new install-ready LR2 root.
+// outputDirectory must not exist; no existing LR2 installation is overwritten.
+bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
+    const char* outputDirectory, SEOLRLr2ExportInfo& exportInfo,
+    std::string& errorMessage);

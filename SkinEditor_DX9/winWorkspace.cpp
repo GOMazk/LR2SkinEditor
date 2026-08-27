@@ -21,6 +21,7 @@
 #include "seHelper.h"
 #include "seUI.h"
 #include "skinBrowser.h"
+#include "skinPathResolver.h"
 #include "uiCatalog.h"
 #include "inputwrap.h"
 #include "imgui/imgui_internal.h"
@@ -789,6 +790,9 @@ int WORKSPACE::draw() {
                     olrPackageState = 0;
                     wSaveMenu2 = true;
                 }
+                if (ImGui::MenuItem("Export LR2 folder...", NULL, false,
+                    SEIsOLRVirtualWorkspace(mainpath)))
+                    ExportLr2SkinInteractive();
             }
             ImGui::EndMenu();
         }
@@ -849,9 +853,13 @@ int WORKSPACE::draw() {
     }
     if (ImGui::BeginPopupModal(olrImportPopup, NULL,
         ImGuiWindowFlags_AlwaysAutoResize)) {
+        const char* operation = olrResultKind == 1 ? "LR2 export" : "OLR import";
         ImGui::TextColored(olrPackageState > 0
             ? SEUI::Colors::Success() : SEUI::Colors::Danger(),
-            olrPackageState > 0 ? "OLR package imported" : "OLR import failed");
+            olrPackageState > 0
+                ? (olrResultKind == 1 ? "LR2 folder created" : "OLR package imported")
+                : (olrResultKind == 1 ? "LR2 export failed" : "OLR import failed"));
+        ImGui::TextDisabled("%s", operation);
         ImGui::TextWrapped("%s", olrPackageMessage.c_str());
         if (ImGui::Button("OK")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
@@ -1304,8 +1312,19 @@ int WORKSPACE::ScanSkins(const char* folder, const char* folderLabelUtf8) {
         }
     }
 
-    for (const std::string& skinFile : skinFiles)
+    for (const std::string& skinFile : skinFiles) {
+        const int firstNewSkin = g.skinData.Count;
         ParseLR2SkinCustom(&g.skinData, CSTR(skinFile.c_str()));
+        SESkinResolutionDecision browserResolution;
+        if (g.skinData.Count > firstNewSkin &&
+            SEResolveSkinResolutionFile(skinFile.c_str(), browserResolution)) {
+            for (int skinIndex = firstNewSkin;
+                skinIndex < g.skinData.Count; ++skinIndex) {
+                g.skinData.Data[skinIndex].targetX = browserResolution.width;
+                g.skinData.Data[skinIndex].targetY = browserResolution.height;
+            }
+        }
+    }
 
     char resultMessage[160];
     snprintf(resultMessage, sizeof(resultMessage),
@@ -1586,11 +1605,17 @@ int WORKSPACE::LoadSkinScript(char* path) {
         if (read->line.left(8).isSame("#INCLUDE")) {
             const char* includeText = read->csv.str[1].body ? read->csv.str[1].outstr() : "";
             char includePath[MAX_PATH] = {};
-            CSTR parent(canonicalPath);
-            parent.assign(parent.getDirectory());
-            snprintf(includePath, sizeof(includePath), "%s%s", parent.outstr(), includeText);
-            if (GetFileAttributesA(includePath) == INVALID_FILE_ATTRIBUTES)
-                strncpy(includePath, includeText, sizeof(includePath) - 1);
+            std::string resolvedInclude;
+            if (SEResolveSkinResourcePath(includeText, canonicalPath, mainpath,
+                resolvedInclude))
+                strncpy_s(includePath, resolvedInclude.c_str(), _TRUNCATE);
+            else {
+                CSTR parent(canonicalPath);
+                parent.assign(parent.getDirectory());
+                snprintf(includePath, sizeof(includePath), "%s%s", parent.outstr(), includeText);
+                if (GetFileAttributesA(includePath) == INVALID_FILE_ATTRIBUTES)
+                    strncpy(includePath, includeText, sizeof(includePath) - 1);
+            }
             char siblingInclude[MAX_PATH] = {};
             if (ResolveSiblingPlayPath(includePath, mainpath,
                 siblingInclude, sizeof(siblingInclude)))
@@ -1852,12 +1877,22 @@ int WORKSPACE::ParseSkinGraphics() {
 
         if (read.csv.str[0].isSame("#CUSTOMFILE")) {
             CSTR* tmpstr = (CSTR*)(arr_CustomFile.Get_new());
-            tmpstr->assign(read.csv.str[2]);
+            std::string resolvedPath;
+            if (SEResolveSkinResourcePath(read.csv.str[2].outstr(),
+                read.filename.body ? read.filename.outstr() : mainpath,
+                mainpath, resolvedPath))
+                tmpstr->assign(resolvedPath.c_str());
+            else tmpstr->assign(read.csv.str[2]);
         }
 
         else if (read.csv.str[0].isSame("#IMAGE")) {
             
             CSTR line(read.csv.str[1]);
+            std::string resolvedPath;
+            if (SEResolveSkinResourcePath(line.outstr(),
+                read.filename.body ? read.filename.outstr() : mainpath,
+                mainpath, resolvedPath))
+                line.assign(resolvedPath.c_str());
 
             bool isWild = false;
 
@@ -2366,6 +2401,16 @@ int WORKSPACE::LoadSkinGraphicMetadata() {
     for (int n = 0; n < arr_SRCGR.count; n++) {
         SRCGR& img = ((SRCGR*)arr_SRCGR.data)[n];
         CSTR& path = ((SRCGR*)arr_SRCGR.data)[n].path;
+
+        const char* owner = mainpath;
+        if (img.declare >= 0 && img.declare < skinfileLines.count) {
+            SKINFILELINEREAD& declaration =
+                ((SKINFILELINEREAD*)skinfileLines.data)[img.declare];
+            if (declaration.filename.body) owner = declaration.filename.outstr();
+        }
+        std::string resolvedPath;
+        if (SEResolveSkinResourcePath(path.outstr(), owner, mainpath, resolvedPath))
+            path.assign(resolvedPath.c_str());
 
         char siblingAsset[MAX_PATH] = {};
         if (ResolveSiblingPlayPath(path.outstr(), mainpath,
@@ -3229,6 +3274,11 @@ int WORKSPACE::ReadSkinSE() {
                                     break;
                                 }
                             }
+                            std::string resolvedImage;
+                            if (SEResolveSkinResourcePath(csv.str[1].outstr(),
+                                read.filename.body ? read.filename.outstr() : mainpath,
+                                mainpath, resolvedImage))
+                                csv.str[1].assign(resolvedImage.c_str());
                             char siblingImage[MAX_PATH] = {};
                             if (ResolveSiblingPlayPath(csv.str[1].outstr(), mainpath,
                                 siblingImage, sizeof(siblingImage)))
@@ -3838,6 +3888,11 @@ int WORKSPACE::ReadSkinSE() {
                                 break;
                             }
                         }
+                        std::string resolvedFont;
+                        if (SEResolveSkinResourcePath(csv.str[1].outstr(),
+                            read.filename.body ? read.filename.outstr() : mainpath,
+                            mainpath, resolvedFont))
+                            csv.str[1].assign(resolvedFont.c_str());
                         ReadImageFont(GetRandomFileNoError(csv.str[1], dir), &sk->ImageFonts[sk->num_of_ImageFont]);
                     }
                     sk->num_of_ImageFont++;
@@ -3850,6 +3905,11 @@ int WORKSPACE::ReadSkinSE() {
             else if (fBuf.left(9).isSame("#HELPFILE")) {
                 SplitCSV(fBuf, &csv, ",");
                 if (sk->helpfileCount < 10) {
+                    std::string resolvedHelp;
+                    if (SEResolveSkinResourcePath(csv.str[1].outstr(),
+                        read.filename.body ? read.filename.outstr() : mainpath,
+                        mainpath, resolvedHelp))
+                        csv.str[1].assign(resolvedHelp.c_str());
                     sk->helpfilePath[sk->helpfileCount].assign(&csv.str[1]);
                     sk->helpfileCount = sk->helpfileCount + 1;
                 }
@@ -3899,6 +3959,11 @@ int WORKSPACE::ReadSkinSE() {
             }
             else if (fBuf.left(11).isSame("#CUSTOMFILE")) {
                 SplitCSV(fBuf, &csv, ",");
+                std::string resolvedCustom;
+                if (SEResolveSkinResourcePath(csv.str[2].outstr(),
+                    read.filename.body ? read.filename.outstr() : mainpath,
+                    mainpath, resolvedCustom))
+                    csv.str[2].assign(resolvedCustom.c_str());
                 char siblingCustom[MAX_PATH] = {};
                 if (ResolveSiblingPlayPath(csv.str[2].outstr(), mainpath,
                     siblingCustom, sizeof(siblingCustom)))
@@ -3912,6 +3977,11 @@ int WORKSPACE::ReadSkinSE() {
             }
             else if (fBuf.left(13).isSame("#CUSTOMFOLDER")) {
                 SplitCSV(fBuf, &csv, ",");
+                std::string resolvedFolder;
+                if (SEResolveSkinResourcePath(csv.str[2].outstr(),
+                    read.filename.body ? read.filename.outstr() : mainpath,
+                    mainpath, resolvedFolder))
+                    csv.str[2].assign(resolvedFolder.c_str());
                 sk->customfileRANDOM[sk->customfile_count].assign(&csv.str[2]);
                 sk->customfile[sk->customfile_count].assign("RANDOM");
                 sk->customfile_count++;
@@ -7048,19 +7118,18 @@ std::string OlrOwnerLabel(const char* owner, const char* mainSkinPath) {
     return "<external>/" + Cp932ToUtf8(basename.c_str());
 }
 
-bool OlrResolveAssetPath(const char* assetPath, const char* mainSkinPath,
+bool OlrResolveAssetPath(const char* assetPath, const char* ownerPath,
+    const char* mainSkinPath,
     std::string& resolvedPath) {
     resolvedPath.clear();
     if (!assetPath || !*assetPath || !mainSkinPath || !*mainSkinPath)
         return false;
     std::error_code error;
-    std::filesystem::path candidate(assetPath);
-    if (candidate.is_relative())
-        candidate = std::filesystem::path(mainSkinPath).parent_path() / candidate;
-    candidate = std::filesystem::absolute(candidate, error).lexically_normal();
-    if (!error && std::filesystem::is_regular_file(candidate, error) && !error) {
-        resolvedPath = candidate.string();
-        return true;
+    std::filesystem::path candidate;
+    if (SEResolveSkinResourcePath(assetPath, ownerPath, mainSkinPath, resolvedPath)) {
+        candidate = std::filesystem::path(resolvedPath);
+        if (std::filesystem::is_regular_file(candidate, error) && !error) return true;
+        resolvedPath.clear();
     }
 
     char siblingPath[MAX_PATH] = {};
@@ -7102,6 +7171,136 @@ std::string OlrWithoutLineEnding(const char* text) {
     while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
         line.pop_back();
     return line;
+}
+
+int OlrPathFieldIndex(const char* command) {
+    if (!command) return -1;
+    if (!_stricmp(command, "#IMAGE") || !_stricmp(command, "#LR2FONT") ||
+        !_stricmp(command, "#HELPFILE") || !_stricmp(command, "#INCLUDE"))
+        return 1;
+    if (!_stricmp(command, "#CUSTOMFILE") || !_stricmp(command, "#CUSTOMFOLDER"))
+        return 2;
+    return -1;
+}
+
+std::string OlrReplaceCsvField(const std::string& line, int fieldIndex,
+    const std::string& replacement) {
+    if (fieldIndex < 0) return line;
+    size_t fieldStart = 0;
+    for (int field = 0; field < fieldIndex; ++field) {
+        const size_t comma = line.find(',', fieldStart);
+        if (comma == std::string::npos) return line;
+        fieldStart = comma + 1;
+    }
+    const size_t fieldEnd = line.find(',', fieldStart);
+    return line.substr(0, fieldStart) + replacement +
+        (fieldEnd == std::string::npos ? std::string() : line.substr(fieldEnd));
+}
+
+std::string OlrLogicalRootFromPath(const std::string& logicalPath) {
+    std::vector<std::string> segments;
+    size_t start = 0;
+    while (start <= logicalPath.size()) {
+        const size_t slash = logicalPath.find('/', start);
+        const size_t end = slash == std::string::npos ? logicalPath.size() : slash;
+        segments.push_back(logicalPath.substr(start, end - start));
+        if (slash == std::string::npos) break;
+        start = slash + 1;
+    }
+    size_t count = 2;
+    if (segments.size() >= 3 &&
+        (!_stricmp(segments[1].c_str(), "Theme") ||
+            !_stricmp(segments[1].c_str(), "Sound")))
+        count = 3;
+    if (segments.size() < count) return std::string();
+    std::string root;
+    for (size_t index = 0; index < count; ++index) {
+        if (!root.empty()) root += '/';
+        root += segments[index];
+    }
+    return root;
+}
+
+bool OlrResolveVirtualDeclaration(const char* declaredPath,
+    const char* ownerPath, const char* mainSkinPath,
+    SELr2VirtualRootResolution& resolution) {
+    resolution = SELr2VirtualRootResolution();
+    if (!declaredPath || !*declaredPath) return false;
+    std::string normalized = declaredPath;
+    std::replace(normalized.begin(), normalized.end(), '\\', '/');
+    while (normalized.rfind("./", 0) == 0) normalized.erase(0, 2);
+    if (_strnicmp(normalized.c_str(), "vfs/LR2files/", 13) == 0) {
+        if (!SENormalizeLr2RootedPath(normalized.c_str() + 4,
+            resolution.logicalPath))
+            return false;
+        resolution.logicalRoot = OlrLogicalRootFromPath(resolution.logicalPath);
+        if (resolution.logicalRoot.empty()) return false;
+        const std::filesystem::path physicalRoot =
+            std::filesystem::path(mainSkinPath).parent_path() / "vfs" /
+            std::filesystem::path(resolution.logicalRoot);
+        std::error_code error;
+        if (!std::filesystem::is_directory(physicalRoot, error) || error)
+            return false;
+        resolution.physicalRoot = physicalRoot.lexically_normal().string();
+        return true;
+    }
+    return SEResolveLr2VirtualRoot(declaredPath, ownerPath, mainSkinPath,
+        resolution);
+}
+
+bool OlrPathIsInside(const std::filesystem::path& file,
+    const std::filesystem::path& directory, std::filesystem::path& relative) {
+    std::error_code error;
+    const std::filesystem::path absoluteFile =
+        std::filesystem::absolute(file, error).lexically_normal();
+    if (error) return false;
+    const std::filesystem::path absoluteDirectory =
+        std::filesystem::absolute(directory, error).lexically_normal();
+    if (error) return false;
+    relative = std::filesystem::relative(absoluteFile, absoluteDirectory, error);
+    if (error || relative.empty() || relative.is_absolute()) return false;
+    for (const std::filesystem::path& segment : relative) {
+        if (segment == "..") return false;
+    }
+    return true;
+}
+
+std::string OlrSafeExportName(const std::string& value, const char* fallback) {
+    std::string result;
+    for (unsigned char ch : value) {
+        if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.') result += (char)ch;
+        else if (ch == ' ') result += '_';
+    }
+    return result.empty() ? fallback : result;
+}
+
+std::string OlrInferExportMainPath(const char* mainSkinPath,
+    const std::vector<SEOLRVirtualRootInput>& roots) {
+    const std::filesystem::path mainFile(mainSkinPath);
+    const std::filesystem::path marker = mainFile.parent_path() /
+        ".olr-export-main.txt";
+    std::ifstream markerFile(marker, std::ios::binary);
+    if (markerFile) {
+        std::string stored((std::istreambuf_iterator<char>(markerFile)),
+            std::istreambuf_iterator<char>());
+        while (!stored.empty() && (stored.back() == '\r' || stored.back() == '\n'))
+            stored.pop_back();
+        std::string normalized;
+        if (SENormalizeLr2RootedPath(stored.c_str(), normalized) &&
+            normalized.find('*') == std::string::npos &&
+            normalized.find('?') == std::string::npos)
+            return normalized;
+    }
+    for (const SEOLRVirtualRootInput& root : roots) {
+        std::filesystem::path relative;
+        if (!OlrPathIsInside(mainFile, root.sourceDirectory, relative)) continue;
+        return root.logicalRoot + "/" + relative.generic_string();
+    }
+    const std::string theme = OlrSafeExportName(
+        mainFile.parent_path().filename().string(), "ImportedSkin");
+    const std::string filename = OlrSafeExportName(
+        mainFile.filename().string(), "main.lr2skin");
+    return "LR2files/Theme/" + theme + "/" + filename;
 }
 
 } // namespace
@@ -7169,17 +7368,63 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         document.objects.push_back(std::move(semantic));
     }
 
+    std::map<std::string, std::string> virtualRootSources;
+    std::map<int, std::string> virtualPathRows;
+    for (int rowIndex = 0; rowIndex < skinfileLines.count; ++rowIndex) {
+        SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
+        if (row.isComment || !row.csv.str[0].body) continue;
+        const char* command = row.csv.str[0].outstr();
+        const int pathField = OlrPathFieldIndex(command);
+        if (pathField < 0 || !row.csv.str[pathField].body) continue;
+        const char* declaredPath = row.csv.str[pathField].outstr();
+        if (!declaredPath || !*declaredPath || !_stricmp(declaredPath, "CONTINUE"))
+            continue;
+
+        SELr2VirtualRootResolution resolution;
+        const char* owner = row.filename.body ? row.filename.outstr() : mainpath;
+        if (OlrResolveVirtualDeclaration(declaredPath, owner, mainpath, resolution)) {
+            std::string rootKey = OlrUpperAscii(resolution.logicalRoot);
+            const auto existing = virtualRootSources.find(rootKey);
+            if (existing != virtualRootSources.end() &&
+                _stricmp(existing->second.c_str(), resolution.physicalRoot.c_str()) != 0) {
+                resultMessage = "One logical LR2 root resolved to two physical folders: " +
+                    resolution.logicalRoot;
+                return -1;
+            }
+            if (existing == virtualRootSources.end()) {
+                virtualRootSources[rootKey] = resolution.physicalRoot;
+                document.virtualRoots.push_back({ resolution.logicalRoot,
+                    resolution.physicalRoot });
+            }
+            virtualPathRows[rowIndex] = "vfs/" + resolution.logicalPath;
+            continue;
+        }
+
+        std::string logicalPath;
+        std::string candidate = declaredPath;
+        std::replace(candidate.begin(), candidate.end(), '\\', '/');
+        while (candidate.rfind("./", 0) == 0) candidate.erase(0, 2);
+        if (_strnicmp(candidate.c_str(), "vfs/LR2files/", 13) == 0)
+            candidate.erase(0, 4);
+        if (SENormalizeLr2RootedPath(candidate.c_str(), logicalPath))
+            ++document.unresolvedResourceCount;
+    }
+    document.lr2ExportMainPath = OlrInferExportMainPath(mainpath,
+        document.virtualRoots);
+
     std::map<int, std::string> packagedImageRows;
     for (int rowIndex = 0; rowIndex < skinfileLines.count; ++rowIndex) {
         SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
         if (row.isComment || !row.csv.str[0].body ||
             !row.csv.str[0].isSame("#IMAGE"))
             continue;
+        if (virtualPathRows.find(rowIndex) != virtualPathRows.end()) continue;
         const char* declaredPath = row.csv.str[1].body
             ? row.csv.str[1].outstr() : "";
         if (!*declaredPath || !_stricmp(declaredPath, "CONTINUE")) continue;
         if (strchr(declaredPath, '*')) {
             ++document.unresolvedImageCount;
+            ++document.unresolvedResourceCount;
             continue;
         }
 
@@ -7189,18 +7434,22 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
             SRCGR& image = ((SRCGR*)arr_SRCGR.data)[imageIndex];
             if (image.declare != rowIndex || image.fromWildcard || !image.path.body)
                 continue;
-            if (OlrResolveAssetPath(image.path.outstr(), mainpath, sourcePath)) {
+            const char* owner = row.filename.body ? row.filename.outstr() : mainpath;
+            if (OlrResolveAssetPath(image.path.outstr(), owner, mainpath, sourcePath)) {
                 hasResolvedImage = true;
                 break;
             }
         }
+        const char* owner = row.filename.body ? row.filename.outstr() : mainpath;
         if (!hasResolvedImage &&
-            !OlrResolveAssetPath(declaredPath, mainpath, sourcePath)) {
+            !OlrResolveAssetPath(declaredPath, owner, mainpath, sourcePath)) {
             ++document.unresolvedImageCount;
+            ++document.unresolvedResourceCount;
             continue;
         }
         if (!OlrIsBundledImagePath(sourcePath)) {
             ++document.unresolvedImageCount;
+            ++document.unresolvedResourceCount;
             continue;
         }
 
@@ -7227,8 +7476,12 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
             row.csv.str[0].isSame("#INCLUDE"))
             continue;
 
+        const auto virtualPath = virtualPathRows.find(rowIndex);
         const auto image = packagedImageRows.find(rowIndex);
-        if (image != packagedImageRows.end())
+        if (virtualPath != virtualPathRows.end())
+            lr2 << OlrReplaceCsvField(OlrWithoutLineEnding(original),
+                OlrPathFieldIndex(row.csv.str[0].outstr()), virtualPath->second);
+        else if (image != packagedImageRows.end())
             lr2 << "#IMAGE," << image->second;
         else
             lr2 << OlrWithoutLineEnding(original);
@@ -7250,16 +7503,27 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         return -1;
     }
     std::ostringstream summary;
-    summary << "Exported " << packageInfo.objectCount << " semantic objects and "
-        << packageInfo.assetCount << " fixed image assets.";
+    summary << "Exported " << packageInfo.objectCount << " semantic objects, "
+        << packageInfo.virtualRootCount << " virtual LR2 roots and "
+        << packageInfo.virtualFileCount << " virtual files.";
+    if (packageInfo.assetCount > packageInfo.virtualFileCount)
+        summary << " " << packageInfo.assetCount - packageInfo.virtualFileCount
+            << " additional fixed images were bundled.";
+    if (packageInfo.skippedVirtualFileCount > 0)
+        summary << " " << packageInfo.skippedVirtualFileCount
+            << " overlong virtual paths were skipped.";
     if (packageInfo.unresolvedImageCount > 0)
         summary << " " << packageInfo.unresolvedImageCount
             << " dynamic or unresolved #IMAGE declarations remain external.";
+    if (packageInfo.unresolvedResourceCount > 0)
+        summary << " " << packageInfo.unresolvedResourceCount
+            << " LR2-rooted resource declarations remain external.";
     resultMessage = summary.str();
     return 0;
 }
 
 int WORKSPACE::ImportOlrSkinInteractive() {
+    olrResultKind = 0;
     char packagePath[MAX_PATH] = {};
     if (!BrowseOlrOpenPath(packagePath, sizeof(packagePath))) return 0;
 
@@ -7340,13 +7604,92 @@ int WORKSPACE::ImportOlrSkinInteractive() {
     olrPackageState = 1;
     std::ostringstream result;
     result << "Imported " << packageInfo.objectCount << " semantic objects and "
-        << packageInfo.assetCount << " assets to " << extractedMainPath;
+        << packageInfo.assetCount << " assets from " << packageInfo.virtualRootCount
+        << " virtual LR2 roots to " << extractedMainPath;
     if (packageInfo.unresolvedImageCount > 0)
         result << ". " << packageInfo.unresolvedImageCount
             << " external image declarations may still require the original LR2 environment";
+    if (packageInfo.unresolvedResourceCount > 0)
+        result << ". " << packageInfo.unresolvedResourceCount
+            << " LR2-rooted resource declarations still require an external installation";
     olrPackageMessage = result.str();
     lastSaveState = 0;
     lastSaveMessage = olrPackageMessage;
+    lastSaveMessageAt = GetTickCount64();
+    olrImportResultPopupRequested = true;
+    return 1;
+}
+
+int WORKSPACE::ExportLr2SkinInteractive() {
+    olrResultKind = 1;
+    if (!loaded || !SEIsOLRVirtualWorkspace(mainpath)) {
+        olrPackageState = -1;
+        olrPackageMessage =
+            "Import an OLR V0.2 package before exporting an install-ready LR2 folder.";
+        olrImportResultPopupRequested = true;
+        return -1;
+    }
+    if (IsDocumentDirty()) {
+        olrPackageState = -1;
+        olrPackageMessage = "Save the OLR workspace before exporting it to LR2.";
+        olrImportResultPopupRequested = true;
+        return -1;
+    }
+    if (!imagePixelPaintDirtyPaths.empty()) {
+        olrPackageState = -1;
+        olrPackageMessage =
+            "Save or discard Image Manager pixel edits before exporting to LR2.";
+        olrImportResultPopupRequested = true;
+        return -1;
+    }
+
+    std::string parentFolder;
+    std::string parentLabelUtf8;
+    std::string pickerError;
+    if (!BrowseSkinFolder(parentFolder, parentLabelUtf8, pickerError,
+        L"Choose a parent folder for the LR2 export")) {
+        if (!pickerError.empty()) {
+            olrPackageState = -1;
+            olrPackageMessage = pickerError;
+            olrImportResultPopupRequested = true;
+        }
+        return pickerError.empty() ? 0 : -1;
+    }
+
+    std::filesystem::path workspace = std::filesystem::path(mainpath).parent_path();
+    std::string stem = workspace.filename().string();
+    if (stem.empty()) stem = "olr-skin";
+    std::filesystem::path target = std::filesystem::path(parentFolder) /
+        (stem + "-lr2-export");
+    std::error_code filesystemError;
+    for (int suffix = 2; std::filesystem::exists(target, filesystemError); ++suffix) {
+        if (filesystemError) break;
+        target = std::filesystem::path(parentFolder) /
+            (stem + "-lr2-export-" + std::to_string(suffix));
+    }
+    if (filesystemError) {
+        olrPackageState = -1;
+        olrPackageMessage = "The selected LR2 export parent could not be inspected.";
+        olrImportResultPopupRequested = true;
+        return -1;
+    }
+
+    SEOLRLr2ExportInfo exportInfo;
+    if (!SEExportOLRWorkspaceToLR2(mainpath, target.string().c_str(),
+        exportInfo, olrPackageMessage)) {
+        olrPackageState = -1;
+        olrImportResultPopupRequested = true;
+        return -1;
+    }
+
+    olrPackageState = 1;
+    std::ostringstream result;
+    result << "Created an install-ready LR2 tree with "
+        << exportInfo.copiedFileCount << " resource files. Main skin: "
+        << exportInfo.mainSkinPath;
+    olrPackageMessage = result.str();
+    lastSaveState = 1;
+    lastSaveMessage = "LR2 export created";
     lastSaveMessageAt = GetTickCount64();
     olrImportResultPopupRequested = true;
     return 1;
@@ -7369,7 +7712,7 @@ int WORKSPACE::drawSaveMenu2() {
         }
 
         ImGui::TextWrapped("Create one portable .olrskin file from the loaded LR2 workspace.");
-        ImGui::TextDisabled("V0.1 writes an AI-readable semantic index plus the merged LR2 compatibility script.");
+        ImGui::TextDisabled("V0.2 writes a semantic index, merged LR2 script and virtual LR2 resource roots.");
         if (ImGui::Button("BROWSE"))
             BrowseOlrSavePath(newPath, newPath, sizeof(newPath));
         ImGui::SameLine();
@@ -7382,9 +7725,10 @@ int WORKSPACE::drawSaveMenu2() {
                 "The selected package already exists and will be replaced.");
 
         ImGui::SeparatorText("Portability boundary");
-        ImGui::BulletText("Fixed #IMAGE files resolved by the editor are bundled.");
+        ImGui::BulletText("Resolved LR2files roots are bundled below vfs/LR2files with wildcard choices intact.");
         ImGui::BulletText("LR2 commands, comments, timers, conditions and editor metadata are preserved.");
-        ImGui::BulletText("Wildcard/custom files, fonts, video and sound may remain external in V0.1.");
+        ImGui::BulletText("Resources outside a resolved LR2 root remain external and are reported.");
+        ImGui::BulletText("After import, File > Export LR2 folder materializes an install-ready tree.");
         ImGui::BulletText("skin.json is descriptive; lr2/main.lr2skin remains authoritative.");
 
         const bool hasUnsavedImageEdits = !imagePixelPaintDirtyPaths.empty();

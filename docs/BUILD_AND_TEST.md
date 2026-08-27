@@ -40,8 +40,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   잘못된 위치 거부
 - `preview-simulator`: PLAY 키 모드별 메모리 chart의 시간순 lane 배치, 동시치기,
   LN/mine, 2P lane, measure event/sentinel 및 Rhythm 140 시작·리셋 계약
-- `resolution-estimator`: `#INFORMATION`/`#RESOLUTION` 우선순위, include가 펼쳐진
-  DST 경계 기반 720p/1080p 추정, 화면 밖 전환 frame 내성, 640x480 fallback
+- `resolution-estimator`: `#INFORMATION`/`#RESOLUTION` 우선순위, TenRiff에서 이식한
+  lane/backdrop 기반 SD/HD/FHD 판정, 화면 밖 전환 panel 제외, 640x480 fallback
 - `olr-package`: stored ZIP 생성/검사/추출, manifest와 semantic object/asset count,
   LR2·asset byte 보존, path traversal 거부 및 CRC 손상 탐지
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제 및 graphic ID 배정
@@ -191,6 +191,9 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    하위 폴더의 `.lr2skin`/`.lr2ss`가 목록에 나타나고, Refresh와 Default locations가
    정상 동작해야 한다.
    스킨 목록에는 별도의 `LOAD(TEXT)` 버튼이 없어야 한다.
+   실제 LR2 설치 밖의 M.H/IIDX 형태 폴더를 열어 `LR2files\Theme\IIDX`
+   include와 wildcard image/custom file, LR2FONT가 원본 CSV 수정 없이 해결되고
+   Preview에서 note/폭발/judge/combo/gauge가 표시되는지 확인한다.
 3. 640x480 스킨 하나와 1280x720 이상 HD 스킨 하나를 각각 연다.
    HD 스킨은 `#INFORMATION` 크기가 없고 include 안의 DST 좌표만 있는 사례도
    포함한다. toolbar tooltip과 status bar가 `inferred`를 표시하고 Preview가 추정
@@ -233,14 +236,19 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    차단되는지도 확인한다.
 10. `Layout > Show all windows`에서 16개 창이 여섯 dock tab group 안에 정돈되고,
     `Balanced workspace`가 기본 표시 상태와 4열 배치를 복원하는지 확인한다.
-11. 실제 스킨에서 `File > Export OLR package`를 실행하고 일반 ZIP viewer로
-    `manifest.json`, `skin.json`, `compatibility/source-map.json`,
-    `lr2/main.lr2skin`, `lr2/assets/*`를 확인한다. source map에 드라이브명이나 로컬
-    절대 경로가 없어야 한다. 같은 패키지를 `File > Import OLR package`로 빈 parent
-    폴더에 가져오면 새 `<name>-lr2` 폴더가 생기고 추출한 스킨이 열려야 한다.
-    정상/LN/mine, 폭발, judge/combo, gauge가 원본과 같은 LR2 Preview flow로
-    표시되는지 확인한다. wildcard/font/video/sound가 있는 스킨은 Export 결과의
-    외부 의존성 경고도 확인한다.
+11. 실제 M.H/IIDX 형태 스킨에서 `File > Export OLR package`를 실행하고
+    일반 ZIP viewer로 `manifest.json`, `skin.json`,
+    `compatibility/source-map.json`, `compatibility/path-map.json`,
+    `lr2/main.lr2skin`, `lr2/.olr-export-main.txt`,
+    `lr2/vfs/LR2files/Theme/<skin>/*`를 확인한다. map에 드라이브명이나
+    로컬 절대 경로가 없어야 한다. 같은 패키지를 `File > Import OLR package`로
+    빈 parent 폴더에 가져오면 새 `<name>-lr2` 폴더가 생기고 추출한
+    `main.lr2skin`이 열려야 한다. 정상/LN/mine, 폭발, judge/combo, gauge와
+    font를 원본과 같은 LR2 Preview flow로 다시 확인한다.
+    이 workspace에서 `File > Export LR2 folder`를 새 대상으로 실행하면
+    `<target>/LR2files/...`가 생기고 main CSV에 `vfs/`가 남지 않아야 한다.
+    기존 대상 폴더를 덮어쓰지 않고, 해결불가/과도하게 긴 경로는 Export 결과의
+    외부 의존성/누락 경고와 manifest 개수에 나타나야 한다.
 
 ## 회귀 테스트
 
@@ -407,9 +415,9 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 - 640x480 Preview
 - 1280x720 이상 HD Preview
 - `#INFORMATION`이 없고 `#RESOLUTION,1280,720`만 있는 스킨이 1280x720으로 열리는지
-- 명시 해상도가 없고 DST가 include 파일에 분산된 HD 스킨이 전체 DST 경계로
-  추정되며 toolbar/status에 `inferred`로 표시되는지
-- 화면 밖 애니메이션/전환 DST 행 하나가 정상 720p 스킨을 4K로 과대 추정하지 않는지
+- 명시 해상도가 없고 lane은 화면 왼쪽에 있지만 좌상단 1280x720 backdrop이 있는
+  스킨이 TenRiff 규칙으로 HD 판정되며 toolbar/status에 `inferred`로 표시되는지
+- 화면 밖 애니메이션/전환 panel이 backdrop으로 오인되어 HD/FHD로 승격되지 않는지
 - 추정 상태로 열기만 하면 원본이 바뀌지 않고, modal Apply 뒤에만 명시
   `#INFORMATION`으로 기록되는지
 - PLAY 5/7/9/10/14 keys, 5/7/9 battle
@@ -441,7 +449,7 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 재현 가능한 문제는 다음 내용을 남긴다.
 
 ```text
-Build: AI branch commit/dirty status, Release Win32
+Build: AI_2 branch commit/dirty status, Release Win32
 Skin: scene, key mode, resolution, main lr2skin path
 Steps: open -> option change -> selection -> action
 Expected:

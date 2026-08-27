@@ -7,6 +7,7 @@
 #include "seObjectEditor.h"
 #include "skin.h"
 #include "skinBrowser.h"
+#include "skinPathResolver.h"
 #include "skinResolution.h"
 #include "uiCatalog.h"
 
@@ -83,10 +84,6 @@ int RunSchemaContractSelfTest() {
 }
 
 int RunResolutionEstimatorSelfTest() {
-    // Resolution inference reads the same embedded command schema as the
-    // editor, so packaged builds exercise the complete contract here.
-    if (LoadCommandHelp(nullptr) != 0) return 1;
-
     SESkinResolutionDecision decision = SEResolveSkinResolution({
         "#INFORMATION,0,title,maker,,,1920,1080",
         "#RESOLUTION,1280,720",
@@ -94,7 +91,7 @@ int RunResolutionEstimatorSelfTest() {
     });
     if (decision.width != 1920 || decision.height != 1080 ||
         decision.source != SESkinResolutionSource::Information)
-        return 2;
+        return 1;
 
     decision = SEResolveSkinResolution({
         "#INFORMATION,0,title,maker,,,,",
@@ -103,46 +100,71 @@ int RunResolutionEstimatorSelfTest() {
     });
     if (decision.width != 1280 || decision.height != 720 ||
         decision.source != SESkinResolutionSource::ResolutionCommand)
-        return 3;
+        return 2;
 
     decision = SEResolveSkinResolution({ "#RESOLUTION,1" });
     if (decision.width != 1280 || decision.height != 720 ||
         decision.source != SESkinResolutionSource::ResolutionCommand)
+        return 3;
+
+    // TenRiff regression: lanes left of x=960 look SD by themselves, but the
+    // corner-anchored 1280x720 backdrop identifies the HD authoring canvas.
+    decision = SEResolveSkinResolution({
+        "#DST_IMAGE,0,0,0,0,1280,720",
+        "#DST_NOTE,0,0,200,500,60,33,0,255",
+        "#DST_NOTE,1,0,260,500,60,33,0,255"
+    });
+    if (decision.width != 1280 || decision.height != 720 ||
+        decision.source != SESkinResolutionSource::TenRiffAuto ||
+        decision.destinationEvidenceCount != 3)
         return 4;
 
-    std::vector<std::string> hdRows;
-    for (int index = 0; index < 19; ++index) {
-        hdRows.push_back("#DST_IMAGE,0,0,1000,600,260,110");
-    }
-    // A single transition frame should not inflate a 720p skin to 4K.
-    hdRows.push_back("#DST_IMAGE,0,0,5000,3000,1000,1000");
-    decision = SEResolveSkinResolution(hdRows);
-    if (decision.width != 1280 || decision.height != 720 ||
-        decision.source != SESkinResolutionSource::DestinationBounds ||
-        decision.destinationEvidenceCount != 20)
+    // TenRiff regression: large animation panels parked away from the origin
+    // must not promote an ordinary SD playfield to HD or FHD.
+    decision = SEResolveSkinResolution({
+        "#DST_IMAGE,0,0,0,1335,1280,364",
+        "#DST_IMAGE,1,0,0,-341,1280,341",
+        "#DST_NOTE,0,0,100,400,30,22,0,255",
+        "#DST_NOTE,1,0,130,400,30,22,0,255"
+    });
+    if (decision.width != 640 || decision.height != 480 ||
+        decision.source != SESkinResolutionSource::TenRiffAuto ||
+        decision.destinationEvidenceCount != 2)
         return 5;
 
     decision = SEResolveSkinResolution({
-        "#DST_IMAGE,0,0,0,0,1920,1080"
-    });
-    if (decision.width != 1920 || decision.height != 1080 ||
-        decision.source != SESkinResolutionSource::DestinationBounds ||
-        decision.destinationEvidenceCount != 1)
-        return 6;
-
-    decision = SEResolveSkinResolution({
-        "#INFORMATION,0,title,maker,,,0,0",
-        "#DST_IMAGE,0,0,0,0,1280,720"
+        "#DST_NOTE,0,0,1200,500,60,33,0,255"
     });
     if (decision.width != 1280 || decision.height != 720 ||
-        decision.source != SESkinResolutionSource::DestinationBounds)
+        decision.source != SESkinResolutionSource::TenRiffAuto)
+        return 6;
+
+    // TenRiff recognises LR2's three authoring families; even a larger
+    // backdrop resolves to the highest supported FHD family.
+    decision = SEResolveSkinResolution({
+        "#DST_IMAGE,0,0,0,0,3840,2160"
+    });
+    if (decision.width != 1920 || decision.height != 1080 ||
+        decision.source != SESkinResolutionSource::TenRiffAuto)
         return 7;
+
+    // The final alpha-zero destination removes an otherwise off-screen lane,
+    // matching TenRiff's visible-lane map rather than accumulating keyframes.
+    decision = SEResolveSkinResolution({
+        "#DST_NOTE,0,0,1700,500,60,33,0,255",
+        "#DST_NOTE,0,100,1700,500,60,33,0,0",
+        "#DST_NOTE,1,0,100,400,30,22,0,255"
+    });
+    if (decision.width != 640 || decision.height != 480 ||
+        decision.source != SESkinResolutionSource::TenRiffAuto ||
+        decision.destinationEvidenceCount != 1)
+        return 8;
 
     decision = SEResolveSkinResolution({ "#IMAGE,background.png" });
     if (decision.width != 640 || decision.height != 480 ||
         decision.source != SESkinResolutionSource::Default640x480 ||
         decision.destinationEvidenceCount != 0)
-        return 8;
+        return 9;
 
     return 0;
 }
@@ -156,20 +178,29 @@ int RunOlrPackageSelfTest() {
     if (!CreateDirectoryA(testRoot, NULL)) return 3;
 
     const std::string root = testRoot;
-    const std::string assetPath = root + "\\asset.bin";
+    const std::string virtualRoot = root + "\\Test";
+    const std::string virtualNoteFolder = virtualRoot + "\\note";
+    const std::string assetPath = virtualNoteFolder + "\\blue.png";
     const std::string packagePath = root + "\\test.olrskin";
     const std::string tamperedPath = root + "\\tampered.olrskin";
     const std::string extractedPath = root + "\\imported";
+    const std::string materializedPath = root + "\\materialized";
     const unsigned char assetBytes[] = {
         'O', 'L', 'R', '_', 'A', 'S', 'S', 'E', 'T', '_', 'T', 'E', 'S', 'T', '!'
     };
     int result = 0;
-    FILE* assetFile = fopen(assetPath.c_str(), "wb");
-    if (!assetFile) result = 4;
-    else {
-        if (fwrite(assetBytes, 1, sizeof(assetBytes), assetFile) != sizeof(assetBytes))
-            result = 5;
-        fclose(assetFile);
+    if (!CreateDirectoryA(virtualRoot.c_str(), NULL) ||
+        !CreateDirectoryA(virtualNoteFolder.c_str(), NULL))
+        result = 4;
+    if (result == 0) {
+        FILE* assetFile = fopen(assetPath.c_str(), "wb");
+        if (!assetFile) result = 5;
+        else {
+            if (fwrite(assetBytes, 1, sizeof(assetBytes), assetFile) !=
+                sizeof(assetBytes))
+                result = 6;
+            fclose(assetFile);
+        }
     }
 
     SEOLRSkinDocument document;
@@ -181,9 +212,12 @@ int RunOlrPackageSelfTest() {
     document.resolutionSource = "#RESOLUTION";
     document.lr2Script =
         "#INFORMATION,0,OLR self test,SkinEditor,,,1280,720\r\n"
-        "#IMAGE,assets/image_0000.bin\r\n"
+        "#CUSTOMFILE,NOTE,vfs/LR2files/Theme/Test/note/*.png,blue\r\n"
+        "#IMAGE,vfs/LR2files/Theme/Test/note/blue.png\r\n"
         "#SRC_IMAGE,0,0,0,0,16,16,1,1,0,0\r\n"
         "#DST_IMAGE,0,0,100,200,16,16,0,255,255,255,255,1,0,0,0,0\r\n";
+    document.lr2ExportMainPath = "LR2files/Theme/Test/play.lr2skin";
+    document.virtualRoots.push_back({ "LR2files/Theme/Test", virtualRoot });
     SEOLRSemanticObject semanticObject;
     semanticObject.id = "obj_test";
     semanticObject.category = "misc";
@@ -199,45 +233,79 @@ int RunOlrPackageSelfTest() {
     semanticObject.height = 16;
     document.objects.push_back(semanticObject);
     document.sourceMap.push_back({ 0, 0, "main.lr2skin" });
-    document.assets.push_back({ 1, assetPath, "lr2/assets/image_0000.bin" });
 
     SEOLRPackageInfo packageInfo;
     std::string errorMessage;
     if (result == 0 && !SEWriteOLRSkinPackage(packagePath.c_str(), document,
-        packageInfo, errorMessage)) result = 6;
-    if (result == 0 && (packageInfo.entries.size() != 5 ||
-        packageInfo.objectCount != 1 || packageInfo.assetCount != 1))
-        result = 7;
+        packageInfo, errorMessage)) result = 7;
+    if (result == 0 && (packageInfo.entries.size() != 7 ||
+        packageInfo.objectCount != 1 || packageInfo.assetCount != 1 ||
+        packageInfo.virtualRootCount != 1 || packageInfo.virtualFileCount != 1))
+        result = 8;
 
     std::string extractedMain;
     if (result == 0 && !SEExtractOLRSkinPackage(packagePath.c_str(),
         extractedPath.c_str(), extractedMain, packageInfo, errorMessage))
-        result = 8;
-    if (result == 0 && extractedMain != extractedPath + "\\main.lr2skin")
         result = 9;
+    if (result == 0 && extractedMain != extractedPath + "\\main.lr2skin")
+        result = 10;
     if (result == 0) {
         std::ifstream script(extractedMain, std::ios::binary);
         const std::string scriptBytes((std::istreambuf_iterator<char>(script)),
             std::istreambuf_iterator<char>());
-        if (scriptBytes != document.lr2Script) result = 10;
+        if (scriptBytes != document.lr2Script) result = 11;
     }
     if (result == 0) {
-        std::ifstream asset(extractedPath + "\\assets\\image_0000.bin",
+        std::ifstream asset(extractedPath +
+            "\\vfs\\LR2files\\Theme\\Test\\note\\blue.png",
             std::ios::binary);
         const std::vector<unsigned char> extractedBytes(
             (std::istreambuf_iterator<char>(asset)),
             std::istreambuf_iterator<char>());
         if (extractedBytes.size() != sizeof(assetBytes) ||
             memcmp(extractedBytes.data(), assetBytes, sizeof(assetBytes)) != 0)
-            result = 11;
+            result = 12;
+    }
+
+    if (result == 0) {
+        std::string resolved;
+        if (!SEResolveSkinResourcePath(
+            "vfs/LR2files/Theme/Test/note/*.png",
+            extractedMain.c_str(), extractedMain.c_str(), resolved) ||
+            _stricmp(resolved.c_str(),
+                (extractedPath +
+                    "\\vfs\\LR2files\\Theme\\Test\\note\\*.png").c_str()) != 0)
+            result = 22;
+    }
+
+    SEOLRLr2ExportInfo exportInfo;
+    if (result == 0 && (!SEIsOLRVirtualWorkspace(extractedMain.c_str()) ||
+        !SEExportOLRWorkspaceToLR2(extractedMain.c_str(), materializedPath.c_str(),
+            exportInfo, errorMessage)))
+        result = 13;
+    if (result == 0 && exportInfo.copiedFileCount != 1) result = 14;
+    if (result == 0 && std::filesystem::path(exportInfo.mainSkinPath) !=
+        std::filesystem::path(materializedPath) /
+            "LR2files/Theme/Test/play.lr2skin")
+        result = 21;
+    if (result == 0) {
+        std::ifstream compiled(exportInfo.mainSkinPath, std::ios::binary);
+        const std::string compiledBytes((std::istreambuf_iterator<char>(compiled)),
+            std::istreambuf_iterator<char>());
+        if (compiledBytes.find("vfs/LR2files/") != std::string::npos ||
+            compiledBytes.find("LR2files\\Theme\\Test\\note\\*.png") ==
+                std::string::npos ||
+            compiledBytes.find("LR2files\\Theme\\Test\\note\\blue.png") ==
+                std::string::npos)
+            result = 15;
     }
 
     if (result == 0) {
         SEOLRSkinDocument unsafeDocument = document;
-        unsafeDocument.assets[0].packagePath = "lr2/assets/../escape.bin";
+        unsafeDocument.virtualRoots[0].logicalRoot = "LR2files/Theme/../escape";
         if (SEWriteOLRSkinPackage((root + "\\unsafe.olrskin").c_str(),
             unsafeDocument, packageInfo, errorMessage))
-            result = 12;
+            result = 16;
     }
 
     if (result == 0) {
@@ -246,20 +314,31 @@ int RunOlrPackageSelfTest() {
             std::istreambuf_iterator<char>());
         const auto match = std::search(bytes.begin(), bytes.end(),
             std::begin(assetBytes), std::end(assetBytes));
-        if (match == bytes.end()) result = 13;
+        if (match == bytes.end()) result = 17;
         else {
             *match ^= 0x20;
             std::ofstream output(tamperedPath, std::ios::binary | std::ios::trunc);
             output.write((const char*)bytes.data(), bytes.size());
             output.close();
             if (SEInspectOLRSkinPackage(tamperedPath.c_str(), packageInfo,
-                errorMessage)) result = 14;
+                errorMessage)) result = 18;
         }
+    }
+
+    if (result == 0) {
+        std::string resolved;
+        const std::string owner = virtualRoot + "\\play.lr2skin";
+        if (!SEResolveSkinResourcePath(
+            ".\\LR2files\\Theme\\Test\\note\\*.png",
+            owner.c_str(), owner.c_str(), resolved) ||
+            _stricmp(resolved.c_str(),
+                (virtualNoteFolder + "\\*.png").c_str()) != 0)
+            result = 20;
     }
 
     std::error_code cleanupError;
     std::filesystem::remove_all(root, cleanupError);
-    if (result == 0 && cleanupError) result = 15;
+    if (result == 0 && cleanupError) result = 19;
     return result;
 }
 
@@ -375,10 +454,12 @@ int RunSkinBrowserSelfTest() {
                     ParseLR2SkinCustom(&parsedSkin, CSTR(rootSkin.c_str()));
                 if (*originalWorkingDirectory)
                     SetCurrentDirectoryA(originalWorkingDirectory);
+                SESkinResolutionDecision browserResolution;
                 if (result == 0 && (parsedSkin.Count != 1 ||
-                    parsedSkin.Data[0].targetX != 1280 ||
-                    parsedSkin.Data[0].targetY != 720))
-                    result = 16;
+                    !SEResolveSkinResolutionFile(rootSkin.c_str(),
+                        browserResolution) ||
+                    browserResolution.width != 1280 ||
+                    browserResolution.height != 720)) result = 16;
             }
         }
     }

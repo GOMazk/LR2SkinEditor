@@ -11,6 +11,7 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <set>
 #include <sstream>
 #include <vector>
 
@@ -201,7 +202,8 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
     }
     json << "  },\n";
     json << "  \"compatibility\": {\"authority\": \"lr2/main.lr2skin\", "
-        << "\"source_map\": \"compatibility/source-map.json\"}\n";
+        << "\"source_map\": \"compatibility/source-map.json\", "
+        << "\"path_map\": \"compatibility/path-map.json\"}\n";
     json << "}\n";
     return json.str();
 }
@@ -222,21 +224,53 @@ std::string BuildSourceMapJson(const SEOLRSkinDocument& document) {
     return json.str();
 }
 
+struct VirtualRootPackageStats {
+    std::string logicalRoot;
+    int fileCount = 0;
+    int skippedFileCount = 0;
+};
+
+std::string BuildPathMapJson(const SEOLRSkinDocument& document,
+    const std::vector<VirtualRootPackageStats>& rootStats) {
+    std::ostringstream json;
+    json << "{\n  \"format\": \"olrskin-path-map\",\n  \"version\": 1,\n"
+        << "  \"workspace_prefix\": \"vfs/\",\n"
+        << "  \"export_main\": \"" << JsonEscape(document.lr2ExportMainPath)
+        << "\",\n  \"roots\": [";
+    for (size_t index = 0; index < rootStats.size(); ++index) {
+        const VirtualRootPackageStats& root = rootStats[index];
+        json << (index ? ",\n" : "\n")
+            << "    {\"logical\": \"" << JsonEscape(root.logicalRoot)
+            << "\", \"virtual\": \"vfs/" << JsonEscape(root.logicalRoot)
+            << "\", \"file_count\": " << root.fileCount
+            << ", \"skipped_file_count\": " << root.skippedFileCount << "}";
+    }
+    if (!rootStats.empty()) json << "\n  ";
+    json << "],\n  \"unresolved_resource_count\": "
+        << document.unresolvedResourceCount << "\n}\n";
+    return json.str();
+}
+
 std::string BuildManifestJson(const SEOLRSkinDocument& document,
-    int bundledAssetCount) {
+    int bundledAssetCount, int virtualFileCount, int skippedVirtualFileCount) {
     std::ostringstream json;
     json << "{\n"
         << "  \"format\": \"olrskin\",\n"
-        << "  \"version\": 1,\n"
-        << "  \"profile\": \"lr2-compat-v0.1\",\n"
+        << "  \"version\": 2,\n"
+        << "  \"profile\": \"lr2-vfs-v0.2\",\n"
         << "  \"semantic_authority\": \"descriptive\",\n"
         << "  \"lr2_entry\": \"lr2/main.lr2skin\",\n"
         << "  \"skin_entry\": \"skin.json\",\n"
+        << "  \"path_map_entry\": \"compatibility/path-map.json\",\n"
         << "  \"object_count\": " << document.objects.size() << ",\n"
         << "  \"asset_count\": " << bundledAssetCount << ",\n"
+        << "  \"virtual_root_count\": " << document.virtualRoots.size() << ",\n"
+        << "  \"virtual_file_count\": " << virtualFileCount << ",\n"
+        << "  \"skipped_virtual_file_count\": " << skippedVirtualFileCount << ",\n"
         << "  \"unresolved_image_count\": " << document.unresolvedImageCount << ",\n"
-        << "  \"limitations\": [\"semantic edits are descriptive in v0.1\", "
-        << "\"wildcard/custom/font/video/sound resources may remain external\"]\n"
+        << "  \"unresolved_resource_count\": " << document.unresolvedResourceCount << ",\n"
+        << "  \"limitations\": [\"semantic edits remain descriptive\", "
+        << "\"resources outside captured LR2 roots remain external\"]\n"
         << "}\n";
     return json.str();
 }
@@ -253,7 +287,8 @@ PackageEntrySource MemoryEntry(const char* name, const std::string& text) {
 bool PrepareFileEntry(const SEOLRAssetInput& asset, PackageEntrySource& entry,
     std::string& errorMessage) {
     if (!IsSafeArchivePath(asset.packagePath) ||
-        asset.packagePath.rfind("lr2/assets/", 0) != 0) {
+        (asset.packagePath.rfind("lr2/assets/", 0) != 0 &&
+            asset.packagePath.rfind("lr2/vfs/LR2files/", 0) != 0)) {
         errorMessage = "An asset package path was unsafe: " + asset.packagePath;
         return false;
     }
@@ -286,6 +321,87 @@ bool PrepareFileEntry(const SEOLRAssetInput& asset, PackageEntrySource& entry,
     entry.isFile = true;
     entry.size = (uint32_t)size;
     entry.crc = crc ^ 0xFFFFFFFFu;
+    return true;
+}
+
+std::string LowerPathKey(const std::string& value) {
+    std::string key = value;
+    std::transform(key.begin(), key.end(), key.begin(),
+        [](unsigned char ch) { return (char)std::tolower(ch); });
+    return key;
+}
+
+bool AppendVirtualRootEntries(const SEOLRSkinDocument& document,
+    std::vector<PackageEntrySource>& assetEntries,
+    std::vector<VirtualRootPackageStats>& rootStats,
+    int& virtualFileCount, int& skippedVirtualFileCount,
+    std::string& errorMessage) {
+    std::set<std::string> packageNames;
+    for (const PackageEntrySource& entry : assetEntries)
+        packageNames.insert(LowerPathKey(entry.name));
+
+    for (const SEOLRVirtualRootInput& input : document.virtualRoots) {
+        if (!IsSafeArchivePath(input.logicalRoot) ||
+            input.logicalRoot.rfind("LR2files/", 0) != 0) {
+            errorMessage = "An OLR virtual root was unsafe: " + input.logicalRoot;
+            return false;
+        }
+        std::error_code filesystemError;
+        const std::filesystem::path sourceRoot(input.sourceDirectory);
+        if (!std::filesystem::is_directory(sourceRoot, filesystemError) ||
+            filesystemError) {
+            errorMessage = "An OLR virtual root could not be opened: " +
+                input.sourceDirectory;
+            return false;
+        }
+
+        VirtualRootPackageStats stats;
+        stats.logicalRoot = input.logicalRoot;
+        std::filesystem::recursive_directory_iterator iterator(sourceRoot,
+            std::filesystem::directory_options::skip_permission_denied,
+            filesystemError);
+        const std::filesystem::recursive_directory_iterator end;
+        while (!filesystemError && iterator != end) {
+            const std::filesystem::directory_entry entry = *iterator;
+            iterator.increment(filesystemError);
+            std::error_code entryError;
+            if (entry.is_symlink(entryError) || entryError ||
+                !entry.is_regular_file(entryError) || entryError)
+                continue;
+            const std::filesystem::path relative =
+                entry.path().lexically_relative(sourceRoot);
+            const std::string packagePath = "lr2/vfs/" + input.logicalRoot +
+                "/" + relative.generic_string();
+            if (!IsSafeArchivePath(packagePath)) {
+                ++stats.skippedFileCount;
+                ++skippedVirtualFileCount;
+                continue;
+            }
+            if (!packageNames.insert(LowerPathKey(packagePath)).second) {
+                errorMessage = "Two OLR virtual files map to the same Windows path: " +
+                    packagePath;
+                return false;
+            }
+            SEOLRAssetInput asset;
+            asset.sourcePath = entry.path().string();
+            asset.packagePath = packagePath;
+            PackageEntrySource packageEntry;
+            if (!PrepareFileEntry(asset, packageEntry, errorMessage)) return false;
+            assetEntries.push_back(std::move(packageEntry));
+            ++stats.fileCount;
+            ++virtualFileCount;
+        }
+        if (filesystemError) {
+            errorMessage = "An OLR virtual root could not be enumerated: " +
+                input.sourceDirectory;
+            return false;
+        }
+        rootStats.push_back(std::move(stats));
+    }
+    std::sort(assetEntries.begin(), assetEntries.end(),
+        [](const PackageEntrySource& left, const PackageEntrySource& right) {
+            return left.name < right.name;
+        });
     return true;
 }
 
@@ -323,7 +439,8 @@ bool WriteArchive(const char* packagePath,
     }
     std::map<std::string, bool> names;
     for (const PackageEntrySource& entry : entries) {
-        if (!IsSafeArchivePath(entry.name) || !names.emplace(entry.name, true).second) {
+        if (!IsSafeArchivePath(entry.name) ||
+            !names.emplace(LowerPathKey(entry.name), true).second) {
             errorMessage = "The OLR package contains an unsafe or duplicate entry name.";
             return false;
         }
@@ -490,7 +607,7 @@ bool ReadArchiveDirectory(FILE* archive, std::vector<PackageEntryRecord>& entrie
         consumed += nameLength + extraLength + entryCommentLength;
         entry.name.assign(name.begin(), name.end());
         if (!IsSafeArchivePath(entry.name) ||
-            !names.emplace(entry.name, true).second) {
+            !names.emplace(LowerPathKey(entry.name), true).second) {
             errorMessage = "An OLR entry path is unsafe or duplicated.";
             return false;
         }
@@ -573,14 +690,21 @@ bool ValidateManifest(FILE* archive,
     const PackageEntryRecord* manifest = nullptr;
     bool hasSkin = false;
     bool hasSourceMap = false;
+    bool hasPathMap = false;
     bool hasMain = false;
+    bool hasExportMain = false;
     for (const PackageEntryRecord& entry : entries) {
         info.entries.push_back(entry.name);
         if (entry.name == "manifest.json") manifest = &entry;
         else if (entry.name == "skin.json") hasSkin = true;
         else if (entry.name == "compatibility/source-map.json") hasSourceMap = true;
+        else if (entry.name == "compatibility/path-map.json") hasPathMap = true;
         else if (entry.name == "lr2/main.lr2skin") hasMain = true;
-        if (entry.name.rfind("lr2/assets/", 0) == 0) ++info.assetCount;
+        else if (entry.name == "lr2/.olr-export-main.txt") hasExportMain = true;
+        if (entry.name.rfind("lr2/assets/", 0) == 0 ||
+            entry.name.rfind("lr2/vfs/", 0) == 0)
+            ++info.assetCount;
+        if (entry.name.rfind("lr2/vfs/", 0) == 0) ++info.virtualFileCount;
     }
     if (!manifest || !hasSkin || !hasSourceMap || !hasMain) {
         errorMessage = "The OLR package is missing a required entry.";
@@ -590,20 +714,39 @@ bool ValidateManifest(FILE* archive,
     if (!CopyAndValidateEntry(archive, *manifest, nullptr, &bytes, errorMessage))
         return false;
     const std::string text(bytes.begin(), bytes.end());
+    const bool isVersion1 = text.find("\"version\": 1") != std::string::npos;
+    const bool isVersion2 = text.find("\"version\": 2") != std::string::npos;
     if (text.find("\"format\": \"olrskin\"") == std::string::npos ||
-        text.find("\"version\": 1") == std::string::npos ||
+        (!isVersion1 && !isVersion2) ||
         text.find("\"lr2_entry\": \"lr2/main.lr2skin\"") == std::string::npos) {
         errorMessage = "The OLR manifest format or version is unsupported.";
         return false;
     }
+    if (isVersion2 && (!hasPathMap || !hasExportMain)) {
+        errorMessage = "The OLR V0.2 package is missing its virtual path metadata.";
+        return false;
+    }
     const char* objectKey = "\"object_count\": ";
     const char* unresolvedKey = "\"unresolved_image_count\": ";
+    const char* rootKey = "\"virtual_root_count\": ";
+    const char* skippedKey = "\"skipped_virtual_file_count\": ";
+    const char* unresolvedResourceKey = "\"unresolved_resource_count\": ";
     const size_t objectAt = text.find(objectKey);
     const size_t unresolvedAt = text.find(unresolvedKey);
+    const size_t rootAt = text.find(rootKey);
+    const size_t skippedAt = text.find(skippedKey);
+    const size_t unresolvedResourceAt = text.find(unresolvedResourceKey);
     if (objectAt != std::string::npos)
         info.objectCount = atoi(text.c_str() + objectAt + strlen(objectKey));
     if (unresolvedAt != std::string::npos)
         info.unresolvedImageCount = atoi(text.c_str() + unresolvedAt + strlen(unresolvedKey));
+    if (rootAt != std::string::npos)
+        info.virtualRootCount = atoi(text.c_str() + rootAt + strlen(rootKey));
+    if (skippedAt != std::string::npos)
+        info.skippedVirtualFileCount = atoi(text.c_str() + skippedAt + strlen(skippedKey));
+    if (unresolvedResourceAt != std::string::npos)
+        info.unresolvedResourceCount = atoi(text.c_str() + unresolvedResourceAt +
+            strlen(unresolvedResourceKey));
     return true;
 }
 
@@ -640,6 +783,13 @@ bool SEWriteOLRSkinPackage(const char* packagePath,
         errorMessage = "The OLR package has no compiled LR2 compatibility script.";
         return false;
     }
+    if (!IsSafeArchivePath(document.lr2ExportMainPath) ||
+        document.lr2ExportMainPath.rfind("LR2files/", 0) != 0 ||
+        document.lr2ExportMainPath.find('*') != std::string::npos ||
+        document.lr2ExportMainPath.find('?') != std::string::npos) {
+        errorMessage = "The OLR package has no safe LR2 export destination for its main skin.";
+        return false;
+    }
 
     std::vector<PackageEntrySource> assetEntries;
     assetEntries.reserve(document.assets.size());
@@ -649,13 +799,25 @@ bool SEWriteOLRSkinPackage(const char* packagePath,
         assetEntries.push_back(std::move(entry));
     }
 
+    std::vector<VirtualRootPackageStats> rootStats;
+    int virtualFileCount = 0;
+    int skippedVirtualFileCount = 0;
+    if (!AppendVirtualRootEntries(document, assetEntries, rootStats,
+        virtualFileCount, skippedVirtualFileCount, errorMessage))
+        return false;
+
     std::vector<PackageEntrySource> entries;
     entries.push_back(MemoryEntry("manifest.json",
-        BuildManifestJson(document, (int)assetEntries.size())));
+        BuildManifestJson(document, (int)assetEntries.size(), virtualFileCount,
+            skippedVirtualFileCount)));
     entries.push_back(MemoryEntry("skin.json", BuildSkinJson(document)));
     entries.push_back(MemoryEntry("compatibility/source-map.json",
         BuildSourceMapJson(document)));
+    entries.push_back(MemoryEntry("compatibility/path-map.json",
+        BuildPathMapJson(document, rootStats)));
     entries.push_back(MemoryEntry("lr2/main.lr2skin", document.lr2Script));
+    entries.push_back(MemoryEntry("lr2/.olr-export-main.txt",
+        document.lr2ExportMainPath + "\n"));
     for (PackageEntrySource& asset : assetEntries)
         entries.push_back(std::move(asset));
 
@@ -757,6 +919,141 @@ bool SEExtractOLRSkinPackage(const char* packagePath,
         std::filesystem::remove_all(target, filesystemError);
         mainSkinPath.clear();
         errorMessage = "The extracted OLR package had no main LR2 script.";
+        return false;
+    }
+    return true;
+}
+
+bool SEIsOLRVirtualWorkspace(const char* mainSkinPath) {
+    if (!mainSkinPath || !*mainSkinPath) return false;
+    std::error_code error;
+    const std::filesystem::path workspace =
+        std::filesystem::path(mainSkinPath).parent_path();
+    return std::filesystem::is_regular_file(
+        workspace / ".olr-export-main.txt", error) && !error;
+}
+
+bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
+    const char* outputDirectory, SEOLRLr2ExportInfo& exportInfo,
+    std::string& errorMessage) {
+    exportInfo = SEOLRLr2ExportInfo();
+    errorMessage.clear();
+    if (!mainSkinPath || !*mainSkinPath || !outputDirectory || !*outputDirectory) {
+        errorMessage = "Choose an extracted OLR workspace and LR2 export folder.";
+        return false;
+    }
+
+    const std::filesystem::path mainPath(mainSkinPath);
+    const std::filesystem::path workspace = mainPath.parent_path();
+    const std::filesystem::path markerPath = workspace / ".olr-export-main.txt";
+    std::ifstream marker(markerPath, std::ios::binary);
+    std::string exportMain((std::istreambuf_iterator<char>(marker)),
+        std::istreambuf_iterator<char>());
+    while (!exportMain.empty() &&
+        (exportMain.back() == '\r' || exportMain.back() == '\n'))
+        exportMain.pop_back();
+    if (!marker || !IsSafeArchivePath(exportMain) ||
+        exportMain.rfind("LR2files/", 0) != 0 ||
+        exportMain.find('*') != std::string::npos ||
+        exportMain.find('?') != std::string::npos) {
+        errorMessage = "The OLR workspace has invalid LR2 export metadata.";
+        return false;
+    }
+
+    std::ifstream scriptFile(mainPath, std::ios::binary);
+    const std::string script((std::istreambuf_iterator<char>(scriptFile)),
+        std::istreambuf_iterator<char>());
+    if (!scriptFile || script.empty()) {
+        errorMessage = "The OLR workspace main skin could not be read.";
+        return false;
+    }
+
+    std::error_code filesystemError;
+    const std::filesystem::path target(outputDirectory);
+    if (std::filesystem::exists(target, filesystemError)) {
+        errorMessage = "The LR2 export folder already exists. Choose a new destination.";
+        return false;
+    }
+    if (!std::filesystem::create_directories(target, filesystemError) ||
+        filesystemError) {
+        errorMessage = "The LR2 export folder could not be created.";
+        return false;
+    }
+
+    bool ok = true;
+    const std::filesystem::path vfsRoot = workspace / "vfs" / "LR2files";
+    if (std::filesystem::is_directory(vfsRoot, filesystemError) && !filesystemError) {
+        std::filesystem::recursive_directory_iterator iterator(vfsRoot,
+            std::filesystem::directory_options::skip_permission_denied,
+            filesystemError);
+        const std::filesystem::recursive_directory_iterator end;
+        while (!filesystemError && iterator != end) {
+            const std::filesystem::directory_entry entry = *iterator;
+            iterator.increment(filesystemError);
+            std::error_code entryError;
+            if (entry.is_symlink(entryError) || entryError ||
+                !entry.is_regular_file(entryError) || entryError)
+                continue;
+            const std::filesystem::path relative =
+                entry.path().lexically_relative(vfsRoot);
+            const std::filesystem::path destination = target / "LR2files" / relative;
+            std::filesystem::create_directories(destination.parent_path(), entryError);
+            if (entryError || !std::filesystem::copy_file(entry.path(), destination,
+                std::filesystem::copy_options::none, entryError) || entryError) {
+                errorMessage = "A virtual LR2 resource could not be materialized: " +
+                    relative.generic_string();
+                ok = false;
+                break;
+            }
+            ++exportInfo.copiedFileCount;
+        }
+        if (filesystemError && ok) {
+            errorMessage = "The virtual LR2 resource tree could not be enumerated.";
+            ok = false;
+        }
+    }
+    else filesystemError.clear();
+
+    std::string compiledScript = script;
+    const auto restoreVirtualPaths = [&](const std::string& virtualPrefix) {
+        const std::string lr2Prefix = "LR2files\\";
+        size_t position = 0;
+        while ((position = compiledScript.find(virtualPrefix, position)) !=
+            std::string::npos) {
+            compiledScript.replace(position, virtualPrefix.size(), lr2Prefix);
+            const size_t pathStart = position + lr2Prefix.size();
+            const size_t pathEnd = compiledScript.find_first_of(",\r\n", pathStart);
+            const size_t stop = pathEnd == std::string::npos ?
+                compiledScript.size() : pathEnd;
+            for (size_t index = pathStart; index < stop; ++index) {
+                if (compiledScript[index] == '/') compiledScript[index] = '\\';
+            }
+            position = stop;
+        }
+    };
+    restoreVirtualPaths("vfs/LR2files/");
+    restoreVirtualPaths("vfs\\LR2files\\");
+
+    if (ok) {
+        const std::filesystem::path compiledMain = target /
+            std::filesystem::path(exportMain);
+        std::filesystem::create_directories(compiledMain.parent_path(), filesystemError);
+        FILE* output = filesystemError ? nullptr : OpenFile(compiledMain.string().c_str(), "wb");
+        bool writeOk = output != nullptr;
+        if (writeOk && fwrite(compiledScript.data(), 1, compiledScript.size(), output) !=
+            compiledScript.size())
+            writeOk = false;
+        if (output && fclose(output) != 0) writeOk = false;
+        if (!writeOk) {
+            errorMessage = "The compiled LR2 main skin could not be written.";
+            ok = false;
+        }
+        else exportInfo.mainSkinPath = compiledMain.string();
+    }
+
+    if (!ok) {
+        std::filesystem::remove_all(target, filesystemError);
+        exportInfo = SEOLRLr2ExportInfo();
         return false;
     }
     return true;

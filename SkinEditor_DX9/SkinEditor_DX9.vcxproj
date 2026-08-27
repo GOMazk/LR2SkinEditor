@@ -202,6 +202,7 @@
     <ClCompile Include="selfTests.cpp" />
     <ClCompile Include="seUI.cpp" />
     <ClCompile Include="skin.cpp" />
+    <ClCompile Include="skinPathResolver.cpp" />
     <ClCompile Include="skinResolution.cpp" />
     <ClCompile Include="winWorkspace.cpp" />
     <ClCompile Include="winWorkspace2.cpp" />
@@ -269,6 +270,7 @@
     <ClInclude Include="seUI.h" />
     <ClInclude Include="skin.h" />
     <ClInclude Include="skinBrowser.h" />
+    <ClInclude Include="skinPathResolver.h" />
     <ClInclude Include="skinResolution.h" />
     <ClInclude Include="uiCatalog.h" />
     <ClInclude Include="winWorkspace.h" />

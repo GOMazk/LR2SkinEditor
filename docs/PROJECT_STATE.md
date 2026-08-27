@@ -1,7 +1,7 @@
 # SkinEditor 현재 개발 상태
 
 기준일: 2026-08-27
-기준 브랜치: `AI`
+기준 브랜치: `AI_2`
 주 대상: `Release | Win32(x86)`
 
 이 문서는 지금까지 진행한 작업의 의도와 현재 구현 상태를 다음 작업자가 코드와
@@ -27,7 +27,7 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 현재 코드상 가능한 항목:
 
 - 스킨을 열 때 `#INFORMATION` 해상도가 없으면 `#RESOLUTION`, 전체 include가
-  펼쳐진 뒤의 DST 경계, 640x480 fallback 순서로 Preview 해상도 자동 결정
+  펼쳐진 뒤의 TenRiff LR2 자동 판정, 640x480 fallback 순서로 Preview 해상도 결정
 - Open 이후 toolbar의 현재 해상도 버튼에서 해상도를 바꾸고 즉시 원본 반영
 - Object/Command 생성, 이름 지정, SRC/DST 속성 편집
 - FAST/SLOW를 특별 예외가 아닌 NUMBER Object로 취급
@@ -39,19 +39,27 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - 현재 include 구조를 유지하는 Save/Ctrl+S와 `SAVED/MODIFIED` 상태 표시
 - Windows 파일 선택기를 쓰는 Save As와 성공 후 새 메인 스크립트로 작업 경로 전환
 - `File > Open another location` 또는 Skin Browser에서 지정한 외부 폴더의
-  `.lr2skin`/`.lr2ss`를 하위 폴더까지 찾아 기존 로더로 열기
+  `.lr2skin`/`.lr2ss`를 하위 폴더까지 찾아 기존 로더로 열기. `LR2files`
+  기준 경로는 소스 CSV를 바꾸지 않고 실제 LR2 트리 또는 standalone 스킨
+  폴더로 가상 해석하여 include, image, custom file/folder, font, helpfile을
+  Preview 로드 경계에서 사용
 - `File > Export OLR package`에서 현재 Object를 의미별로 분류하고 LR2 호환
-  스크립트와 고정 이미지를 한 `.olrskin` 파일로 묶기
+  스크립트, 고정 이미지와 해결된 LR2 가상 root를 한 `.olrskin`
+  파일로 묶기
 - `File > Import OLR package`에서 패키지를 검증한 뒤 사용자가 고른 위치의 새
   폴더에만 풀고, 추출한 `main.lr2skin`을 일반 Workspace로 열기
+- Import한 V0.2 workspace의 `File > Export LR2 folder`에서만 `vfs/LR2files`를
+  새 출력 폴더의 `LR2files`로 풀고 현재 편집 스크립트의 경로를 복원
 
 주의할 항목:
 
-- DST 경계로 추정한 해상도는 workspace/Preview에만 적용하며 원본 CSV에는 자동
+- TenRiff 규칙으로 추정한 해상도는 workspace/Preview에만 적용하며 원본 CSV에는 자동
   기록하지 않는다. toolbar와 status bar의 `inferred` 표시로 명시 해상도와
   구분하고, 사용자가 해상도 modal의 Apply를 선택했을 때만 `#INFORMATION`에 쓴다.
-  여러 DST 행의 상위 경계를 사용하고 소수의 화면 밖 전환 frame은 제외한 뒤,
-  가능한 경우 640x480/1280x720/1920x1080 같은 지원 해상도로 정규화한다.
+  최종 visible `#DST_NOTE`의 최대 x와 좌상단에 고정된 큰 `#DST_IMAGE` backdrop을
+  함께 판정하여 640x480/1280x720/1920x1080 중 하나로 정규화한다. 화면 밖에 둔
+  전환 panel은 backdrop으로 보지 않는다. 이 판정은 `skinResolution.cpp`에 격리하며
+  공용 LR2 parser의 명령 처리에는 결합하지 않는다.
 - 해상도 변경의 즉시 저장은 의도된 동작이다. Workspace 해상도 modal은 이 점과
   기존 Object 좌표를 자동 scale하지 않는다는 점을 명시한다. 재로드 중 편집 내용을
   잃지 않도록 일반 script 변경은 먼저 Save해야 하고 미저장 Pixel paint도 정리해야 한다.
@@ -64,10 +72,16 @@ Default locations 전환을 제공하며, 파일을 복사하거나 LR2 설정�
 경로에서 직접 연다. 재귀 탐색은 junction/symlink를 따라가지 않는다. 기존 LR2/CSTR
 로더의 제약 때문에 Windows 현재 ANSI 코드 페이지로 표현할 수 없거나 `MAX_PATH`를
 넘는 경로는 잘라서 열지 않고 오류 또는 건너뜀 상태로 표시한다.
+외부 스킨의 `LR2files\Theme\<name>` 선언은 각 행의 owner include와 main 경로
+조상에서 `<name>` 폴더를 찾는다. wildcard는 펼친 파일명으로 바꾸지 않으며
+기존 LR2 random/custom 선택이 그대로 실행된다.
+목록의 해상도 메타데이터도 공용 LR2 parser에 덧붙이지 않고 `skinResolution.cpp`가
+해당 top-level 파일을 읽어 보정한다. 실제 Open 시에는 전체 include가 펼쳐진 뒤 다시
+판정하므로 Browser의 빠른 메타데이터 판정과 Workspace의 최종 판정을 구분한다.
 
 ### 시나리오 A-2: OLR 중간 포맷으로 공유
 
-`.olrskin` V0.1은 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
+`.olrskin` V0.2는 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
 찾기 쉬운 Semantic index와 원본 동작을 보존하는 Compatibility layer를 함께 담는
 ZIP 컨테이너다. 자세한 계약은 [OLR 포맷 문서](OLRSKIN_FORMAT.md)를 따른다.
 
@@ -75,11 +89,13 @@ ZIP 컨테이너다. 자세한 계약은 [OLR 포맷 문서](OLRSKIN_FORMAT.md)�
 loaded WORKSPACE
   +-- Object Model -> skin.json (gear/notes/judge/combo/gauge/...)
   +-- expanded CSV -> lr2/main.lr2skin
-  +-- resolved fixed #IMAGE -> lr2/assets/*
-  `-- row ownership -> compatibility/source-map.json
+  +-- resolved LR2 roots -> lr2/vfs/LR2files/*
+  +-- other fixed #IMAGE -> lr2/assets/*
+  +-- row ownership -> compatibility/source-map.json
+  `-- virtual/export map -> compatibility/path-map.json
 ```
 
-V0.1의 `skin.json`은 설명용이다. Export 후 JSON만 직접 수정해도 LR2 스크립트가
+V0.2의 `skin.json`은 설명용이다. Export 후 JSON만 직접 수정해도 LR2 스크립트가
 자동 생성되지는 않으며, Import는 `lr2/main.lr2skin`을 기준으로 연다. 이 경계는
 아직 해석하지 못한 LR2 명령, 조건, timer, op, editor metadata를 잃지 않기 위한
 의도된 단계다. Semantic-to-LR2 컴파일은 각 영역의 왕복 테스트를 갖춘 뒤 한 영역씩
@@ -88,8 +104,11 @@ V0.1의 `skin.json`은 설명용이다. Export 후 JSON만 직접 수정해도 L
 패키지에는 로컬 절대 owner 경로를 기록하지 않는다. main 폴더 내부 include는
 상대 경로, 외부 include는 `<external>/<filename>` label만 source map에 남긴다.
 Import는 archive path traversal, 암호화/지원하지 않는 압축, CRC 오류를 거부하고
-기존 폴더를 덮어쓰지 않는다. wildcard/custom file, font, video, sound와 해결되지
-않은 이미지는 V0.1에서 외부 의존성으로 결과와 manifest에 명시한다.
+기존 폴더를 덮어쓰지 않는다. 해결된 logical root 안의 wildcard/custom file,
+font와 archive는 폴더 전체로 보존한다. 해결할 수 없는 LR2 root, 외부 경로,
+과도하게 긴 파일은 외부/누락 개수를 결과와 manifest에 명시한다.
+V0.1 패키지는 계속 Import할 수 있지만 path map이 없으므로 LR2 folder Export를
+활성화하지 않는다.
 
 ### 시나리오 B: 새 스킨 생성
 
@@ -613,6 +632,7 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 | 주제 | 현재 결정 |
 |---|---|
 | 해상도 변경 | 변경 즉시 skin 파일에 저장하는 것이 의도된 동작 |
+| 자동 해상도 판정 | TenRiff의 LR2 lane/backdrop heuristic을 해상도 전용 모듈에서 사용 |
 | Clone | Save As가 정상 동작하고 새 경로로 전환하므로 별도 Clone은 보류 |
 | Save As | 성공 후 반드시 새 main script가 현재 작업 경로가 됨 |
 | FAST/SLOW | 특수 UI 예외가 아니라 일반 Object 생성/편집 흐름으로 처리 |
@@ -623,7 +643,7 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 | Object Editor 구조 | Browser와 Inspector를 별도 도킹 창으로 유지 |
 | Object 이름 fallback | 명시 이름, SRC symbolic 이름, op, non-zero timer 순서. 자동 이름은 저장하지 않음 |
 | AI/UI 계약 | `uiCatalog.h`와 자동 UI map을 기준으로 하고 handoff는 context pack과 검증 증거를 포함 |
-| OLR V0.1 authority | `skin.json`은 설명용, `lr2/main.lr2skin`은 왕복 호환 기준 |
+| OLR V0.2 authority | `skin.json`은 설명용, `lr2/main.lr2skin`은 왕복 호환 기준; `vfs/LR2files`는 LR2 Export 전까지 유지 |
 
 ## 11. 다음 작업 전 확인
 

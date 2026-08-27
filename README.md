@@ -3,7 +3,7 @@
 LR2 스킨의 CSV 스크립트, 이미지 소스, 배치 정보와 조건 분기를 한 화면에서
 편집하고 Preview로 확인하는 Windows/DX9 편집기입니다.
 
-현재 개발 기준은 `AI` 브랜치의 Release x86 빌드입니다. 이 작업 트리에는
+현재 개발 기준은 `AI_2` 브랜치의 Release x86 빌드입니다. 이 작업 트리에는
 Object Editor와 현대화 UI 관련 미커밋 변경이 포함될 수 있으므로, 다른 PC에서
 작업을 이어가기 전에 반드시 `git status`와 `git diff`를 먼저 확인하십시오.
 
@@ -12,7 +12,8 @@ Object Editor와 현대화 UI 관련 미커밋 변경이 포함될 수 있으므
 - [현재 개발 상태와 설계](docs/PROJECT_STATE.md)
 - [빌드, 실행 및 회귀 테스트](docs/BUILD_AND_TEST.md)
 - [UI 구조와 디버깅 규칙](docs/UI_ARCHITECTURE.md)
-- [OLR Skin V0.1 포맷](docs/OLRSKIN_FORMAT.md)
+- [OLR Skin V0.2 포맷](docs/OLRSKIN_FORMAT.md)
+- [외부 코드 고지](docs/THIRD_PARTY_NOTICES.md)
 - [AI/UI 지도 생성 및 활용](docs/UI_MAP.md)
 - [AI 협업 시작 가이드](docs/AI_COLLABORATION.md)
 - [변경 인계 템플릿](docs/HANDOFF_TEMPLATE.md)

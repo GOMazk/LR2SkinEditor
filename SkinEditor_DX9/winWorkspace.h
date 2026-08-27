@@ -235,6 +235,7 @@ typedef struct WORKSPACE {
     unsigned long long lastSaveMessageAt = 0;
     std::string olrPackageMessage;
     int olrPackageState = 0;
+    int olrResultKind = 0; // 0: OLR import, 1: LR2 materialization
     bool olrImportResultPopupRequested = false;
     int RefreshPreviewSelectionBounds();
     char mainpath[MAX_PATH];
@@ -270,6 +271,7 @@ typedef struct WORKSPACE {
     int SaveCurrentSkin();
     int ExportOlrSkin(const char* packagePath, std::string& resultMessage);
     int ImportOlrSkinInteractive();
+    int ExportLr2SkinInteractive();
     int previewScreen = -1; //DxLib handle
 
     // Every workspace owns its semantic Object model.  The previous global

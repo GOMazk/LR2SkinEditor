@@ -6,7 +6,7 @@
 enum class SESkinResolutionSource {
     Information,
     ResolutionCommand,
-    DestinationBounds,
+    TenRiffAuto,
     Default640x480,
 };
 
@@ -19,9 +19,15 @@ struct SESkinResolutionDecision {
 
 // Resolves the canvas size without mutating the skin document. Explicit
 // #INFORMATION dimensions win, followed by #RESOLUTION. When both are absent,
-// destination geometry from the fully expanded script is used as evidence.
+// TenRiff's LR2 lane/backdrop heuristic resolves the SD, HD or FHD family from
+// the fully expanded script without changing the shared LR2 parser.
 SESkinResolutionDecision SEResolveSkinResolution(
     const std::vector<std::string>& csvLines);
+
+// Reads one script file for browser metadata. Workspace loading still passes
+// its already-expanded include tree to SEResolveSkinResolution().
+bool SEResolveSkinResolutionFile(const char* path,
+    SESkinResolutionDecision& decision);
 
 const char* SESkinResolutionSourceText(SESkinResolutionSource source);
 bool SEIsInferredSkinResolution(SESkinResolutionSource source);

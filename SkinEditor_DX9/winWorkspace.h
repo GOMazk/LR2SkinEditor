@@ -281,6 +281,11 @@ typedef struct WORKSPACE {
     std::vector<SkinDocumentSnapshot> historyDocumentSnapshots;
     int pendingHistorySnapshotRestore = -1;
     bool applyingHistory = false;
+    // A ColorEdit gesture may update several ARGB columns over many frames.
+    // Keep one live history entry for the gesture instead of recording every
+    // component and mouse movement as a separate undo step.
+    int objectColorEditRow = -1;
+    int objectColorEditHistoryIndex = -1;
     int UndoLastEdit();
     void NotifyDocumentChanged(unsigned int changes);
     bool IsDocumentDirty() const;
@@ -661,3 +666,4 @@ int AutoSRCObjectPos(SRCGR* gr, int* x, int* y, int* w, int* h);
 int CsvToCSTR(CSVbuf& csv, CSTR& line);
 int CountCsvColumns(CSTR& line);
 int RunAssetMetadataSelfTest();
+int RunInitialPresetSelfTest();

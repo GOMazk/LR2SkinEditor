@@ -44,6 +44,9 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   DST 경계 기반 720p/1080p 추정, 화면 밖 전환 frame 내성, 640x480 fallback
 - `olr-package`: stored ZIP 생성/검사/추출, manifest와 semantic object/asset count,
   LR2·asset byte 보존, path traversal 거부 및 CRC 손상 탐지
+- `initial-preset`: PLAY/BATTLE 키 모드별 lane index와 각 lane의
+  Normal/Mine/LN/DST_NOTE, Judge Line, Gauge, FAST/SLOW 및 COURSERESULT의
+  1~5스테이지 제목/레벨과 누적 결과 필수 Object 생성
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제, graphic ID 배정과 선택
   Object SRC에 대한 원자적 Asset 적용/Undo, `#IMAGE` 경로 교체/Undo, 이미지 상태
   진단, named grid Asset 일괄 등록/단일 Undo
@@ -321,6 +324,9 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 
 ### D. DST 프레임과 History
 
+- 단일 DST의 `a/r/g/b` 네 숫자 입력 대신 `ARGB` 색상 선택기 하나가 표시되는지
+- 여러 DST animation frame 표에서도 각 열마다 `ARGB` 선택기가 하나씩 표시되고,
+  색상 변경이 Preview에 반영되며 Ctrl+Z 한 번으로 조작 전 네 값이 모두 복구되는지
 - DST 1개에서 `- DST`가 비활성인지
 - `+ DST` 후 개수가 즉시 바뀌고 DST 탭이 유지되는지
 - 추가 후 다른 Object Inspector로 바뀌지 않는지
@@ -489,7 +495,11 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 - 기존 파일이 있는 경로는 덮어쓰지 않는지 확인한다.
 - 생성 직후 skin이 열리고 Preview가 표시되는지 확인한다.
 - PLAY의 note/mine/LN/judge/gauge/FAST/SLOW를 확인한다.
+- PLAY 생성 직후 첫 Note가 Object Browser에서 자동 선택·스크롤되고 Inspector에
+  같은 Note의 Normal/Mine/LN/DST_NOTE 행이 함께 표시되는지 확인한다.
 - SELECT bar/title, DECIDE panel/flash, RESULT numbers/charts를 확인한다.
+- COURSERESULT에서 1~5스테이지 제목/레벨과 EX Score, Max Combo,
+  Perfect/Great/Good/Bad/Poor 누적 숫자를 확인한다.
 - 임의 해상도에서 화면 밖으로 심하게 벗어나는 필수 Object가 없는지 확인한다.
 
 ### I. 인코딩과 저장

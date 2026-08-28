@@ -149,6 +149,11 @@ The Browser and Inspector open, filters/search are cleared and the Browser
 scrolls to the Object. Control-flow, comment and other rows that do not belong
 to an Object leave the current selection unchanged.
 
+After New creates and loads a PLAY preset, it resolves `preset_note_0` from the
+rebuilt Object Model and enters this same selection flow. The preset generator
+does not retain a model index across `LoadSkin()`; the persistent editor ID is
+what makes the required first Note visible in Browser and Inspector.
+
 `SEObjectEditorModel`, search/filter popup state, active-branch cache and tree
 open state are all owned by the corresponding `WORKSPACE`. Do not introduce a
 global Object model or function-local `static` state for a per-workspace pane.

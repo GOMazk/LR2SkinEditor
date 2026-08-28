@@ -87,6 +87,35 @@ int RunSchemaContractSelfTest() {
     if (SEFindObjectForRow(rowObjects, 8) != 1) return 16;
     if (SEFindObjectForRow(rowObjects, 4) != -1) return 17;
 
+    int dstWithArgb = 0;
+    int dstWithoutArguments = 0;
+    for (int commandIndex = 0; commandIndex < arr_CommandHelp.count;
+        ++commandIndex) {
+        CSVbuf& schema = ((CSVbuf*)arr_CommandHelp.data)[commandIndex];
+        const char* command = schema.str[0].body ? schema.str[0].outstr() : "";
+        if (std::strncmp(command, "#DST", 4) != 0) continue;
+        if (!schema.str[1].body || !*schema.str[1].outstr()) {
+            ++dstWithoutArguments;
+            continue;
+        }
+
+        int argb[4] = { -1, -1, -1, -1 };
+        const char* names[4] = { "a", "r", "g", "b" };
+        for (int column = 1; column < 30; ++column) {
+            CSTR field(schema.str[column]);
+            field.trimWhiteSpace();
+            const char* label = field.body ? field.outstr() : "";
+            for (int component = 0; component < 4; ++component)
+                if (std::strcmp(label, names[component]) == 0)
+                    argb[component] = column;
+        }
+        if (argb[0] < 0 || argb[1] != argb[0] + 1 ||
+            argb[2] != argb[0] + 2 || argb[3] != argb[0] + 3)
+            return 18;
+        ++dstWithArgb;
+    }
+    if (dstWithArgb != 34 || dstWithoutArguments != 3) return 19;
+
     return 0;
 }
 

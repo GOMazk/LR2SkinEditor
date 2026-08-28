@@ -102,14 +102,22 @@ New에서 Scene과 해상도를 선택하여 필수 Object가 포함된 시작 �
 - SELECT
 - DECIDE
 - RESULT
+- COURSERESULT
 
 New는 `LR2files\Theme` 아래에 새 `.lr2skin`과 `preset.bmp`를 만든 후 그 스킨을
 즉시 연다. `..`, 드라이브명 같은 범위 이탈 경로는 거부하고 기존 파일은
 덮어쓰지 않는다.
 
 PLAY 프리셋은 배경, BGA, 키 모드별 Note/Mine/LN, Judge Line, Groove Gauge,
-FAST/SLOW를 만든다. SELECT는 선택 바와 제목, DECIDE는 패널/강조/플래시,
-RESULT는 패널/점수 숫자/게이지 및 스코어 차트를 포함한다.
+FAST/SLOW를 만든다. 생성 직후에는 첫 Note Object를 Object Browser/Inspector에서
+자동 선택해 필수 lane 구성이 바로 보이게 한다. SELECT는 선택 바와 제목, DECIDE는 패널/강조/플래시,
+RESULT는 패널/점수 숫자/게이지 및 스코어 차트를 포함한다. COURSERESULT는
+1~5스테이지 제목과 레벨, 코스 누적 EX Score/Max Combo 및 판정 수를 포함한다.
+
+`initial-preset` 자가 테스트는 모든 PLAY/BATTLE key mode에서 scratch를 포함한
+lane index 집합과 각 lane의 `#SRC_NOTE`, `#SRC_MINE`, LN start/end/body,
+`#DST_NOTE`가 모두 생성되는지 검사한다. COURSERESULT의 `$st 150~154`,
+`$num 250~254`와 누적 결과 숫자도 같은 테스트에서 검사한다.
 
 향후 프리셋 확장 시 `BuildInitialPreset()`에 Scene별 생성기를 추가하되,
 `$SE_OBJECT_NAME`과 고유한 `$SE_OBJECT_ID`를 함께 생성해야 한다.
@@ -145,6 +153,12 @@ UI는 `arr_CommandHelp`를 직접 탐색하지 않고 `GetCommandHelp(command, c
 새 symbolic 필드를 추가할 때 UI 세 곳에 분기를 복사하지 말고 공통 resolver와
 ComboBox renderer를 확장한다. 공통 ComboBox popup 상단에는 ID/이름 검색 입력이
 있으며 `Fast`, `Slow`, `900`처럼 번호나 영문 symbolic 이름으로 목록을 좁힌다.
+
+인자를 가지는 34개 `#DST_*` 명령은 모두 연속된 `a,r,g,b` 필드를 공유한다.
+Object Inspector는 이 네 숫자 입력을 `ARGB` 색상 선택기 하나로 표시하며, 단일 DST와
+다중 animation frame 표에 같은 규칙을 적용한다. 인자가 없는 `#DST_BAR_STAGEFILE`,
+`#DST_BAR_STAR`, `#DST_THUMBNAIL`은 색상 필드도 없으므로 대상에서 제외한다.
+색상 선택 중에는 Preview를 갱신하되 한 번의 picker 조작은 History 한 항목으로 묶는다.
 
 ### Object 스키마
 

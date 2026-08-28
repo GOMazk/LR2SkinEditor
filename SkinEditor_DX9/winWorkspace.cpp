@@ -29,10 +29,13 @@
 #include <climits>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <fstream>
+#include <iterator>
 #include <map>
+#include <set>
 #include <sstream>
 #include <shellapi.h>
 #include <shobjidl.h>
@@ -402,6 +405,23 @@ static bool ReadCommandField(CSVbuf& values, const char* command,
     return false;
 }
 
+static bool ResolveDstArgbColumns(const char* command, int columns[4]) {
+    if (!command || strncmp(command, "#DST", 4) != 0 || !columns) return false;
+    columns[0] = columns[1] = columns[2] = columns[3] = -1;
+    const char* names[4] = { "a", "r", "g", "b" };
+    for (int column = 1; column < 30; ++column) {
+        CSTR help = GetCommandHelp(command, column);
+        help.trimWhiteSpace();
+        const char* label = help.body ? help.outstr() : "";
+        for (int component = 0; component < 4; ++component) {
+            if (_stricmp(label, names[component]) == 0)
+                columns[component] = column;
+        }
+    }
+    return columns[0] >= 0 && columns[1] == columns[0] + 1 &&
+        columns[2] == columns[0] + 2 && columns[3] == columns[0] + 3;
+}
+
 static bool IsAssetBackedObjectCommand(const char* command) {
     return command && (!strcmp(command, "#SRC_IMAGE") ||
         !strcmp(command, "#SRC_NUMBER") ||
@@ -728,6 +748,8 @@ int WORKSPACE::init() {
     imageManagerGeneratedGrFocusRequest = -1;
     imageManagerGraphicDeclarationFocusRequest = -1;
     imageManagerAssetDeclarationFocusRequest = -1;
+    objectColorEditRow = -1;
+    objectColorEditHistoryIndex = -1;
     DstViewZoom = 0.0f;
     assetThumbnailSize = 96.0f;
     assetAnimateSrc = true;
@@ -8890,7 +8912,8 @@ namespace {
     }
 
     static bool IsInitialPresetType(int type) {
-        return IsPlayPresetType(type) || type == 5 || type == 6 || type == 7;
+        return IsPlayPresetType(type) || type == 5 || type == 6 ||
+            type == 7 || type == 15;
     }
 
     static bool IsSafePresetRelativePath(const std::string& value) {
@@ -9073,6 +9096,74 @@ namespace {
         AppendDst(skin, "#DST_SCORECHART", 0, chartX + panelW * 46 / 100, chartY, 2, 2);
     }
 
+    static void AppendCourseResultPreset(std::ostringstream& skin,
+        int width, int height) {
+        const int panelX = width * 8 / 100;
+        const int panelY = height * 12 / 100;
+        const int panelW = width * 84 / 100;
+        const int panelH = height * 76 / 100;
+        const int padding = (std::max)(16, panelW / 20);
+        const int fontSize = (std::max)(14, height / 32);
+        const int digitW = (std::max)(12, width / 55);
+        const int digitH = (std::max)(18, height / 24);
+
+        skin << "$SE_OBJECT_NAME,Course Result Panel\r\n"
+            "$SE_OBJECT_ID,preset_course_result_panel\r\n";
+        skin << "#SRC_IMAGE,0,0,0,72,192,32,1,1,0,0,0,0,0\r\n";
+        AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY, panelW, panelH);
+
+        skin << "#FONT," << fontSize << ",2,2,Arial\r\n";
+        const int stageColumnW = panelW * 55 / 100;
+        const int stageRowH = panelH / 7;
+        const int stageTitleX = panelX + padding;
+        const int stageTitleW = (std::max)(80,
+            stageColumnW - digitW * 4);
+        const int stageLevelX = stageTitleX + stageColumnW - digitW * 3;
+        for (int stage = 0; stage < 5; ++stage) {
+            const int stageY = panelY + padding + stage * stageRowH;
+            skin << "$SE_OBJECT_NAME,Course Stage " << (stage + 1)
+                << " Title\r\n$SE_OBJECT_ID,preset_course_title_" << stage
+                << "\r\n";
+            skin << "#SRC_TEXT,0,0," << (150 + stage) << ",0\r\n";
+            skin << "#DST_TEXT,0,0," << stageTitleX << ',' << stageY << ','
+                << stageTitleW << ',' << fontSize
+                << ",0,255,255,255,255,0,0,0,0,0,0,0,0,0\r\n";
+
+            char levelName[64];
+            char levelId[64];
+            snprintf(levelName, sizeof(levelName), "Course Stage %d Level",
+                stage + 1);
+            snprintf(levelId, sizeof(levelId), "preset_course_level_%d", stage);
+            AppendResultNumber(skin, levelName, levelId, 250 + stage,
+                stageLevelX, stageY, digitW, digitH, 2);
+        }
+
+        const int summaryX = panelX + panelW * 64 / 100;
+        const int summaryY = panelY + padding;
+        const int summaryRow = digitH * 3 / 2;
+        struct CourseSummaryNumber {
+            const char* name;
+            const char* id;
+            int numberId;
+            int digits;
+        };
+        const CourseSummaryNumber summary[] = {
+            { "Course EX Score", "preset_course_exscore", 101, 6 },
+            { "Course Max Combo", "preset_course_maxcombo", 105, 5 },
+            { "Course Perfect", "preset_course_perfect", 110, 5 },
+            { "Course Great", "preset_course_great", 111, 5 },
+            { "Course Good", "preset_course_good", 112, 5 },
+            { "Course Bad", "preset_course_bad", 113, 5 },
+            { "Course Poor", "preset_course_poor", 114, 5 },
+        };
+        for (int index = 0; index < IM_ARRAYSIZE(summary); ++index) {
+            AppendResultNumber(skin, summary[index].name, summary[index].id,
+                summary[index].numberId, summaryX,
+                summaryY + index * summaryRow, digitW, digitH,
+                summary[index].digits);
+        }
+    }
+
     static bool BuildInitialPreset(int type, int width, int height, const std::string& titleUtf8,
         const std::string& makerUtf8, const std::string& relativeSkinUtf8,
         std::string& outputSkinPath, std::string& outputAtlasPath, std::string& error) {
@@ -9127,6 +9218,8 @@ namespace {
             skin << "#STARTINPUT,500\r\n#LOADSTART,0\r\n#SCENETIME,3000\r\n#SKIP,250\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
         else if (type == 7)
             skin << "#STARTINPUT,500,1600,500\r\n#LOADSTART,0\r\n#SCENETIME,3600000\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
+        else if (type == 15)
+            skin << "#STARTINPUT,0,1500,500\r\n#LOADSTART,0\r\n#SCENETIME,3600000\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
         else
             skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#SCENETIME,3600000\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
         skin << "#IMAGE," << atlasScriptPath << "\r\n\r\n";
@@ -9193,6 +9286,7 @@ namespace {
         else if (type == 5) AppendSelectPreset(skin, width, height);
         else if (type == 6) AppendDecidePreset(skin, width, height);
         else if (type == 7) AppendResultPreset(skin, width, height);
+        else if (type == 15) AppendCourseResultPreset(skin, width, height);
 
         if (!WritePresetAtlasBmp(atlasPath, error)) return false;
         const std::filesystem::path tempSkinPath = skinPath.string() + ".tmp";
@@ -9216,6 +9310,187 @@ namespace {
     }
 }
 
+int RunInitialPresetSelfTest() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path previousDirectory = fs::current_path(ec);
+    if (ec) return 1;
+    const fs::path tempRoot = fs::temp_directory_path(ec) /
+        (std::string("SkinEditor_initial_preset_") +
+            std::to_string(GetCurrentProcessId()));
+    if (ec) return 2;
+    fs::remove_all(tempRoot, ec);
+    ec.clear();
+    fs::create_directories(tempRoot, ec);
+    if (ec) return 3;
+
+    struct PresetTestCleanup {
+        fs::path previous;
+        fs::path root;
+        ~PresetTestCleanup() {
+            std::error_code ignored;
+            fs::current_path(previous, ignored);
+            fs::remove_all(root, ignored);
+        }
+    } cleanup{ previousDirectory, tempRoot };
+
+    fs::current_path(tempRoot, ec);
+    if (ec) return 4;
+
+    const int playTypes[] = { 0, 1, 2, 3, 4, 12, 13, 14 };
+    for (int testIndex = 0; testIndex < IM_ARRAYSIZE(playTypes); ++testIndex) {
+        const int type = playTypes[testIndex];
+        const std::string relativePath = "type_" + std::to_string(type) +
+            "\\skin.lr2skin";
+        std::string skinPath;
+        std::string atlasPath;
+        std::string error;
+        if (!BuildInitialPreset(type, 1280, 720, "Preset test", "SkinEditor",
+            relativePath, skinPath, atlasPath, error))
+            return 10 + testIndex;
+
+        std::ifstream input(skinPath, std::ios::binary);
+        if (!input || !fs::exists(atlasPath)) return 20 + testIndex;
+        const std::string contents((std::istreambuf_iterator<char>(input)),
+            std::istreambuf_iterator<char>());
+
+        int keysPerPlayer = 7;
+        if (type == 1 || type == 3 || type == 13) keysPerPlayer = 5;
+        else if (type == 4 || type == 14) keysPerPlayer = 9;
+        const bool twoPlayers = type == 2 || type == 3 || type >= 12;
+        const bool hasScratch = keysPerPlayer != 9;
+        const int lanesPerPlayer = keysPerPlayer + (hasScratch ? 1 : 0);
+        const int playerCount = twoPlayers ? 2 : 1;
+
+        std::set<int> expectedLanes;
+        for (int player = 0; player < playerCount; ++player) {
+            for (int lane = 0; lane < lanesPerPlayer; ++lane) {
+                expectedLanes.insert(player * 10 + lane +
+                    (keysPerPlayer == 9 ? 1 : 0));
+            }
+        }
+
+        auto collectIndices = [&](const char* prefix) {
+            std::set<int> indices;
+            std::istringstream rows(contents);
+            std::string row;
+            const size_t prefixLength = strlen(prefix);
+            while (std::getline(rows, row)) {
+                if (!row.empty() && row.back() == '\r') row.pop_back();
+                if (row.compare(0, prefixLength, prefix) != 0) continue;
+                indices.insert((int)strtol(row.c_str() + prefixLength,
+                    NULL, 10));
+            }
+            return indices;
+        };
+        auto countPrefix = [&](const char* prefix) {
+            int count = 0;
+            std::istringstream rows(contents);
+            std::string row;
+            const size_t prefixLength = strlen(prefix);
+            while (std::getline(rows, row)) {
+                if (!row.empty() && row.back() == '\r') row.pop_back();
+                if (row.compare(0, prefixLength, prefix) == 0) ++count;
+            }
+            return count;
+        };
+
+        const char* noteCommands[] = {
+            "#SRC_NOTE,", "#SRC_MINE,", "#SRC_LN_BODY,",
+            "#SRC_LN_END,", "#SRC_LN_START,", "#DST_NOTE,"
+        };
+        for (const char* command : noteCommands) {
+            if (collectIndices(command) != expectedLanes)
+                return 30 + testIndex;
+        }
+        if (countPrefix("$SE_OBJECT_ID,preset_note_") !=
+                (int)expectedLanes.size() ||
+            countPrefix("$SE_OBJECT_NAME,Note P") !=
+                (int)expectedLanes.size() ||
+            countPrefix("$SE_OBJECT_ID,preset_judgeline_") != playerCount ||
+            countPrefix("$SE_OBJECT_ID,preset_gauge_") != playerCount ||
+            countPrefix("$SE_OBJECT_ID,preset_bga") != 1 ||
+            countPrefix("$SE_OBJECT_ID,preset_fast") != 1 ||
+            countPrefix("$SE_OBJECT_ID,preset_slow") != 1)
+            return 40 + testIndex;
+    }
+
+    std::string courseSkinPath;
+    std::string courseAtlasPath;
+    std::string courseError;
+    if (!BuildInitialPreset(15, 1280, 720, "Course preset test",
+        "SkinEditor", "course_result\\skin.lr2skin", courseSkinPath,
+        courseAtlasPath, courseError))
+        return 60;
+    std::ifstream courseInput(courseSkinPath, std::ios::binary);
+    if (!courseInput || !fs::exists(courseAtlasPath)) return 61;
+    const std::string courseContents(
+        (std::istreambuf_iterator<char>(courseInput)),
+        std::istreambuf_iterator<char>());
+
+    auto countCoursePrefix = [&](const char* prefix) {
+        int count = 0;
+        std::istringstream rows(courseContents);
+        std::string row;
+        const size_t prefixLength = strlen(prefix);
+        while (std::getline(rows, row)) {
+            if (!row.empty() && row.back() == '\r') row.pop_back();
+            if (row.compare(0, prefixLength, prefix) == 0) ++count;
+        }
+        return count;
+    };
+    auto collectCourseColumn = [&](const char* command, int column) {
+        std::set<int> values;
+        std::istringstream rows(courseContents);
+        std::string row;
+        const std::string prefix = std::string(command) + ',';
+        while (std::getline(rows, row)) {
+            if (!row.empty() && row.back() == '\r') row.pop_back();
+            if (row.compare(0, prefix.size(), prefix) != 0) continue;
+            int currentColumn = 0;
+            size_t fieldStart = 0;
+            while (currentColumn < column && fieldStart != std::string::npos) {
+                const size_t comma = row.find(',', fieldStart);
+                if (comma == std::string::npos) {
+                    fieldStart = std::string::npos;
+                    break;
+                }
+                fieldStart = comma + 1;
+                ++currentColumn;
+            }
+            if (fieldStart != std::string::npos)
+                values.insert((int)strtol(row.c_str() + fieldStart, NULL, 10));
+        }
+        return values;
+    };
+
+    const std::set<int> expectedCourseTitles = { 150, 151, 152, 153, 154 };
+    const std::set<int> expectedCourseNumbers = {
+        101, 105, 110, 111, 112, 113, 114,
+        250, 251, 252, 253, 254
+    };
+    if (courseContents.find("#INFORMATION,15,") == std::string::npos ||
+        courseContents.find("#STARTINPUT,0,1500,500") == std::string::npos)
+        return 62;
+    if (collectCourseColumn("#SRC_TEXT", 3) != expectedCourseTitles ||
+        countCoursePrefix("#SRC_TEXT,") != 5 ||
+        countCoursePrefix("#DST_TEXT,") != 5)
+        return 63;
+    if (collectCourseColumn("#SRC_NUMBER", 11) != expectedCourseNumbers ||
+        countCoursePrefix("#SRC_NUMBER,") != 12 ||
+        countCoursePrefix("#DST_NUMBER,") != 12)
+        return 64;
+    if (countCoursePrefix("$SE_OBJECT_ID,preset_course_result_panel") != 1 ||
+        countCoursePrefix("$SE_OBJECT_ID,preset_course_title_") != 5 ||
+        countCoursePrefix("$SE_OBJECT_ID,preset_course_level_") != 5 ||
+        countCoursePrefix("$SE_OBJECT_ID,preset_course_") != 18)
+        return 65;
+    if (countCoursePrefix("#SRC_NOTE,") != 0 ||
+        countCoursePrefix("#FONT,") != 1)
+        return 66;
+    return 0;
+}
+
 int WORKSPACE::drawNewskin() {
     char windowTitle[260];
     snprintf(windowTitle, sizeof(windowTitle), "NewSkin##%d", num);
@@ -9235,7 +9510,9 @@ int WORKSPACE::drawNewskin() {
         ImGui::InputText("Title", skinTitle, IM_ARRAYSIZE(skinTitle));
         ImGui::InputText("Maker", maker, IM_ARRAYSIZE(maker));
         if (ImGui::BeginCombo("Scene / key mode", SKINTYPESTR[selectedType])) {
-            const int presetTypes[] = { 0, 1, 2, 3, 4, 12, 13, 14, 5, 6, 7 };
+            const int presetTypes[] = {
+                0, 1, 2, 3, 4, 12, 13, 14, 5, 6, 7, 15
+            };
             for (int type : presetTypes) {
                 const bool selected = selectedType == type;
                 if (ImGui::Selectable(SKINTYPESTR[type], selected)) selectedType = type;
@@ -9276,6 +9553,21 @@ int WORKSPACE::drawNewskin() {
                 snprintf(title, 260, "%s -%s", titleCp932.c_str(), SKINTYPESTR[selectedType]);
                 loaded = LoadSkin(mainpath) == 0;
                 if (loaded) {
+                    if (IsPlayPresetType(selectedType)) {
+                        const std::vector<SEObjectInstance>& objects =
+                            objectEditorModel.Objects();
+                        for (int objectIndex = 0;
+                            objectIndex < (int)objects.size(); ++objectIndex) {
+                            if (objects[objectIndex].editorId !=
+                                "preset_note_0") continue;
+                            wObjectEditor = true;
+                            wObjectBrowser = true;
+                            wObjectInspector = true;
+                            SetObjectSelection(std::vector<int>(1, objectIndex),
+                                objectIndex, objectIndex, true);
+                            break;
+                        }
+                    }
                     newPath[0] = '\0';
                     createMessage = "Created and opened: " + createdSkin;
                     wNewskin = false;
@@ -11897,6 +12189,88 @@ int WORKSPACE::drawObjectEditor() {
                     }
                 };
 
+                auto drawDstColorEditor = [&](int row, const char* command,
+                    const char* label) {
+                    if (row < 0 || row >= skinfileLines.count) return false;
+                    int columns[4];
+                    if (!ResolveDstArgbColumns(command, columns)) return false;
+
+                    SKINFILELINEREAD& line =
+                        ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    auto clampByte = [](int value) {
+                        return value < 0 ? 0 : (value > 255 ? 255 : value);
+                    };
+                    // ImGui uses RGBA floats while LR2 stores A,R,G,B integers.
+                    float color[4] = {
+                        clampByte(line.csv.val[columns[1]]) / 255.0f,
+                        clampByte(line.csv.val[columns[2]]) / 255.0f,
+                        clampByte(line.csv.val[columns[3]]) / 255.0f,
+                        clampByte(line.csv.val[columns[0]]) / 255.0f
+                    };
+                    const ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs |
+                        ImGuiColorEditFlags_AlphaBar |
+                        ImGuiColorEditFlags_AlphaPreviewHalf |
+                        ImGuiColorEditFlags_InputRGB |
+                        ImGuiColorEditFlags_Uint8;
+                    const bool changed = ImGui::ColorEdit4(label, color, flags);
+                    if (ImGui::IsItemActivated()) {
+                        objectColorEditRow = -1;
+                        objectColorEditHistoryIndex = -1;
+                    }
+
+                    if (changed) {
+                        const int edited[4] = {
+                            (int)std::round(color[3] * 255.0f),
+                            (int)std::round(color[0] * 255.0f),
+                            (int)std::round(color[1] * 255.0f),
+                            (int)std::round(color[2] * 255.0f)
+                        };
+                        bool integerChanged = false;
+                        for (int component = 0; component < 4; ++component)
+                            if (line.csv.val[columns[component]] != edited[component])
+                                integerChanged = true;
+
+                        if (integerChanged) {
+                            if (objectColorEditRow != row ||
+                                objectColorEditHistoryIndex < 0 ||
+                                objectColorEditHistoryIndex >= arr_history.count) {
+                                HISTORY* history = (HISTORY*)arr_history.Get_new();
+                                history->op = overwriteLine;
+                                history->target = row;
+                                history->older.line.assign(line.line);
+                                history->newer.line.assign(line.line);
+                                objectColorEditRow = row;
+                                objectColorEditHistoryIndex = arr_history.count - 1;
+                            }
+
+                            for (int component = 0; component < 4; ++component) {
+                                const int column = columns[component];
+                                char value[8];
+                                snprintf(value, sizeof(value), "%d", edited[component]);
+                                line.csv.str[column].assign(value);
+                                line.csv.val[column] = edited[component];
+                                if (line.csvColumnCount < column + 1)
+                                    line.csvColumnCount = column + 1;
+                            }
+                            line.modified = true;
+                            CsvToLine(row);
+                            ((HISTORY*)arr_history.data)[objectColorEditHistoryIndex]
+                                .newer.line.assign(line.line);
+                            NotifyDocumentChanged(DOCUMENT_CHANGE_VALUE);
+                        }
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                        ImGui::SetTooltip("A %d  R %d  G %d  B %d",
+                            line.csv.val[columns[0]], line.csv.val[columns[1]],
+                            line.csv.val[columns[2]], line.csv.val[columns[3]]);
+                    }
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        objectColorEditRow = -1;
+                        objectColorEditHistoryIndex = -1;
+                    }
+                    return true;
+                };
+
                 auto drawObjectPropertyRow = [&](int row, int compactDstIndex) {
                     if (row < 0 || row >= skinfileLines.count) return;
                     SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
@@ -11910,6 +12284,9 @@ int WORKSPACE::drawObjectEditor() {
                     if (compactDst || ImGui::CollapsingHeader(command, ImGuiTreeNodeFlags_DefaultOpen)) {
                         if (!compactDst) drawTaggedImageSelector(row, command);
                         int maxcol = 30;
+                        int dstColorColumns[4];
+                        const bool hasDstColor = ResolveDstArgbColumns(command,
+                            dstColorColumns);
                         for (int col = 1; col < maxcol; ++col) {
                             CSTR help = GetCommandHelp(command, col);
                             help.trimWhiteSpace();
@@ -11925,29 +12302,37 @@ int WORKSPACE::drawObjectEditor() {
                                 _strnicmp(label, "op2", 3) == 0 || _strnicmp(label, "$op2", 4) == 0 ||
                                 _strnicmp(label, "op3", 3) == 0 || _strnicmp(label, "$op3", 4) == 0;
                             if (compactDstIndex > 0 && isSharedDstField) continue;
+                            if (hasDstColor && col > dstColorColumns[0] &&
+                                col <= dstColorColumns[3]) continue;
                             ImGui::PushID(col);
-                            const char* widgetLabel = label;
+                            const bool isDstColor = hasDstColor &&
+                                col == dstColorColumns[0];
+                            const char* displayLabel = isDstColor ? "ARGB" : label;
+                            const char* widgetLabel = displayLabel;
                             if (compactDst) {
                                 if (compactDstIndex == 0) {
                                     ImGui::AlignTextToFramePadding();
-                                    ImGui::TextDisabled("%s", label);
+                                    ImGui::TextDisabled("%s", displayLabel);
                                     ImGui::SameLine(62.0f);
                                 }
                                 widgetLabel = "##value";
                                 ImGui::SetNextItemWidth(-FLT_MIN);
                             }
-                            const int current = line.csv.val[col];
-                            int selectedValue = current;
-                            if (DrawCommandValueCombo(widgetLabel, command,
-                                help.body ? help.outstr() : "", current, selectedValue)) {
-                                if (selectedValue != current) EditValue(row, col, selectedValue);
-                            } else {
-                                CSTR before(line.csv.str[col]);
-                                CstrInputText(widgetLabel, &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
-                                if (before.isDiff(line.csv.str[col])) {
-                                    CSTR newValue(line.csv.str[col]);
-                                    line.csv.str[col] = before;
-                                    EditValue(row, col, newValue.outstr());
+                            if (!isDstColor ||
+                                !drawDstColorEditor(row, command, widgetLabel)) {
+                                const int current = line.csv.val[col];
+                                int selectedValue = current;
+                                if (DrawCommandValueCombo(widgetLabel, command,
+                                    help.body ? help.outstr() : "", current, selectedValue)) {
+                                    if (selectedValue != current) EditValue(row, col, selectedValue);
+                                } else {
+                                    CSTR before(line.csv.str[col]);
+                                    CstrInputText(widgetLabel, &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
+                                    if (before.isDiff(line.csv.str[col])) {
+                                        CSTR newValue(line.csv.str[col]);
+                                        line.csv.str[col] = before;
+                                        EditValue(row, col, newValue.outstr());
+                                    }
                                 }
                             }
                             ImGui::PopID();
@@ -12026,6 +12411,9 @@ int WORKSPACE::drawObjectEditor() {
 
                                 SKINFILELINEREAD& firstDst = ((SKINFILELINEREAD*)skinfileLines.data)[dstRows[0]];
                                 const char* firstCommand = firstDst.csv.str[0].body ? firstDst.csv.str[0].outstr() : "";
+                                int firstColorColumns[4];
+                                const bool hasDstColor = ResolveDstArgbColumns(
+                                    firstCommand, firstColorColumns);
                                 for (int col = 1; col < 30; ++col) {
                                     CSTR firstHelp = GetCommandHelp(firstCommand, col);
                                     firstHelp.trimWhiteSpace();
@@ -12034,6 +12422,11 @@ int WORKSPACE::drawObjectEditor() {
                                     if (!firstHelp.body) continue;
                                     const char* rowLabel = firstHelp.outstr();
                                     if (!rowLabel || !*rowLabel) continue;
+                                    if (hasDstColor && col > firstColorColumns[0] &&
+                                        col <= firstColorColumns[3]) continue;
+                                    const bool isDstColor = hasDstColor &&
+                                        col == firstColorColumns[0];
+                                    if (isDstColor) rowLabel = "ARGB";
 
                                     const bool sharedField = _strnicmp(rowLabel, "loop", 4) == 0 ||
                                         _strnicmp(rowLabel, "timer", 5) == 0 || _strnicmp(rowLabel, "$timer", 6) == 0 ||
@@ -12057,25 +12450,28 @@ int WORKSPACE::drawObjectEditor() {
                                         ImGui::PushID(row);
                                         ImGui::PushID(col);
                                         ImGui::SetNextItemWidth(-FLT_MIN);
-                                        const int current = line.csv.val[col];
-                                        int selectedValue = current;
-                                        const SECommandValueKind valueKind = GetCommandValueKind(
-                                            line.csv.str[0].outstr(), help.body ? help.outstr() : "");
-                                        if (DrawCommandValueCombo("##value", line.csv.str[0].outstr(),
-                                            help.body ? help.outstr() : "", current, selectedValue)) {
-                                            if (selectedValue != current) EditValue(row, col, selectedValue);
-                                            if ((valueKind == SE_VALUE_OPTION || valueKind == SE_VALUE_TIMER) &&
-                                                ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-                                                const char* valueName = GetCommandValueName(valueKind, current);
-                                                ImGui::SetTooltip("%03d:%s", current, valueName ? valueName : "");
-                                            }
-                                        } else {
-                                            CSTR before(line.csv.str[col]);
-                                            CstrInputText("##value", &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
-                                            if (before.isDiff(line.csv.str[col])) {
-                                                CSTR newValue(line.csv.str[col]);
-                                                line.csv.str[col] = before;
-                                                EditValue(row, col, newValue.outstr());
+                                        if (!isDstColor || !drawDstColorEditor(row,
+                                            line.csv.str[0].outstr(), "##value")) {
+                                            const int current = line.csv.val[col];
+                                            int selectedValue = current;
+                                            const SECommandValueKind valueKind = GetCommandValueKind(
+                                                line.csv.str[0].outstr(), help.body ? help.outstr() : "");
+                                            if (DrawCommandValueCombo("##value", line.csv.str[0].outstr(),
+                                                help.body ? help.outstr() : "", current, selectedValue)) {
+                                                if (selectedValue != current) EditValue(row, col, selectedValue);
+                                                if ((valueKind == SE_VALUE_OPTION || valueKind == SE_VALUE_TIMER) &&
+                                                    ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                                                    const char* valueName = GetCommandValueName(valueKind, current);
+                                                    ImGui::SetTooltip("%03d:%s", current, valueName ? valueName : "");
+                                                }
+                                            } else {
+                                                CSTR before(line.csv.str[col]);
+                                                CstrInputText("##value", &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
+                                                if (before.isDiff(line.csv.str[col])) {
+                                                    CSTR newValue(line.csv.str[col]);
+                                                    line.csv.str[col] = before;
+                                                    EditValue(row, col, newValue.outstr());
+                                                }
                                             }
                                         }
                                         ImGui::PopID();

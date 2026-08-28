@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 enum DOCUMENTCHANGE {
@@ -99,6 +100,23 @@ typedef struct IMG {
     int sourceDeclare = -1;
     int editorDeclare = -1;
 }IMG;
+
+enum class SEImageDiagnosticKind {
+    MissingFile,
+    UnloadableFile,
+    CropOutOfBounds,
+    DuplicateCrop,
+    UnusedAsset,
+    SourceWithoutAsset,
+};
+
+struct SEImageDiagnostic {
+    SEImageDiagnosticKind kind = SEImageDiagnosticKind::MissingFile;
+    std::string message;
+    int graphicIndex = -1;
+    int assetIndex = -1;
+    int sourceRow = -1;
+};
 
 typedef struct SRCGR {
     CSTR path{};
@@ -405,16 +423,40 @@ typedef struct WORKSPACE {
     int imagePixelPaintLastButton = -1;
     std::map<std::string, bool> imagePixelPaintDirtyPaths;
     std::string imagePixelPaintStatus;
+    std::string imageManagerReloadPathRequest;
     bool imageNewDialogRequested = false;
     bool imageMergeDialogRequested = false;
+    bool imageReplaceDialogRequested = false;
+    bool imageGridDialogRequested = false;
     char imageToolOutputPathUtf8[1024] = {};
     int imageNewWidth = 1;
     int imageNewHeight = 1;
     ImVec4 imageNewColor = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     int imageMergeAssetIndex = 0;
+    int imageReplaceDeclarationRow = -1;
+    int imageReplaceOldWidth = 0;
+    int imageReplaceOldHeight = 0;
+    int imageReplaceNewWidth = 0;
+    int imageReplaceNewHeight = 0;
+    int imageReplaceAffectedCropCount = 0;
+    int imageReplaceOutOfBoundsCropCount = 0;
+    std::string imageReplaceDiskPath;
+    int imageGridAssetIndex = -1;
+    int imageGridGr = 0;
+    int imageGridX = 0;
+    int imageGridY = 0;
+    int imageGridW = 0;
+    int imageGridH = 0;
+    int imageGridIfGroup = 0;
+    int imageGridColumns = 1;
+    int imageGridRows = 1;
+    char imageGridNamePrefix[128] = {};
+    std::vector<unsigned char> imageGridSelectedCells;
     bool imageToolRegisterInCsv = true;
     std::string imageToolStatus;
     int imageManagerGeneratedGrFocusRequest = -1;
+    int imageManagerGraphicDeclarationFocusRequest = -1;
+    int imageManagerAssetDeclarationFocusRequest = -1;
     int grID_selected = 0;
     int gr_selected = 0;
     int src_selected = 0;
@@ -444,6 +486,8 @@ typedef struct WORKSPACE {
     int imageAssetUsageCacheAssetCount = -1;
     std::vector<std::vector<int>> imageAssetUsageCache;
     int ResolveIMGTextureIndex(int imageIndex);
+    void CollectIMGTextureCandidates(int imageIndex,
+        std::vector<std::pair<int, int>>& candidates);
     int ResolveIMGSourceIndex(int imageIndex) const;
     void ResolveIMGDivision(int imageIndex, int& divX, int& divY,
         int& cycle, int& timer) const;
@@ -455,6 +499,12 @@ typedef struct WORKSPACE {
     bool OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY);
     int RegisterGeneratedImage(const char* diskPath, int width, int height,
         std::string& errorText);
+    bool ReplaceImageDeclarationPath(int graphicIndex, const char* diskPath,
+        std::string& errorText);
+    bool RegisterImageAssetGrid(int imageIndex, int columns, int rows,
+        const std::vector<unsigned char>& selectedCells, const char* namePrefix,
+        std::vector<int>& insertedRows, std::string& errorText);
+    void BuildImageDiagnostics(std::vector<SEImageDiagnostic>& diagnostics);
 
     int printSrcImg(SRC src, bool button = 0);
     int printSrcImgButton(SRC src, int num, int w, int h);

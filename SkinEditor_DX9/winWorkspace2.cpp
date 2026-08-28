@@ -275,6 +275,98 @@ int RunAssetMetadataSelfTest() {
         !editableSource.line.body ||
         originalSourceLine != editableSource.line.outstr()) return 66;
 
+    std::vector<SEImageDiagnostic> diagnostics;
+    workspace.BuildImageDiagnostics(diagnostics);
+    bool foundMissingGraphic = false;
+    bool foundUnusedAsset = false;
+    for (const SEImageDiagnostic& diagnostic : diagnostics) {
+        foundMissingGraphic |= diagnostic.kind ==
+            SEImageDiagnosticKind::MissingFile;
+        foundUnusedAsset |= diagnostic.kind ==
+            SEImageDiagnosticKind::UnusedAsset && diagnostic.assetIndex == 1;
+    }
+    if (!foundMissingGraphic || !foundUnusedAsset) return 67;
+
+    const int historyBeforeReplace = workspace.arr_history.count;
+    const int replaceDeclaration = fileImage.declare;
+    const std::string originalImageDeclaration =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)
+        [replaceDeclaration].line.outstr();
+    std::string imageOperationError;
+    if (!workspace.ReplaceImageDeclarationPath(fileImageCandidate,
+        graphicImage.c_str(), imageOperationError) ||
+        workspace.arr_history.count != historyBeforeReplace + 1 ||
+        strstr(((SKINFILELINEREAD*)workspace.skinfileLines.data)
+            [replaceDeclaration].line.outstr(), "#IMAGE,") !=
+            ((SKINFILELINEREAD*)workspace.skinfileLines.data)
+            [replaceDeclaration].line.outstr()) return 68;
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.arr_history.count != historyBeforeReplace ||
+        originalImageDeclaration !=
+            ((SKINFILELINEREAD*)workspace.skinfileLines.data)
+            [replaceDeclaration].line.outstr()) return 69;
+
+    // Grid splitting persists named, editor-only cells and records every row
+    // insertion as one user-visible Undo action.
+    std::unique_ptr<WORKSPACE> gridWorkspace(new WORKSPACE());
+    gridWorkspace->skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 8);
+    gridWorkspace->arr_IMG.Alloc(sizeof(IMG), 8);
+    gridWorkspace->arr_SRCGR.Alloc(sizeof(SRCGR), 2);
+    gridWorkspace->arr_SRC.Alloc(sizeof(SRC), 2);
+    gridWorkspace->arr_seobj.Alloc(sizeof(SEOBJ), 4);
+    gridWorkspace->arr_ifunit.Alloc(sizeof(IFUNIT), 2);
+    gridWorkspace->arr_history.Alloc(sizeof(HISTORY), 16);
+    strncpy(gridWorkspace->mainpath, outputPath, MAX_PATH - 1);
+    auto appendGridLine = [&](const char* text) {
+        SKINFILELINEREAD* line =
+            (SKINFILELINEREAD*)gridWorkspace->skinfileLines.Get_new();
+        line->line.assign(text);
+        line->filename.assign(outputPath);
+        line->numTotal = gridWorkspace->skinfileLines.count - 1;
+        line->num = line->numTotal;
+        line->isComment = text[0] != '#';
+        line->isSEcomment = text[0] == '$';
+        line->ifgroup = 0;
+        SplitCSV(line->line, &line->csv, ",");
+        line->csvColumnCount = CountCsvColumns(line->line);
+    };
+    appendGridLine("#IMAGE,grid.png");
+    appendGridLine("$SRC_IMAGE,0,0,0,0,8,8,1,1,0,0,0,0,0,base");
+    SRCGR* gridGraphic = (SRCGR*)gridWorkspace->arr_SRCGR.Get_new();
+    gridGraphic->path.assign(graphicImage.c_str());
+    gridGraphic->filename.assign("grid.png");
+    gridGraphic->texture = reinterpret_cast<PDIRECT3DTEXTURE9>(1);
+    gridGraphic->loaded = true;
+    gridGraphic->sizeX = 8;
+    gridGraphic->sizeY = 8;
+    gridGraphic->grID = 0;
+    gridGraphic->isIf = 0;
+    gridGraphic->declare = 0;
+    const int gridBaseIndex = gridWorkspace->NewIMG(0, 0, 0, 8, 8, 0);
+    ((IMG*)gridWorkspace->arr_IMG.data)[gridBaseIndex].editorDeclare = 1;
+    std::vector<unsigned char> selectedGridCells(4, 1);
+    std::vector<int> insertedGridRows;
+    if (!gridWorkspace->RegisterImageAssetGrid(gridBaseIndex, 2, 2,
+        selectedGridCells, "grid", insertedGridRows, imageOperationError) ||
+        insertedGridRows.size() != 4 ||
+        gridWorkspace->skinfileLines.count != 6 ||
+        gridWorkspace->arr_history.count != 9) return 70;
+    SKINFILELINEREAD& firstGridCell =
+        ((SKINFILELINEREAD*)gridWorkspace->skinfileLines.data)
+        [insertedGridRows.front()];
+    if (!firstGridCell.line.body ||
+        strstr(firstGridCell.line.outstr(),
+            "$SRC_IMAGE,0,0,0,0,4,4,1,1,0,0,0,0,0,grid_001") !=
+            firstGridCell.line.outstr()) return 71;
+    if (gridWorkspace->ParseSkinConditions() != 0) return 72;
+    if (gridWorkspace->ParseSkinLegacyObjectsAndAssets() != 0) return 74;
+    if (gridWorkspace->arr_IMG.count != 5) return 75;
+    if (!((IMG*)gridWorkspace->arr_IMG.data)[1].name.isSame("grid_001"))
+        return 76;
+    if (gridWorkspace->UndoLastEdit() != 0 ||
+        gridWorkspace->arr_history.count != 0 ||
+        gridWorkspace->skinfileLines.count != 2) return 73;
+
     const int manualIndex = workspace.NewIMG(17, 1, 2, 3, 4, 23);
     if (manualIndex != 2) return 14;
     const std::vector<std::vector<int>>& expandedUsage =
@@ -1341,6 +1433,17 @@ int WORKSPACE::UndoLastEdit() {
     const int target = history.target;
     CSTR oldLine(history.older.line);
     --arr_history.count;
+
+    // Batch commands append a group marker after their normal line edits.
+    // Undo the recorded operations in reverse order so one Ctrl+Z restores
+    // the complete action while each primitive keeps its existing logic.
+    if (operation == group) {
+        if (target <= 0 || target > arr_history.count) return -1;
+        for (int edit = 0; edit < target; ++edit) {
+            if (UndoLastEdit() != 0) return -1;
+        }
+        return 0;
+    }
 
     applyingHistory = true;
     int result = 0;

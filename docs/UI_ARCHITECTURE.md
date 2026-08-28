@@ -278,6 +278,33 @@ because it would shift later gr IDs. A pending gr request survives the derived
 cache rebuild, resolves to the new IMG index, and synchronizes Image Manager and
 Asset Browser selection on the next frame.
 
+`ReplaceImageDeclarationPath()` changes only the declaring `#IMAGE` row through
+one `EditLine()` call. The confirmation modal compares old/new dimensions and
+counts affected/out-of-bounds crops, but never rewrites crop coordinates. It
+stores the declaration document row across the deferred cache rebuild rather
+than retaining a `SRCGR` array index.
+
+`grReload` queues the resolved CP932 path and releases/recreates matching editor
+textures at the next frame boundary, before any window submits image draw
+commands. It is blocked while that path has unsaved Pixel paint. `Usage` only
+opens the derived Image status panel and does not mutate CSV state.
+
+`RegisterImageAssetGrid()` partitions the selected IMG rectangle with integer
+boundary ratios, skips duplicate branch/crop keys and inserts named
+`$SRC_IMAGE` rows beside the owning `#IMAGE`. The grid modal owns only temporary
+columns/rows/cell-selection presentation state. Every primitive insert/edit
+keeps the normal CSV notification path; a trailing `HISTORYOP::group` marker
+makes the whole batch one Ctrl+Z action. After rebuild, the first inserted
+metadata row resolves back to the shared IMG selection without retaining a
+transient asset index.
+
+`BuildImageDiagnostics()` derives Image Manager status directly from
+`arr_SRCGR`, `arr_IMG`, `ImageAssetUsage()` and Object SRC rows. It reports
+missing/unloadable files, bounds and duplicate crops, unused editor Assets and
+SRC rows without an Asset. Diagnostic navigation routes through
+`SelectIMGAsset()` or `SetObjectSelection()`; the panel does not own another
+selection or repair CSV automatically.
+
 The insertion owner is explicit: a selected Object/branch keeps its source
 filename, while an unscoped drop uses the root skin. Rows are clamped before
 that owner's in-memory `$FILE ... end` marker so the Preview runtime mask and

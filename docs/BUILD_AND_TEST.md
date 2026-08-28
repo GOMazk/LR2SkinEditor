@@ -45,7 +45,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 - `olr-package`: stored ZIP 생성/검사/추출, manifest와 semantic object/asset count,
   LR2·asset byte 보존, path traversal 거부 및 CRC 손상 탐지
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제, graphic ID 배정과 선택
-  Object SRC에 대한 원자적 Asset 적용/Undo
+  Object SRC에 대한 원자적 Asset 적용/Undo, `#IMAGE` 경로 교체/Undo, 이미지 상태
+  진단, named grid Asset 일괄 등록/단일 Undo
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
 
 결과는 `.build\test-results\skineditor-self-tests.xml` JUnit 파일로 남는다. 테스트
@@ -150,7 +151,9 @@ $test.ExitCode # 0이면 성공
 Asset을 적용할 때 `gr/x/y/w/h`만 바뀌고 NUMBER의 `num/align/keta`가 보존되며,
 History 한 건과 Ctrl+Z 한 번으로 원본 행이 복구되는지도 검사한다. 또한 IF/ELSE 형제 branch의
 최대 graphic slot 뒤에 생성 이미지의 `#IMAGE + $SRC_IMAGE`가 root end marker
-직전에 등록되는지 검사한 뒤 임시 파일을 삭제한다.
+직전에 등록되는지 검사한다. 이어서 missing/unused 이미지 진단, `#IMAGE` 경로만
+교체한 뒤 Undo 복원, 2x2 named `$SRC_IMAGE` 분할의 재파싱 및 일괄 Ctrl+Z를 확인한
+뒤 임시 파일을 삭제한다.
 
 도트 그리기 texture와 파일 저장 경로:
 
@@ -374,6 +377,19 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 - Image Manager의 `grReload` 옆 `Folder`를 누르면 현재 이미지 파일이 선택된
   Windows Explorer가 열리는지. 후보 파일이 없으면 가장 가까운 기존 폴더가
   열리는지
+- 디스크에서 현재 이미지를 바꾼 뒤 `grReload`를 누르면 다음 frame에 새 내용이
+  나타나고, 미저장 Pixel paint가 있을 때는 reload가 차단되는지
+- Image Manager의 `Replace`에서 같은 크기 파일은 즉시 `#IMAGE` 경로만 바뀌고,
+  다른 크기 파일은 영향 crop/경계 이탈 수를 확인한 뒤 바뀌는지. crop 좌표와 논리
+  gr/IF Branch가 유지되고 Ctrl+Z 한 번으로 원래 경로가 복구되는지
+- Pixel paint가 저장되지 않은 상태에서는 `Replace`가 비활성화되는지
+- `Split grid`가 SRC의 `div_x/div_y`를 초기 Columns/Rows로 제안하고 전체 crop
+  preview에서 선택한 cell만 순번 이름의 `$SRC_IMAGE`로 등록하는지. 중복 cell은
+  건너뛰고 저장·재로드 후 이름/좌표가 유지되며 Ctrl+Z 한 번에 batch 전체가
+  제거되는지
+- `Image status`가 missing/unloadable 파일, bounds 밖 crop, 중복 crop, 미사용
+  `$SRC_IMAGE`, Asset 없는 Object SRC와 다음/남은 gr slot을 표시하는지. 진단 행을
+  누르면 대응 Asset 또는 Object 선택으로 이동하는지
 - Asset Browser가 `#SRC` crop을 썸네일 카드로 표시하고 검색/크기 조절이 되는지
 - Asset Browser card와 Image Manager crop 목록에 실제 사용 중인 고유 Object 수
   또는 `Unused`가 표시되는지. 한 Object의 중복 SRC를 두 번 세지 않는지

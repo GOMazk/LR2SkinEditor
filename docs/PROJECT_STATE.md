@@ -429,6 +429,8 @@ SkinEditor는 같은 원본 파일과 IF Branch의 Asset으로 다시 파싱하�
 `$SRC_IMAGE`를 생략하고 실제 SRC가 삭제되면 다시 미사용 Asset으로 출력한다.
 ImageManager에서 수동 crop을 삭제할 때는 대응하는 `$SRC_IMAGE` 행도 같이 삭제해,
 저장·재로드 뒤 삭제한 Asset이 다시 나타나지 않게 한다.
+격자 분할처럼 이름이 있는 편집기 Asset은 마지막 선택 열에 이름을 추가한다.
+기존 이름 없는 행은 계속 `manual crop`으로 읽으므로 이전 파일과 호환된다.
 
 `Animate SRC`가 켜져 있으면 `cycle > 0`이고 `div_x * div_y > 1`인 Asset은
 LR2의 전체 cycle 시간에 맞춰 분할 frame을 행 우선 순서로 재생한다. 각 `IMG`는
@@ -484,6 +486,28 @@ composite한다. 기준 texture의 alpha가 0인 영역을 위에서부터 탐�
 들어가는 첫 빈자리를 사용한다. 맞는 공간이 없으면 오른쪽 추가와 아래쪽 추가 중
 최종 canvas 면적이 작은 방향을 골라 자동 확장한다. 사용자가 x/y나 확장 여부를
 직접 입력하지 않는다. 두 기능 모두 기본 출력은 PNG이고 기존 파일을 덮어쓰지 않는다.
+
+`Replace`는 현재 `SRCGR`가 가리키는 `#IMAGE` 선언의 파일 경로만 교체한다. 논리
+gr, IF Branch와 모든 SRC crop 좌표는 유지한다. 새 이미지 크기가 다르면 영향받는
+crop 수와 새 경계를 벗어나는 crop 수를 modal에서 먼저 보여주며 좌표를 자동 보정하지
+않는다. 한 `EditLine()`만 사용하므로 Ctrl+Z 한 번으로 원래 `#IMAGE` 경로가 복구된다.
+저장하지 않은 Pixel paint가 있으면 외부 파일 선택과 메모리 texture가 엇갈리지 않도록
+교체를 막는다.
+`grReload`도 같은 이유로 현재 frame에서 texture를 해제하지 않고 다음 frame 시작에
+같은 disk path의 editor texture를 다시 읽는다. 미저장 Pixel paint가 있으면 reload를
+막는다. `Usage`는 아래의 Image status/사용처 영역을 펼친다.
+
+`Split grid`는 선택 Asset을 Columns/Rows로 나누고 전체 crop preview에서 클릭한
+cell만 이름이 붙은 `$SRC_IMAGE`로 등록한다. SRC에 `div_x/div_y`가 있으면 이를 초기
+격자값으로 제안하며, 나누어떨어지지 않는 크기는 정수 경계 비율로 분배해 원본 pixel을
+빠뜨리지 않는다. 같은 Branch에 좌표가 같은 Asset은 중복 등록하지 않는다. 여러 행의
+Insert/Edit History 뒤에 batch marker를 두므로 분할 전체가 Ctrl+Z 한 번으로 제거된다.
+
+Image Manager의 `Image status`는 현재 파생 모델에서 missing file, 로드 불가능한
+wildcard 후보, 이미지 경계 밖 crop, 같은 Branch의 중복 crop, 사용하지 않는 편집기
+`$SRC_IMAGE`, Object SRC에 대응 Asset이 없는 행을 검사한다. 진단 행을 선택하면 가능한
+경우 Asset/Image Manager 또는 Object Browser/Inspector의 공용 선택 경로로 이동한다.
+같은 영역에 다음 trailing gr와 LR2의 0~99 범위에서 남은 slot 수도 표시한다.
 
 `Register in this skin CSV`가 켜져 있으면 생성 파일을 root skin의 마지막 graphic
 slot에 다음 두 행으로 함께 등록한다.

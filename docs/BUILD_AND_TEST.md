@@ -44,7 +44,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   DST 경계 기반 720p/1080p 추정, 화면 밖 전환 frame 내성, 640x480 fallback
 - `olr-package`: stored ZIP 생성/검사/추출, manifest와 semantic object/asset count,
   LR2·asset byte 보존, path traversal 거부 및 CRC 손상 탐지
-- `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제 및 graphic ID 배정
+- `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제, graphic ID 배정과 선택
+  Object SRC에 대한 원자적 Asset 적용/Undo
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
 
 결과는 `.build\test-results\skineditor-self-tests.xml` JUnit 파일로 남는다. 테스트
@@ -145,7 +146,9 @@ $test.ExitCode # 0이면 성공
 
 이 테스트는 시스템 임시 폴더에서 사용/미사용 `$SRC_IMAGE`를 실제 저장하고 다시
 파싱해 중복 제거, nocomment 보존, 논리 gr와 IF Branch 유지, crop 좌표 입력의
-영속성, 수동 Asset 삭제 후 메타데이터 제거를 확인한다. 또한 IF/ELSE 형제 branch의
+영속성, 수동 Asset 삭제 후 메타데이터 제거를 확인한다. 선택 Object의 SRC에 다른
+Asset을 적용할 때 `gr/x/y/w/h`만 바뀌고 NUMBER의 `num/align/keta`가 보존되며,
+History 한 건과 Ctrl+Z 한 번으로 원본 행이 복구되는지도 검사한다. 또한 IF/ELSE 형제 branch의
 최대 graphic slot 뒤에 생성 이미지의 `#IMAGE + $SRC_IMAGE`가 root end marker
 직전에 등록되는지 검사한 뒤 임시 파일을 삭제한다.
 
@@ -378,6 +381,13 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
   바뀌지 않는지
 - 사용 중인 Asset을 우클릭해 `Used by Objects`의 항목을 선택하면 Object Browser와
   Inspector가 열리고 해당 Object로 자동 스크롤되는지
+- Object와 Asset을 선택하고 `Use in selected Object`를 누르면 SRC가 하나인
+  Object는 즉시 `gr/x/y/w/h`가 교체되는지. 같은 명령이 card 우클릭에도 있는지
+- Object에 적용 가능한 SRC가 여러 개면 modal이 뜨고, 선택한 SRC 행만 바뀌는지
+- `Copy animation`을 끄면 기존 `div_x/div_y/cycle/timer`와 NUMBER/SLIDER/BUTTON
+  고유 값이 유지되고, 켜면 animation 네 필드만 Asset 원본 값으로 바뀌는지
+- Asset 적용과 Object Inspector의 Tagged image 변경이 각각 Ctrl+Z 한 번으로
+  SRC 행 전체를 복구하며 Object/Inspector/Preview/Image Manager 선택이 유지되는지
 - Image Manager의 같은 gr texture 후보에 그 논리 gr를 사용하는 고유 Object 수가
   표시되는지
 - `Animate SRC` on/off가 동작하고, `div_x/div_y/cycle`이 있는 SRC 카드가

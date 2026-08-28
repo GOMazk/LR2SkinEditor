@@ -5582,6 +5582,78 @@ void WORKSPACE::ResolveIMGDivision(int imageIndex, int& divX, int& divY,
     timer = source.timer;
 }
 
+void WORKSPACE::CollectImageAssignableSourceRows(int modelIndex,
+    std::vector<int>& rows) const {
+    rows.clear();
+    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+    if (modelIndex < 0 || modelIndex >= (int)objects.size()) return;
+    for (int row : objects[modelIndex].rows) {
+        if (row < 0 || row >= skinfileLines.count) continue;
+        SKINFILELINEREAD& line =
+            ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        const char* command = line.csv.str[0].body
+            ? line.csv.str[0].outstr() : "";
+        int columns[5];
+        if (ResolveImageCropColumns(command, columns)) rows.push_back(row);
+    }
+}
+
+bool WORKSPACE::ApplyImageAssetToObjectSource(int imageIndex, int modelIndex,
+    int sourceRow, bool copyAnimationFields) {
+    if (imageIndex < 0 || imageIndex >= arr_IMG.count ||
+        sourceRow < 0 || sourceRow >= skinfileLines.count) return false;
+    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+    if (modelIndex < 0 || modelIndex >= (int)objects.size()) return false;
+    const SEObjectInstance& object = objects[modelIndex];
+    if (std::find(object.rows.begin(), object.rows.end(), sourceRow) ==
+        object.rows.end()) return false;
+
+    SKINFILELINEREAD& line =
+        ((SKINFILELINEREAD*)skinfileLines.data)[sourceRow];
+    const char* command = line.csv.str[0].body
+        ? line.csv.str[0].outstr() : "";
+    int columns[5];
+    if (!ResolveImageCropColumns(command, columns)) return false;
+
+    IMG& asset = ((IMG*)arr_IMG.data)[imageIndex];
+    CSVbuf editedCsv;
+    SplitCSV(line.line, &editedCsv, ",");
+    const int cropValues[5] = {
+        asset.gr, asset.x, asset.y, asset.w, asset.h
+    };
+    for (int field = 0; field < 5; ++field) {
+        char valueText[32];
+        snprintf(valueText, sizeof(valueText), "%d", cropValues[field]);
+        editedCsv.str[columns[field]].assign(valueText);
+    }
+    if (copyAnimationFields) {
+        int divX = 1;
+        int divY = 1;
+        int cycle = 0;
+        int timer = 0;
+        ResolveIMGDivision(imageIndex, divX, divY, cycle, timer);
+        AssignCommandField(editedCsv, command, "div_x", divX);
+        AssignCommandField(editedCsv, command, "div_y", divY);
+        AssignCommandField(editedCsv, command, "cycle", cycle);
+        AssignCommandField(editedCsv, command, "timer", timer);
+    }
+
+    CSTR editedLine;
+    CsvToCSTR(editedCsv, editedLine);
+    const char* oldText = line.line.body ? line.line.outstr() : "";
+    const char* newText = editedLine.body ? editedLine.outstr() : "";
+    if (strcmp(oldText, newText) != 0) {
+        CSTR oldLine(line.line);
+        if (EditLine(sourceRow, oldLine, editedLine) != 0) return false;
+        ++imageAssetUsageGeneration;
+    }
+
+    SelectIMGAsset(imageIndex, false);
+    assetBrowserFocusRequest = imageIndex;
+    imageManagerFocusRequest = imageIndex;
+    return true;
+}
+
 bool WORKSPACE::InitializeAssetBackedObjectSource(CSVbuf& values,
     const char* command, int imageIndex) {
     if (!IsAssetBackedObjectCommand(command) || imageIndex < 0 ||
@@ -5846,6 +5918,88 @@ int WORKSPACE::drawAssetBrowser() {
         preview_selected_obj_valid = false;
         preview_selected_obj_last_valid = false;
     };
+    const int activeObjectIndex =
+        ResolveObjectSelectionKey(objectSelection.active);
+    std::vector<int> activeSourceRows;
+    CollectImageAssignableSourceRows(activeObjectIndex, activeSourceRows);
+    const bool hasAssignableObject = activeObjectIndex >= 0 &&
+        !activeSourceRows.empty();
+    auto requestAssetApply = [&](int imageIndex) {
+        const int modelIndex = ResolveObjectSelectionKey(objectSelection.active);
+        std::vector<int> sourceRows;
+        CollectImageAssignableSourceRows(modelIndex, sourceRows);
+        if (imageIndex < 0 || imageIndex >= arr_IMG.count ||
+            modelIndex < 0 || sourceRows.empty()) return false;
+        if (sourceRows.size() == 1) {
+            return ApplyImageAssetToObjectSource(imageIndex, modelIndex,
+                sourceRows.front(), assetApplyCopyAnimation);
+        }
+        assetApplyAssetIndex = imageIndex;
+        assetApplyObject = MakeObjectSelectionKey(modelIndex);
+        assetApplyDialogRequested = true;
+        return true;
+    };
+    char applyAssetPopup[96];
+    snprintf(applyAssetPopup, sizeof(applyAssetPopup),
+        "Apply Asset to Object##%d", num);
+    auto drawAssetApplyDialog = [&]() {
+        if (assetApplyDialogRequested) {
+            assetApplyDialogRequested = false;
+            ImGui::OpenPopup(applyAssetPopup);
+        }
+        ImGui::SetNextWindowSize(ImVec2(500.0f, 0.0f), ImGuiCond_Appearing);
+        if (!ImGui::BeginPopupModal(applyAssetPopup, NULL,
+            ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+        const int modelIndex = ResolveObjectSelectionKey(assetApplyObject);
+        std::vector<int> sourceRows;
+        CollectImageAssignableSourceRows(modelIndex, sourceRows);
+        const bool validAsset = assetApplyAssetIndex >= 0 &&
+            assetApplyAssetIndex < arr_IMG.count;
+        const bool validObject = modelIndex >= 0 && !sourceRows.empty();
+        if (!validAsset || !validObject) {
+            ImGui::TextWrapped("The selected Asset or Object is no longer available.");
+            if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        IMG& asset = ((IMG*)arr_IMG.data)[assetApplyAssetIndex];
+        const SEObjectInstance& object = usageObjects[modelIndex];
+        const std::string objectName = Cp932ToUtf8(
+            object.name.empty() ? "(unnamed)" : object.name.c_str());
+        ImGui::Text("Asset %03d  gr %d", assetApplyAssetIndex, asset.gr);
+        ImGui::Text("Object %03d  %s", modelIndex, objectName.c_str());
+        ImGui::Checkbox("Copy SRC animation fields", &assetApplyCopyAnimation);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Also replace div_x, div_y, cycle and timer. Object-specific fields remain unchanged.");
+        ImGui::Separator();
+        ImGui::TextDisabled("Choose the SRC row to replace:");
+        for (int sourceRow : sourceRows) {
+            SKINFILELINEREAD& line =
+                ((SKINFILELINEREAD*)skinfileLines.data)[sourceRow];
+            const char* command = line.csv.str[0].body
+                ? line.csv.str[0].outstr() : "#SRC";
+            int columns[5];
+            if (!ResolveImageCropColumns(command, columns)) continue;
+            char rowLabel[320];
+            snprintf(rowLabel, sizeof(rowLabel),
+                "Line %d  %s   gr %d  (%d, %d, %d, %d)",
+                sourceRow + 1, command, line.csv.val[columns[0]],
+                line.csv.val[columns[1]], line.csv.val[columns[2]],
+                line.csv.val[columns[3]], line.csv.val[columns[4]]);
+            ImGui::PushID(sourceRow);
+            if (ImGui::Selectable(rowLabel)) {
+                ApplyImageAssetToObjectSource(assetApplyAssetIndex,
+                    modelIndex, sourceRow, assetApplyCopyAnimation);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::PopID();
+        }
+        ImGui::Separator();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    };
 
     ImGui::SetNextItemWidth((std::min)(260.0f,
         (std::max)(120.0f, ImGui::GetContentRegionAvail().x * 0.42f)));
@@ -5863,6 +6017,25 @@ int WORKSPACE::drawAssetBrowser() {
     ImGui::Checkbox("Unused only", &assetShowUnusedOnly);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
         ImGui::SetTooltip("Show crops that are not referenced by any Object SRC command.");
+    ImGui::Spacing();
+    ImGui::BeginDisabled(src_selected < 0 || src_selected >= arr_IMG.count ||
+        !hasAssignableObject);
+    if (ImGui::Button("Use in selected Object"))
+        requestAssetApply(src_selected);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled |
+        ImGuiHoveredFlags_DelayNormal)) {
+        if (activeObjectIndex < 0)
+            ImGui::SetTooltip("Select an Object first.");
+        else if (activeSourceRows.empty())
+            ImGui::SetTooltip("The selected Object has no image-backed SRC row.");
+        else
+            ImGui::SetTooltip("Replace the selected Object SRC crop in one undoable edit.");
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("Copy animation", &assetApplyCopyAnimation);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("Also copy div_x, div_y, cycle and timer from the Asset SRC.");
 
     auto lowercase = [](std::string value) {
         std::transform(value.begin(), value.end(), value.begin(),
@@ -5896,6 +6069,7 @@ int WORKSPACE::drawAssetBrowser() {
 
     if (filteredAssets.empty()) {
         SEUI::EmptyState("No matching assets", "Clear the search text to show every crop.");
+        drawAssetApplyDialog();
         ImGui::End();
         return 0;
     }
@@ -6109,6 +6283,10 @@ int WORKSPACE::drawAssetBrowser() {
                             imagePixelPaintLastButton = -1;
                             ImGui::SetWindowFocus(managerTitle);
                         }
+                        if (ImGui::MenuItem("Use in selected Object", NULL,
+                            false, hasAssignableObject)) {
+                            requestAssetApply(imageIndex);
+                        }
                         ImGui::Separator();
                         if (ImGui::MenuItem("Select first using Object", NULL,
                             false, !users.empty())) {
@@ -6201,6 +6379,7 @@ int WORKSPACE::drawAssetBrowser() {
         clipper.End();
     }
     ImGui::EndChild();
+    drawAssetApplyDialog();
     ImGui::End();
     return 0;
 }
@@ -10808,11 +10987,9 @@ int WORKSPACE::drawObjectEditor() {
                             snprintf(tagLabel, sizeof(tagLabel), "%03d  G%02d  %s", tagIndex, tag.gr,
                                 tagNameUtf8.c_str());
                             if (ImGui::Selectable(tagLabel, tagIndex == currentTag)) {
-                                for (int field = 0; field < 5; ++field) {
-                                    const int values[5] = { tag.gr, tag.x, tag.y, tag.w, tag.h };
-                                    EditValue(row, columns[field], values[field]);
-                                }
-                                SelectIMGAsset(tagIndex, false);
+                                ApplyImageAssetToObjectSource(tagIndex,
+                                    groupObjects[selected_object_editor], row,
+                                    false);
                             }
                             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone) &&
                                 tag.gr >= 0) {

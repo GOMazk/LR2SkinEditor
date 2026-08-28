@@ -284,6 +284,10 @@ typedef struct WORKSPACE {
         bool requestBrowserFocus = false);
     void RestoreObjectSelection();
     bool ResolveImageCropColumns(const char* command, int columns[5]) const;
+    void CollectImageAssignableSourceRows(int modelIndex,
+        std::vector<int>& rows) const;
+    bool ApplyImageAssetToObjectSource(int imageIndex, int modelIndex,
+        int sourceRow, bool copyAnimationFields);
     int FindImageAssetForRow(int row);
     int FindImageAssetForObject(int modelIndex);
     void BuildImageAssetUsage(std::vector<std::vector<int>>& usage);
@@ -429,6 +433,10 @@ typedef struct WORKSPACE {
     float assetThumbnailSize = 96.0f;
     bool assetAnimateSrc = true;
     bool assetShowUnusedOnly = false;
+    bool assetApplyCopyAnimation = false;
+    bool assetApplyDialogRequested = false;
+    int assetApplyAssetIndex = -1;
+    SEObjectSelectionKey assetApplyObject;
     char assetSearch[128] = {};
     int assetBrowserFocusRequest = -1;
     unsigned long long imageAssetUsageGeneration = 0;

@@ -189,15 +189,22 @@ Asset Browser card
   -> shared IMG index (`src_selected`)
   -> `ResolveIMGTextureIndex` resolves logical gr + IF/custom-file texture
   -> Image Manager receives a one-shot scroll request
+
+Asset Browser `Use in selected Object`
+  -> resolve active Object through `SEObjectSelectionKey`
+  -> collect schema-compatible SRC rows (`gr/x/y/w/h`)
+  -> one row: apply directly / multiple rows: choose in modal
+  -> one full-row `EditLine()` History entry
+  -> derived model, Preview and shared image selection rebuild
 ```
 
 Asset Browser is a thumbnail view over the existing `arr_IMG` crop model; it
 does not own copied crop records or a second selection. A single click updates
 the shared Image Manager selection, and a double click activates Image Manager
 at the corresponding atlas position. Cards expose the stable
-`SKINEDITOR_IMG_ASSET` drag/drop payload containing one `int` IMG index so a
-future inspector or canvas drop target can consume assets without depending on
-Asset Browser rendering code.
+`SKINEDITOR_IMG_ASSET` drag/drop payload containing one `int` IMG index so the
+Preview drop target can consume assets without depending on Asset Browser
+rendering code.
 
 `BuildImageAssetUsage()` derives reverse usage from `IMG::sourceDeclare` or
 `editorDeclare` to the rows held by each `SEObjectInstance`; legacy rows use the
@@ -210,6 +217,16 @@ Asset context menu lists up to 32 users and routes a chosen model index through
 `SetObjectSelection()`, so Browser focus, Inspector, Preview and Image Manager
 remain synchronized. Texture candidate labels aggregate distinct Object users
 by logical gr rather than claiming ownership of a branch-dependent file.
+
+`ApplyImageAssetToObjectSource()` is the only path that replaces an existing
+Object SRC from an Asset. It validates that the target row still belongs to the
+resolved Object, writes `gr/x/y/w/h`, optionally writes
+`div_x/div_y/cycle/timer`, then submits the complete CSV row through
+`EditLine()`. Command-specific fields are never reinitialized. The Asset Browser
+button/context menu and Object Inspector Tagged image ComboBox both call this
+method, preventing five separate History entries for one crop change. A modal
+keeps only `SEObjectSelectionKey` while open and resolves the current model
+index again every frame; it does not retain an Object vector index as identity.
 
 Each `IMG` records the declaring SRC row in `sourceDeclare`. `Animate SRC`
 resolves that row back to `arr_SRC` and previews its `div_x`, `div_y` and

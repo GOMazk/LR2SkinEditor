@@ -403,6 +403,15 @@ Image Manager에 one-shot scroll request를 보내고, 더블클릭은 Image Man
 Object Browser/Inspector를 열어 해당 Object에 이동한다. Image Manager의 texture
 후보에는 같은 논리 gr를 사용하는 고유 Object 수를 표시한다.
 
+`Use in selected Object`와 Asset 우클릭의 같은 명령은 선택 Asset을 현재 Object의
+이미지 기반 SRC에 적용한다. 적용 가능한 SRC가 하나면 즉시 바꾸고, 여러 개면
+Object의 어느 SRC를 교체할지 modal에서 원본 행과 현재 crop을 보고 선택한다. 기본은
+`gr/x/y/w/h`만 교체해 NUMBER/SLIDER/BUTTON의 command-specific 값과 기존
+`div_x/div_y/cycle/timer`를 보존한다. `Copy animation`을 켠 경우에만 네 animation
+필드도 Asset 원본 SRC에서 복사한다. 전체 SRC 행을 `EditLine()` 한 번으로 바꾸므로
+Ctrl+Z 한 번에 전부 복구된다. Object Inspector의 Tagged image ComboBox도 이 공통
+경로를 사용한다.
+
 ImageManager의 `New`로 만든 crop도 같은 `arr_IMG`에 추가되어 Asset Browser에
 즉시 나타난다. 생성 시 선택된 `SRCGR` 배열 위치가 아니라 그 선언의 논리 `grID`와
 IF Branch를 저장하고, 검색을 해제한 뒤 새 card를 선택·스크롤한다. 수동 crop에는

@@ -48,6 +48,7 @@ int RunAssetMetadataSelfTest() {
     workspace.arr_SRC.Alloc(sizeof(SRC), 4);
     workspace.arr_seobj.Alloc(sizeof(SEOBJ), 8);
     workspace.arr_ifunit.Alloc(sizeof(IFUNIT), 4);
+    workspace.arr_history.Alloc(sizeof(HISTORY), 8);
     strncpy(workspace.mainpath, outputPath, MAX_PATH - 1);
 
     auto appendLine = [&](const char* text, int ifgroup) {
@@ -248,6 +249,31 @@ int RunAssetMetadataSelfTest() {
         workspace.ImageAssetUsage();
     if (cachedUsage.size() != 2 || cachedUsage[0].size() != 1 ||
         !cachedUsage[1].empty()) return 60;
+
+    std::vector<int> assignableRows;
+    workspace.CollectImageAssignableSourceRows(sourceObject, assignableRows);
+    if (assignableRows.size() != 1 || assignableRows.front() != 2) return 62;
+    SKINFILELINEREAD& editableSource =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[2];
+    const std::string originalSourceLine = editableSource.line.outstr();
+    const int historyBeforeApply = workspace.arr_history.count;
+    if (!workspace.ApplyImageAssetToObjectSource(1, sourceObject, 2, false))
+        return 63;
+    int appliedColumns[5];
+    if (!workspace.ResolveImageCropColumns("#SRC_NUMBER", appliedColumns) ||
+        editableSource.csv.val[appliedColumns[0]] != unused.gr ||
+        editableSource.csv.val[appliedColumns[1]] != unused.x ||
+        editableSource.csv.val[appliedColumns[2]] != unused.y ||
+        editableSource.csv.val[appliedColumns[3]] != unused.w ||
+        editableSource.csv.val[appliedColumns[4]] != unused.h ||
+        editableSource.csv.val[11] != 212 ||
+        editableSource.csv.val[12] != 2 ||
+        editableSource.csv.val[13] != 4) return 64;
+    if (workspace.arr_history.count != historyBeforeApply + 1) return 65;
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.arr_history.count != historyBeforeApply ||
+        !editableSource.line.body ||
+        originalSourceLine != editableSource.line.outstr()) return 66;
 
     const int manualIndex = workspace.NewIMG(17, 1, 2, 3, 4, 23);
     if (manualIndex != 2) return 14;

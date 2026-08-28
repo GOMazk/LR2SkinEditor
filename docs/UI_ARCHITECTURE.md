@@ -132,6 +132,7 @@ Preview / right-click / DST View / Text Editor Object row
   -> current model index와 selection request를 계산
   -> Object Browser submits and scrolls to the target row
   -> Object Inspector reads the same selected model index
+  -> active Object의 SRC crop이 shared Image Manager selection으로 동기화
   -> scroll request is consumed
   -> Preview highlight reads the same selected object
 ```
@@ -154,6 +155,25 @@ global Object model or function-local `static` state for a per-workspace pane.
 Model indices may change after any CSV rebuild; store `$SE_OBJECT_ID` plus the
 legacy group/anchor-row fallback in `SEObjectSelectionState`, then resolve the
 current indices through `RestoreObjectSelection()`.
+
+`SetObjectSelection()`과 `RestoreObjectSelection()`은 active Object의 첫 SRC
+command를 `GetCommandHelp()` schema로 해석해 동일 `arr_IMG` crop을 선택한다.
+Image Manager를 강제로 열지는 않지만, 이미 열려 있거나 나중에 열면 해당 crop으로
+스크롤하고 atlas 위의 주황색 점멸 사각형을 표시한다. 같은 좌표가 여러 Branch에
+있으면 Object의 `ifgroup`과 일치하는 crop을 우선한다. 점멸 주기는 LR2 scene
+timer가 아니라 ImGui UI clock을 사용하므로 Preview timer가 정지해도 표시된다.
+Atlas hover도 마지막 ImGui item 상태를 재사용하지 않는다. Canvas screen 좌표와
+mouse 좌표를 직접 비교하고, `w/h == -1` crop은 texture 끝까지의 실제 크기로
+해석해 가장 작은 겹침 crop에 파란 점멸 사각형과 tooltip을 표시한다. Crop의
+`ifgroup` 숫자만 비교하지 않고 `ResolveIMGTextureIndex()`가 현재 canvas texture를
+가리키는지 확인하므로, 다른 Branch에 속해도 실제 같은 texture를 쓰는 crop은
+hover할 수 있다. Image Manager 왼쪽 목록의 미선택 crop row hover도 같은 임시
+파란 표시를 사용한다.
+Object Browser에서 선택되지 않은 Object row에 mouse를 올리면 selection을
+바꾸지 않고 `imageManagerHoveredAssetIndex/frame` presentation state만 갱신한다.
+Image Manager가 Object Browser보다 먼저 그려지는 현재 dock 순서에서는 직전
+frame의 hover까지 허용하며, 같은 texture의 SRC crop을 파란 점멸 사각형으로
+표시한다.
 
 The Object Browser `Active objects only` filter uses the same predicate as its
 green active rows: the object has at least one DST command, all documented DST
@@ -179,6 +199,18 @@ at the corresponding atlas position. Cards expose the stable
 future inspector or canvas drop target can consume assets without depending on
 Asset Browser rendering code.
 
+`BuildImageAssetUsage()` derives reverse usage from `IMG::sourceDeclare` or
+`editorDeclare` to the rows held by each `SEObjectInstance`; legacy rows use the
+shared schema/crop resolver only as a fallback. Asset Browser cards and Image
+Manager crop rows display the number of distinct Objects using each crop.
+The result is cached until Object Model generation or `arr_IMG.count` changes,
+so large skins do not rescan every Object separately in both windows each frame.
+`Unused only` filters this derived view without changing CSV/model state. The
+Asset context menu lists up to 32 users and routes a chosen model index through
+`SetObjectSelection()`, so Browser focus, Inspector, Preview and Image Manager
+remain synchronized. Texture candidate labels aggregate distinct Object users
+by logical gr rather than claiming ownership of a branch-dependent file.
+
 Each `IMG` records the declaring SRC row in `sourceDeclare`. `Animate SRC`
 resolves that row back to `arr_SRC` and previews its `div_x`, `div_y` and
 `cycle`; coordinate-only matching is only a compatibility fallback. This is
@@ -199,6 +231,11 @@ converted through `ImageManagerZoom` to one source-texture pixel. Left drag
 paints the selected RGBA color, right drag writes transparent pixels, and middle
 click samples a color. A Bresenham segment fills gaps between mouse frames while
 the brush remains exactly one pixel wide.
+
+The `Folder` action beside `grReload` opens the current resolved `SRCGR::path`
+in Windows Explorer. Existing files are opened with `/select`; an unavailable
+wildcard candidate falls back to its nearest existing parent directory. The
+CP932 path is converted to UTF-16 before calling the Windows shell.
 
 Painting first updates every loaded `SRCGR` texture that shares the same source
 path. `SaveTextureToImageFileAtomic()` encodes the original file type to a

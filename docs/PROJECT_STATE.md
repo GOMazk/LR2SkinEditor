@@ -396,6 +396,13 @@ Image Manager에 one-shot scroll request를 보내고, 더블클릭은 Image Man
 활성화한다. 별도 asset 복사본을 만들지 않으므로 ImageManager의 crop 추가/삭제와
 재파싱 결과가 다음 frame에 그대로 반영된다.
 
+각 Asset card와 Image Manager crop 목록은 Object Model의 SRC 선언 행을 역참조해
+해당 crop을 사용하는 고유 Object 수 또는 `Unused`를 표시한다. `Unused only`는
+어떤 Object SRC에서도 참조하지 않는 crop만 남긴다. Asset 우클릭의 사용처 메뉴는
+최대 32개 Object를 이름과 함께 보여주고, 선택하면 기존 shared selection 경로로
+Object Browser/Inspector를 열어 해당 Object에 이동한다. Image Manager의 texture
+후보에는 같은 논리 gr를 사용하는 고유 Object 수를 표시한다.
+
 ImageManager의 `New`로 만든 crop도 같은 `arr_IMG`에 추가되어 Asset Browser에
 즉시 나타난다. 생성 시 선택된 `SRCGR` 배열 위치가 아니라 그 선언의 논리 `grID`와
 IF Branch를 저장하고, 검색을 해제한 뒤 새 card를 선택·스크롤한다. 수동 crop에는

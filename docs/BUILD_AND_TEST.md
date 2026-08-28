@@ -333,6 +333,21 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 ### E. 선택 동기화
 
 - Object Browser 선택이 Inspector, DST View, Preview에 반영되는지
+- Object Browser, Preview, DST View 또는 Text Editor에서 Object를 선택하면
+  Image Manager가 그 Object의 SRC crop으로 이동하고 atlas 위에 주황색 점멸
+  사각형을 표시하는지
+- Preview scene timer를 멈추거나 skin을 막 연 상태에서도 Image Manager의
+  주황색 사각형이 투명하게 고정되지 않고 계속 점멸하는지
+- Image Manager atlas의 crop 위에 mouse를 올리면 파란 점멸 사각형과 좌표
+  tooltip이 표시되는지. `w/h == -1`인 crop도 texture 끝까지 올바르게 잡히는지
+- Image Manager 왼쪽 목록에서 현재 선택되지 않은 crop에 mouse를 올려도, 실제
+  같은 texture를 쓰는 crop이라면 atlas에 파란 점멸 사각형이 표시되는지. 다른
+  IF Branch 소속이라는 이유만으로 제외되지 않는지
+- Object Browser에서 선택되지 않은 Object row에 mouse를 올리면 현재 Object와
+  Inspector 선택은 유지되고, 같은 texture를 사용하는 hover Object의 SRC crop이
+  Image Manager atlas에 파란 점멸 사각형으로 표시되는지
+- Undo 또는 Object 모델 재구성 뒤에도 복원된 Object와 Image Manager crop이
+  일치하는지
 - Object 선택 후 Delete를 누르면 확인 modal이 뜨고 Cancel은 문서를 바꾸지 않는지
 - 확인 modal의 Delete를 누르면 해당 Object의 SRC/DST와 `$SE_OBJECT_ID`,
   `$SE_OBJECT_NAME`, `$SE_GROUP_MEMBER` 참조가 함께 삭제되는지
@@ -353,7 +368,18 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
   전환할 수 있는지
 - Image Manager의 동일 gr 파일 콤보와 선택 경로에서 CP932 한글·일본어 파일명이
   UTF-8 replacement 문자 없이 표시되는지
+- Image Manager의 `grReload` 옆 `Folder`를 누르면 현재 이미지 파일이 선택된
+  Windows Explorer가 열리는지. 후보 파일이 없으면 가장 가까운 기존 폴더가
+  열리는지
 - Asset Browser가 `#SRC` crop을 썸네일 카드로 표시하고 검색/크기 조절이 되는지
+- Asset Browser card와 Image Manager crop 목록에 실제 사용 중인 고유 Object 수
+  또는 `Unused`가 표시되는지. 한 Object의 중복 SRC를 두 번 세지 않는지
+- `Unused only`를 켜면 Object SRC에서 참조하지 않는 Asset만 남고 CSV/선택 상태는
+  바뀌지 않는지
+- 사용 중인 Asset을 우클릭해 `Used by Objects`의 항목을 선택하면 Object Browser와
+  Inspector가 열리고 해당 Object로 자동 스크롤되는지
+- Image Manager의 같은 gr texture 후보에 그 논리 gr를 사용하는 고유 Object 수가
+  표시되는지
 - `Animate SRC` on/off가 동작하고, `div_x/div_y/cycle`이 있는 SRC 카드가
   cycle 시간 동안 모든 frame을 올바른 행/열 순서로 재생하는지
 - 같은 좌표의 SRC 선언이 여러 개여도 원본 선언 행의 animation grid를 사용하고

@@ -283,6 +283,13 @@ typedef struct WORKSPACE {
         int activeModelIndex = -1, int anchorModelIndex = -1,
         bool requestBrowserFocus = false);
     void RestoreObjectSelection();
+    bool ResolveImageCropColumns(const char* command, int columns[5]) const;
+    int FindImageAssetForRow(int row);
+    int FindImageAssetForObject(int modelIndex);
+    void BuildImageAssetUsage(std::vector<std::vector<int>>& usage);
+    const std::vector<std::vector<int>>& ImageAssetUsage();
+    bool SynchronizeImageManagerToObject(int modelIndex);
+    bool SetImageManagerHoveredObject(int modelIndex, int frameCount);
     void RebuildObjectModel();
     int SetObjectName(int modelIndex, const char* name);
     int DeleteObject(int modelIndex);
@@ -408,6 +415,8 @@ typedef struct WORKSPACE {
     int gr_selected = 0;
     int src_selected = 0;
     int imageManagerFocusRequest = -1;
+    int imageManagerHoveredAssetIndex = -1;
+    int imageManagerHoveredAssetFrame = -1;
     int loadSRC();
     ImVec4 bgColor;
     int oldIf = -1;
@@ -419,8 +428,13 @@ typedef struct WORKSPACE {
     int drawAssetBrowser();
     float assetThumbnailSize = 96.0f;
     bool assetAnimateSrc = true;
+    bool assetShowUnusedOnly = false;
     char assetSearch[128] = {};
     int assetBrowserFocusRequest = -1;
+    unsigned long long imageAssetUsageGeneration = 0;
+    unsigned long long imageAssetUsageCacheGeneration = ~0ULL;
+    int imageAssetUsageCacheAssetCount = -1;
+    std::vector<std::vector<int>> imageAssetUsageCache;
     int ResolveIMGTextureIndex(int imageIndex);
     int ResolveIMGSourceIndex(int imageIndex) const;
     void ResolveIMGDivision(int imageIndex, int& divX, int& divY,

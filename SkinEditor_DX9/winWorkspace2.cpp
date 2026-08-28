@@ -218,8 +218,42 @@ int RunAssetMetadataSelfTest() {
     workspace.SynchronizeNewObjectAutoName("#SRC_NUMBER", false);
     if (!workspace.newObjectName.isSame("My counter")) return 42;
 
+    if (!workspace.objectEditorModel.LoadGroups(nullptr)) return 52;
+    workspace.RebuildObjectModel();
+    const int sourceObject = SEFindObjectForRow(
+        workspace.objectEditorModel.Objects(), 2);
+    if (sourceObject < 0) return 53;
+    workspace.src_selected = 1;
+    workspace.imageManagerFocusRequest = -1;
+    workspace.SetObjectSelection(std::vector<int>(1, sourceObject),
+        sourceObject, sourceObject, false);
+    if (workspace.src_selected != 0 || workspace.grID_selected != used.gr ||
+        workspace.imageManagerFocusRequest != 0) return 54;
+    workspace.src_selected = 1;
+    workspace.RestoreObjectSelection();
+    if (workspace.src_selected != 0 || workspace.imageManagerFocusRequest != 0)
+        return 55;
+    if (!workspace.SetImageManagerHoveredObject(sourceObject, 123) ||
+        workspace.imageManagerHoveredAssetIndex != 0 ||
+        workspace.imageManagerHoveredAssetFrame != 123) return 56;
+    if (workspace.SetImageManagerHoveredObject(-1, 124) ||
+        workspace.imageManagerHoveredAssetIndex != -1 ||
+        workspace.imageManagerHoveredAssetFrame != 124) return 57;
+    std::vector<std::vector<int>> assetUsage;
+    workspace.BuildImageAssetUsage(assetUsage);
+    if (assetUsage.size() != 2 || assetUsage[0].size() != 1 ||
+        assetUsage[0][0] != sourceObject) return 58;
+    if (!assetUsage[1].empty()) return 59;
+    const std::vector<std::vector<int>>& cachedUsage =
+        workspace.ImageAssetUsage();
+    if (cachedUsage.size() != 2 || cachedUsage[0].size() != 1 ||
+        !cachedUsage[1].empty()) return 60;
+
     const int manualIndex = workspace.NewIMG(17, 1, 2, 3, 4, 23);
     if (manualIndex != 2) return 14;
+    const std::vector<std::vector<int>>& expandedUsage =
+        workspace.ImageAssetUsage();
+    if (expandedUsage.size() != 3 || !expandedUsage[2].empty()) return 61;
     IMG& manual = ((IMG*)workspace.arr_IMG.data)[manualIndex];
     if (manual.gr != 17 || manual.ifGroup != 23 ||
         manual.sourceDeclare != -2) return 15;
@@ -375,6 +409,7 @@ int WORKSPACE::NewIMG(int gr, int x, int y, int w, int h, int ifGroup) {
 
     //TODO:history here
 
+    ++imageAssetUsageGeneration;
     return imageIndex;
 }
 
@@ -397,6 +432,7 @@ int WORKSPACE::DeleteIMG(int pos) {
 
     //TODO:history here
 
+    ++imageAssetUsageGeneration;
     return 0;
 }
 
@@ -469,6 +505,7 @@ int WORKSPACE::ModifyIMG(int pos, int gr, int x, int y, int w, int h) {
     img.w = w;
     img.h = h;
 
+    ++imageAssetUsageGeneration;
     return 0;
 }
 
@@ -486,6 +523,134 @@ int WORKSPACE::FindIMG(int gr, int x, int y, int w, int h, int ifGroup) {
             break;
     }
     return j;
+}
+
+bool WORKSPACE::ResolveImageCropColumns(const char* command,
+    int columns[5]) const {
+    if (!columns) return false;
+    for (int field = 0; field < 5; ++field) columns[field] = -1;
+    if (!command || strncmp(command, "#SRC", 4) != 0) return false;
+
+    const char* fieldNames[5] = { "gr", "x", "y", "w", "h" };
+    for (int column = 1; column < 30; ++column) {
+        CSTR help = GetCommandHelp(command, column);
+        help.trimWhiteSpace();
+        const char* label = help.body ? help.outstr() : "";
+        if (*label == '$') ++label;
+        for (int field = 0; field < 5; ++field) {
+            if (_stricmp(label, fieldNames[field]) == 0)
+                columns[field] = column;
+        }
+    }
+    for (int field = 0; field < 5; ++field)
+        if (columns[field] < 0) return false;
+    return true;
+}
+
+int WORKSPACE::FindImageAssetForRow(int row) {
+    if (row < 0 || row >= skinfileLines.count || arr_IMG.count <= 0)
+        return -1;
+    SKINFILELINEREAD& line =
+        ((SKINFILELINEREAD*)skinfileLines.data)[row];
+    const char* command = line.csv.str[0].body
+        ? line.csv.str[0].outstr() : "";
+    int columns[5];
+    if (!ResolveImageCropColumns(command, columns)) return -1;
+
+    const int values[5] = {
+        line.csv.val[columns[0]], line.csv.val[columns[1]],
+        line.csv.val[columns[2]], line.csv.val[columns[3]],
+        line.csv.val[columns[4]]
+    };
+    int imageIndex = FindIMG(values[0], values[1], values[2], values[3],
+        values[4], line.ifgroup);
+    // Editor-only presets created before branch metadata existed can still be
+    // shared by coordinates. Prefer the Object branch, then use that legacy
+    // compatibility path.
+    if (imageIndex >= arr_IMG.count)
+        imageIndex = FindIMG(values[0], values[1], values[2], values[3],
+            values[4]);
+    return imageIndex >= 0 && imageIndex < arr_IMG.count ? imageIndex : -1;
+}
+
+int WORKSPACE::FindImageAssetForObject(int modelIndex) {
+    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+    if (modelIndex < 0 || modelIndex >= (int)objects.size()) return -1;
+    for (int row : objects[modelIndex].rows) {
+        const int imageIndex = FindImageAssetForRow(row);
+        if (imageIndex >= 0) return imageIndex;
+    }
+    return -1;
+}
+
+void WORKSPACE::BuildImageAssetUsage(
+    std::vector<std::vector<int>>& usage) {
+    usage.clear();
+    usage.resize((std::max)(0, arr_IMG.count));
+    if (arr_IMG.count <= 0) return;
+
+    // The declaring row is the stable and cheapest link between an IMG crop
+    // and an Object SRC command. Keep the schema-based fallback for legacy
+    // crops that predate sourceDeclare/editorDeclare metadata.
+    std::map<int, int> assetByRow;
+    for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
+        IMG& asset = ((IMG*)arr_IMG.data)[imageIndex];
+        if (asset.sourceDeclare >= 0 &&
+            assetByRow.find(asset.sourceDeclare) == assetByRow.end())
+            assetByRow[asset.sourceDeclare] = imageIndex;
+        if (asset.editorDeclare >= 0 &&
+            assetByRow.find(asset.editorDeclare) == assetByRow.end())
+            assetByRow[asset.editorDeclare] = imageIndex;
+    }
+
+    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+    for (int modelIndex = 0; modelIndex < (int)objects.size(); ++modelIndex) {
+        std::vector<int> objectAssets;
+        for (int row : objects[modelIndex].rows) {
+            int imageIndex = -1;
+            const std::map<int, int>::const_iterator direct = assetByRow.find(row);
+            if (direct != assetByRow.end()) {
+                imageIndex = direct->second;
+            } else if (row >= 0 && row < skinfileLines.count) {
+                SKINFILELINEREAD& line =
+                    ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                const char* command = line.csv.str[0].body
+                    ? line.csv.str[0].outstr() : "";
+                if (!strncmp(command, "#SRC", 4))
+                    imageIndex = FindImageAssetForRow(row);
+            }
+            if (imageIndex < 0 || imageIndex >= arr_IMG.count ||
+                std::find(objectAssets.begin(), objectAssets.end(), imageIndex) !=
+                    objectAssets.end()) continue;
+            objectAssets.push_back(imageIndex);
+            usage[imageIndex].push_back(modelIndex);
+        }
+    }
+}
+
+const std::vector<std::vector<int>>& WORKSPACE::ImageAssetUsage() {
+    if (imageAssetUsageCacheGeneration != imageAssetUsageGeneration ||
+        imageAssetUsageCacheAssetCount != arr_IMG.count) {
+        BuildImageAssetUsage(imageAssetUsageCache);
+        imageAssetUsageCacheGeneration = imageAssetUsageGeneration;
+        imageAssetUsageCacheAssetCount = arr_IMG.count;
+    }
+    return imageAssetUsageCache;
+}
+
+bool WORKSPACE::SynchronizeImageManagerToObject(int modelIndex) {
+    const int imageIndex = FindImageAssetForObject(modelIndex);
+    if (imageIndex < 0 || !SelectIMGAsset(imageIndex, false)) return false;
+    // Do not force the Image Manager window open. If it is already available,
+    // this one-shot request scrolls the selected crop into view when drawn.
+    imageManagerFocusRequest = imageIndex;
+    return true;
+}
+
+bool WORKSPACE::SetImageManagerHoveredObject(int modelIndex, int frameCount) {
+    imageManagerHoveredAssetIndex = FindImageAssetForObject(modelIndex);
+    imageManagerHoveredAssetFrame = frameCount;
+    return imageManagerHoveredAssetIndex >= 0;
 }
 
 
@@ -589,6 +754,8 @@ void WORKSPACE::SetObjectSelection(const std::vector<int>& modelIndices,
     preview_selection_anchor_model_index = ResolveObjectSelectionKey(objectSelection.anchor);
     if (requestBrowserFocus && preview_selected_object_model_index >= 0)
         object_editor_select_request = preview_selected_object_model_index;
+    if (preview_selected_object_model_index >= 0)
+        SynchronizeImageManagerToObject(preview_selected_object_model_index);
 }
 
 void WORKSPACE::RestoreObjectSelection() {
@@ -623,7 +790,7 @@ void WORKSPACE::RestoreObjectSelection() {
     if (preview_selected_object_model_index < 0) {
         preview_selected_obj_valid = false;
         preview_selected_obj_last_valid = false;
-    }
+    } else SynchronizeImageManagerToObject(preview_selected_object_model_index);
 }
 
 void WORKSPACE::RebuildObjectModel() {
@@ -641,6 +808,7 @@ void WORKSPACE::RebuildObjectModel() {
         objectSelection.anchor = MakeObjectSelectionKey(preview_selection_anchor_model_index);
     }
     objectEditorModel.Rebuild(*this);
+    ++imageAssetUsageGeneration;
     objectEditorLastLineCount = skinfileLines.count;
     objectModelRebuildPending = false;
     RestoreObjectSelection();

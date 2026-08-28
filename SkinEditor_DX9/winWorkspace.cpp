@@ -60,6 +60,49 @@ static bool SkinPathExists(const char* path) {
     return true;
 }
 
+static bool OpenCp932PathInExplorer(const char* path) {
+    if (!path || !*path) return false;
+
+    const int wideLength = MultiByteToWideChar(932, 0, path, -1, NULL, 0);
+    if (wideLength <= 0) return false;
+    std::vector<wchar_t> widePath((size_t)wideLength);
+    if (!MultiByteToWideChar(932, 0, path, -1, widePath.data(), wideLength))
+        return false;
+
+    std::vector<wchar_t> fullPath(32768, L'\0');
+    const DWORD fullLength = GetFullPathNameW(widePath.data(),
+        (DWORD)fullPath.size(), fullPath.data(), NULL);
+    if (fullLength == 0 || fullLength >= fullPath.size()) return false;
+
+    std::filesystem::path target(fullPath.data());
+    DWORD attributes = GetFileAttributesW(target.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES &&
+        !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        std::wstring arguments = L"/select,\"";
+        arguments += target.native();
+        arguments += L"\"";
+        return (INT_PTR)ShellExecuteW(NULL, L"open", L"explorer.exe",
+            arguments.c_str(), NULL, SW_SHOWNORMAL) > 32;
+    }
+
+    // Wildcard candidates and files removed outside the editor may not exist.
+    // In that case, still open the nearest existing containing directory.
+    std::filesystem::path folder = attributes != INVALID_FILE_ATTRIBUTES &&
+        (attributes & FILE_ATTRIBUTE_DIRECTORY) ? target : target.parent_path();
+    while (!folder.empty()) {
+        attributes = GetFileAttributesW(folder.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES &&
+            (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            return (INT_PTR)ShellExecuteW(NULL, L"open", folder.c_str(),
+                NULL, NULL, SW_SHOWNORMAL) > 32;
+        }
+        const std::filesystem::path parent = folder.parent_path();
+        if (parent == folder) break;
+        folder = parent;
+    }
+    return false;
+}
+
 // Some distributed skins were renamed after authoring (for example
 // LITONE5_PLAYAC -> LITONE5) while their internal paths kept the old theme
 // folder. Resolve the same Play-relative asset inside the folder containing
@@ -679,6 +722,7 @@ int WORKSPACE::init() {
     DstViewZoom = 0.0f;
     assetThumbnailSize = 96.0f;
     assetAnimateSrc = true;
+    assetShowUnusedOnly = false;
     assetSearch[0] = '\0';
     assetBrowserFocusRequest = -1;
     imageManagerFocusRequest = -1;
@@ -2733,6 +2777,7 @@ int WORKSPACE::LoadSkin(char* path) {
     imageToolStatus.clear();
     imageManagerGeneratedGrFocusRequest = -1;
     assetThumbnailSize = 96.0f;
+    assetShowUnusedOnly = false;
     assetSearch[0] = '\0';
     imageManagerFocusRequest = -1;
     newObjectCsvInitialized = false;
@@ -5788,6 +5833,20 @@ int WORKSPACE::drawAssetBrowser() {
         return 0;
     }
 
+    const std::vector<std::vector<int>>& assetUsage = ImageAssetUsage();
+    const std::vector<SEObjectInstance>& usageObjects =
+        objectEditorModel.Objects();
+    auto selectUsageObject = [&](int modelIndex) {
+        if (modelIndex < 0 || modelIndex >= (int)usageObjects.size()) return;
+        wObjectBrowser = true;
+        wObjectInspector = true;
+        SetObjectSelection(std::vector<int>(1, modelIndex), modelIndex,
+            modelIndex, true);
+        preview_object_dragging = false;
+        preview_selected_obj_valid = false;
+        preview_selected_obj_last_valid = false;
+    };
+
     ImGui::SetNextItemWidth((std::min)(260.0f,
         (std::max)(120.0f, ImGui::GetContentRegionAvail().x * 0.42f)));
     ImGui::InputTextWithHint("##AssetSearch", "Search asset, gr or command...",
@@ -5800,6 +5859,10 @@ int WORKSPACE::drawAssetBrowser() {
     ImGui::Checkbox("Animate SRC", &assetAnimateSrc);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
         ImGui::SetTooltip("Preview div_x/div_y frames using the SRC cycle value.");
+    ImGui::SameLine();
+    ImGui::Checkbox("Unused only", &assetShowUnusedOnly);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("Show crops that are not referenced by any Object SRC command.");
 
     auto lowercase = [](std::string value) {
         std::transform(value.begin(), value.end(), value.begin(),
@@ -5811,14 +5874,18 @@ int WORKSPACE::drawAssetBrowser() {
     filteredAssets.reserve(arr_IMG.count);
     for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
         IMG& tag = ((IMG*)arr_IMG.data)[imageIndex];
+        const std::vector<int>& users = assetUsage[imageIndex];
+        if (assetShowUnusedOnly && !users.empty()) continue;
         if (query.empty()) {
             filteredAssets.push_back(imageIndex);
             continue;
         }
         const std::string tagName = Cp932ToUtf8(tag.name.body ? tag.name.outstr() : "");
         char metadata[256];
-        snprintf(metadata, sizeof(metadata), "%03d asset %d gr %d g%02d if %d %s",
-            imageIndex, imageIndex, tag.gr, tag.gr, tag.ifGroup, tagName.c_str());
+        snprintf(metadata, sizeof(metadata),
+            "%03d asset %d gr %d g%02d if %d %s %s",
+            imageIndex, imageIndex, tag.gr, tag.gr, tag.ifGroup,
+            tagName.c_str(), users.empty() ? "unused" : "used");
         if (query.empty() || lowercase(metadata).find(query) != std::string::npos)
             filteredAssets.push_back(imageIndex);
     }
@@ -5840,7 +5907,7 @@ int WORKSPACE::drawAssetBrowser() {
         const float spacing = (std::max)(6.0f, style.ItemSpacing.x);
         const float cardWidth = assetThumbnailSize + padding * 2.0f;
         const float cardHeight = assetThumbnailSize + padding * 2.0f +
-            ImGui::GetTextLineHeight() * 2.0f + 5.0f;
+            ImGui::GetTextLineHeight() * 3.0f + 5.0f;
         const float itemStepX = cardWidth + spacing;
         const float itemStepY = cardHeight + spacing;
         const float availableWidth = ImGui::GetContentRegionAvail().x;
@@ -5878,6 +5945,7 @@ int WORKSPACE::drawAssetBrowser() {
                     const int column = filteredIndex - rowStart;
                     const int imageIndex = filteredAssets[filteredIndex];
                     IMG& tag = ((IMG*)arr_IMG.data)[imageIndex];
+                    const std::vector<int>& users = assetUsage[imageIndex];
                     const ImVec2 cardPos(gridStart.x + column * itemStepX,
                         gridStart.y + row * itemStepY);
 
@@ -6011,6 +6079,18 @@ int WORKSPACE::drawAssetBrowser() {
                     drawList->AddText(ImVec2(cardMin.x + padding,
                         thumbMax.y + 4.0f + ImGui::GetTextLineHeight()),
                         ImGui::GetColorU32(ImGuiCol_TextDisabled), tagName.c_str());
+                    char usageLabel[64];
+                    if (users.empty()) {
+                        snprintf(usageLabel, sizeof(usageLabel), "Unused");
+                    } else {
+                        snprintf(usageLabel, sizeof(usageLabel), "%d Object%s",
+                            (int)users.size(), users.size() == 1 ? "" : "s");
+                    }
+                    drawList->AddText(ImVec2(cardMin.x + padding,
+                        thumbMax.y + 4.0f + ImGui::GetTextLineHeight() * 2.0f),
+                        users.empty() ? ImGui::GetColorU32(SEUI::Colors::Warning())
+                            : ImGui::GetColorU32(SEUI::Colors::Success()),
+                        usageLabel);
                     drawList->PopClipRect();
                     if (selected)
                         drawList->AddRect(cardMin, cardMax,
@@ -6028,6 +6108,39 @@ int WORKSPACE::drawAssetBrowser() {
                             imagePixelPaintLastY = -1;
                             imagePixelPaintLastButton = -1;
                             ImGui::SetWindowFocus(managerTitle);
+                        }
+                        ImGui::Separator();
+                        if (ImGui::MenuItem("Select first using Object", NULL,
+                            false, !users.empty())) {
+                            selectUsageObject(users.front());
+                        }
+                        char usageMenuLabel[64];
+                        snprintf(usageMenuLabel, sizeof(usageMenuLabel),
+                            "Used by Objects (%d)", (int)users.size());
+                        if (ImGui::BeginMenu(usageMenuLabel, !users.empty())) {
+                            const int shownUsers = (std::min)(32,
+                                (int)users.size());
+                            for (int userIndex = 0; userIndex < shownUsers;
+                                ++userIndex) {
+                                const int modelIndex = users[userIndex];
+                                if (modelIndex < 0 ||
+                                    modelIndex >= (int)usageObjects.size()) continue;
+                                const SEObjectInstance& object =
+                                    usageObjects[modelIndex];
+                                const std::string objectName = Cp932ToUtf8(
+                                    object.name.empty() ? "(unnamed)" :
+                                        object.name.c_str());
+                                char objectLabel[320];
+                                snprintf(objectLabel, sizeof(objectLabel),
+                                    "%03d  %s", modelIndex,
+                                    objectName.c_str());
+                                if (ImGui::MenuItem(objectLabel))
+                                    selectUsageObject(modelIndex);
+                            }
+                            if ((int)users.size() > shownUsers)
+                                ImGui::TextDisabled("... %d more",
+                                    (int)users.size() - shownUsers);
+                            ImGui::EndMenu();
                         }
                         ImGui::EndPopup();
                     }
@@ -6047,6 +6160,24 @@ int WORKSPACE::drawAssetBrowser() {
                         ImGui::Text("gr %d  x %d  y %d  w %d  h %d",
                             tag.gr, tag.x, tag.y, tag.w, tag.h);
                         ImGui::Text("IF branch %d", tag.ifGroup);
+                        ImGui::Text("Usage: %s", usageLabel);
+                        const int tooltipUsers = (std::min)(3,
+                            (int)users.size());
+                        for (int userIndex = 0; userIndex < tooltipUsers;
+                            ++userIndex) {
+                            const int modelIndex = users[userIndex];
+                            if (modelIndex < 0 ||
+                                modelIndex >= (int)usageObjects.size()) continue;
+                            const std::string objectName = Cp932ToUtf8(
+                                usageObjects[modelIndex].name.empty()
+                                    ? "(unnamed)"
+                                    : usageObjects[modelIndex].name.c_str());
+                            ImGui::BulletText("%03d  %s", modelIndex,
+                                objectName.c_str());
+                        }
+                        if ((int)users.size() > tooltipUsers)
+                            ImGui::TextDisabled("... %d more",
+                                (int)users.size() - tooltipUsers);
                         if (animationSource) {
                             ImGui::Text("SRC div %d x %d  cycle %d ms",
                                 (std::max)(1, animationSource->div_x),
@@ -6091,6 +6222,24 @@ int WORKSPACE::drawImgManager() {
     if (src_selected < 0 || src_selected >= arr_IMG.count)
         SelectIMGAsset(0, false);
 
+    const std::vector<std::vector<int>>& assetUsage = ImageAssetUsage();
+    std::map<int, std::vector<int>> logicalGraphicUsage;
+    for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
+        IMG& asset = ((IMG*)arr_IMG.data)[imageIndex];
+        std::vector<int>& graphicUsers = logicalGraphicUsage[asset.gr];
+        for (int modelIndex : assetUsage[imageIndex]) {
+            if (std::find(graphicUsers.begin(), graphicUsers.end(), modelIndex) ==
+                graphicUsers.end())
+                graphicUsers.push_back(modelIndex);
+        }
+    }
+    auto logicalGraphicUsageCount = [&](int logicalGr) {
+        const std::map<int, std::vector<int>>::const_iterator found =
+            logicalGraphicUsage.find(logicalGr);
+        return found == logicalGraphicUsage.end() ? 0 :
+            (int)found->second.size();
+    };
+
     static bool newSquare = 0;
     bool clicked = 0;
     int deleteImageRequest = -1;
@@ -6121,11 +6270,30 @@ int WORKSPACE::drawImgManager() {
         for (int i = 0; i < arr_IMG.count; i++) {
             IMG& img = ((IMG*)arr_IMG.data)[i];
             char buf[260];
-            sprintf(buf, "%03d %02d:%s", i, img.gr, img.name.outstr());
+            const int usageCount = (int)assetUsage[i].size();
+            const std::string usageText = usageCount == 0 ? "Unused" :
+                std::to_string(usageCount) +
+                    (usageCount == 1 ? " Object" : " Objects");
+            snprintf(buf, sizeof(buf), "%03d %02d [%s] %s", i, img.gr,
+                usageText.c_str(),
+                img.name.body ? img.name.outstr() : "");
             ImGui::PushID(i);
-            if (ImGui::Selectable(buf, i == src_selected)) {
+            const bool imageRowSelected = i == src_selected;
+            if (ImGui::Selectable(buf, imageRowSelected)) {
                 SelectIMGAsset(i, false);
                 clicked = true;
+            }
+            if (!imageRowSelected &&
+                ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone)) {
+                imageManagerHoveredAssetIndex = i;
+                imageManagerHoveredAssetFrame = ImGui::GetFrameCount();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                if (usageCount == 0)
+                    ImGui::SetTooltip("This crop is not used by an Object.");
+                else
+                    ImGui::SetTooltip("Used by %d Object%s.", usageCount,
+                        usageCount == 1 ? "" : "s");
             }
             
             ImGui::PopID();
@@ -6194,10 +6362,13 @@ int WORKSPACE::drawImgManager() {
     ImGui::BeginGroup();
 
     static int gr_type;
-    auto formatGraphicLabel = [](int index, SRCGR& graphic) {
-        char prefix[64];
-        snprintf(prefix, sizeof(prefix), "%03d %02d [IF %03d] : ",
-            index, graphic.grID, graphic.isIf);
+    auto formatGraphicLabel = [&](int index, SRCGR& graphic) {
+        char prefix[128];
+        const int usageCount = logicalGraphicUsageCount(graphic.grID);
+        snprintf(prefix, sizeof(prefix),
+            "%03d %02d [IF %03d] [%d Object%s] : ",
+            index, graphic.grID, graphic.isIf, usageCount,
+            usageCount == 1 ? "" : "s");
         const std::string filenameUtf8 = Cp932ToUtf8(
             graphic.filename.body ? graphic.filename.outstr() : "");
         return std::string(prefix) + filenameUtf8;
@@ -6250,6 +6421,16 @@ int WORKSPACE::drawImgManager() {
     ImGui::SameLine(0, 0);
     snprintf(title, sizeof(title), "grReload##%d", num);
     ImGui::Button(title);
+    ImGui::SameLine(0, 0);
+    const bool hasImageDiskPath = img.path.body && *img.path.outstr();
+    ImGui::BeginDisabled(!hasImageDiskPath);
+    if (ImGui::Button("Folder##imageManagerExplorer")) {
+        if (!OpenCp932PathInExplorer(img.path.outstr()))
+            imageToolStatus = "Windows Explorer could not open this image path.";
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("Open the current image in Windows Explorer.");
     ImGui::SameLine(0, 0);
     ImGui::ColorEdit4("MyColor##3", (float*)&bgColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_None);
 
@@ -6690,8 +6871,10 @@ int WORKSPACE::drawImgManager() {
 
 
         if (img.texture != NULL) {
-            const ImVec2 p = ImGui::GetCursorScreenPos();
-            ImVec2 grpos = { p.x, p.y - imageDisplaySize.y - 4 };
+            // The crop overlay belongs to the image canvas itself. Using the
+            // cursor after ImageWithBg() made this depend on ImGui item spacing
+            // and other widgets submitted in this child.
+            const ImVec2 grpos = pb;
 
             IMG& src = ((IMG*)arr_IMG.data)[src_selected];
             int sizeX = src.w == -1 ? img.sizeX - src.x : src.w;
@@ -6704,37 +6887,119 @@ int WORKSPACE::drawImgManager() {
 
             ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-            bool flicking = ((int)GetTimeLapse(1, &g.timer1) % 200 > 100);
-            ImColor color = flicking ? 0xff0080ff : 0x000000;
-            draw_list->AddRect(srcposLU, srcposRB, color, 0.0f, ImDrawFlags_Closed, 1.0f);
+            // Editor selection must keep blinking even when the LR2 scene
+            // timer is stopped. GetTimeLapse(1) returns -1 in that state and
+            // previously made the rectangle permanently transparent.
+            bool flicking = ((int)(ImGui::GetTime() * 1000.0) % 400) < 260;
+            if (flicking) {
+                draw_list->AddRect(srcposLU, srcposRB,
+                    IM_COL32(48, 24, 0, 230), 0.0f,
+                    ImDrawFlags_Closed, 3.0f);
+                draw_list->AddRect(srcposLU, srcposRB,
+                    IM_COL32(255, 128, 0, 255), 0.0f,
+                    ImDrawFlags_Closed, 1.5f);
+            }
 
             if (clicked) {
                 ImGui::SetScrollX(src.x * imageScale);
                 ImGui::SetScrollY(src.y * imageScale);
             }
 
-            for (int i = 0; i < arr_IMG.count; i++) {
-                IMG& hoversrc = ((IMG*)arr_IMG.data)[i];
-                if (hoversrc.gr != src.gr || hoversrc.ifGroup != src.ifGroup) continue;
-                srcposLU = { grpos.x + hoversrc.x * imageScale,
-                    grpos.y + hoversrc.y * imageScale };
-                srcposRB = { grpos.x + (hoversrc.x + hoversrc.w) * imageScale,
-                    grpos.y + (hoversrc.y + hoversrc.h) * imageScale };
-                if (ImGui::IsMouseHoveringRect(srcposLU, srcposRB)) {
-                    flicking = ((int)GetTimeLapse(1, &g.timer1) % 200 < 100);
-                    ImColor color = flicking ? 0xffff0000 : 0x000000;
-                    draw_list->AddRect(srcposLU, srcposRB, color, 0.0f, ImDrawFlags_Closed, 1.0f);
-
-                    if (ImGui::IsItemClicked()) {
-                        SelectIMGAsset(i, false);
+            int hoveredImageIndex = -1;
+            long long hoveredImageArea = 0;
+            ImVec2 hoveredImageLU;
+            ImVec2 hoveredImageRB;
+            bool hoveredImageFromAtlas = false;
+            const ImVec2 atlasMouse = ImGui::GetIO().MousePos;
+            const bool atlasHovered = ImGui::IsMouseHoveringRect(
+                pb, paintCanvasMax, true);
+            const int hoverFrameAge = ImGui::GetFrameCount() -
+                imageManagerHoveredAssetFrame;
+            if (imageManagerHoveredAssetIndex >= 0 &&
+                imageManagerHoveredAssetIndex < arr_IMG.count &&
+                hoverFrameAge >= 0 && hoverFrameAge <= 1 &&
+                ResolveIMGTextureIndex(imageManagerHoveredAssetIndex) ==
+                    gr_selected) {
+                IMG& hoveredObjectImage =
+                    ((IMG*)arr_IMG.data)[imageManagerHoveredAssetIndex];
+                const int hoverWidth = hoveredObjectImage.w == -1
+                    ? img.sizeX - hoveredObjectImage.x : hoveredObjectImage.w;
+                const int hoverHeight = hoveredObjectImage.h == -1
+                    ? img.sizeY - hoveredObjectImage.y : hoveredObjectImage.h;
+                if (hoverWidth > 0 && hoverHeight > 0) {
+                    hoveredImageIndex = imageManagerHoveredAssetIndex;
+                    hoveredImageArea =
+                        (long long)hoverWidth * (long long)hoverHeight;
+                    hoveredImageLU = ImVec2(
+                        grpos.x + hoveredObjectImage.x * imageScale,
+                        grpos.y + hoveredObjectImage.y * imageScale);
+                    hoveredImageRB = ImVec2(
+                        grpos.x + (hoveredObjectImage.x + hoverWidth) * imageScale,
+                        grpos.y + (hoveredObjectImage.y + hoverHeight) * imageScale);
+                }
+            }
+            if (atlasHovered) {
+                for (int i = 0; i < arr_IMG.count; i++) {
+                    IMG& hoversrc = ((IMG*)arr_IMG.data)[i];
+                    // Branch IDs alone are too restrictive: different SRC
+                    // branches may still resolve to the texture currently on
+                    // screen. Only crops on that resolved texture belong to
+                    // this canvas.
+                    if (hoversrc.gr != img.grID) continue;
+                    const int hoverWidth = hoversrc.w == -1
+                        ? img.sizeX - hoversrc.x : hoversrc.w;
+                    const int hoverHeight = hoversrc.h == -1
+                        ? img.sizeY - hoversrc.y : hoversrc.h;
+                    if (hoverWidth <= 0 || hoverHeight <= 0) continue;
+                    const ImVec2 candidateLU(
+                        grpos.x + hoversrc.x * imageScale,
+                        grpos.y + hoversrc.y * imageScale);
+                    const ImVec2 candidateRB(
+                        grpos.x + (hoversrc.x + hoverWidth) * imageScale,
+                        grpos.y + (hoversrc.y + hoverHeight) * imageScale);
+                    if (atlasMouse.x < candidateLU.x || atlasMouse.x >= candidateRB.x ||
+                        atlasMouse.y < candidateLU.y || atlasMouse.y >= candidateRB.y)
+                        continue;
+                    // Resolve only actual hit candidates. Resolving can load a
+                    // wildcard image, so doing it for every crop on every
+                    // hover frame would make large skins unnecessarily heavy.
+                    if (ResolveIMGTextureIndex(i) != gr_selected) continue;
+                    const long long candidateArea =
+                        (long long)hoverWidth * (long long)hoverHeight;
+                    if (hoveredImageIndex < 0 || candidateArea < hoveredImageArea ||
+                        (candidateArea == hoveredImageArea && i == src_selected)) {
+                        hoveredImageIndex = i;
+                        hoveredImageArea = candidateArea;
+                        hoveredImageLU = candidateLU;
+                        hoveredImageRB = candidateRB;
+                        hoveredImageFromAtlas = true;
                     }
-                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone) && ImGui::BeginTooltip())
-                    {
-                        ImGui::Text("%03d : %d %d ~ %d %d", i, hoversrc.x, hoversrc.y, hoversrc.x + hoversrc.w, hoversrc.y + hoversrc.h);
-                        ImGui::Text("Size %d %d", hoversrc.w, hoversrc.h);
-                        ImGui::EndTooltip();
-                    }
-                    
+                }
+            }
+            if (hoveredImageIndex >= 0) {
+                IMG& hoversrc = ((IMG*)arr_IMG.data)[hoveredImageIndex];
+                const int hoverWidth = hoversrc.w == -1
+                    ? img.sizeX - hoversrc.x : hoversrc.w;
+                const int hoverHeight = hoversrc.h == -1
+                    ? img.sizeY - hoversrc.y : hoversrc.h;
+                flicking = ((int)(ImGui::GetTime() * 1000.0) % 400) >= 200;
+                if (flicking) {
+                    draw_list->AddRect(hoveredImageLU, hoveredImageRB,
+                        IM_COL32(0, 20, 48, 230), 0.0f,
+                        ImDrawFlags_Closed, 3.0f);
+                    draw_list->AddRect(hoveredImageLU, hoveredImageRB,
+                        IM_COL32(0, 128, 255, 255), 0.0f,
+                        ImDrawFlags_Closed, 1.5f);
+                }
+                if (hoveredImageFromAtlas && !imagePixelPaintMode &&
+                    ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                    SelectIMGAsset(hoveredImageIndex, false);
+                if (ImGui::BeginTooltip()) {
+                    ImGui::Text("%03d : %d %d ~ %d %d", hoveredImageIndex,
+                        hoversrc.x, hoversrc.y,
+                        hoversrc.x + hoverWidth, hoversrc.y + hoverHeight);
+                    ImGui::Text("Size %d %d", hoverWidth, hoverHeight);
+                    ImGui::EndTooltip();
                 }
             }
 
@@ -9443,6 +9708,9 @@ int WORKSPACE::drawObjectEditor() {
     }
     // Object Browser: filters on top, condition/object list below.
     if (drawBrowser) {
+        // Image Manager is drawn before Object Browser, so it consumes the
+        // previous frame's hover and this frame refreshes or clears it.
+        SetImageManagerHoveredObject(-1, ImGui::GetFrameCount());
         const float filterPanelHeight = ImGui::GetFrameHeightWithSpacing() * 4.0f +
             ImGui::GetStyle().WindowPadding.y * 2.0f + 18.0f;
         const bool drawFilters = ImGui::BeginChild("ObjectFilters",
@@ -10105,6 +10373,13 @@ int WORKSPACE::drawObjectEditor() {
                         preview_selected_object_model_indices.end(), modelIndex) !=
                         preview_selected_object_model_indices.end();
                     const bool clicked = ImGui::Selectable(label, isMultiSelected);
+                    const bool objectRowHovered =
+                        ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone);
+                    if (objectRowHovered) {
+                        SetImageManagerHoveredObject(
+                            isMultiSelected ? -1 : modelIndex,
+                            ImGui::GetFrameCount());
+                    }
                     const ImVec2 reorderRowMin = ImGui::GetItemRectMin();
                     const ImVec2 reorderRowMax = ImGui::GetItemRectMax();
                     if (modelIndex == requestedObjectModel)
@@ -10510,20 +10785,10 @@ int WORKSPACE::drawObjectEditor() {
                 auto drawTaggedImageSelector = [&](int row, const char* command) {
                     if (!command || strncmp(command, "#SRC", 4) != 0 || arr_IMG.count <= 0) return;
                     SKINFILELINEREAD& srcLine = ((SKINFILELINEREAD*)skinfileLines.data)[row];
-                    const char* fieldNames[5] = { "gr", "x", "y", "w", "h" };
                     int columns[5] = { -1, -1, -1, -1, -1 };
-                    for (int col = 1; col < 30; ++col) {
-                        CSTR help = GetCommandHelp(command, col);
-                        help.trimWhiteSpace();
-                        const char* label = help.body ? help.outstr() : "";
-                        if (*label == '$') ++label;
-                        for (int field = 0; field < 5; ++field)
-                            if (_stricmp(label, fieldNames[field]) == 0) columns[field] = col;
-                    }
-                    for (int field = 0; field < 5; ++field) if (columns[field] < 0) return;
+                    if (!ResolveImageCropColumns(command, columns)) return;
 
-                    const int currentTag = FindIMG(srcLine.csv.val[columns[0]], srcLine.csv.val[columns[1]],
-                        srcLine.csv.val[columns[2]], srcLine.csv.val[columns[3]], srcLine.csv.val[columns[4]]);
+                    const int currentTag = FindImageAssetForRow(row);
                     char preview[260];
                     if (currentTag >= 0 && currentTag < arr_IMG.count) {
                         IMG& tag = ((IMG*)arr_IMG.data)[currentTag];

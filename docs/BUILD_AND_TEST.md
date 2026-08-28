@@ -44,6 +44,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   lane/backdrop 기반 SD/HD/FHD 판정, 화면 밖 전환 panel 제외, 640x480 fallback
 - `olr-package`: stored ZIP 생성/검사/추출, manifest와 semantic object/asset count,
   LR2·asset byte 보존, path traversal 거부 및 CRC 손상 탐지
+- `simple-mode`: Object Editor 그룹이 없는 기존 LR2 행에서도 숫자/콤보 폰트,
+  판정 폰트, 기어 라인, 일반·롱·마인·AUTO 노트를 직접 분류하는 투영 계약
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제 및 graphic ID 배정
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
 

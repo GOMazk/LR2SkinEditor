@@ -197,6 +197,7 @@ typedef enum HISTORYOP {
     insertLine,
     removeLine,
     moveLine,
+    restoreDocument,
     group,
     ungroup,
     openFile = 255,
@@ -209,6 +210,13 @@ typedef struct HISTORY {
     SKINFILELINEREAD older;
     SKINFILELINEREAD newer;
 }HISTORY;
+
+struct SESimpleModeCategoryCounts {
+    int numberFonts = 0;
+    int judgementFonts = 0;
+    int gear = 0;
+    int notes = 0;
+};
 
 typedef struct WORKSPACE {
 
@@ -259,8 +267,8 @@ typedef struct WORKSPACE {
     ARR arr_seobj; //SKINUNIT, SEOBJ
 
     ARR arr_history; //HISTORY
-    // moveLine history entries point into this vector. An Object may own
-    // non-contiguous SRC/DST rows, so reorders use a document-order snapshot.
+    // Snapshot history entries point into this vector. Object reorders and
+    // Simple Mode batch replacements can touch non-contiguous document rows.
     std::vector<SkinDocumentSnapshot> historyDocumentSnapshots;
     int pendingHistorySnapshotRestore = -1;
     bool applyingHistory = false;
@@ -458,9 +466,21 @@ typedef struct WORKSPACE {
     bool wNewskin;
     int drawNewskin();
     
-    //simpleview (mockup)
-    bool wSimplePreview;
-    int drawSimplePreview();
+    // Simple Mode presents semantic component slots while WORKSPACE remains
+    // the only owner of CSV values, assets, History and preview invalidation.
+    bool wSimpleMode;
+    int simpleModeCategory = 0;
+    std::string simpleModeSelectedSlotId;
+    int simpleModeCandidateAsset = -1;
+    bool simpleModeApplySameCommand = false;
+    std::string simpleModeStatus;
+    int simpleModeStatusState = 0;
+    int drawSimpleMode();
+    int ApplySimpleModeAsset(int targetRow, int imageIndex,
+        bool applySameCommand, std::string& resultMessage);
+    int ImportSimpleModeImage(int targetRow, const char* sourcePath,
+        bool applySameCommand, std::string& resultMessage);
+    SESimpleModeCategoryCounts GetSimpleModeCategoryCounts();
 
     int drawSrc(int iSRCGR, int iSRCID);
     bool EnsureSRCGRTexture(int iSRCGR);
@@ -591,3 +611,4 @@ int AutoSRCObjectPos(SRCGR* gr, int* x, int* y, int* w, int* h);
 int CsvToCSTR(CSVbuf& csv, CSTR& line);
 int CountCsvColumns(CSTR& line);
 int RunAssetMetadataSelfTest();
+int RunSimpleModeProjectionSelfTest();

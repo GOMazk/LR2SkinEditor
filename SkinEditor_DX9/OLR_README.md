@@ -5,8 +5,9 @@ container without losing commands that do not yet have a semantic model.
 
 Entry points:
 
-- `SEWriteOLRSkinPackage()` writes the V0.2 manifest, semantic index, source/path
-  maps, merged LR2 script, captured virtual roots and fixed external images.
+- `SEWriteOLRSkinPackage()` writes the V0.3 manifest, semantic/Object index,
+  Simple Mode slots, source/path maps, merged LR2 script, captured virtual roots
+  and fixed external images.
 - `SEInspectOLRSkinPackage()` validates and lists a package without writing.
 - `SEExtractOLRSkinPackage()` extracts only the `lr2/` subtree to a new folder.
 - `SEExportOLRWorkspaceToLR2()` materializes an imported workspace into a new
@@ -23,15 +24,18 @@ Entry points:
 Important invariants:
 
 - `skinfileLines` and `SEObjectEditorModel` remain authoritative while editing.
-- V0.2 `skin.json` is descriptive; `lr2/main.lr2skin` owns round-trip output.
+- V0.3 `skin.json` is descriptive; `lr2/main.lr2skin` owns round-trip output.
+- Simple Mode edits authoritative workspace CSV fields and then regenerates the
+  descriptive slots at export. Editing the exported slots alone does not compile.
 - runtime path resolution changes only derived Preview/load paths; the raw CSV,
   owner rows and save model remain authoritative.
 - ZIP paths are relative and forward-slash separated. Case-insensitive duplicate,
   traversal, symlink and overlong entry handling stays at the package boundary.
 - import never overwrites an existing directory and never uses original owner
   paths from the source map.
-- LR2 export accepts only an imported V0.2 workspace and a non-existing target;
-  it never writes directly into a user's LR2 installation.
+- LR2 export accepts only an imported V0.2+ workspace and a non-existing target;
+  it copies both virtual roots and fixed `assets/` beside the compiled main skin,
+  and never writes directly into a user's LR2 installation.
 - archive writes use a temporary file followed by atomic replacement.
 
 Tests: run `--self-test-olr-package`, normally through `scripts/test.ps1`.

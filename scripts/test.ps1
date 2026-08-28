@@ -51,6 +51,10 @@ $tests = @(
         Argument = '--self-test-olr-package'
     },
     [pscustomobject]@{
+        Name = 'simple-mode'
+        Argument = '--self-test-simple-mode'
+    },
+    [pscustomobject]@{
         Name = 'asset-metadata'
         Argument = '--self-test-asset-metadata'
     },

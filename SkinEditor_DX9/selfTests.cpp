@@ -214,6 +214,7 @@ int RunOlrPackageSelfTest() {
         "#INFORMATION,0,OLR self test,SkinEditor,,,1280,720\r\n"
         "#CUSTOMFILE,NOTE,vfs/LR2files/Theme/Test/note/*.png,blue\r\n"
         "#IMAGE,vfs/LR2files/Theme/Test/note/blue.png\r\n"
+        "#IMAGE,assets/simple-note.png\r\n"
         "#SRC_IMAGE,0,0,0,0,16,16,1,1,0,0\r\n"
         "#DST_IMAGE,0,0,100,200,16,16,0,255,255,255,255,1,0,0,0,0\r\n";
     document.lr2ExportMainPath = "LR2files/Theme/Test/play.lr2skin";
@@ -232,14 +233,27 @@ int RunOlrPackageSelfTest() {
     semanticObject.width = 16;
     semanticObject.height = 16;
     document.objects.push_back(semanticObject);
+    SEOLRSimpleSlot simpleSlot;
+    simpleSlot.id = "obj_test:#SRC_IMAGE:0";
+    simpleSlot.category = "gear";
+    simpleSlot.label = "Test image - Gear line";
+    simpleSlot.objectId = "obj_test";
+    simpleSlot.sourceCommand = "#SRC_IMAGE";
+    simpleSlot.sourceRow = 4;
+    simpleSlot.graphicId = 0;
+    simpleSlot.width = 16;
+    simpleSlot.height = 16;
+    document.simpleSlots.push_back(simpleSlot);
+    document.assets.push_back({ 2, assetPath, "lr2/assets/simple-note.png" });
     document.sourceMap.push_back({ 0, 0, "main.lr2skin" });
 
     SEOLRPackageInfo packageInfo;
     std::string errorMessage;
     if (result == 0 && !SEWriteOLRSkinPackage(packagePath.c_str(), document,
         packageInfo, errorMessage)) result = 7;
-    if (result == 0 && (packageInfo.entries.size() != 7 ||
-        packageInfo.objectCount != 1 || packageInfo.assetCount != 1 ||
+    if (result == 0 && (packageInfo.entries.size() != 8 ||
+        packageInfo.objectCount != 1 || packageInfo.simpleSlotCount != 1 ||
+        packageInfo.assetCount != 2 ||
         packageInfo.virtualRootCount != 1 || packageInfo.virtualFileCount != 1))
         result = 8;
 
@@ -283,7 +297,7 @@ int RunOlrPackageSelfTest() {
         !SEExportOLRWorkspaceToLR2(extractedMain.c_str(), materializedPath.c_str(),
             exportInfo, errorMessage)))
         result = 13;
-    if (result == 0 && exportInfo.copiedFileCount != 1) result = 14;
+    if (result == 0 && exportInfo.copiedFileCount != 2) result = 14;
     if (result == 0 && std::filesystem::path(exportInfo.mainSkinPath) !=
         std::filesystem::path(materializedPath) /
             "LR2files/Theme/Test/play.lr2skin")
@@ -296,8 +310,19 @@ int RunOlrPackageSelfTest() {
             compiledBytes.find("LR2files\\Theme\\Test\\note\\*.png") ==
                 std::string::npos ||
             compiledBytes.find("LR2files\\Theme\\Test\\note\\blue.png") ==
-                std::string::npos)
+                std::string::npos ||
+            compiledBytes.find("assets/simple-note.png") == std::string::npos)
             result = 15;
+    }
+    if (result == 0) {
+        std::ifstream simpleAsset(std::filesystem::path(exportInfo.mainSkinPath)
+            .parent_path() / "assets/simple-note.png", std::ios::binary);
+        const std::vector<unsigned char> simpleBytes(
+            (std::istreambuf_iterator<char>(simpleAsset)),
+            std::istreambuf_iterator<char>());
+        if (simpleBytes.size() != sizeof(assetBytes) ||
+            memcmp(simpleBytes.data(), assetBytes, sizeof(assetBytes)) != 0)
+            result = 23;
     }
 
     if (result == 0) {

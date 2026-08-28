@@ -82,6 +82,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunResolutionEstimatorSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-olr-package"))
         return RunOlrPackageSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-simple-mode"))
+        return RunSimpleModeProjectionSelfTest();
 
     if (cmdline && strstr(cmdline, "--self-test-asset-metadata"))
         return RunAssetMetadataSelfTest();

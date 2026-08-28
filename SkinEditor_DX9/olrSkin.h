@@ -35,6 +35,25 @@ struct SEOLRAssetInput {
     std::string packagePath;
 };
 
+// Descriptive Simple Mode projection. LR2 CSV remains authoritative; these
+// slots let humans and AI tools find the safe image-replacement boundaries.
+struct SEOLRSimpleSlot {
+    std::string id;
+    std::string category;
+    std::string label;
+    std::string objectId;
+    std::string sourceCommand;
+    int sourceRow = -1;
+    int graphicId = 0;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    int divX = 1;
+    int divY = 1;
+    int cycle = 0;
+};
+
 struct SEOLRVirtualRootInput {
     // Slash-normalized path such as LR2files/Theme/IIDX. It never contains
     // a drive or parent traversal and becomes lr2/vfs/<logicalRoot>.
@@ -51,6 +70,7 @@ struct SEOLRSkinDocument {
     int canvasHeight = 480;
     bool resolutionInferred = false;
     std::vector<SEOLRSemanticObject> objects;
+    std::vector<SEOLRSimpleSlot> simpleSlots;
     std::vector<SEOLRSourceMapEntry> sourceMap;
     std::string lr2Script;
     std::vector<SEOLRAssetInput> assets;
@@ -63,6 +83,7 @@ struct SEOLRSkinDocument {
 struct SEOLRPackageInfo {
     std::vector<std::string> entries;
     int objectCount = 0;
+    int simpleSlotCount = 0;
     int assetCount = 0;
     int virtualRootCount = 0;
     int virtualFileCount = 0;
@@ -93,10 +114,10 @@ bool SEExtractOLRSkinPackage(const char* packagePath,
     const char* outputDirectory, std::string& mainSkinPath,
     SEOLRPackageInfo& packageInfo, std::string& errorMessage);
 
-// Returns true only for an extracted V0.2 workspace with export metadata.
+// Returns true only for an extracted V0.2+ workspace with export metadata.
 bool SEIsOLRVirtualWorkspace(const char* mainSkinPath);
 
-// Materializes an extracted V0.2 workspace into a new install-ready LR2 root.
+// Materializes an extracted V0.2+ workspace into a new install-ready LR2 root.
 // outputDirectory must not exist; no existing LR2 installation is overwritten.
 bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
     const char* outputDirectory, SEOLRLr2ExportInfo& exportInfo,

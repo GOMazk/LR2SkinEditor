@@ -36,6 +36,9 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - Preview에서 선택 Object 이동 및 키보드 미세 이동
 - DST 애니메이션 프레임 증감
 - Ctrl+Z 기반 CSV/구조 편집 복구
+- `Simple Mode`에서 숫자 폰트, 판정 폰트, 기어 파트, 노트를 의미별로 모아
+  같은 분류의 기존 Asset으로 교체하거나 이미지를 `simple-assets`에 가져오기.
+  노트는 같은 `#SRC_*` 종류의 모든 레인에 한 번에 적용 가능하며 DST/조건은 유지
 - 현재 include 구조를 유지하는 Save/Ctrl+S와 `SAVED/MODIFIED` 상태 표시
 - Windows 파일 선택기를 쓰는 Save As와 성공 후 새 메인 스크립트로 작업 경로 전환
 - `File > Open another location` 또는 Skin Browser에서 지정한 외부 폴더의
@@ -48,8 +51,8 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
   파일로 묶기
 - `File > Import OLR package`에서 패키지를 검증한 뒤 사용자가 고른 위치의 새
   폴더에만 풀고, 추출한 `main.lr2skin`을 일반 Workspace로 열기
-- Import한 V0.2 workspace의 `File > Export LR2 folder`에서만 `vfs/LR2files`를
-  새 출력 폴더의 `LR2files`로 풀고 현재 편집 스크립트의 경로를 복원
+- Import한 V0.2+ workspace의 `File > Export LR2 folder`에서 `vfs/LR2files`와
+  고정 `assets`를 새 출력 폴더로 풀고 현재 편집 스크립트의 경로를 복원
 
 주의할 항목:
 
@@ -81,13 +84,14 @@ Default locations 전환을 제공하며, 파일을 복사하거나 LR2 설정�
 
 ### 시나리오 A-2: OLR 중간 포맷으로 공유
 
-`.olrskin` V0.2는 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
+`.olrskin` V0.3는 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
 찾기 쉬운 Semantic index와 원본 동작을 보존하는 Compatibility layer를 함께 담는
 ZIP 컨테이너다. 자세한 계약은 [OLR 포맷 문서](OLRSKIN_FORMAT.md)를 따른다.
 
 ```text
 loaded WORKSPACE
   +-- Object Model -> skin.json (gear/notes/judge/combo/gauge/...)
+  +-- Simple Mode projection -> skin.json (number-fonts/judgement-fonts/gear/notes)
   +-- expanded CSV -> lr2/main.lr2skin
   +-- resolved LR2 roots -> lr2/vfs/LR2files/*
   +-- other fixed #IMAGE -> lr2/assets/*
@@ -95,7 +99,8 @@ loaded WORKSPACE
   `-- virtual/export map -> compatibility/path-map.json
 ```
 
-V0.2의 `skin.json`은 설명용이다. Export 후 JSON만 직접 수정해도 LR2 스크립트가
+V0.3의 `skin.json`은 설명용이다. Simple Mode에서의 변경은 원본 Workspace CSV에
+적용된 뒤 Export 시 슬롯 설명을 다시 만들지만, Export 후 JSON만 직접 수정해도 LR2 스크립트가
 자동 생성되지는 않으며, Import는 `lr2/main.lr2skin`을 기준으로 연다. 이 경계는
 아직 해석하지 못한 LR2 명령, 조건, timer, op, editor metadata를 잃지 않기 위한
 의도된 단계다. Semantic-to-LR2 컴파일은 각 영역의 왕복 테스트를 갖춘 뒤 한 영역씩
@@ -643,7 +648,7 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 | Object Editor 구조 | Browser와 Inspector를 별도 도킹 창으로 유지 |
 | Object 이름 fallback | 명시 이름, SRC symbolic 이름, op, non-zero timer 순서. 자동 이름은 저장하지 않음 |
 | AI/UI 계약 | `uiCatalog.h`와 자동 UI map을 기준으로 하고 handoff는 context pack과 검증 증거를 포함 |
-| OLR V0.2 authority | `skin.json`은 설명용, `lr2/main.lr2skin`은 왕복 호환 기준; `vfs/LR2files`는 LR2 Export 전까지 유지 |
+| OLR V0.3 authority | Simple Mode는 Workspace CSV를 수정하고 `skin.json` 슬롯은 설명용; `lr2/main.lr2skin`은 왕복 호환 기준이며 `vfs/LR2files`는 LR2 Export 전까지 유지 |
 
 ## 11. 다음 작업 전 확인
 

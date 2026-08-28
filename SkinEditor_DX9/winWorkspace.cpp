@@ -145,6 +145,24 @@ static bool BrowseOlrOpenPath(char* selectedPath, size_t selectedPathSize) {
     return true;
 }
 
+static bool BrowseSimpleImagePath(char* selectedPath, size_t selectedPathSize) {
+    if (!selectedPath || selectedPathSize == 0) return false;
+    char path[MAX_PATH] = {};
+    OPENFILENAMEA dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = GetActiveWindow();
+    dialog.lpstrFilter =
+        "Skin images (*.png;*.bmp;*.jpg;*.jpeg)\0*.png;*.bmp;*.jpg;*.jpeg\0"
+        "All files (*.*)\0*.*\0\0";
+    dialog.lpstrFile = path;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
+        OFN_NOCHANGEDIR;
+    if (!GetOpenFileNameA(&dialog)) return false;
+    strncpy_s(selectedPath, selectedPathSize, path, _TRUNCATE);
+    return true;
+}
+
 static bool BrowseSkinFolder(std::string& selectedPath,
     std::string& selectedLabelUtf8, std::string& errorMessage,
     const wchar_t* dialogTitle = L"Open another skin location") {
@@ -415,6 +433,14 @@ static std::string CommandFieldKey(const char* command, int column) {
     std::transform(key.begin(), key.end(), key.begin(),
         [](unsigned char value) { return (char)std::tolower(value); });
     return key;
+}
+
+static int FindCommandFieldColumn(const char* command, const char* fieldName) {
+    if (!command || !fieldName) return -1;
+    for (int column = 1; column < 30; ++column)
+        if (_stricmp(CommandFieldKey(command, column).c_str(), fieldName) == 0)
+            return column;
+    return -1;
 }
 
 static bool IsAssetBaseField(const std::string& field) {
@@ -743,7 +769,7 @@ int WORKSPACE::draw() {
         { SEUIWindowId::AssetBrowser, &wAssetBrowser },
         { SEUIWindowId::TextEditor, &wTextEdit },
         { SEUIWindowId::FileManager, &wFileManager },
-        { SEUIWindowId::SimplePreview, &wSimplePreview },
+        { SEUIWindowId::SimpleMode, &wSimpleMode },
         { SEUIWindowId::DstView, &wDstView },
         { SEUIWindowId::ObjectBrowser, &wObjectBrowser },
         { SEUIWindowId::ObjectInspector, &wObjectInspector },
@@ -1122,7 +1148,7 @@ int WORKSPACE::draw() {
             char assetBrowserTitle[64];
             char textEditorTitle[64];
             char fileManagerTitle[64];
-            char simplePreviewTitle[64];
+            char simpleModeTitle[64];
             char dstViewTitle[64];
             char objectBrowserTitle[64];
             char objectInspectorTitle[64];
@@ -1138,7 +1164,7 @@ int WORKSPACE::draw() {
             FormatSEUIWindowTitle(assetBrowserTitle, sizeof(assetBrowserTitle), SEUIWindowId::AssetBrowser, num);
             FormatSEUIWindowTitle(textEditorTitle, sizeof(textEditorTitle), SEUIWindowId::TextEditor, num);
             FormatSEUIWindowTitle(fileManagerTitle, sizeof(fileManagerTitle), SEUIWindowId::FileManager, num);
-            FormatSEUIWindowTitle(simplePreviewTitle, sizeof(simplePreviewTitle), SEUIWindowId::SimplePreview, num);
+            FormatSEUIWindowTitle(simpleModeTitle, sizeof(simpleModeTitle), SEUIWindowId::SimpleMode, num);
             FormatSEUIWindowTitle(dstViewTitle, sizeof(dstViewTitle), SEUIWindowId::DstView, num);
             FormatSEUIWindowTitle(objectBrowserTitle, sizeof(objectBrowserTitle), SEUIWindowId::ObjectBrowser, num);
             FormatSEUIWindowTitle(objectInspectorTitle, sizeof(objectInspectorTitle), SEUIWindowId::ObjectInspector, num);
@@ -1151,7 +1177,7 @@ int WORKSPACE::draw() {
             ImGui::DockBuilderDockWindow(previewTitle, previewDock);
             ImGui::DockBuilderDockWindow(imageManagerTitle, previewDock);
             ImGui::DockBuilderDockWindow(textEditorTitle, previewDock);
-            ImGui::DockBuilderDockWindow(simplePreviewTitle, previewDock);
+            ImGui::DockBuilderDockWindow(simpleModeTitle, previewDock);
             ImGui::DockBuilderDockWindow(dstViewTitle, previewDock);
             ImGui::DockBuilderDockWindow(assetBrowserTitle, assetBrowserDock);
             ImGui::DockBuilderDockWindow(fileManagerTitle, assetBrowserDock);
@@ -1226,7 +1252,7 @@ int WORKSPACE::draw() {
     if (wImgManager) drawImgManager();
     if (wAssetBrowser) drawAssetBrowser();
     if (wFileManager) drawFileManager();
-    if (wSimplePreview) drawSimplePreview();
+    if (wSimpleMode) drawSimpleMode();
     if (wDstView) drawDstView();
     // Older call sites use wObjectEditor as an "open the editor" command.
     // Translate it into the two independently dockable panes.
@@ -2697,6 +2723,14 @@ int WORKSPACE::LoadSkin(char* path) {
         objectEditorModel.LoadGroups("..\\skinObjGroup.txt");
     RebuildObjectModel();
     WriteSkinLoadLog("ObjectEditor Rebuild complete");
+    const SESimpleModeCategoryCounts simpleModeCounts =
+        GetSimpleModeCategoryCounts();
+    char simpleModeSummary[160] = {};
+    snprintf(simpleModeSummary, sizeof(simpleModeSummary),
+        "number=%d judgement=%d gear=%d notes=%d",
+        simpleModeCounts.numberFonts, simpleModeCounts.judgementFonts,
+        simpleModeCounts.gear, simpleModeCounts.notes);
+    WriteSkinLoadLog("Simple Mode projection", simpleModeSummary);
     
     WriteSkinLoadLog("LR2SEInit complete");
     LoadSceneSE();
@@ -2726,6 +2760,7 @@ int WORKSPACE::LoadSkin(char* path) {
     ClearObjectSelection();
     wImgManager = true;
     wAssetBrowser = true;
+    wSimpleMode = true;
     wDstView = true;
     ImageManagerZoom = 0.0f;
     imagePixelPaintMode = false;
@@ -2742,6 +2777,12 @@ int WORKSPACE::LoadSkin(char* path) {
     assetThumbnailSize = 96.0f;
     assetSearch[0] = '\0';
     imageManagerFocusRequest = -1;
+    simpleModeCategory = 0;
+    simpleModeSelectedSlotId.clear();
+    simpleModeCandidateAsset = -1;
+    simpleModeApplySameCommand = false;
+    simpleModeStatus.clear();
+    simpleModeStatusState = 0;
     newObjectCsvInitialized = false;
     newObjectInitializedCommand = -1;
     newObjectAssetIndex = -1;
@@ -7055,6 +7096,259 @@ std::string OlrUpperAscii(std::string value) {
     return value;
 }
 
+enum class SimpleModeCategory {
+    NumberFonts = 0,
+    JudgementFonts,
+    Gear,
+    Notes,
+    Unsupported
+};
+
+struct SimpleModeSlot {
+    SimpleModeCategory category = SimpleModeCategory::Unsupported;
+    std::string id;
+    std::string objectId;
+    std::string label;
+    std::string command;
+    int row = -1;
+    int imageIndex = -1;
+    int graphicId = 0;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    int divX = 1;
+    int divY = 1;
+    int cycle = 0;
+};
+
+const char* SimpleModeCategoryKey(SimpleModeCategory category) {
+    switch (category) {
+    case SimpleModeCategory::NumberFonts: return "number-fonts";
+    case SimpleModeCategory::JudgementFonts: return "judgement-fonts";
+    case SimpleModeCategory::Gear: return "gear";
+    case SimpleModeCategory::Notes: return "notes";
+    default: return "unsupported";
+    }
+}
+
+const char* SimpleModeCategoryTitle(SimpleModeCategory category) {
+    switch (category) {
+    case SimpleModeCategory::NumberFonts: return "Number fonts";
+    case SimpleModeCategory::JudgementFonts: return "Judgement fonts";
+    case SimpleModeCategory::Gear: return "Gear skin";
+    case SimpleModeCategory::Notes: return "Notes";
+    default: return "Unsupported";
+    }
+}
+
+bool SimpleModeCommandStartsWith(const std::string& command,
+    const char* prefix) {
+    return prefix && command.compare(0, strlen(prefix), prefix) == 0;
+}
+
+SimpleModeCategory ClassifySimpleModeSlot(const std::string& group,
+    const std::string& command, const std::string& objectName,
+    const std::string& graphicContext) {
+    // Commands are the stable LR2 contract. Object names and image paths are
+    // optional hints used only for generic #SRC_IMAGE gear artwork.
+    if (SimpleModeCommandStartsWith(command, "#SRC_NOWJUDGE_"))
+        return SimpleModeCategory::JudgementFonts;
+    if (command == "#SRC_NUMBER" ||
+        SimpleModeCommandStartsWith(command, "#SRC_NOWCOMBO_"))
+        return SimpleModeCategory::NumberFonts;
+    if (command == "#SRC_NOTE" || command == "#SRC_MINE" ||
+        SimpleModeCommandStartsWith(command, "#SRC_LN_") ||
+        command == "#SRC_AUTO_NOTE" || command == "#SRC_AUTO_MINE" ||
+        SimpleModeCommandStartsWith(command, "#SRC_AUTO_LN_"))
+        return SimpleModeCategory::Notes;
+    if (command == "#SRC_LINE" || command == "#SRC_JUDGELINE")
+        return SimpleModeCategory::Gear;
+
+    if (command != "#SRC_IMAGE") return SimpleModeCategory::Unsupported;
+    const std::string key = OlrUpperAscii(group + " " + objectName + " " +
+        graphicContext);
+    if (key.find("JUDGELINE") != std::string::npos ||
+        key.find("GEAR") != std::string::npos ||
+        key.find("PLAYFIELD") != std::string::npos ||
+        key.find("TURNTABLE") != std::string::npos ||
+        key.find("LANE COVER") != std::string::npos ||
+        key.find("LANE_COVER") != std::string::npos ||
+        key.find("LANECOVER") != std::string::npos ||
+        key.find("LINE_OFF") != std::string::npos ||
+        key.find("\\PLAY\\") != std::string::npos ||
+        key.find("/PLAY/") != std::string::npos)
+        return SimpleModeCategory::Gear;
+    return SimpleModeCategory::Unsupported;
+}
+
+std::string SimpleModeCommandLabel(const std::string& command) {
+    if (command == "#SRC_NOTE") return "Normal note";
+    if (command == "#SRC_MINE") return "Mine";
+    if (command == "#SRC_LN_START") return "Long note start";
+    if (command == "#SRC_LN_BODY") return "Long note body";
+    if (command == "#SRC_LN_END") return "Long note end";
+    if (command == "#SRC_LN_BODY_ACTIVE") return "Active long note body";
+    if (command == "#SRC_LN_START_AUTO") return "Auto long note start";
+    if (command == "#SRC_LN_BODY_AUTO") return "Auto long note body";
+    if (command == "#SRC_LN_END_AUTO") return "Auto long note end";
+    if (command == "#SRC_AUTO_NOTE") return "Auto note";
+    if (command == "#SRC_AUTO_MINE") return "Auto mine";
+    if (command == "#SRC_AUTO_LN_START") return "Auto long note start";
+    if (command == "#SRC_AUTO_LN_BODY") return "Auto long note body";
+    if (command == "#SRC_AUTO_LN_END") return "Auto long note end";
+    if (command == "#SRC_NUMBER") return "Number atlas";
+    if (command.find("NOWCOMBO") != std::string::npos) return "Combo number atlas";
+    if (command.find("NOWJUDGE") != std::string::npos) return "Judgement atlas";
+    if (command.find("JUDGELINE") != std::string::npos) return "Judgement line";
+    if (command.find("LINE") != std::string::npos) return "Gear line";
+    return command;
+}
+
+std::vector<SimpleModeSlot> BuildSimpleModeSlots(WORKSPACE& workspace) {
+    std::vector<SimpleModeSlot> slots;
+    std::vector<const SEObjectInstance*> objectByRow(
+        (std::max)(0, workspace.skinfileLines.count), nullptr);
+    const std::vector<SEObjectInstance>& objects =
+        workspace.objectEditorModel.Objects();
+    for (const SEObjectInstance& object : objects) {
+        for (int rowIndex : object.rows) {
+            if (rowIndex >= 0 && rowIndex < (int)objectByRow.size() &&
+                !objectByRow[rowIndex])
+                objectByRow[rowIndex] = &object;
+        }
+    }
+
+    std::map<int, std::string> graphicContexts;
+    for (int graphicIndex = 0; graphicIndex < workspace.arr_SRCGR.count;
+        ++graphicIndex) {
+        SRCGR& graphic = ((SRCGR*)workspace.arr_SRCGR.data)[graphicIndex];
+        std::string& context = graphicContexts[graphic.grID];
+        if (graphic.path.body) {
+            context += " ";
+            context += graphic.path.outstr();
+        }
+        if (graphic.filename.body) {
+            context += " ";
+            context += graphic.filename.outstr();
+        }
+    }
+
+    std::map<std::string, int> commandOccurrences;
+    for (int rowIndex = 0; rowIndex < workspace.skinfileLines.count; ++rowIndex) {
+        SKINFILELINEREAD& row =
+            ((SKINFILELINEREAD*)workspace.skinfileLines.data)[rowIndex];
+        const char* commandText = row.csv.str[0].body
+            ? row.csv.str[0].outstr() : "";
+        if (strncmp(commandText, "#SRC_", 5) != 0) continue;
+        const std::string command(commandText);
+
+        const SEObjectInstance* object = rowIndex < (int)objectByRow.size()
+            ? objectByRow[rowIndex] : nullptr;
+        const SEObjectGroupDef* groupDefinition = object
+            ? workspace.objectEditorModel.Group(object->group) : nullptr;
+        const std::string group = groupDefinition ? groupDefinition->name : "";
+        const std::string objectNameUtf8 = object
+            ? Cp932ToUtf8(object->name.c_str()) : "";
+        const std::string objectId = object && !object->editorId.empty()
+            ? object->editorId : "legacy_row_" + std::to_string(rowIndex + 1);
+
+        int graphicId = 0;
+        ReadCommandField(row.csv, commandText, "gr", graphicId);
+        const std::map<int, std::string>::const_iterator graphicContext =
+            graphicContexts.find(graphicId);
+        const SimpleModeCategory category = ClassifySimpleModeSlot(
+            group, command, objectNameUtf8,
+            graphicContext == graphicContexts.end() ? "" : graphicContext->second);
+        if (category == SimpleModeCategory::Unsupported) continue;
+
+        SimpleModeSlot slot;
+        slot.category = category;
+        slot.objectId = objectId;
+        slot.command = command;
+        slot.row = rowIndex;
+        slot.label = objectNameUtf8.empty() ? SimpleModeCommandLabel(command) :
+            objectNameUtf8 + " - " + SimpleModeCommandLabel(command);
+        const std::string occurrenceKey = objectId + "\n" + command;
+        const int commandOrdinal = commandOccurrences[occurrenceKey]++;
+        slot.id = objectId + ":" + command + ":" +
+            std::to_string(commandOrdinal);
+        slot.graphicId = graphicId;
+        ReadCommandField(row.csv, commandText, "x", slot.x);
+        ReadCommandField(row.csv, commandText, "y", slot.y);
+        ReadCommandField(row.csv, commandText, "w", slot.width);
+        ReadCommandField(row.csv, commandText, "h", slot.height);
+        ReadCommandField(row.csv, commandText, "div_x", slot.divX);
+        ReadCommandField(row.csv, commandText, "div_y", slot.divY);
+        ReadCommandField(row.csv, commandText, "cycle", slot.cycle);
+        slot.divX = (std::max)(1, slot.divX);
+        slot.divY = (std::max)(1, slot.divY);
+        const int imageIndex = workspace.FindIMG(slot.graphicId, slot.x,
+            slot.y, slot.width, slot.height, row.ifgroup);
+        if (imageIndex >= 0 && imageIndex < workspace.arr_IMG.count)
+            slot.imageIndex = imageIndex;
+        slots.push_back(std::move(slot));
+    }
+
+    return slots;
+}
+
+SESimpleModeCategoryCounts SimpleModeCategoryCountsFor(WORKSPACE& workspace) {
+    SESimpleModeCategoryCounts counts;
+    for (const SimpleModeSlot& slot : BuildSimpleModeSlots(workspace)) {
+        switch (slot.category) {
+        case SimpleModeCategory::NumberFonts: ++counts.numberFonts; break;
+        case SimpleModeCategory::JudgementFonts: ++counts.judgementFonts; break;
+        case SimpleModeCategory::Gear: ++counts.gear; break;
+        case SimpleModeCategory::Notes: ++counts.notes; break;
+        default: break;
+        }
+    }
+    return counts;
+}
+
+bool WriteSimpleModeAssetFields(WORKSPACE& workspace,
+    const std::vector<SimpleModeSlot>& slots, const SimpleModeSlot& target,
+    bool applySameCommand, int graphicId, int x, int y, int width, int height,
+    int divX, int divY, int cycle, int& changedSlotCount,
+    std::string& errorMessage) {
+    changedSlotCount = 0;
+    errorMessage.clear();
+    const char* fieldNames[] = {
+        "gr", "x", "y", "w", "h", "div_x", "div_y", "cycle"
+    };
+    const int values[] = {
+        graphicId, x, y, width, height,
+        (std::max)(1, divX), (std::max)(1, divY), (std::max)(0, cycle)
+    };
+    for (const SimpleModeSlot& slot : slots) {
+        if (slot.row != target.row && (!applySameCommand ||
+            slot.category != target.category || slot.command != target.command))
+            continue;
+        if (slot.row < 0 || slot.row >= workspace.skinfileLines.count) continue;
+        for (int field = 0; field < 8; ++field) {
+            const int column = FindCommandFieldColumn(slot.command.c_str(),
+                fieldNames[field]);
+            if (column < 0) {
+                errorMessage = "The LR2 command schema has no " +
+                    std::string(fieldNames[field]) + " field for " + slot.command + ".";
+                return false;
+            }
+            if (workspace.EditValue(slot.row, column, values[field]) != 0) {
+                errorMessage = "Could not update row " +
+                    std::to_string(slot.row + 1) + ".";
+                return false;
+            }
+        }
+        ++changedSlotCount;
+    }
+    if (changedSlotCount == 0) {
+        errorMessage = "The selected Simple Mode slot is no longer available.";
+        return false;
+    }
+    return true;
+}
+
 std::string OlrSemanticCategory(const std::string& group,
     const std::string& sourceCommand) {
     const std::string key = OlrUpperAscii(group + " " + sourceCommand);
@@ -7305,6 +7599,10 @@ std::string OlrInferExportMainPath(const char* mainSkinPath,
 
 } // namespace
 
+SESimpleModeCategoryCounts WORKSPACE::GetSimpleModeCategoryCounts() {
+    return SimpleModeCategoryCountsFor(*this);
+}
+
 int WORKSPACE::ExportOlrSkin(const char* packagePath,
     std::string& resultMessage) {
     resultMessage.clear();
@@ -7366,6 +7664,25 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         semantic.category = OlrSemanticCategory(semantic.group,
             semantic.sourceCommand);
         document.objects.push_back(std::move(semantic));
+    }
+
+    for (const SimpleModeSlot& slot : BuildSimpleModeSlots(*this)) {
+        SEOLRSimpleSlot semanticSlot;
+        semanticSlot.id = slot.id;
+        semanticSlot.category = SimpleModeCategoryKey(slot.category);
+        semanticSlot.label = slot.label;
+        semanticSlot.objectId = slot.objectId;
+        semanticSlot.sourceCommand = slot.command;
+        semanticSlot.sourceRow = slot.row + 1;
+        semanticSlot.graphicId = slot.graphicId;
+        semanticSlot.x = slot.x;
+        semanticSlot.y = slot.y;
+        semanticSlot.width = slot.width;
+        semanticSlot.height = slot.height;
+        semanticSlot.divX = slot.divX;
+        semanticSlot.divY = slot.divY;
+        semanticSlot.cycle = slot.cycle;
+        document.simpleSlots.push_back(std::move(semanticSlot));
     }
 
     std::map<std::string, std::string> virtualRootSources;
@@ -7504,6 +7821,7 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
     }
     std::ostringstream summary;
     summary << "Exported " << packageInfo.objectCount << " semantic objects, "
+        << packageInfo.simpleSlotCount << " Simple Mode slots, "
         << packageInfo.virtualRootCount << " virtual LR2 roots and "
         << packageInfo.virtualFileCount << " virtual files.";
     if (packageInfo.assetCount > packageInfo.virtualFileCount)
@@ -7603,7 +7921,8 @@ int WORKSPACE::ImportOlrSkinInteractive() {
 
     olrPackageState = 1;
     std::ostringstream result;
-    result << "Imported " << packageInfo.objectCount << " semantic objects and "
+    result << "Imported " << packageInfo.objectCount << " semantic objects, "
+        << packageInfo.simpleSlotCount << " Simple Mode slots and "
         << packageInfo.assetCount << " assets from " << packageInfo.virtualRootCount
         << " virtual LR2 roots to " << extractedMainPath;
     if (packageInfo.unresolvedImageCount > 0)
@@ -7625,7 +7944,7 @@ int WORKSPACE::ExportLr2SkinInteractive() {
     if (!loaded || !SEIsOLRVirtualWorkspace(mainpath)) {
         olrPackageState = -1;
         olrPackageMessage =
-            "Import an OLR V0.2 package before exporting an install-ready LR2 folder.";
+            "Import an OLR V0.2+ package before exporting an install-ready LR2 folder.";
         olrImportResultPopupRequested = true;
         return -1;
     }
@@ -7712,7 +8031,7 @@ int WORKSPACE::drawSaveMenu2() {
         }
 
         ImGui::TextWrapped("Create one portable .olrskin file from the loaded LR2 workspace.");
-        ImGui::TextDisabled("V0.2 writes a semantic index, merged LR2 script and virtual LR2 resource roots.");
+        ImGui::TextDisabled("V0.3 writes Simple Mode slots, a merged LR2 script and virtual resource roots.");
         if (ImGui::Button("BROWSE"))
             BrowseOlrSavePath(newPath, newPath, sizeof(newPath));
         ImGui::SameLine();
@@ -8284,138 +8603,343 @@ int WORKSPACE::drawNewskin() {
     return 0;
 }
 
-int WORKSPACE::drawSimplePreview() {
+int WORKSPACE::ApplySimpleModeAsset(int targetRow, int imageIndex,
+    bool applySameCommand, std::string& resultMessage) {
+    resultMessage.clear();
+    if (imageIndex < 0 || imageIndex >= arr_IMG.count) {
+        resultMessage = "Choose a compatible image Asset first.";
+        return -1;
+    }
+    const std::vector<SimpleModeSlot> slots = BuildSimpleModeSlots(*this);
+    const auto target = std::find_if(slots.begin(), slots.end(),
+        [targetRow](const SimpleModeSlot& slot) { return slot.row == targetRow; });
+    if (target == slots.end()) {
+        resultMessage = "The selected Simple Mode slot is no longer available.";
+        return -1;
+    }
+
+    IMG& asset = ((IMG*)arr_IMG.data)[imageIndex];
+    int divX = 1;
+    int divY = 1;
+    int cycle = 0;
+    int timer = 0;
+    ResolveIMGDivision(imageIndex, divX, divY, cycle, timer);
+    const SkinDocumentSnapshot before = CaptureDocumentSnapshot();
+    const bool previousApplyingHistory = applyingHistory;
+    applyingHistory = true;
+    int changedSlotCount = 0;
+    std::string errorMessage;
+    const bool changed = WriteSimpleModeAssetFields(*this, slots, *target,
+        applySameCommand, asset.gr, asset.x, asset.y, asset.w, asset.h,
+        divX, divY, cycle, changedSlotCount, errorMessage);
+    applyingHistory = previousApplyingHistory;
+    if (!changed) {
+        RestoreDocumentSnapshot(before);
+        resultMessage = errorMessage;
+        return -1;
+    }
+
+    historyDocumentSnapshots.push_back(before);
+    HISTORY* history = (HISTORY*)arr_history.Get_new();
+    if (!history) {
+        RestoreDocumentSnapshot(before);
+        resultMessage = "The replacement could not be added to History.";
+        return -1;
+    }
+    history->op = restoreDocument;
+    history->target = (int)historyDocumentSnapshots.size() - 1;
+    SelectIMGAsset(imageIndex, false);
+    resultMessage = "Applied the Asset to " +
+        std::to_string(changedSlotCount) + " component" +
+        (changedSlotCount == 1 ? "." : "s.");
+    return 0;
+}
+
+int WORKSPACE::ImportSimpleModeImage(int targetRow, const char* sourcePath,
+    bool applySameCommand, std::string& resultMessage) {
+    resultMessage.clear();
+    if (!sourcePath || !*sourcePath || !mainpath[0]) {
+        resultMessage = "Choose an image after loading a skin.";
+        return -1;
+    }
+    const std::vector<SimpleModeSlot> slots = BuildSimpleModeSlots(*this);
+    const auto target = std::find_if(slots.begin(), slots.end(),
+        [targetRow](const SimpleModeSlot& slot) { return slot.row == targetRow; });
+    if (target == slots.end()) {
+        resultMessage = "The selected Simple Mode slot is no longer available.";
+        return -1;
+    }
+
+    PDIRECT3DTEXTURE9 probeTexture = NULL;
+    int imageWidth = 0;
+    int imageHeight = 0;
+    if (!LoadTextureFromFile(sourcePath, &probeTexture, &imageWidth, &imageHeight)) {
+        resultMessage = "The selected file is not a supported image.";
+        return -1;
+    }
+    if (probeTexture) probeTexture->Release();
+
+    std::error_code filesystemError;
+    const std::filesystem::path mainFile = std::filesystem::absolute(
+        std::filesystem::path(mainpath), filesystemError);
+    if (filesystemError) {
+        resultMessage = "The current skin folder could not be resolved.";
+        return -1;
+    }
+    const std::filesystem::path assetFolder =
+        mainFile.parent_path() / "simple-assets";
+    std::filesystem::create_directories(assetFolder, filesystemError);
+    if (filesystemError) {
+        resultMessage = "The simple-assets folder could not be created.";
+        return -1;
+    }
+    const std::filesystem::path input(sourcePath);
+    std::string stem = input.stem().string();
+    if (stem.empty()) stem = "simple_asset";
+    std::string extension = input.extension().string();
+    if (extension.empty()) extension = ".png";
+    std::filesystem::path copiedPath;
+    for (int suffix = 0; suffix < 10000; ++suffix) {
+        std::string filename = stem;
+        if (suffix > 0) filename += "_" + std::to_string(suffix);
+        copiedPath = assetFolder / (filename + extension);
+        if (!std::filesystem::exists(copiedPath, filesystemError) &&
+            !filesystemError) break;
+        filesystemError.clear();
+    }
+    if (!std::filesystem::copy_file(input, copiedPath,
+        std::filesystem::copy_options::none, filesystemError) || filesystemError) {
+        resultMessage = "The image could not be copied into simple-assets.";
+        return -1;
+    }
+
+    const SkinDocumentSnapshot before = CaptureDocumentSnapshot();
+    const bool previousApplyingHistory = applyingHistory;
+    applyingHistory = true;
+    std::string registrationError;
+    const int graphicId = RegisterGeneratedImage(copiedPath.string().c_str(),
+        imageWidth, imageHeight, registrationError);
+    int changedSlotCount = 0;
+    std::string editError;
+    const bool changed = graphicId >= 0 && WriteSimpleModeAssetFields(*this,
+        slots, *target, applySameCommand, graphicId, 0, 0, imageWidth,
+        imageHeight, target->divX, target->divY, target->cycle,
+        changedSlotCount, editError);
+    applyingHistory = previousApplyingHistory;
+    if (!changed) {
+        RestoreDocumentSnapshot(before);
+        std::filesystem::remove(copiedPath, filesystemError);
+        resultMessage = graphicId < 0 ? registrationError : editError;
+        return -1;
+    }
+
+    historyDocumentSnapshots.push_back(before);
+    HISTORY* history = (HISTORY*)arr_history.Get_new();
+    if (!history) {
+        RestoreDocumentSnapshot(before);
+        std::filesystem::remove(copiedPath, filesystemError);
+        resultMessage = "The imported replacement could not be added to History.";
+        return -1;
+    }
+    history->op = restoreDocument;
+    history->target = (int)historyDocumentSnapshots.size() - 1;
+    simpleModeCandidateAsset = -1;
+    resultMessage = "Imported " + Cp932ToUtf8(copiedPath.filename().string().c_str()) +
+        " and applied it to " + std::to_string(changedSlotCount) +
+        " component" + (changedSlotCount == 1 ? "." : "s.");
+    return 0;
+}
+
+int WORKSPACE::drawSimpleMode() {
     char title[260];
-    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::SimplePreview, num);
-    if (ImGui::Begin(title, &wSimplePreview, ImGuiWindowFlags_AlwaysHorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
-        //ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        //
-        //ImVec2 pb = ImGui::GetCursorScreenPos();
-        //pb.x += 400;
-        //pb.y += 400;
-        ////ImVec2 bgSize = { skinSizeX,skinSizeY };
-        //ImGui::Dummy(pb);
-        //draw_list->AddRectFilled(pb, { skinSizeX+pb.x,skinSizeY+pb.y }, 0xFF000000, 0, ImDrawFlags_None);
-        //
-        //ImGui::SetCursorScreenPos(pb);
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::SimpleMode, num);
+    if (!ImGui::Begin(title, &wSimpleMode)) {
+        ImGui::End();
+        return 0;
+    }
 
-        //DST *dst = ((DST*)arr_DST.data);
+    const std::vector<SimpleModeSlot> slots = BuildSimpleModeSlots(*this);
+    ImGui::TextUnformatted("Change the visible skin without editing LR2 CSV columns.");
+    ImGui::TextDisabled("Pick a component, then reuse compatible art or import a new image.");
+    ImGui::Separator();
 
-        ////for (int i = 0; i < arr_DST.count; i++) {
-        ////    ImGui::SetCursorScreenPos(pb);
-        ////    ImVec2 PointTopLeft = { (float)dst[i].x, (float)dst[i].y };
-        ////    ImVec2 PointBottomRight = { (float)dst[i].x + dst[i].w, (float)dst[i].y + dst[i].h };
-        ////    //ImVec4 xywh = {PointTopLeft , PointBottomRight };
-        ////    draw_list->AddRectFilled(PointTopLeft, PointBottomRight, (0xFF000000 | (0xFF0000 >> i)), 0, ImDrawFlags_None);
+    if (ImGui::BeginTable("SimpleModeCategories", 4,
+        ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+        for (int categoryIndex = 0; categoryIndex < 4; ++categoryIndex) {
+            ImGui::TableNextColumn();
+            const SimpleModeCategory category = (SimpleModeCategory)categoryIndex;
+            int count = 0;
+            for (const SimpleModeSlot& slot : slots)
+                if (slot.category == category) ++count;
+            char categoryLabel[96] = {};
+            snprintf(categoryLabel, sizeof(categoryLabel), "%s  %d",
+                SimpleModeCategoryTitle(category), count);
+            if (ImGui::Selectable(categoryLabel,
+                simpleModeCategory == categoryIndex, 0, ImVec2(0, 28))) {
+                simpleModeCategory = categoryIndex;
+                simpleModeSelectedSlotId.clear();
+                simpleModeCandidateAsset = -1;
+            }
+        }
+        ImGui::EndTable();
+    }
+    ImGui::Separator();
 
-        ////    //drawSrc(((SRC*)arr_SRC.data)[dst[i].src].gr, dst[i].src, dst[i].x, dst[i].y);
-        ////    ImGui::Dummy({ (float)dst[i].w, (float)dst[i].h });
-        ////}
+    const SimpleModeCategory activeCategory =
+        (SimpleModeCategory)(std::max)(0, (std::min)(3, simpleModeCategory));
+    std::vector<const SimpleModeSlot*> categorySlots;
+    for (const SimpleModeSlot& slot : slots)
+        if (slot.category == activeCategory) categorySlots.push_back(&slot);
+    const SimpleModeSlot* selectedSlot = nullptr;
+    for (const SimpleModeSlot* slot : categorySlots)
+        if (slot->id == simpleModeSelectedSlotId) selectedSlot = slot;
+    if (!selectedSlot && !categorySlots.empty()) {
+        selectedSlot = categorySlots.front();
+        simpleModeSelectedSlotId = selectedSlot->id;
+        simpleModeCandidateAsset = selectedSlot->imageIndex;
+    }
 
-        //skinSizeX;
-        //skinSizeY;
-        ////zoom in zoom out
-        //
-        //
+    const float listWidth = (std::max)(230.0f, ImGui::GetContentRegionAvail().x * 0.40f);
+    if (ImGui::BeginChild("SimpleModeComponents", ImVec2(listWidth, 0), true)) {
+        ImGui::Text("%s components", SimpleModeCategoryTitle(activeCategory));
+        ImGui::Separator();
+        if (categorySlots.empty()) {
+            SEUI::EmptyState("No compatible components",
+                "This skin has no source rows classified in this group.");
+        }
+        for (const SimpleModeSlot* slot : categorySlots) {
+            ImGui::PushID(slot->row);
+            if (ImGui::Selectable(slot->label.c_str(),
+                slot->id == simpleModeSelectedSlotId)) {
+                simpleModeSelectedSlotId = slot->id;
+                simpleModeCandidateAsset = slot->imageIndex;
+                simpleModeStatus.clear();
+            }
+            ImGui::TextDisabled("%s  row %d  gr %d  %dx%d",
+                slot->command.c_str(), slot->row + 1, slot->graphicId,
+                slot->width, slot->height);
+            ImGui::PopID();
+        }
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
 
+    if (ImGui::BeginChild("SimpleModeEditor", ImVec2(0, 0), true)) {
+        if (!selectedSlot) {
+            SEUI::EmptyState("Choose a component",
+                "Select a categorized source on the left to change its art.");
+        } else {
+            ImGui::TextWrapped("%s", selectedSlot->label.c_str());
+            ImGui::TextDisabled("%s | atlas %dx%d | grid %dx%d | cycle %d",
+                selectedSlot->command.c_str(), selectedSlot->width,
+                selectedSlot->height, selectedSlot->divX,
+                selectedSlot->divY, selectedSlot->cycle);
+            ImGui::Separator();
 
-        //ImGui::End();
-        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            char candidatePreview[320] = "No compatible Asset";
+            if (simpleModeCandidateAsset >= 0 &&
+                simpleModeCandidateAsset < arr_IMG.count) {
+                IMG& candidate = ((IMG*)arr_IMG.data)[simpleModeCandidateAsset];
+                snprintf(candidatePreview, sizeof(candidatePreview), "%03d  gr %d  %s",
+                    simpleModeCandidateAsset, candidate.gr,
+                    Cp932ToUtf8(candidate.name.body
+                        ? candidate.name.outstr() : "noname").c_str());
+            }
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("Compatible art", candidatePreview)) {
+                std::vector<int> shownAssets;
+                for (const SimpleModeSlot* candidateSlot : categorySlots) {
+                    const int assetIndex = candidateSlot->imageIndex;
+                    if (assetIndex < 0 || assetIndex >= arr_IMG.count ||
+                        std::find(shownAssets.begin(), shownAssets.end(), assetIndex) !=
+                            shownAssets.end()) continue;
+                    shownAssets.push_back(assetIndex);
+                    IMG& asset = ((IMG*)arr_IMG.data)[assetIndex];
+                    char label[384] = {};
+                    snprintf(label, sizeof(label), "%03d  gr %d  %s - %s",
+                        assetIndex, asset.gr,
+                        Cp932ToUtf8(asset.name.body
+                            ? asset.name.outstr() : "noname").c_str(),
+                        candidateSlot->label.c_str());
+                    if (ImGui::Selectable(label,
+                        assetIndex == simpleModeCandidateAsset))
+                        simpleModeCandidateAsset = assetIndex;
+                }
+                ImGui::EndCombo();
+            }
 
-        ImGui::Text("dst animation");
-        ImGui::SameLine(0, 0);
-        ImGui::ColorEdit4("MyColor##3", (float*)&bgColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_None);
-        const ImVec2 pbs = ImGui::GetCursorScreenPos();
-
-        const ImVec2 pb = ImGui::GetCursorPos();
-        ImGui::SetCursorPos(pb);
-        ImGui::Image(transBackground, { (float)skinSizeX, (float)skinSizeY }, { 0,0 }, { skinSizeX / (float)32.0, skinSizeY / (float)32.0 });
-        const ImVec2 belowImage = ImGui::GetCursorPos();
-
-        draw_list->AddRectFilled(pbs, { skinSizeX + pbs.x,skinSizeY + pbs.y }, ImGui::GetColorU32(bgColor), 0, ImDrawFlags_None);
-
-        DST* dst = ((DST*)arr_DST.data);
-
-        for (int i = 0; i < arr_DST.count; i++) {
-            //ImVec2 pos = { pb.x + dst[i].x, pb.y + dst[i].y };
-
-            if (dst[i].src != -1) {
-
-                float dx, dy, dw, dh;
-                float da, dr, dg, db;
-
-                DST_ANIMATION& dstdFirst = ((DST_ANIMATION*)dst[i].arr_animation.data)[0];
-                DST_ANIMATION& dstdLast = ((DST_ANIMATION*)dst[i].arr_animation.data)[dst->arr_animation.count - 1];
-
-                int tStart = dstdFirst.time;
-                int tEnd = dstdLast.time;
-                int viewTime = (int)DstViewTime;
-                dst[i].loop;
-                int t = tEnd;
-                int ani;
-
-                if (tStart <= tEnd && tStart <= viewTime && (0 <= dst[i].loop || viewTime <= tEnd)) {
-                    if (tStart == tEnd || dst[i].loop == tEnd) {
-                        if (viewTime < t) {
-                            t = viewTime;
-                        }
+            if (simpleModeCandidateAsset >= 0 &&
+                simpleModeCandidateAsset < arr_IMG.count) {
+                IMG& asset = ((IMG*)arr_IMG.data)[simpleModeCandidateAsset];
+                const int textureIndex = ResolveIMGTextureIndex(
+                    simpleModeCandidateAsset);
+                if (textureIndex >= 0 && textureIndex < arr_SRCGR.count &&
+                    EnsureSRCGRTexture(textureIndex)) {
+                    SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[textureIndex];
+                    if (graphic.texture && graphic.sizeX > 0 && graphic.sizeY > 0) {
+                        const float previewWidth = 180.0f;
+                        const float sourceWidth = (float)(std::max)(1, asset.w);
+                        const float sourceHeight = (float)(std::max)(1, asset.h);
+                        const float previewHeight = (std::max)(32.0f,
+                            (std::min)(180.0f, previewWidth * sourceHeight / sourceWidth));
+                        const ImVec2 uv0((float)asset.x / graphic.sizeX,
+                            (float)asset.y / graphic.sizeY);
+                        const ImVec2 uv1((float)(asset.x + asset.w) / graphic.sizeX,
+                            (float)(asset.y + asset.h) / graphic.sizeY);
+                        ImGui::Image(graphic.texture,
+                            ImVec2(previewWidth, previewHeight), uv0, uv1);
                     }
-                    else if (dst[i].loop < tEnd) {
-                        t = viewTime;
-                        if (tEnd < viewTime) {
-                            //if (dst[i].loop == -1) continue; // only for SE
-                            t = (int)(viewTime - dst[i].loop) % (tEnd - dst[i].loop) + dst[i].loop;
-                        }
-                    }
-                    else {
-                        t = 0;
-                    }
-
-                    ani = 0;
-                    for (int j = 0; j < dst->arr_animation.count; j++) {
-                        if (((DST_ANIMATION*)dst[i].arr_animation.data)[j].time <= t) {
-                            ani = j;
-                        }
-                    }
-                    DST_ANIMATION dstd1 = ((DST_ANIMATION*)dst[i].arr_animation.data)[ani];
-                    if (t != dstd1.time && ani != dst->arr_animation.count - 1) {
-                        DST_ANIMATION dstd2 = ((DST_ANIMATION*)dst[i].arr_animation.data)[ani + 1];
-                        dx = ChangeValueByTime(dstd1.x, dstd2.x, dstd1.time, dstd2.time, t, dstdFirst.acc);
-                        dy = ChangeValueByTime(dstd1.y, dstd2.y, dstd1.time, dstd2.time, t, dstdFirst.acc);
-                        dw = ChangeValueByTime(dstd1.w, dstd2.w, dstd1.time, dstd2.time, t, dstdFirst.acc);
-                        dh = ChangeValueByTime(dstd1.h, dstd2.h, dstd1.time, dstd2.time, t, dstdFirst.acc);
-
-                        da = ChangeValueByTime(dstd1.a, dstd2.a, dstd1.time, dstd2.time, t, dstdFirst.acc);
-                        dr = ChangeValueByTime(dstd1.r, dstd2.r, dstd1.time, dstd2.time, t, dstdFirst.acc);
-                        dg = ChangeValueByTime(dstd1.g, dstd2.g, dstd1.time, dstd2.time, t, dstdFirst.acc);
-                        db = ChangeValueByTime(dstd1.b, dstd2.b, dstd1.time, dstd2.time, t, dstdFirst.acc);
-                    }
-                    else {
-                        dx = dstd1.x;
-                        dy = dstd1.y;
-                        dw = dstd1.w;
-                        dh = dstd1.h;
-
-                        da = dstd1.a;
-                        dr = dstd1.r;
-                        dg = dstd1.g;
-                        db = dstd1.b;
-                    }
-                    ImVec2 pos = { pb.x + dx, pb.y + dy };
-                    ImGui::SetCursorPos(pos);
-
-                    drawSrc(((SRC*)arr_SRC.data)[dst[i].src].gr, dst[i].src, 0, 0, dw, dh, 1);
-
                 }
             }
 
+            ImGui::Checkbox("Apply to every matching lane / source",
+                &simpleModeApplySameCommand);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                ImGui::SetTooltip("Also replaces every slot in this category using %s.",
+                    selectedSlot->command.c_str());
+
+            ImGui::BeginDisabled(simpleModeCandidateAsset < 0 ||
+                simpleModeCandidateAsset >= arr_IMG.count);
+            if (ImGui::Button("Apply compatible art", ImVec2(190.0f, 0.0f))) {
+                simpleModeStatusState = ApplySimpleModeAsset(selectedSlot->row,
+                    simpleModeCandidateAsset, simpleModeApplySameCommand,
+                    simpleModeStatus) == 0 ? 1 : -1;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Import image...", ImVec2(150.0f, 0.0f))) {
+                char selectedImage[MAX_PATH] = {};
+                if (BrowseSimpleImagePath(selectedImage, sizeof(selectedImage))) {
+                    simpleModeStatusState = ImportSimpleModeImage(
+                        selectedSlot->row, selectedImage,
+                        simpleModeApplySameCommand, simpleModeStatus) == 0 ? 1 : -1;
+                }
+            }
+
+            if (ImGui::Button("Use Asset Browser selection")) {
+                simpleModeStatusState = ApplySimpleModeAsset(selectedSlot->row,
+                    src_selected, simpleModeApplySameCommand,
+                    simpleModeStatus) == 0 ? 1 : -1;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Open Asset Browser")) wAssetBrowser = true;
+            ImGui::SameLine();
+            if (ImGui::Button("Open Preview")) wPreview = true;
+
+            if (!simpleModeStatus.empty()) {
+                ImGui::Separator();
+                ImGui::TextColored(simpleModeStatusState > 0
+                    ? ImVec4(0.35f, 0.85f, 0.40f, 1.0f)
+                    : ImVec4(1.0f, 0.38f, 0.34f, 1.0f),
+                    "%s", simpleModeStatus.c_str());
+            }
         }
-        ImGui::End();
     }
-
-
+    ImGui::EndChild();
+    ImGui::End();
     return 0;
 }
+
 
 int WORKSPACE::drawDstView() {
 

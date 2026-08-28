@@ -29,6 +29,55 @@ int CountCsvColumns(CSTR& line) {
     return count > 30 ? 30 : count;
 }
 
+int RunSimpleModeProjectionSelfTest() {
+    if (arr_CommandHelp.count <= 0 && LoadCommandHelp(nullptr) != 0) return 1;
+
+    WORKSPACE workspace;
+    workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 24);
+    workspace.arr_IMG.Alloc(sizeof(IMG), 4);
+    workspace.arr_SRCGR.Alloc(sizeof(SRCGR), 4);
+
+    const char* sourceRows[] = {
+        "#SRC_NUMBER,0,0,0,0,100,20,10,1,0,0,101,0,4",
+        "#SRC_NOWCOMBO_1P,0,0,0,0,100,20,10,1,0,0,0,0,4",
+        "#SRC_NOWCOMBO_2P,0,0,0,0,100,20,10,1,0,0,0,0,4",
+        "#SRC_NOWJUDGE_1P,0,0,0,0,100,20,1,1,0,0,0,0,0",
+        "#SRC_NOWJUDGE_2P,0,0,0,0,100,20,1,1,0,0,0,0,0",
+        "#SRC_LINE,0,0,0,0,1,1,1,1,0,0,0,0,0",
+        "#SRC_JUDGELINE,0,0,0,0,1,1,1,1,0,0,0,0,0",
+        "#SRC_NOTE,0,0,0,0,20,10,1,1,0,0,0,0,0",
+        "#SRC_MINE,0,0,0,0,20,10,1,1,0,0,0,0,0",
+        "#SRC_LN_START,0,0,0,0,20,10,1,1,0",
+        "#SRC_LN_BODY,0,0,0,0,20,10,1,1,0",
+        "#SRC_LN_END,0,0,0,0,20,10,1,1,0",
+        "#SRC_AUTO_NOTE,0,0,0,0,20,10,1,1,0,0,0,0,0",
+        "#SRC_AUTO_MINE,0,0,0,0,20,10,1,1,0,0,0,0,0",
+        "#SRC_AUTO_LN_START,0,0,0,0,20,10,1,1,0,0,0,0,0",
+        "#SRC_AUTO_LN_BODY,0,0,0,0,20,10,1,1,0,0,0,0,0",
+        "#SRC_AUTO_LN_END,0,0,0,0,20,10,1,1,0,0,0,0,0",
+        "#SRC_IMAGE,0,0,0,0,20,10,1,1,0,0,0,0,0"
+    };
+    for (const char* text : sourceRows) {
+        SKINFILELINEREAD* row =
+            (SKINFILELINEREAD*)workspace.skinfileLines.Get_new();
+        row->line.assign(text);
+        row->numTotal = workspace.skinfileLines.count - 1;
+        row->num = row->numTotal + 1;
+        SplitCSV(row->line, &row->csv, ",");
+        row->csvColumnCount = CountCsvColumns(row->line);
+    }
+
+    // No Object Editor groups are loaded on purpose. Simple Mode must project
+    // the LR2 source contract directly instead of silently becoming empty.
+    const SESimpleModeCategoryCounts counts =
+        workspace.GetSimpleModeCategoryCounts();
+    if (counts.numberFonts != 3) return 2;
+    if (counts.judgementFonts != 2) return 3;
+    if (counts.gear != 2) return 4;
+    if (counts.notes != 10) return 5;
+    return 0;
+}
+
 int RunAssetMetadataSelfTest() {
     if (arr_CommandHelp.count <= 0 &&
         LoadCommandHelp("..\\skinHelper.txt") != 0) return 9;
@@ -587,7 +636,24 @@ SkinDocumentSnapshot WORKSPACE::CaptureDocumentSnapshot() const {
 }
 
 int WORKSPACE::RestoreDocumentSnapshot(const SkinDocumentSnapshot& snapshot) {
-    if ((int)snapshot.lines.size() != skinfileLines.count) return -1;
+    // A Simple Mode import can append #IMAGE and $SRC_IMAGE rows. Resize the
+    // live document before restoring so the whole batch remains one undo step.
+    // InsertLine/DeleteLine still maintain derived declaration indices; the
+    // final structure notification schedules a full parser rebuild.
+    const bool previousApplyingHistory = applyingHistory;
+    applyingHistory = true;
+    while (skinfileLines.count > (int)snapshot.lines.size()) {
+        if (DeleteLine(skinfileLines.count - 1) != 0) {
+            applyingHistory = previousApplyingHistory;
+            return -1;
+        }
+    }
+    while (skinfileLines.count < (int)snapshot.lines.size()) {
+        if (InsertLine(skinfileLines.count) != 0) {
+            applyingHistory = previousApplyingHistory;
+            return -1;
+        }
+    }
 
     for (int row = 0; row < skinfileLines.count; ++row) {
         SKINFILELINEREAD& destination =
@@ -636,6 +702,7 @@ int WORKSPACE::RestoreDocumentSnapshot(const SkinDocumentSnapshot& snapshot) {
     object_editor_select_request = -1;
     preview_selected_obj_valid = false;
     preview_selected_obj_last_valid = false;
+    applyingHistory = previousApplyingHistory;
     NotifyDocumentChanged(DOCUMENT_CHANGE_STRUCTURE);
     return 0;
 }
@@ -1075,7 +1142,7 @@ int WORKSPACE::UndoLastEdit() {
             CSTR insertedLine(((SKINFILELINEREAD*)skinfileLines.data)[target].line);
             result = EditLine(target, insertedLine, oldLine);
         }
-    } else if (operation == moveLine) {
+    } else if (operation == moveLine || operation == restoreDocument) {
         if (target >= 0 && target < (int)historyDocumentSnapshots.size()) {
             // Undo can be requested after Preview/ImageManager have already
             // submitted texture commands this frame. Restore at the next
@@ -1091,7 +1158,8 @@ int WORKSPACE::UndoLastEdit() {
     }
     applyingHistory = false;
 
-    if (result == 0 && operation != moveLine) RestoreObjectSelection();
+    if (result == 0 && operation != moveLine && operation != restoreDocument)
+        RestoreObjectSelection();
     return result;
 }
 

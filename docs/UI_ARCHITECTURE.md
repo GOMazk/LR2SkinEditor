@@ -225,6 +225,32 @@ Save path both recognize them. After rebuild, the generated `$SE_OBJECT_ID`
 drives a one-shot Object Browser selection request; this clears filters/search,
 scrolls to the new row and shows the same Object in Inspector.
 
+### Simple Mode
+
+`WORKSPACE::drawSimpleMode()` projects authoritative LR2 `#SRC_*` rows into four
+authoring groups: number fonts (including NOWCOMBO), judgement fonts, gear parts
+and notes. Object Model names and ids enrich labels and selection when present,
+but they are not a discovery gate; legacy skins and newer note-family commands
+remain visible even when an older `skinObjGroup.txt` does not know them. Each
+card resolves back to one authoritative source row and displays compatible
+`arr_IMG` crops already used by the same group. UI selection stores the Object
+id when available, otherwise a source-row fallback, plus the source command and
+ordinal. It resolves the current row every frame instead of retaining a dynamic
+row index.
+
+Applying art changes only the shared atlas fields (`gr`, crop rectangle,
+division grid and cycle). NUMBER ids, note lane ids, timers, ops, DST placement,
+conditions and owner files remain intact. `Apply to every matching lane / source`
+matches both category and exact source command, so normal notes do not
+accidentally replace mines or long-note parts.
+
+`Import image...` copies the selected bitmap into `simple-assets/`, appends a
+new trailing `#IMAGE` plus `$SRC_IMAGE`, and points the chosen semantic slot at
+that graphic. The document mutation is one snapshot-backed History action;
+Undo restores all touched rows even when the import changed the line count.
+The copied file intentionally remains as an unused local asset after Undo.
+Preview and both asset windows continue to use their existing rebuild path.
+
 For Object Browser labels, naming priority is explicit `$SE_OBJECT_NAME`, then
 the command-specific symbolic SRC value (NUMBER, SLIDER, BUTTON, BARGRAPH or
 TEXT), the first distinct `$op` names, and finally the first distinct non-zero

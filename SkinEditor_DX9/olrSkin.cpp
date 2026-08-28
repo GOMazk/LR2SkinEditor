@@ -165,6 +165,22 @@ void WriteSemanticObject(std::ostringstream& json,
     json << indent << "}";
 }
 
+void WriteSimpleSlot(std::ostringstream& json, const SEOLRSimpleSlot& slot,
+    const char* indent) {
+    json << indent << "{\"id\": \"" << JsonEscape(slot.id)
+        << "\", \"category\": \"" << JsonEscape(slot.category)
+        << "\", \"label\": \"" << JsonEscape(slot.label)
+        << "\", \"object_id\": \"" << JsonEscape(slot.objectId)
+        << "\", \"source_command\": \"" << JsonEscape(slot.sourceCommand)
+        << "\", \"source_row\": " << slot.sourceRow
+        << ", \"asset\": {\"gr\": " << slot.graphicId
+        << ", \"x\": " << slot.x << ", \"y\": " << slot.y
+        << ", \"width\": " << slot.width << ", \"height\": "
+        << slot.height << ", \"div_x\": " << slot.divX
+        << ", \"div_y\": " << slot.divY << ", \"cycle\": "
+        << slot.cycle << "}}";
+}
+
 std::string BuildSkinJson(const SEOLRSkinDocument& document) {
     static const char* categories[] = {
         "gear", "notes", "judge", "combo", "gauge", "bga",
@@ -173,7 +189,7 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
     std::ostringstream json;
     json << "{\n";
     json << "  \"format\": \"olrskin-semantic\",\n";
-    json << "  \"version\": 1,\n";
+    json << "  \"version\": 2,\n";
     json << "  \"metadata\": {\"title\": \"" << JsonEscape(document.title)
         << "\", \"maker\": \"" << JsonEscape(document.maker)
         << "\", \"scene\": \"" << JsonEscape(document.scene) << "\"},\n";
@@ -201,6 +217,13 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
             ? ",\n" : "\n");
     }
     json << "  },\n";
+    json << "  \"simple_mode\": {\"authority\": \"descriptive\", \"slots\": [";
+    for (size_t index = 0; index < document.simpleSlots.size(); ++index) {
+        json << (index ? ",\n" : "\n");
+        WriteSimpleSlot(json, document.simpleSlots[index], "    ");
+    }
+    if (!document.simpleSlots.empty()) json << "\n  ";
+    json << "]},\n";
     json << "  \"compatibility\": {\"authority\": \"lr2/main.lr2skin\", "
         << "\"source_map\": \"compatibility/source-map.json\", "
         << "\"path_map\": \"compatibility/path-map.json\"}\n";
@@ -256,20 +279,21 @@ std::string BuildManifestJson(const SEOLRSkinDocument& document,
     std::ostringstream json;
     json << "{\n"
         << "  \"format\": \"olrskin\",\n"
-        << "  \"version\": 2,\n"
-        << "  \"profile\": \"lr2-vfs-v0.2\",\n"
+        << "  \"version\": 3,\n"
+        << "  \"profile\": \"lr2-simple-v0.3\",\n"
         << "  \"semantic_authority\": \"descriptive\",\n"
         << "  \"lr2_entry\": \"lr2/main.lr2skin\",\n"
         << "  \"skin_entry\": \"skin.json\",\n"
         << "  \"path_map_entry\": \"compatibility/path-map.json\",\n"
         << "  \"object_count\": " << document.objects.size() << ",\n"
+        << "  \"simple_slot_count\": " << document.simpleSlots.size() << ",\n"
         << "  \"asset_count\": " << bundledAssetCount << ",\n"
         << "  \"virtual_root_count\": " << document.virtualRoots.size() << ",\n"
         << "  \"virtual_file_count\": " << virtualFileCount << ",\n"
         << "  \"skipped_virtual_file_count\": " << skippedVirtualFileCount << ",\n"
         << "  \"unresolved_image_count\": " << document.unresolvedImageCount << ",\n"
         << "  \"unresolved_resource_count\": " << document.unresolvedResourceCount << ",\n"
-        << "  \"limitations\": [\"semantic edits remain descriptive\", "
+        << "  \"limitations\": [\"semantic JSON remains descriptive\", "
         << "\"resources outside captured LR2 roots remain external\"]\n"
         << "}\n";
     return json.str();
@@ -716,28 +740,34 @@ bool ValidateManifest(FILE* archive,
     const std::string text(bytes.begin(), bytes.end());
     const bool isVersion1 = text.find("\"version\": 1") != std::string::npos;
     const bool isVersion2 = text.find("\"version\": 2") != std::string::npos;
+    const bool isVersion3 = text.find("\"version\": 3") != std::string::npos;
     if (text.find("\"format\": \"olrskin\"") == std::string::npos ||
-        (!isVersion1 && !isVersion2) ||
+        (!isVersion1 && !isVersion2 && !isVersion3) ||
         text.find("\"lr2_entry\": \"lr2/main.lr2skin\"") == std::string::npos) {
         errorMessage = "The OLR manifest format or version is unsupported.";
         return false;
     }
-    if (isVersion2 && (!hasPathMap || !hasExportMain)) {
-        errorMessage = "The OLR V0.2 package is missing its virtual path metadata.";
+    if ((isVersion2 || isVersion3) && (!hasPathMap || !hasExportMain)) {
+        errorMessage = "The OLR V0.2+ package is missing its virtual path metadata.";
         return false;
     }
     const char* objectKey = "\"object_count\": ";
+    const char* simpleSlotKey = "\"simple_slot_count\": ";
     const char* unresolvedKey = "\"unresolved_image_count\": ";
     const char* rootKey = "\"virtual_root_count\": ";
     const char* skippedKey = "\"skipped_virtual_file_count\": ";
     const char* unresolvedResourceKey = "\"unresolved_resource_count\": ";
     const size_t objectAt = text.find(objectKey);
+    const size_t simpleSlotAt = text.find(simpleSlotKey);
     const size_t unresolvedAt = text.find(unresolvedKey);
     const size_t rootAt = text.find(rootKey);
     const size_t skippedAt = text.find(skippedKey);
     const size_t unresolvedResourceAt = text.find(unresolvedResourceKey);
     if (objectAt != std::string::npos)
         info.objectCount = atoi(text.c_str() + objectAt + strlen(objectKey));
+    if (simpleSlotAt != std::string::npos)
+        info.simpleSlotCount = atoi(text.c_str() + simpleSlotAt +
+            strlen(simpleSlotKey));
     if (unresolvedAt != std::string::npos)
         info.unresolvedImageCount = atoi(text.c_str() + unresolvedAt + strlen(unresolvedKey));
     if (rootAt != std::string::npos)
@@ -1037,18 +1067,59 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
     if (ok) {
         const std::filesystem::path compiledMain = target /
             std::filesystem::path(exportMain);
-        std::filesystem::create_directories(compiledMain.parent_path(), filesystemError);
-        FILE* output = filesystemError ? nullptr : OpenFile(compiledMain.string().c_str(), "wb");
-        bool writeOk = output != nullptr;
-        if (writeOk && fwrite(compiledScript.data(), 1, compiledScript.size(), output) !=
-            compiledScript.size())
-            writeOk = false;
-        if (output && fclose(output) != 0) writeOk = false;
-        if (!writeOk) {
-            errorMessage = "The compiled LR2 main skin could not be written.";
-            ok = false;
+        // Fixed assets are stored beside the extracted compatibility script as
+        // assets/*. The compiled LR2 main keeps those relative declarations,
+        // so materialize the folder beside the final main skin as well.
+        const std::filesystem::path assetRoot = workspace / "assets";
+        if (std::filesystem::is_directory(assetRoot, filesystemError) &&
+            !filesystemError) {
+            std::filesystem::recursive_directory_iterator iterator(assetRoot,
+                std::filesystem::directory_options::skip_permission_denied,
+                filesystemError);
+            const std::filesystem::recursive_directory_iterator end;
+            while (!filesystemError && iterator != end) {
+                const std::filesystem::directory_entry entry = *iterator;
+                iterator.increment(filesystemError);
+                std::error_code entryError;
+                if (entry.is_symlink(entryError) || entryError ||
+                    !entry.is_regular_file(entryError) || entryError)
+                    continue;
+                const std::filesystem::path relative =
+                    entry.path().lexically_relative(assetRoot);
+                const std::filesystem::path destination =
+                    compiledMain.parent_path() / "assets" / relative;
+                std::filesystem::create_directories(destination.parent_path(),
+                    entryError);
+                if (entryError || !std::filesystem::copy_file(entry.path(),
+                    destination, std::filesystem::copy_options::none,
+                    entryError) || entryError) {
+                    errorMessage = "A packaged skin asset could not be materialized: " +
+                        relative.generic_string();
+                    ok = false;
+                    break;
+                }
+                ++exportInfo.copiedFileCount;
+            }
+            if (filesystemError && ok) {
+                errorMessage = "The packaged skin asset tree could not be enumerated.";
+                ok = false;
+            }
         }
-        else exportInfo.mainSkinPath = compiledMain.string();
+        else filesystemError.clear();
+        if (ok) {
+            std::filesystem::create_directories(compiledMain.parent_path(), filesystemError);
+            FILE* output = filesystemError ? nullptr : OpenFile(compiledMain.string().c_str(), "wb");
+            bool writeOk = output != nullptr;
+            if (writeOk && fwrite(compiledScript.data(), 1, compiledScript.size(), output) !=
+                compiledScript.size())
+                writeOk = false;
+            if (output && fclose(output) != 0) writeOk = false;
+            if (!writeOk) {
+                errorMessage = "The compiled LR2 main skin could not be written.";
+                ok = false;
+            }
+            else exportInfo.mainSkinPath = compiledMain.string();
+        }
     }
 
     if (!ok) {

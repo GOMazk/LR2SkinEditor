@@ -1,6 +1,6 @@
 # SkinEditor 현재 개발 상태
 
-기준일: 2026-08-27
+기준일: 2026-08-29
 기준 브랜치: `AI_2`
 주 대상: `Release | Win32(x86)`
 
@@ -36,9 +36,14 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - Preview에서 선택 Object 이동 및 키보드 미세 이동
 - DST 애니메이션 프레임 증감
 - Ctrl+Z 기반 CSV/구조 편집 복구
-- `Simple Mode`에서 숫자 폰트, 판정 폰트, 기어 파트, 노트를 의미별로 모아
+- `Simple Mode`에서 숫자 폰트, 판정 폰트, 기어 파트, 노트, 게이지 소스를 의미별로 모아
   같은 분류의 기존 Asset으로 교체하거나 이미지를 `simple-assets`에 가져오기.
-  노트는 같은 `#SRC_*` 종류의 모든 레인에 한 번에 적용 가능하며 DST/조건은 유지
+  노트는 선택 레인, 같은 흰/검/스크래치 계열, 같은 파트 전체 또는 category 전체,
+  폰트는 1P/2P pair 단위로 적용 범위를 고를 수 있으며 DST/조건은 유지
+- 가져온 이미지에 선택 component의 `div_x/div_y/cycle`을 자동 적용하고 frame grid로
+  균등 분할되지 않는 이미지는 수정 전에 거부. 기존 atlas grid가 같은 후보만 필터 가능
+- Hue/Saturation/Brightness 변형을 원본 atlas에 쓰지 않고 crop한 새 PNG로 만든 뒤
+  같은 scope에 적용. Before/After와 snapshot History Undo 제공
 - 현재 include 구조를 유지하는 Save/Ctrl+S와 `SAVED/MODIFIED` 상태 표시
 - Windows 파일 선택기를 쓰는 Save As와 성공 후 새 메인 스크립트로 작업 경로 전환
 - `File > Open another location` 또는 Skin Browser에서 지정한 외부 폴더의
@@ -46,11 +51,18 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
   기준 경로는 소스 CSV를 바꾸지 않고 실제 LR2 트리 또는 standalone 스킨
   폴더로 가상 해석하여 include, image, custom file/folder, font, helpfile을
   Preview 로드 경계에서 사용
+- 같은 Workspace에서 스킨을 연속으로 바꿀 때 이전 CSV/CSTR/Object/History와
+  LR2 graph/image-font 상태를 소유권에 맞게 해제한 뒤 새 문서를 구성. CP932 리소스
+  경로는 한번 절대 경로가 되면 현재 Windows 코드페이지로 다시 변환하지 않으며,
+  D3DX에는 파일명이 아니라 Win32로 읽은 이미지 바이트를 전달
+- 여러 Workspace가 열려 있을 때 LR2의 song/text/gameplay core buffer와 critical
+  section은 각 `WORKSPACE::g`마다 한 번씩 초기화. 한 Workspace의 재로드에서는
+  재사용하지만 새 Workspace가 첫 스킨을 열 때 process 전역 플래그로 생략하지 않음
 - `File > Export OLR package`에서 현재 Object를 의미별로 분류하고 LR2 호환
   스크립트, 고정 이미지와 해결된 LR2 가상 root를 한 `.olrskin`
   파일로 묶기
-- `File > Import OLR package`에서 패키지를 검증한 뒤 사용자가 고른 위치의 새
-  폴더에만 풀고, 추출한 `main.lr2skin`을 일반 Workspace로 열기
+- `File > Import OLR package`에서 패키지를 검증한 뒤 V0.4 `simple_mode` source
+  asset 필드를 LR2 CSV로 원자적으로 compile하고, 사용자가 고른 새 폴더만 열기
 - Import한 V0.2+ workspace의 `File > Export LR2 folder`에서 `vfs/LR2files`와
   고정 `assets`를 새 출력 폴더로 풀고 현재 편집 스크립트의 경로를 복원
 
@@ -77,21 +89,23 @@ Default locations 전환을 제공하며, 파일을 복사하거나 LR2 설정�
 넘는 경로는 잘라서 열지 않고 오류 또는 건너뜀 상태로 표시한다.
 외부 스킨의 `LR2files\Theme\<name>` 선언은 각 행의 owner include와 main 경로
 조상에서 `<name>` 폴더를 찾는다. wildcard는 펼친 파일명으로 바꾸지 않으며
-기존 LR2 random/custom 선택이 그대로 실행된다.
+기존 LR2 random/custom 선택이 그대로 실행된다. owner/main에서 찾은 열린 스킨의
+가상 루트가 프로세스 작업 폴더의 동명 `LR2files`보다 우선하므로, 편집기 옆의 다른
+스킨 리소스가 standalone 작업을 가리지 않는다.
 목록의 해상도 메타데이터도 공용 LR2 parser에 덧붙이지 않고 `skinResolution.cpp`가
 해당 top-level 파일을 읽어 보정한다. 실제 Open 시에는 전체 include가 펼쳐진 뒤 다시
 판정하므로 Browser의 빠른 메타데이터 판정과 Workspace의 최종 판정을 구분한다.
 
 ### 시나리오 A-2: OLR 중간 포맷으로 공유
 
-`.olrskin` V0.3는 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
+`.olrskin` V0.4는 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
 찾기 쉬운 Semantic index와 원본 동작을 보존하는 Compatibility layer를 함께 담는
 ZIP 컨테이너다. 자세한 계약은 [OLR 포맷 문서](OLRSKIN_FORMAT.md)를 따른다.
 
 ```text
 loaded WORKSPACE
   +-- Object Model -> skin.json (gear/notes/judge/combo/gauge/...)
-  +-- Simple Mode projection -> skin.json (number-fonts/judgement-fonts/gear/notes)
+  +-- Simple Mode source IR -> skin.json (number-fonts/judgement-fonts/gear/notes/gauge)
   +-- expanded CSV -> lr2/main.lr2skin
   +-- resolved LR2 roots -> lr2/vfs/LR2files/*
   +-- other fixed #IMAGE -> lr2/assets/*
@@ -99,12 +113,19 @@ loaded WORKSPACE
   `-- virtual/export map -> compatibility/path-map.json
 ```
 
-V0.3의 `skin.json`은 설명용이다. Simple Mode에서의 변경은 원본 Workspace CSV에
-적용된 뒤 Export 시 슬롯 설명을 다시 만들지만, Export 후 JSON만 직접 수정해도 LR2 스크립트가
-자동 생성되지는 않으며, Import는 `lr2/main.lr2skin`을 기준으로 연다. 이 경계는
-아직 해석하지 못한 LR2 명령, 조건, timer, op, editor metadata를 잃지 않기 위한
-의도된 단계다. Semantic-to-LR2 컴파일은 각 영역의 왕복 테스트를 갖춘 뒤 한 영역씩
-승격한다.
+V0.4는 `skin.json.simple_mode`만 첫 compile authority로 승격한다. Import는 각 slot의
+패키지 `source_row`와 `source_command`가 일치하는지 확인한 뒤 `gr`, source crop,
+`div_x/div_y/cycle`만 바꾼다. 나머지 열과 다른 CSV 행, 조건, timer, op, comment,
+editor metadata는 `lr2/main.lr2skin`에서 그대로 보존한다. 하나라도 잘못되면 새 import
+폴더를 제거하고 부분 결과를 남기지 않는다. `sections`의 gear/notes/judge/gauge 등은
+여전히 discovery index이다. Simple Mode의 gauge source 이미지는 컴파일되지만
+gauge destination/layout 및 animation/event compiler는 영역별 왕복 테스트를 갖춘 뒤
+별도 version에서 승격한다.
+
+Export 전 Workspace row는 include flattening 중 달라질 수 있으므로 Simple Mode의
+`source_row`는 `compatibility/source-map.json`을 통해 packaged LR2 row로 변환한다.
+이 변환 없이 펼친 row를 compiler 주소로 사용하지 않는다. V0.1-V0.3은 계속 기존처럼
+compatibility script를 기준으로 Import한다.
 
 패키지에는 로컬 절대 owner 경로를 기록하지 않는다. main 폴더 내부 include는
 상대 경로, 외부 include는 `<external>/<filename>` label만 source map에 남긴다.
@@ -648,7 +669,7 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 | Object Editor 구조 | Browser와 Inspector를 별도 도킹 창으로 유지 |
 | Object 이름 fallback | 명시 이름, SRC symbolic 이름, op, non-zero timer 순서. 자동 이름은 저장하지 않음 |
 | AI/UI 계약 | `uiCatalog.h`와 자동 UI map을 기준으로 하고 handoff는 context pack과 검증 증거를 포함 |
-| OLR V0.3 authority | Simple Mode는 Workspace CSV를 수정하고 `skin.json` 슬롯은 설명용; `lr2/main.lr2skin`은 왕복 호환 기준이며 `vfs/LR2files`는 LR2 Export 전까지 유지 |
+| OLR V0.4 authority | `skin.json.simple_mode`만 source asset compiler 입력; 지원 밖 행/열과 `sections`는 `lr2/main.lr2skin`이 보존하며 `vfs/LR2files`는 LR2 Export 전까지 유지 |
 
 ## 11. 다음 작업 전 확인
 

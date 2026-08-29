@@ -35,8 +35,8 @@ struct SEOLRAssetInput {
     std::string packagePath;
 };
 
-// Descriptive Simple Mode projection. LR2 CSV remains authoritative; these
-// slots let humans and AI tools find the safe image-replacement boundaries.
+// Compilable Simple Mode projection. V0.4 promotes only these source-asset
+// fields; every unsupported LR2 row remains owned by the compatibility script.
 struct SEOLRSimpleSlot {
     std::string id;
     std::string category;
@@ -82,8 +82,10 @@ struct SEOLRSkinDocument {
 
 struct SEOLRPackageInfo {
     std::vector<std::string> entries;
+    int formatVersion = 0;
     int objectCount = 0;
     int simpleSlotCount = 0;
+    int compiledSimpleSlotCount = 0;
     int assetCount = 0;
     int virtualRootCount = 0;
     int virtualFileCount = 0;
@@ -107,6 +109,14 @@ bool SEWriteOLRSkinPackage(const char* packagePath,
 // extracting it. Only the OLR V0.1 stored method is accepted.
 bool SEInspectOLRSkinPackage(const char* packagePath,
     SEOLRPackageInfo& packageInfo, std::string& errorMessage);
+
+// Compiles V0.4 skin.json Simple Mode slots into an LR2 compatibility script.
+// Only gr/crop/grid/cycle fields of validated #SRC_* rows are changed. Output
+// is assigned only after every slot succeeds, so callers can replace files
+// atomically without exposing a partially compiled document.
+bool SECompileOLRSimpleMode(const std::string& skinJson,
+    const std::string& lr2Script, std::string& compiledScript,
+    int& compiledSlotCount, std::string& errorMessage);
 
 // Extracts the lr2/ subtree only. outputDirectory must not already exist.
 // The returned mainSkinPath is outputDirectory/main.lr2skin.

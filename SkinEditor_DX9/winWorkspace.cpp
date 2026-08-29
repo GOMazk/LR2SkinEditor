@@ -1632,8 +1632,9 @@ int WORKSPACE::LoadSkinScript(char* path) {
             const char* includeText = read->csv.str[1].body ? read->csv.str[1].outstr() : "";
             char includePath[MAX_PATH] = {};
             std::string resolvedInclude;
-            if (SEResolveSkinResourcePath(includeText, canonicalPath, mainpath,
-                resolvedInclude))
+            const bool includeResolved = SEResolveSkinResourcePath(includeText,
+                canonicalPath, mainpath, resolvedInclude);
+            if (includeResolved)
                 strncpy_s(includePath, resolvedInclude.c_str(), _TRUNCATE);
             else {
                 CSTR parent(canonicalPath);
@@ -1643,12 +1644,15 @@ int WORKSPACE::LoadSkinScript(char* path) {
                     strncpy(includePath, includeText, sizeof(includePath) - 1);
             }
             char siblingInclude[MAX_PATH] = {};
-            if (ResolveSiblingPlayPath(includePath, mainpath,
+            if (!includeResolved && ResolveSiblingPlayPath(includePath, mainpath,
                 siblingInclude, sizeof(siblingInclude)))
                 strncpy_s(includePath, siblingInclude, _TRUNCATE);
             if (*includePath) {
-                CSTR tmp(includePath);
-                arr_subpath.push_back(&tmp);
+                // ARR stores raw bytes, so copying a temporary CSTR here leaves
+                // a dangling body pointer as soon as the temporary is destroyed.
+                // Construct the owned path directly in the array instead.
+                CSTR* ownedInclude = (CSTR*)arr_subpath.Get_new();
+                if (ownedInclude) ownedInclude->assign(includePath);
                 const int includeResult = LoadSkinScript(includePath);
                 if (includeResult < 0 && includeResult != -2)
                     WriteSkinLoadLog("Include open failed", includePath);
@@ -1875,6 +1879,34 @@ int WORKSPACE::ParseSkinGraphics() {
     std::vector<GraphicConditionFrame> conditionStack;
     int grCount = 0;
 
+    auto logGraphicFailure = [](int rowIndex, int ifGroup, int graphicId,
+        const char* command, const char* path) {
+        char detail[640] = {};
+        snprintf(detail, sizeof(detail),
+            "row=%d ifgroup=%d gr=%d command=%.32s path=%.480s",
+            rowIndex, ifGroup, graphicId,
+            command ? command : "(null)", path ? path : "(null)");
+        WriteSkinLoadLog("ParseSkin graphic error", detail);
+    };
+
+    auto appendGraphic = [&](const CSTR& path, const char* filename,
+        const SKINFILELINEREAD& declaration, int declarationRow,
+        bool fromWildcard) -> bool {
+        SRCGR* graphic = (SRCGR*)arr_SRCGR.Get_new();
+        if (!graphic) {
+            WriteSkinLoadLog("ParseSkin graphic allocation failed");
+            return false;
+        }
+        graphic->path.assign(&path);
+        if (filename && *filename) graphic->filename.assign(filename);
+        graphic->fromWildcard = fromWildcard;
+        graphic->wildcard = fromWildcard;
+        graphic->grID = grCount;
+        graphic->isIf = declaration.ifgroup;
+        graphic->declare = declarationRow;
+        return true;
+    };
+
     for (int i = 0; i < skinfileLines.count; ++i) {
         SKINFILELINEREAD& read = ((SKINFILELINEREAD*)skinfileLines.data)[i];
         if (read.isComment) continue;
@@ -1903,6 +1935,10 @@ int WORKSPACE::ParseSkinGraphics() {
 
         if (read.csv.str[0].isSame("#CUSTOMFILE")) {
             CSTR* tmpstr = (CSTR*)(arr_CustomFile.Get_new());
+            if (!tmpstr) {
+                WriteSkinLoadLog("ParseSkin custom-file allocation failed");
+                return -1;
+            }
             std::string resolvedPath;
             if (SEResolveSkinResourcePath(read.csv.str[2].outstr(),
                 read.filename.body ? read.filename.outstr() : mainpath,
@@ -1912,7 +1948,6 @@ int WORKSPACE::ParseSkinGraphics() {
         }
 
         else if (read.csv.str[0].isSame("#IMAGE")) {
-            
             CSTR line(read.csv.str[1]);
             std::string resolvedPath;
             if (SEResolveSkinResourcePath(line.outstr(),
@@ -1920,59 +1955,48 @@ int WORKSPACE::ParseSkinGraphics() {
                 mainpath, resolvedPath))
                 line.assign(resolvedPath.c_str());
 
-            bool isWild = false;
-
-            for (int wc = 0; wc < arr_CustomFile.count; wc++) {
-                if (line.isSame(((CSTR*)arr_CustomFile.data)[wc].outstr())) {
-                    isWild = true;
-                    break;
-                }
-            }
-            if (strrchr(line.outstr(), '*')) isWild = true;
-
-            if (!isWild) {
-                SRCGR* tmp = (SRCGR*)(arr_SRCGR.Get_new());
-                tmp->path.assign(line);
-                
+            const int wildcardPosition = line.findStrPos("*");
+            if (wildcardPosition < 0) {
                 char* cur = strrchr(read.csv.str[1].outstr(), '/');
                 if (cur == NULL) cur = strrchr(read.csv.str[1].outstr(), '\\');
-                if (cur)         tmp->filename.assign(cur + 1);
-
-                tmp->grID = grCount;
-                tmp->isIf = read.ifgroup;
-                tmp->declare = i;
-                tmp->wildcard = false;
+                const char* filename = cur ? cur + 1 : read.csv.str[1].outstr();
+                if (!appendGraphic(line, filename, read, i, false)) return -1;
             }
-            
-            else if (isWild) {
+
+            else {
                 WIN32_FIND_DATA FindFileData;
                 HANDLE hFindFile;
 
-                CSTR str1(line.left(line.findStrPos("*")));
-                CSTR str2(line.right(line.length() - str1.length() - 1));
-                CSTR str3(str1);
-                str3.add("*");
+                CSTR directoryPrefix(line.left(wildcardPosition));
+                const int slash = (std::max)(directoryPrefix.findChrBackPos('/'),
+                    directoryPrefix.findChrBackPos('\\'));
+                if (slash >= 0) directoryPrefix = directoryPrefix.left(slash + 1);
+                else directoryPrefix.fillzero();
 
-                hFindFile = FindFirstFileA(str3, (LPWIN32_FIND_DATAA)&FindFileData);
-                if (hFindFile != (HANDLE)-1) {
+                hFindFile = FindFirstFileA(line.outstr(),
+                    (LPWIN32_FIND_DATAA)&FindFileData);
+                if (hFindFile != INVALID_HANDLE_VALUE) {
                     do {
-                        if (strcmp("..", (char*)FindFileData.cFileName) && strcmp(".", (char*)FindFileData.cFileName)) {
-
-                            SRCGR* tmp2 = (SRCGR*)(arr_SRCGR.Get_new());
-                            tmp2->path.assign(str1);
-                            tmp2->path.add(FindFileData.cFileName);
-                            tmp2->filename.assign(FindFileData.cFileName);
-
-                            tmp2->fromWildcard = true;
-                            tmp2->grID = grCount;
-                            tmp2->isIf = read.ifgroup;
-                            tmp2->declare = i;
+                        if (FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                            continue;
+                        CSTR resolvedFile(directoryPrefix);
+                        resolvedFile.add(FindFileData.cFileName);
+                        if (!appendGraphic(resolvedFile, FindFileData.cFileName,
+                            read, i, true)) {
+                            FindClose(hFindFile);
+                            return -1;
                         }
                     } while (FindNextFileA(hFindFile, (LPWIN32_FIND_DATAA)&FindFileData));
                     FindClose(hFindFile);
                 }
             }
 
+            if (!arr_ifunit.data || read.ifgroup < 0 ||
+                read.ifgroup >= arr_ifunit.count) {
+                logGraphicFailure(i, read.ifgroup, grCount,
+                    "invalid-ifgroup", read.csv.str[1].outstr());
+                return -1;
+            }
             grCount++;
             ((IFUNIT*)arr_ifunit.data)[read.ifgroup].grCount++;
         }
@@ -2435,11 +2459,13 @@ int WORKSPACE::LoadSkinGraphicMetadata() {
             if (declaration.filename.body) owner = declaration.filename.outstr();
         }
         std::string resolvedPath;
-        if (SEResolveSkinResourcePath(path.outstr(), owner, mainpath, resolvedPath))
+        const bool resourceResolved = SEResolveSkinResourcePath(path.outstr(),
+            owner, mainpath, resolvedPath);
+        if (resourceResolved)
             path.assign(resolvedPath.c_str());
 
         char siblingAsset[MAX_PATH] = {};
-        if (ResolveSiblingPlayPath(path.outstr(), mainpath,
+        if (!resourceResolved && ResolveSiblingPlayPath(path.outstr(), mainpath,
             siblingAsset, sizeof(siblingAsset)))
             path.assign(siblingAsset);
 
@@ -2468,11 +2494,156 @@ int WORKSPACE::LoadSkinGraphicMetadata() {
 int WORKSPACE::ParseSkin() {
     // Keep the passes explicit. Each phase consumes skinfileLines and only
     // writes its own derived index, making invalidation and debugging local.
+    WriteSkinLoadLog("ParseSkin conditions begin");
     if (ParseSkinConditions() != 0) return -1;
+    WriteSkinLoadLog("ParseSkin conditions complete");
+    WriteSkinLoadLog("ParseSkin objects begin");
     if (ParseSkinLegacyObjectsAndAssets() != 0) return -1;
+    WriteSkinLoadLog("ParseSkin objects complete");
+    WriteSkinLoadLog("ParseSkin graphics begin");
     if (ParseSkinGraphics() != 0) return -1;
+    WriteSkinLoadLog("ParseSkin graphics complete");
+    WriteSkinLoadLog("ParseSkin sources begin");
     if (ParseSkinSourcesAndDestinations() != 0) return -1;
-    return LoadSkinGraphicMetadata();
+    WriteSkinLoadLog("ParseSkin sources complete");
+    WriteSkinLoadLog("ParseSkin metadata begin");
+    const int metadataResult = LoadSkinGraphicMetadata();
+    WriteSkinLoadLog(metadataResult == 0
+        ? "ParseSkin metadata complete" : "ParseSkin metadata failed");
+    return metadataResult;
+}
+
+static void DestroyCsvStrings(CSVbuf& csv) {
+    for (int column = 0; column < 30; ++column) {
+        csv.str[column].~CSTR();
+        csv.str[column].body = NULL;
+    }
+}
+
+static void DestroySkinFileLine(SKINFILELINEREAD& line) {
+    line.filename.~CSTR();
+    line.filename.body = NULL;
+    line.line.~CSTR();
+    line.line.body = NULL;
+    DestroyCsvStrings(line.csv);
+}
+
+static bool ResetArrayStorage(ARR& array, int unitSize, int capacity) {
+    array.Free();
+    return array.Alloc(unitSize, capacity) == 0;
+}
+
+static bool ResetEditorDerivedContainers(WORKSPACE& workspace) {
+    for (int i = 0; i < workspace.arr_SRCGR.count; ++i) {
+        SRCGR& image = ((SRCGR*)workspace.arr_SRCGR.data)[i];
+        if (image.texture) {
+            image.texture->Release();
+            image.texture = NULL;
+        }
+        for (int wildcard = 0; wildcard < image.arr_wildcard.count; ++wildcard) {
+            CSTR& path = ((CSTR*)image.arr_wildcard.data)[wildcard];
+            path.~CSTR();
+            path.body = NULL;
+        }
+        image.arr_wildcard.Free();
+        image.path.~CSTR(); image.path.body = NULL;
+        image.filename.~CSTR(); image.filename.body = NULL;
+        image.name.~CSTR(); image.name.body = NULL;
+    }
+    const bool graphicsReady = ResetArrayStorage(workspace.arr_SRCGR,
+        sizeof(SRCGR), 10);
+
+    for (int i = 0; i < workspace.arr_SRC.count; ++i) {
+        SRC& source = ((SRC*)workspace.arr_SRC.data)[i];
+        source.name.~CSTR();
+        source.name.body = NULL;
+    }
+    const bool sourcesReady = ResetArrayStorage(workspace.arr_SRC,
+        sizeof(SRC), 100);
+
+    for (int i = 0; i < workspace.arr_DST.count; ++i) {
+        DST& destination = ((DST*)workspace.arr_DST.data)[i];
+        destination.name.~CSTR();
+        destination.name.body = NULL;
+        destination.arr_animation.Free();
+    }
+    const bool destinationsReady = ResetArrayStorage(workspace.arr_DST,
+        sizeof(DST), 100);
+
+    for (int i = 0; i < workspace.arr_IMG.count; ++i) {
+        IMG& image = ((IMG*)workspace.arr_IMG.data)[i];
+        image.name.~CSTR();
+        image.name.body = NULL;
+    }
+    const bool imagesReady = ResetArrayStorage(workspace.arr_IMG,
+        sizeof(IMG), 400);
+
+    for (int i = 0; i < workspace.arr_CustomFile.count; ++i) {
+        CSTR& customFile = ((CSTR*)workspace.arr_CustomFile.data)[i];
+        customFile.~CSTR();
+        customFile.body = NULL;
+    }
+    const bool customFilesReady = ResetArrayStorage(workspace.arr_CustomFile,
+        sizeof(CSTR), 10);
+
+    for (int i = 0; i < workspace.arr_seobj.count; ++i) {
+        SEOBJ& object = ((SEOBJ*)workspace.arr_seobj.data)[i];
+        object.name.~CSTR(); object.name.body = NULL;
+        for (int body = 0; body < object.body.count; ++body) {
+            CSTR& bodyLine = ((CSTR*)object.body.data)[body];
+            bodyLine.~CSTR();
+            bodyLine.body = NULL;
+        }
+        object.body.Free();
+        for (int csv = 0; csv < object.bodyCSV.count; ++csv)
+            DestroyCsvStrings(((CSVbuf*)object.bodyCSV.data)[csv]);
+        object.bodyCSV.Free();
+        object.srcc.name.~CSTR(); object.srcc.name.body = NULL;
+        object.dstt.name.~CSTR(); object.dstt.name.body = NULL;
+        object.dstt.arr_animation.Free();
+    }
+    const bool objectsReady = ResetArrayStorage(workspace.arr_seobj,
+        sizeof(SEOBJ), 400);
+    const bool conditionsReady = ResetArrayStorage(workspace.arr_ifunit,
+        sizeof(IFUNIT), 50);
+
+    workspace.currentLeadDST = -1;
+    workspace.oldIf = -1;
+    return graphicsReady && sourcesReady && destinationsReady && imagesReady &&
+        customFilesReady && objectsReady && conditionsReady;
+}
+
+int WORKSPACE::ResetEditorDocumentForLoad() {
+    for (int row = 0; row < skinfileLines.count; ++row)
+        DestroySkinFileLine(((SKINFILELINEREAD*)skinfileLines.data)[row]);
+    const bool linesReady = ResetArrayStorage(skinfileLines,
+        sizeof(SKINFILELINEREAD), 1000);
+
+    for (int path = 0; path < arr_subpath.count; ++path) {
+        CSTR& includePath = ((CSTR*)arr_subpath.data)[path];
+        includePath.~CSTR();
+        includePath.body = NULL;
+    }
+    const bool subpathsReady = ResetArrayStorage(arr_subpath, sizeof(CSTR), 1);
+    const bool derivedReady = ResetEditorDerivedContainers(*this);
+
+    for (int historyIndex = 0; historyIndex < arr_history.count; ++historyIndex) {
+        HISTORY& history = ((HISTORY*)arr_history.data)[historyIndex];
+        DestroySkinFileLine(history.older);
+        DestroySkinFileLine(history.newer);
+    }
+    const bool historyReady = ResetArrayStorage(arr_history, sizeof(HISTORY), 1);
+
+    historyDocumentSnapshots.clear();
+    pendingHistorySnapshotRestore = -1;
+    pendingObjectReorder = false;
+    pendingObjectReorderSource = SEObjectSelectionKey();
+    pendingObjectReorderTarget = SEObjectSelectionKey();
+    objectDeleteDialogRequested = false;
+    pendingObjectDelete = SEObjectSelectionKey();
+    assetBrowserFocusRequest = -1;
+
+    return linesReady && subpathsReady && derivedReady && historyReady ? 0 : -1;
 }
 
 // Structural CSV edits invalidate every editor-side row index. The LR2
@@ -2480,68 +2651,7 @@ int WORKSPACE::ParseSkin() {
 // Manager and Asset Browser use these derived arrays. Rebuild them together so
 // no window observes a half-old model after adding/removing commands.
 int WORKSPACE::RebuildEditorDerivedState() {
-    for (int i = 0; i < arr_SRCGR.count; ++i) {
-        SRCGR& image = ((SRCGR*)arr_SRCGR.data)[i];
-        if (image.texture) {
-            image.texture->Release();
-            image.texture = NULL;
-        }
-        for (int wildcard = 0; wildcard < image.arr_wildcard.count; ++wildcard)
-            ((CSTR*)image.arr_wildcard.data)[wildcard].~CSTR();
-        image.arr_wildcard.Free();
-        image.path.~CSTR();
-        image.filename.~CSTR();
-        image.name.~CSTR();
-    }
-    arr_SRCGR.Free();
-    arr_SRCGR.Alloc(sizeof(SRCGR), 10);
-
-    for (int i = 0; i < arr_SRC.count; ++i)
-        ((SRC*)arr_SRC.data)[i].name.~CSTR();
-    arr_SRC.Free();
-    arr_SRC.Alloc(sizeof(SRC), 100);
-
-    for (int i = 0; i < arr_DST.count; ++i) {
-        DST& destination = ((DST*)arr_DST.data)[i];
-        destination.name.~CSTR();
-        destination.arr_animation.Free();
-    }
-    arr_DST.Free();
-    arr_DST.Alloc(sizeof(DST), 100);
-
-    for (int i = 0; i < arr_IMG.count; ++i)
-        ((IMG*)arr_IMG.data)[i].name.~CSTR();
-    arr_IMG.Free();
-    arr_IMG.Alloc(sizeof(IMG), 400);
-
-    for (int i = 0; i < arr_CustomFile.count; ++i)
-        ((CSTR*)arr_CustomFile.data)[i].~CSTR();
-    arr_CustomFile.Free();
-    arr_CustomFile.Alloc(sizeof(CSTR), 10);
-
-    for (int i = 0; i < arr_seobj.count; ++i) {
-        SEOBJ& object = ((SEOBJ*)arr_seobj.data)[i];
-        object.name.~CSTR();
-        for (int body = 0; body < object.body.count; ++body)
-            ((CSTR*)object.body.data)[body].~CSTR();
-        object.body.Free();
-        for (int csv = 0; csv < object.bodyCSV.count; ++csv) {
-            CSVbuf& values = ((CSVbuf*)object.bodyCSV.data)[csv];
-            for (int column = 0; column < 30; ++column)
-                values.str[column].~CSTR();
-        }
-        object.bodyCSV.Free();
-        object.srcc.name.~CSTR();
-        object.dstt.name.~CSTR();
-        object.dstt.arr_animation.Free();
-    }
-    arr_seobj.Free();
-    arr_seobj.Alloc(sizeof(SEOBJ), 400);
-
-    arr_ifunit.Free();
-    arr_ifunit.Alloc(sizeof(IFUNIT), 50);
-    currentLeadDST = -1;
-    oldIf = -1;
+    if (!ResetEditorDerivedContainers(*this)) return -1;
 
     for (int row = 0; row < skinfileLines.count; ++row) {
         SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
@@ -2571,6 +2681,45 @@ int WORKSPACE::RebuildEditorDerivedState() {
     return result;
 }
 
+static bool ResetLr2RuntimeForSkinLoad(WORKSPACE& workspace) {
+    skstruct& skin = workspace.g.skstruct;
+    if (!skin.drBuf.dstd && AllocDrawingBuffer(&skin.drBuf) == -1)
+        return false;
+
+    // Image-font graphs are not part of InitSkin's ordinary SRC reset. Release
+    // them while the old DxLib graph mode is still active.
+    for (int font = 0; font < 10; ++font) {
+        if (skin.ImageFonts[font].images && skin.ImageFonts[font].chars &&
+            skin.ImageFonts[font].size != 0)
+            InitImageFont(&skin.ImageFonts[font]);
+    }
+
+    // InitSkin releases every derived SRC graph and resets reusable DST/SRC
+    // storage. Doing this before SetGraphMode prevents the next initialization
+    // from trying to delete handles invalidated by a device mode change.
+    InitSkin(&skin, 0, false);
+    for (int graphic = 0; graphic < 200; ++graphic) {
+        if (skin.GrHandle[graphic] >= 0)
+            DeleteGraph(skin.GrHandle[graphic]);
+        skin.GrHandle[graphic] = -1;
+        skin.grIsMovie[graphic] = 0;
+    }
+    skin.count = 0;
+
+    for (int caption = 0; caption < 200; ++caption) {
+        skin.caption[caption].fillzero();
+        skin.caption[caption].assign("(null)");
+    }
+    for (int custom = 0; custom < 100; ++custom) {
+        skin.customfileRANDOM[custom].fillzero();
+        skin.customfile[custom].fillzero();
+    }
+    skin.fontname.fillzero();
+    skin.skinMD5.fillzero();
+    skin.skFontname.fillzero();
+    return true;
+}
+
 int WORKSPACE::LoadSkin(char* path) {
     remove("SkinEditor_load_crash.log");
     WriteSkinLoadLog("LoadSkin begin", path);
@@ -2578,62 +2727,16 @@ int WORKSPACE::LoadSkin(char* path) {
     skinSizeX = meta.targetX;
     skinSizeY = meta.targetY;
 
-    skinfileLines.Free();
-    skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 1000);
-    arr_subpath.Free();
-    arr_subpath.Alloc(sizeof(CSTR), 1);
-    arr_ifunit.Free();
-    arr_ifunit.Alloc(sizeof(IFUNIT), 50);
-
-    // Release the editor-side D3D textures before discarding their records.
-    // This is especially important when switching away from an HD skin with
-    // hundreds of customization images.
-    for (int i = 0; i < arr_SRCGR.count; ++i) {
-        SRCGR& oldImage = ((SRCGR*)arr_SRCGR.data)[i];
-        if (oldImage.texture != NULL) {
-            oldImage.texture->Release();
-            oldImage.texture = NULL;
-        }
+    if (ResetEditorDocumentForLoad() != 0) {
+        WriteSkinLoadLog("Editor document reset failed");
+        return -1;
     }
-    arr_SRCGR.Free();
-    arr_SRCGR.Alloc(sizeof(SRCGR), 10);
-    arr_SRC.Free();
-    arr_SRC.Alloc(sizeof(SRC), 100);
-    arr_CustomFile.Free();
-    arr_CustomFile.Alloc(sizeof(CSTR), 10);
 
-    for (int i = 0; i < arr_DST.count; i++)
-        ((DST*)arr_DST.data)[i].arr_animation.Free();
-    arr_DST.Free();
-    arr_DST.Alloc(sizeof(DST), 100);
-    for (int i = 0; i < arr_DST.count; i++)
-        ((DST*)arr_DST.data)[i].arr_animation.Alloc(sizeof(DST_ANIMATION), 1);
-
-    arr_IMG.Free();
-    arr_IMG.Alloc(sizeof(IMG),400);
-    arr_seobj.Free();
-    arr_seobj.Alloc(sizeof(SEOBJ),400);
-
-    arr_history.Free();
-    arr_history.Alloc(sizeof(HISTORY), 1);
-    historyDocumentSnapshots.clear();
-    pendingHistorySnapshotRestore = -1;
-    pendingObjectReorder = false;
-    pendingObjectReorderSource = SEObjectSelectionKey();
-    pendingObjectReorderTarget = SEObjectSelectionKey();
-    objectDeleteDialogRequested = false;
-    pendingObjectDelete = SEObjectSelectionKey();
-    assetBrowserFocusRequest = -1;
-
-    //LR2
-    // Delete graph handles owned by the previously loaded preview before the
-    // skstruct is reset. Otherwise memset loses the handles and leaks all
-    // DxLib graph memory across skin changes.
-    for (int i = 0; i < g.skstruct.count && i < 200; ++i) {
-        if (g.skstruct.GrHandle[i] >= 0) {
-            DeleteGraph(g.skstruct.GrHandle[i]);
-            g.skstruct.GrHandle[i] = -1;
-        }
+    // LR2 runtime allocations are reused across loads, but every graph handle
+    // must be released before a possible SetGraphMode device reset.
+    if (!ResetLr2RuntimeForSkinLoad(*this)) {
+        WriteSkinLoadLog("LR2 runtime reset failed");
+        return -1;
     }
 
     // Changing DxLib's graph mode invalidates every graph handle. Do it before
@@ -2652,23 +2755,7 @@ int WORKSPACE::LoadSkin(char* path) {
     previewTextureDirty = true;
     previewSimulationPlaying = false;
 
-    for (int i = 0; i < 200; i++) g.skstruct.caption[i].fillzero();
-    for (int i = 0; i < 10; i++) g.skstruct.helpfilePath[i].fillzero();
-    for (int i = 0; i < 20; i++) g.skstruct.customfileRANDOM[i].fillzero();
-    for (int i = 0; i < 20; i++) g.skstruct.customfile[i].fillzero();
-    g.skstruct.skinMD5.fillzero();
-    g.skstruct.skFontname.fillzero();
-    memset(&g.skstruct, 0, sizeof(skstruct));
-    for (int i = 0; i < 200; i++) g.skstruct.caption[i].fillzero();
-    for (int i = 0; i < 200; i++) g.skstruct.caption[i].assign("(null)");
-    for (int i = 0; i < 200; i++) g.skstruct.GrHandle[i] = -1;
-    for (int i = 0; i < 10; i++) g.skstruct.helpfilePath[i].fillzero();
-    for (int i = 0; i < 10; i++) g.skstruct.helpfilePath[i].assign("(null)");
-    //g.skstruct.skFontname.assign(&config.skin.fontname);
-    //g.skstruct.disableimagefont = (config.skin.disableimagefont != 0);
-    g.skstruct.skinMD5.fillzero();
     g.skstruct.skinMD5.resize2(34);
-    AllocDrawingBuffer(&g.skstruct.drBuf);
     // SkinEditor does not provide audio playback. Keep every inherited LR2
     // audio entry point on its disabled path so fmod.dll is optional.
     g.audio.is_fmod_disabled = 1;
@@ -2714,10 +2801,17 @@ int WORKSPACE::LoadSkin(char* path) {
     // used while ParseSkin decides which image branches to keep. Prepare the
     // standalone scene state first; doing this after ParseSkin left complex
     // RESULT skins with only their unconditional chart objects.
-    LR2SEInit(&g);
+    if (LR2SEInit(&g, !lr2CoreInitialized) != 0) {
+        WriteSkinLoadLog("LR2SE core initialization failed");
+        return -1;
+    }
+    lr2CoreInitialized = true;
     LR2SEPreparePreviewState(&g, meta.type);
     WriteSkinLoadLog("LR2SE preview state prepared");
-    ParseSkin();
+    if (ParseSkin() != 0) {
+        WriteSkinLoadLog("ParseSkin failed");
+        return -1;
+    }
     WriteSkinLoadLog("ParseSkin complete");
     if (objectEditorModel.Groups().empty())
         objectEditorModel.LoadGroups("..\\skinObjGroup.txt");
@@ -2727,9 +2821,9 @@ int WORKSPACE::LoadSkin(char* path) {
         GetSimpleModeCategoryCounts();
     char simpleModeSummary[160] = {};
     snprintf(simpleModeSummary, sizeof(simpleModeSummary),
-        "number=%d judgement=%d gear=%d notes=%d",
+        "number=%d judgement=%d gear=%d notes=%d gauge=%d",
         simpleModeCounts.numberFonts, simpleModeCounts.judgementFonts,
-        simpleModeCounts.gear, simpleModeCounts.notes);
+        simpleModeCounts.gear, simpleModeCounts.notes, simpleModeCounts.gauge);
     WriteSkinLoadLog("Simple Mode projection", simpleModeSummary);
     
     WriteSkinLoadLog("LR2SEInit complete");
@@ -2780,7 +2874,12 @@ int WORKSPACE::LoadSkin(char* path) {
     simpleModeCategory = 0;
     simpleModeSelectedSlotId.clear();
     simpleModeCandidateAsset = -1;
-    simpleModeApplySameCommand = false;
+    simpleModeApplyScope = 0;
+    simpleModeOnlyCompatibleGrid = true;
+    simpleModeUseTargetAtlasGrid = true;
+    simpleModeHueShift = 0.0f;
+    simpleModeSaturationPercent = 0.0f;
+    simpleModeBrightnessPercent = 0.0f;
     simpleModeStatus.clear();
     simpleModeStatusState = 0;
     newObjectCsvInitialized = false;
@@ -3316,12 +3415,15 @@ int WORKSPACE::ReadSkinSE() {
                                 }
                             }
                             std::string resolvedImage;
-                            if (SEResolveSkinResourcePath(csv.str[1].outstr(),
+                            const bool imageResolved = SEResolveSkinResourcePath(
+                                csv.str[1].outstr(),
                                 read.filename.body ? read.filename.outstr() : mainpath,
-                                mainpath, resolvedImage))
+                                mainpath, resolvedImage);
+                            if (imageResolved)
                                 csv.str[1].assign(resolvedImage.c_str());
                             char siblingImage[MAX_PATH] = {};
-                            if (ResolveSiblingPlayPath(csv.str[1].outstr(), mainpath,
+                            if (!imageResolved && ResolveSiblingPlayPath(
+                                csv.str[1].outstr(), mainpath,
                                 siblingImage, sizeof(siblingImage)))
                                 csv.str[1].assign(siblingImage);
                             CSTR temp(GetRandomFileNoError(csv.str[1], dir), 0);
@@ -4001,12 +4103,15 @@ int WORKSPACE::ReadSkinSE() {
             else if (fBuf.left(11).isSame("#CUSTOMFILE")) {
                 SplitCSV(fBuf, &csv, ",");
                 std::string resolvedCustom;
-                if (SEResolveSkinResourcePath(csv.str[2].outstr(),
+                const bool customResolved = SEResolveSkinResourcePath(
+                    csv.str[2].outstr(),
                     read.filename.body ? read.filename.outstr() : mainpath,
-                    mainpath, resolvedCustom))
+                    mainpath, resolvedCustom);
+                if (customResolved)
                     csv.str[2].assign(resolvedCustom.c_str());
                 char siblingCustom[MAX_PATH] = {};
-                if (ResolveSiblingPlayPath(csv.str[2].outstr(), mainpath,
+                if (!customResolved && ResolveSiblingPlayPath(
+                    csv.str[2].outstr(), mainpath,
                     siblingCustom, sizeof(siblingCustom)))
                     csv.str[2].assign(siblingCustom);
                 sk->customfileRANDOM[sk->customfile_count].assign(&csv.str[2]);
@@ -7101,6 +7206,7 @@ enum class SimpleModeCategory {
     JudgementFonts,
     Gear,
     Notes,
+    Gauge,
     Unsupported
 };
 
@@ -7111,6 +7217,7 @@ struct SimpleModeSlot {
     std::string label;
     std::string command;
     int row = -1;
+    int sourceIndex = -1;
     int imageIndex = -1;
     int graphicId = 0;
     int x = 0;
@@ -7122,12 +7229,72 @@ struct SimpleModeSlot {
     int cycle = 0;
 };
 
+enum class SimpleModeLaneFamily {
+    Unknown,
+    Scratch,
+    White,
+    Black
+};
+
+SimpleModeLaneFamily SimpleModeLaneFamilyFor(int sourceIndex) {
+    if (sourceIndex < 0) return SimpleModeLaneFamily::Unknown;
+    const int lane = sourceIndex % 10;
+    if (lane == 0) return SimpleModeLaneFamily::Scratch;
+    if (lane == 1 || lane == 3 || lane == 5 || lane == 7)
+        return SimpleModeLaneFamily::White;
+    if (lane == 2 || lane == 4 || lane == 6)
+        return SimpleModeLaneFamily::Black;
+    return SimpleModeLaneFamily::Unknown;
+}
+
+const char* SimpleModeLaneFamilyTitle(SimpleModeLaneFamily family) {
+    switch (family) {
+    case SimpleModeLaneFamily::Scratch: return "scratch";
+    case SimpleModeLaneFamily::White: return "white";
+    case SimpleModeLaneFamily::Black: return "black";
+    default: return "other";
+    }
+}
+
+std::string SimpleModeCommandFamily(std::string command) {
+    if (command.size() > 3) {
+        const std::string suffix = command.substr(command.size() - 3);
+        if (suffix == "_1P" || suffix == "_2P") command.resize(command.size() - 3);
+    }
+    return command;
+}
+
+bool SimpleModeSlotMatchesScope(const SimpleModeSlot& candidate,
+    const SimpleModeSlot& target, int applyScope) {
+    if (candidate.row == target.row) return true;
+    if (candidate.category != target.category || applyScope <= 0) return false;
+    if (applyScope >= 3) return true;
+    if (applyScope == 2) return candidate.command == target.command;
+
+    if (target.category == SimpleModeCategory::Notes) {
+        const SimpleModeLaneFamily targetFamily =
+            SimpleModeLaneFamilyFor(target.sourceIndex);
+        const SimpleModeLaneFamily candidateFamily =
+            SimpleModeLaneFamilyFor(candidate.sourceIndex);
+        return candidate.command == target.command &&
+            (targetFamily == SimpleModeLaneFamily::Unknown
+                ? candidate.sourceIndex == target.sourceIndex
+                : candidateFamily == targetFamily);
+    }
+    if (target.category == SimpleModeCategory::NumberFonts ||
+        target.category == SimpleModeCategory::JudgementFonts)
+        return SimpleModeCommandFamily(candidate.command) ==
+            SimpleModeCommandFamily(target.command);
+    return candidate.command == target.command;
+}
+
 const char* SimpleModeCategoryKey(SimpleModeCategory category) {
     switch (category) {
     case SimpleModeCategory::NumberFonts: return "number-fonts";
     case SimpleModeCategory::JudgementFonts: return "judgement-fonts";
     case SimpleModeCategory::Gear: return "gear";
     case SimpleModeCategory::Notes: return "notes";
+    case SimpleModeCategory::Gauge: return "gauge";
     default: return "unsupported";
     }
 }
@@ -7138,6 +7305,7 @@ const char* SimpleModeCategoryTitle(SimpleModeCategory category) {
     case SimpleModeCategory::JudgementFonts: return "Judgement fonts";
     case SimpleModeCategory::Gear: return "Gear skin";
     case SimpleModeCategory::Notes: return "Notes";
+    case SimpleModeCategory::Gauge: return "Gauge";
     default: return "Unsupported";
     }
 }
@@ -7164,6 +7332,9 @@ SimpleModeCategory ClassifySimpleModeSlot(const std::string& group,
         return SimpleModeCategory::Notes;
     if (command == "#SRC_LINE" || command == "#SRC_JUDGELINE")
         return SimpleModeCategory::Gear;
+    if (command == "#SRC_GROOVEGAUGE" || command == "#SRC_SCORECHART" ||
+        SimpleModeCommandStartsWith(command, "#SRC_GAUGECHART_"))
+        return SimpleModeCategory::Gauge;
 
     if (command != "#SRC_IMAGE") return SimpleModeCategory::Unsupported;
     const std::string key = OlrUpperAscii(group + " " + objectName + " " +
@@ -7202,6 +7373,9 @@ std::string SimpleModeCommandLabel(const std::string& command) {
     if (command.find("NOWJUDGE") != std::string::npos) return "Judgement atlas";
     if (command.find("JUDGELINE") != std::string::npos) return "Judgement line";
     if (command.find("LINE") != std::string::npos) return "Gear line";
+    if (command == "#SRC_GROOVEGAUGE") return "Groove gauge atlas";
+    if (command.find("GAUGECHART") != std::string::npos) return "Gauge chart atlas";
+    if (command == "#SRC_SCORECHART") return "Score chart atlas";
     return command;
 }
 
@@ -7274,6 +7448,7 @@ std::vector<SimpleModeSlot> BuildSimpleModeSlots(WORKSPACE& workspace) {
         slot.id = objectId + ":" + command + ":" +
             std::to_string(commandOrdinal);
         slot.graphicId = graphicId;
+        ReadCommandField(row.csv, commandText, "index", slot.sourceIndex);
         ReadCommandField(row.csv, commandText, "x", slot.x);
         ReadCommandField(row.csv, commandText, "y", slot.y);
         ReadCommandField(row.csv, commandText, "w", slot.width);
@@ -7301,6 +7476,7 @@ SESimpleModeCategoryCounts SimpleModeCategoryCountsFor(WORKSPACE& workspace) {
         case SimpleModeCategory::JudgementFonts: ++counts.judgementFonts; break;
         case SimpleModeCategory::Gear: ++counts.gear; break;
         case SimpleModeCategory::Notes: ++counts.notes; break;
+        case SimpleModeCategory::Gauge: ++counts.gauge; break;
         default: break;
         }
     }
@@ -7309,7 +7485,7 @@ SESimpleModeCategoryCounts SimpleModeCategoryCountsFor(WORKSPACE& workspace) {
 
 bool WriteSimpleModeAssetFields(WORKSPACE& workspace,
     const std::vector<SimpleModeSlot>& slots, const SimpleModeSlot& target,
-    bool applySameCommand, int graphicId, int x, int y, int width, int height,
+    int applyScope, int graphicId, int x, int y, int width, int height,
     int divX, int divY, int cycle, int& changedSlotCount,
     std::string& errorMessage) {
     changedSlotCount = 0;
@@ -7322,9 +7498,7 @@ bool WriteSimpleModeAssetFields(WORKSPACE& workspace,
         (std::max)(1, divX), (std::max)(1, divY), (std::max)(0, cycle)
     };
     for (const SimpleModeSlot& slot : slots) {
-        if (slot.row != target.row && (!applySameCommand ||
-            slot.category != target.category || slot.command != target.command))
-            continue;
+        if (!SimpleModeSlotMatchesScope(slot, target, applyScope)) continue;
         if (slot.row < 0 || slot.row >= workspace.skinfileLines.count) continue;
         for (int field = 0; field < 8; ++field) {
             const int column = FindCommandFieldColumn(slot.command.c_str(),
@@ -7346,6 +7520,27 @@ bool WriteSimpleModeAssetFields(WORKSPACE& workspace,
         errorMessage = "The selected Simple Mode slot is no longer available.";
         return false;
     }
+    return true;
+}
+
+bool DrawSimpleModeAssetPreview(WORKSPACE& workspace, int imageIndex,
+    float previewWidth) {
+    if (imageIndex < 0 || imageIndex >= workspace.arr_IMG.count) return false;
+    IMG& asset = ((IMG*)workspace.arr_IMG.data)[imageIndex];
+    const int textureIndex = workspace.ResolveIMGTextureIndex(imageIndex);
+    if (textureIndex < 0 || textureIndex >= workspace.arr_SRCGR.count ||
+        !workspace.EnsureSRCGRTexture(textureIndex)) return false;
+    SRCGR& graphic = ((SRCGR*)workspace.arr_SRCGR.data)[textureIndex];
+    if (!graphic.texture || graphic.sizeX <= 0 || graphic.sizeY <= 0) return false;
+    const float sourceWidth = (float)(std::max)(1, asset.w);
+    const float sourceHeight = (float)(std::max)(1, asset.h);
+    const float previewHeight = (std::max)(32.0f,
+        (std::min)(180.0f, previewWidth * sourceHeight / sourceWidth));
+    const ImVec2 uv0((float)asset.x / graphic.sizeX,
+        (float)asset.y / graphic.sizeY);
+    const ImVec2 uv1((float)(asset.x + asset.w) / graphic.sizeX,
+        (float)(asset.y + asset.h) / graphic.sizeY);
+    ImGui::Image(graphic.texture, ImVec2(previewWidth, previewHeight), uv0, uv1);
     return true;
 }
 
@@ -7599,6 +7794,46 @@ std::string OlrInferExportMainPath(const char* mainSkinPath,
 
 } // namespace
 
+int RunSimpleModeScopeRuleSelfTest() {
+    SimpleModeSlot target;
+    target.category = SimpleModeCategory::Notes;
+    target.command = "#SRC_NOTE";
+    target.row = 1;
+    target.sourceIndex = 1;
+
+    std::vector<SimpleModeSlot> slots;
+    slots.push_back(target);
+    for (int lane : { 3, 2, 11 }) {
+        SimpleModeSlot slot = target;
+        slot.row = (int)slots.size() + 1;
+        slot.sourceIndex = lane;
+        slots.push_back(slot);
+    }
+    SimpleModeSlot mine = target;
+    mine.row = 5;
+    mine.sourceIndex = 3;
+    mine.command = "#SRC_MINE";
+    slots.push_back(mine);
+
+    int counts[4] = {};
+    for (int scope = 0; scope < 4; ++scope)
+        for (const SimpleModeSlot& slot : slots)
+            if (SimpleModeSlotMatchesScope(slot, target, scope)) ++counts[scope];
+    if (counts[0] != 1 || counts[1] != 3 ||
+        counts[2] != 4 || counts[3] != 5) return 1;
+
+    SimpleModeSlot judge1p;
+    judge1p.category = SimpleModeCategory::JudgementFonts;
+    judge1p.command = "#SRC_NOWJUDGE_1P";
+    judge1p.row = 10;
+    SimpleModeSlot judge2p = judge1p;
+    judge2p.command = "#SRC_NOWJUDGE_2P";
+    judge2p.row = 11;
+    if (!SimpleModeSlotMatchesScope(judge2p, judge1p, 1) ||
+        SimpleModeSlotMatchesScope(judge2p, judge1p, 2)) return 2;
+    return 0;
+}
+
 SESimpleModeCategoryCounts WORKSPACE::GetSimpleModeCategoryCounts() {
     return SimpleModeCategoryCountsFor(*this);
 }
@@ -7813,6 +8048,21 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
     }
     document.lr2Script = lr2.str();
 
+    // Simple Mode source_row is a compiler address inside the packaged script,
+    // not the expanded Workspace row. Includes and $FILE markers above may have
+    // been omitted, so translate through the authoritative source map now.
+    std::map<int, int> packagedRowsByExpandedRow;
+    for (const SEOLRSourceMapEntry& source : document.sourceMap)
+        packagedRowsByExpandedRow[source.expandedRow] = source.packagedRow;
+    for (SEOLRSimpleSlot& slot : document.simpleSlots) {
+        const auto packaged = packagedRowsByExpandedRow.find(slot.sourceRow);
+        if (packaged == packagedRowsByExpandedRow.end()) {
+            resultMessage = "A Simple Mode source row was omitted from the packaged LR2 script.";
+            return -1;
+        }
+        slot.sourceRow = packaged->second;
+    }
+
     SEOLRPackageInfo packageInfo;
     std::string errorMessage;
     if (!SEWriteOLRSkinPackage(packagePath, document, packageInfo, errorMessage)) {
@@ -7925,6 +8175,9 @@ int WORKSPACE::ImportOlrSkinInteractive() {
         << packageInfo.simpleSlotCount << " Simple Mode slots and "
         << packageInfo.assetCount << " assets from " << packageInfo.virtualRootCount
         << " virtual LR2 roots to " << extractedMainPath;
+    if (packageInfo.formatVersion >= 4)
+        result << ". Compiled " << packageInfo.compiledSimpleSlotCount
+            << " validated Simple Mode source slots";
     if (packageInfo.unresolvedImageCount > 0)
         result << ". " << packageInfo.unresolvedImageCount
             << " external image declarations may still require the original LR2 environment";
@@ -8604,7 +8857,7 @@ int WORKSPACE::drawNewskin() {
 }
 
 int WORKSPACE::ApplySimpleModeAsset(int targetRow, int imageIndex,
-    bool applySameCommand, std::string& resultMessage) {
+    int applyScope, std::string& resultMessage) {
     resultMessage.clear();
     if (imageIndex < 0 || imageIndex >= arr_IMG.count) {
         resultMessage = "Choose a compatible image Asset first.";
@@ -8624,13 +8877,21 @@ int WORKSPACE::ApplySimpleModeAsset(int targetRow, int imageIndex,
     int cycle = 0;
     int timer = 0;
     ResolveIMGDivision(imageIndex, divX, divY, cycle, timer);
+    if (simpleModeOnlyCompatibleGrid &&
+        (divX != target->divX || divY != target->divY)) {
+        resultMessage = "The selected Asset uses a " + std::to_string(divX) +
+            "x" + std::to_string(divY) + " atlas grid; this component requires " +
+            std::to_string(target->divX) + "x" +
+            std::to_string(target->divY) + ".";
+        return -1;
+    }
     const SkinDocumentSnapshot before = CaptureDocumentSnapshot();
     const bool previousApplyingHistory = applyingHistory;
     applyingHistory = true;
     int changedSlotCount = 0;
     std::string errorMessage;
     const bool changed = WriteSimpleModeAssetFields(*this, slots, *target,
-        applySameCommand, asset.gr, asset.x, asset.y, asset.w, asset.h,
+        applyScope, asset.gr, asset.x, asset.y, asset.w, asset.h,
         divX, divY, cycle, changedSlotCount, errorMessage);
     applyingHistory = previousApplyingHistory;
     if (!changed) {
@@ -8656,7 +8917,7 @@ int WORKSPACE::ApplySimpleModeAsset(int targetRow, int imageIndex,
 }
 
 int WORKSPACE::ImportSimpleModeImage(int targetRow, const char* sourcePath,
-    bool applySameCommand, std::string& resultMessage) {
+    int applyScope, bool useTargetAtlasGrid, std::string& resultMessage) {
     resultMessage.clear();
     if (!sourcePath || !*sourcePath || !mainpath[0]) {
         resultMessage = "Choose an image after loading a skin.";
@@ -8678,6 +8939,15 @@ int WORKSPACE::ImportSimpleModeImage(int targetRow, const char* sourcePath,
         return -1;
     }
     if (probeTexture) probeTexture->Release();
+    const int targetDivX = useTargetAtlasGrid ? target->divX : 1;
+    const int targetDivY = useTargetAtlasGrid ? target->divY : 1;
+    const int targetCycle = useTargetAtlasGrid ? target->cycle : 0;
+    if (imageWidth % targetDivX != 0 || imageHeight % targetDivY != 0) {
+        resultMessage = "The imported image is not evenly divisible by the selected " +
+            std::to_string(targetDivX) + "x" + std::to_string(targetDivY) +
+            " atlas grid.";
+        return -1;
+    }
 
     std::error_code filesystemError;
     const std::filesystem::path mainFile = std::filesystem::absolute(
@@ -8722,8 +8992,8 @@ int WORKSPACE::ImportSimpleModeImage(int targetRow, const char* sourcePath,
     int changedSlotCount = 0;
     std::string editError;
     const bool changed = graphicId >= 0 && WriteSimpleModeAssetFields(*this,
-        slots, *target, applySameCommand, graphicId, 0, 0, imageWidth,
-        imageHeight, target->divX, target->divY, target->cycle,
+        slots, *target, applyScope, graphicId, 0, 0, imageWidth,
+        imageHeight, targetDivX, targetDivY, targetCycle,
         changedSlotCount, editError);
     applyingHistory = previousApplyingHistory;
     if (!changed) {
@@ -8746,7 +9016,110 @@ int WORKSPACE::ImportSimpleModeImage(int targetRow, const char* sourcePath,
     simpleModeCandidateAsset = -1;
     resultMessage = "Imported " + Cp932ToUtf8(copiedPath.filename().string().c_str()) +
         " and applied it to " + std::to_string(changedSlotCount) +
-        " component" + (changedSlotCount == 1 ? "." : "s.");
+        " component" + (changedSlotCount == 1 ? "." : "s.") +
+        " Atlas frames: " + std::to_string(targetDivX) + "x" +
+        std::to_string(targetDivY) + ".";
+    return 0;
+}
+
+int WORKSPACE::GenerateSimpleModeColorVariant(int targetRow, int applyScope,
+    float hueShiftDegrees, float saturationPercent,
+    float brightnessPercent, std::string& resultMessage) {
+    resultMessage.clear();
+    const std::vector<SimpleModeSlot> slots = BuildSimpleModeSlots(*this);
+    const auto target = std::find_if(slots.begin(), slots.end(),
+        [targetRow](const SimpleModeSlot& slot) { return slot.row == targetRow; });
+    if (target == slots.end() || target->imageIndex < 0 ||
+        target->imageIndex >= arr_IMG.count || !mainpath[0]) {
+        resultMessage = "The selected component has no readable image Asset.";
+        return -1;
+    }
+
+    const int textureIndex = ResolveIMGTextureIndex(target->imageIndex);
+    if (textureIndex < 0 || textureIndex >= arr_SRCGR.count ||
+        !EnsureSRCGRTexture(textureIndex)) {
+        resultMessage = "The selected component texture could not be loaded.";
+        return -1;
+    }
+    IMG& sourceAsset = ((IMG*)arr_IMG.data)[target->imageIndex];
+    SRCGR& sourceGraphic = ((SRCGR*)arr_SRCGR.data)[textureIndex];
+    const int sourceX = sourceAsset.x;
+    const int sourceY = sourceAsset.y;
+    const int sourceWidth = sourceAsset.w;
+    const int sourceHeight = sourceAsset.h;
+
+    std::error_code filesystemError;
+    const std::filesystem::path mainFile = std::filesystem::absolute(
+        std::filesystem::path(mainpath), filesystemError);
+    if (filesystemError) {
+        resultMessage = "The current skin folder could not be resolved.";
+        return -1;
+    }
+    const std::filesystem::path assetFolder =
+        mainFile.parent_path() / "simple-assets";
+    std::filesystem::create_directories(assetFolder, filesystemError);
+    if (filesystemError) {
+        resultMessage = "The simple-assets folder could not be created.";
+        return -1;
+    }
+
+    std::filesystem::path generatedPath;
+    const std::string stem = std::string("color_") +
+        SimpleModeCategoryKey(target->category) + "_row_" +
+        std::to_string(target->row + 1);
+    for (int suffix = 0; suffix < 10000; ++suffix) {
+        generatedPath = assetFolder / (stem + (suffix > 0
+            ? "_" + std::to_string(suffix) : "") + ".png");
+        if (!std::filesystem::exists(generatedPath, filesystemError) &&
+            !filesystemError) break;
+        filesystemError.clear();
+    }
+
+    char imageError[256] = {};
+    if (!CreateColorAdjustedImageRegionAtomic(generatedPath.string().c_str(),
+        sourceGraphic.texture, sourceX, sourceY,
+        sourceWidth, sourceHeight, hueShiftDegrees,
+        1.0f + saturationPercent / 100.0f,
+        1.0f + brightnessPercent / 100.0f,
+        imageError, sizeof(imageError))) {
+        resultMessage = imageError;
+        return -1;
+    }
+
+    const SkinDocumentSnapshot before = CaptureDocumentSnapshot();
+    const bool previousApplyingHistory = applyingHistory;
+    applyingHistory = true;
+    std::string registrationError;
+    const int graphicId = RegisterGeneratedImage(generatedPath.string().c_str(),
+        sourceWidth, sourceHeight, registrationError);
+    int changedSlotCount = 0;
+    std::string editError;
+    const bool changed = graphicId >= 0 && WriteSimpleModeAssetFields(*this,
+        slots, *target, applyScope, graphicId, 0, 0,
+        sourceWidth, sourceHeight, target->divX, target->divY,
+        target->cycle, changedSlotCount, editError);
+    applyingHistory = previousApplyingHistory;
+    if (!changed) {
+        RestoreDocumentSnapshot(before);
+        std::filesystem::remove(generatedPath, filesystemError);
+        resultMessage = graphicId < 0 ? registrationError : editError;
+        return -1;
+    }
+
+    historyDocumentSnapshots.push_back(before);
+    HISTORY* history = (HISTORY*)arr_history.Get_new();
+    if (!history) {
+        RestoreDocumentSnapshot(before);
+        std::filesystem::remove(generatedPath, filesystemError);
+        resultMessage = "The color variant could not be added to History.";
+        return -1;
+    }
+    history->op = restoreDocument;
+    history->target = (int)historyDocumentSnapshots.size() - 1;
+    simpleModeCandidateAsset = -1;
+    resultMessage = "Created a non-destructive color variant and applied it to " +
+        std::to_string(changedSlotCount) + " component" +
+        (changedSlotCount == 1 ? "." : "s.");
     return 0;
 }
 
@@ -8763,9 +9136,9 @@ int WORKSPACE::drawSimpleMode() {
     ImGui::TextDisabled("Pick a component, then reuse compatible art or import a new image.");
     ImGui::Separator();
 
-    if (ImGui::BeginTable("SimpleModeCategories", 4,
+    if (ImGui::BeginTable("SimpleModeCategories", 5,
         ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
-        for (int categoryIndex = 0; categoryIndex < 4; ++categoryIndex) {
+        for (int categoryIndex = 0; categoryIndex < 5; ++categoryIndex) {
             ImGui::TableNextColumn();
             const SimpleModeCategory category = (SimpleModeCategory)categoryIndex;
             int count = 0;
@@ -8786,7 +9159,7 @@ int WORKSPACE::drawSimpleMode() {
     ImGui::Separator();
 
     const SimpleModeCategory activeCategory =
-        (SimpleModeCategory)(std::max)(0, (std::min)(3, simpleModeCategory));
+        (SimpleModeCategory)(std::max)(0, (std::min)(4, simpleModeCategory));
     std::vector<const SimpleModeSlot*> categorySlots;
     for (const SimpleModeSlot& slot : slots)
         if (slot.category == activeCategory) categorySlots.push_back(&slot);
@@ -8818,6 +9191,10 @@ int WORKSPACE::drawSimpleMode() {
             ImGui::TextDisabled("%s  row %d  gr %d  %dx%d",
                 slot->command.c_str(), slot->row + 1, slot->graphicId,
                 slot->width, slot->height);
+            if (slot->category == SimpleModeCategory::Notes)
+                ImGui::TextDisabled("lane %d  %s family", slot->sourceIndex,
+                    SimpleModeLaneFamilyTitle(
+                        SimpleModeLaneFamilyFor(slot->sourceIndex)));
             ImGui::PopID();
         }
     }
@@ -8836,6 +9213,12 @@ int WORKSPACE::drawSimpleMode() {
                 selectedSlot->divY, selectedSlot->cycle);
             ImGui::Separator();
 
+            ImGui::Checkbox("Only show matching atlas grids",
+                &simpleModeOnlyCompatibleGrid);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                ImGui::SetTooltip("Require the candidate div_x/div_y to match %dx%d.",
+                    selectedSlot->divX, selectedSlot->divY);
+
             char candidatePreview[320] = "No compatible Asset";
             if (simpleModeCandidateAsset >= 0 &&
                 simpleModeCandidateAsset < arr_IMG.count) {
@@ -8853,6 +9236,9 @@ int WORKSPACE::drawSimpleMode() {
                     if (assetIndex < 0 || assetIndex >= arr_IMG.count ||
                         std::find(shownAssets.begin(), shownAssets.end(), assetIndex) !=
                             shownAssets.end()) continue;
+                    if (simpleModeOnlyCompatibleGrid &&
+                        (candidateSlot->divX != selectedSlot->divX ||
+                            candidateSlot->divY != selectedSlot->divY)) continue;
                     shownAssets.push_back(assetIndex);
                     IMG& asset = ((IMG*)arr_IMG.data)[assetIndex];
                     char label[384] = {};
@@ -8868,41 +9254,41 @@ int WORKSPACE::drawSimpleMode() {
                 ImGui::EndCombo();
             }
 
-            if (simpleModeCandidateAsset >= 0 &&
-                simpleModeCandidateAsset < arr_IMG.count) {
-                IMG& asset = ((IMG*)arr_IMG.data)[simpleModeCandidateAsset];
-                const int textureIndex = ResolveIMGTextureIndex(
-                    simpleModeCandidateAsset);
-                if (textureIndex >= 0 && textureIndex < arr_SRCGR.count &&
-                    EnsureSRCGRTexture(textureIndex)) {
-                    SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[textureIndex];
-                    if (graphic.texture && graphic.sizeX > 0 && graphic.sizeY > 0) {
-                        const float previewWidth = 180.0f;
-                        const float sourceWidth = (float)(std::max)(1, asset.w);
-                        const float sourceHeight = (float)(std::max)(1, asset.h);
-                        const float previewHeight = (std::max)(32.0f,
-                            (std::min)(180.0f, previewWidth * sourceHeight / sourceWidth));
-                        const ImVec2 uv0((float)asset.x / graphic.sizeX,
-                            (float)asset.y / graphic.sizeY);
-                        const ImVec2 uv1((float)(asset.x + asset.w) / graphic.sizeX,
-                            (float)(asset.y + asset.h) / graphic.sizeY);
-                        ImGui::Image(graphic.texture,
-                            ImVec2(previewWidth, previewHeight), uv0, uv1);
-                    }
-                }
-            }
+            ImGui::TextUnformatted("Before");
+            DrawSimpleModeAssetPreview(*this, selectedSlot->imageIndex, 150.0f);
+            ImGui::SameLine();
+            ImGui::BeginGroup();
+            ImGui::TextUnformatted("After / candidate");
+            DrawSimpleModeAssetPreview(*this, simpleModeCandidateAsset, 150.0f);
+            ImGui::EndGroup();
 
-            ImGui::Checkbox("Apply to every matching lane / source",
-                &simpleModeApplySameCommand);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-                ImGui::SetTooltip("Also replaces every slot in this category using %s.",
-                    selectedSlot->command.c_str());
+            const char* relatedScope = "Same gear source";
+            if (selectedSlot->category == SimpleModeCategory::Notes)
+                relatedScope = "Same note part + lane color";
+            else if (selectedSlot->category == SimpleModeCategory::NumberFonts ||
+                selectedSlot->category == SimpleModeCategory::JudgementFonts)
+                relatedScope = "Matching 1P / 2P font pair";
+            const char* scopeLabels[] = {
+                "Selected component only", relatedScope,
+                "Same LR2 source command", "Entire category"
+            };
+            simpleModeApplyScope = (std::max)(0,
+                (std::min)(3, simpleModeApplyScope));
+            if (ImGui::BeginCombo("Apply scope",
+                scopeLabels[simpleModeApplyScope])) {
+                for (int scope = 0; scope < 4; ++scope) {
+                    if (ImGui::Selectable(scopeLabels[scope],
+                        simpleModeApplyScope == scope))
+                        simpleModeApplyScope = scope;
+                }
+                ImGui::EndCombo();
+            }
 
             ImGui::BeginDisabled(simpleModeCandidateAsset < 0 ||
                 simpleModeCandidateAsset >= arr_IMG.count);
             if (ImGui::Button("Apply compatible art", ImVec2(190.0f, 0.0f))) {
                 simpleModeStatusState = ApplySimpleModeAsset(selectedSlot->row,
-                    simpleModeCandidateAsset, simpleModeApplySameCommand,
+                    simpleModeCandidateAsset, simpleModeApplyScope,
                     simpleModeStatus) == 0 ? 1 : -1;
             }
             ImGui::EndDisabled();
@@ -8912,19 +9298,67 @@ int WORKSPACE::drawSimpleMode() {
                 if (BrowseSimpleImagePath(selectedImage, sizeof(selectedImage))) {
                     simpleModeStatusState = ImportSimpleModeImage(
                         selectedSlot->row, selectedImage,
-                        simpleModeApplySameCommand, simpleModeStatus) == 0 ? 1 : -1;
+                        simpleModeApplyScope, simpleModeUseTargetAtlasGrid,
+                        simpleModeStatus) == 0 ? 1 : -1;
                 }
             }
+            ImGui::Checkbox("Auto-slice with selected atlas grid",
+                &simpleModeUseTargetAtlasGrid);
+            ImGui::TextDisabled("Imported image grid: %dx%d%s",
+                simpleModeUseTargetAtlasGrid ? selectedSlot->divX : 1,
+                simpleModeUseTargetAtlasGrid ? selectedSlot->divY : 1,
+                simpleModeUseTargetAtlasGrid
+                    ? " (image dimensions must divide evenly)" : "");
 
             if (ImGui::Button("Use Asset Browser selection")) {
                 simpleModeStatusState = ApplySimpleModeAsset(selectedSlot->row,
-                    src_selected, simpleModeApplySameCommand,
+                    src_selected, simpleModeApplyScope,
                     simpleModeStatus) == 0 ? 1 : -1;
             }
             ImGui::SameLine();
             if (ImGui::Button("Open Asset Browser")) wAssetBrowser = true;
             ImGui::SameLine();
             if (ImGui::Button("Open Preview")) wPreview = true;
+
+            if (ImGui::CollapsingHeader("Non-destructive color variant",
+                ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::SliderFloat("Hue shift", &simpleModeHueShift,
+                    -180.0f, 180.0f, "%.0f deg");
+                ImGui::SliderFloat("Saturation", &simpleModeSaturationPercent,
+                    -100.0f, 100.0f, "%+.0f%%");
+                ImGui::SliderFloat("Brightness", &simpleModeBrightnessPercent,
+                    -100.0f, 100.0f, "%+.0f%%");
+                const bool unchangedColor = fabsf(simpleModeHueShift) < 0.01f &&
+                    fabsf(simpleModeSaturationPercent) < 0.01f &&
+                    fabsf(simpleModeBrightnessPercent) < 0.01f;
+                ImGui::BeginDisabled(unchangedColor || selectedSlot->imageIndex < 0);
+                if (ImGui::Button("Create PNG and apply", ImVec2(190.0f, 0.0f))) {
+                    simpleModeStatusState = GenerateSimpleModeColorVariant(
+                        selectedSlot->row, simpleModeApplyScope,
+                        simpleModeHueShift, simpleModeSaturationPercent,
+                        simpleModeBrightnessPercent, simpleModeStatus) == 0 ? 1 : -1;
+                }
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if (ImGui::Button("Reset color controls")) {
+                    simpleModeHueShift = 0.0f;
+                    simpleModeSaturationPercent = 0.0f;
+                    simpleModeBrightnessPercent = 0.0f;
+                }
+                ImGui::TextDisabled("Writes a new simple-assets PNG; the source atlas is untouched.");
+            }
+
+            if (ImGui::Button("Undo last edit (Ctrl+Z)")) {
+                if (UndoLastEdit() == 0) {
+                    simpleModeStatusState = 1;
+                    simpleModeStatus = "Restored the previous Workspace snapshot.";
+                    simpleModeCandidateAsset = -1;
+                }
+                else {
+                    simpleModeStatusState = -1;
+                    simpleModeStatus = "There is no editable History entry to undo.";
+                }
+            }
 
             if (!simpleModeStatus.empty()) {
                 ImGui::Separator();

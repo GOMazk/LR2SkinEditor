@@ -216,6 +216,7 @@ struct SESimpleModeCategoryCounts {
     int judgementFonts = 0;
     int gear = 0;
     int notes = 0;
+    int gauge = 0;
 };
 
 typedef struct WORKSPACE {
@@ -223,6 +224,9 @@ typedef struct WORKSPACE {
     char initFlag = 0;
     //data
     game g;
+    // LR2SE core buffers live inside this workspace's game instance. They are
+    // initialized once per workspace, not once per editor process.
+    bool lr2CoreInitialized = false;
 
     SkinHeader meta;
     SESkinResolutionSource skinResolutionSource =
@@ -340,6 +344,7 @@ typedef struct WORKSPACE {
 
     int LoadSkin(char* path);
     int LoadSkinScript(char* path);
+    int ResetEditorDocumentForLoad();
     int ParseSkin();
     int ParseSkinConditions();
     int ParseSkinLegacyObjectsAndAssets();
@@ -472,14 +477,22 @@ typedef struct WORKSPACE {
     int simpleModeCategory = 0;
     std::string simpleModeSelectedSlotId;
     int simpleModeCandidateAsset = -1;
-    bool simpleModeApplySameCommand = false;
+    int simpleModeApplyScope = 0;
+    bool simpleModeOnlyCompatibleGrid = true;
+    bool simpleModeUseTargetAtlasGrid = true;
+    float simpleModeHueShift = 0.0f;
+    float simpleModeSaturationPercent = 0.0f;
+    float simpleModeBrightnessPercent = 0.0f;
     std::string simpleModeStatus;
     int simpleModeStatusState = 0;
     int drawSimpleMode();
     int ApplySimpleModeAsset(int targetRow, int imageIndex,
-        bool applySameCommand, std::string& resultMessage);
+        int applyScope, std::string& resultMessage);
     int ImportSimpleModeImage(int targetRow, const char* sourcePath,
-        bool applySameCommand, std::string& resultMessage);
+        int applyScope, bool useTargetAtlasGrid, std::string& resultMessage);
+    int GenerateSimpleModeColorVariant(int targetRow, int applyScope,
+        float hueShiftDegrees, float saturationPercent,
+        float brightnessPercent, std::string& resultMessage);
     SESimpleModeCategoryCounts GetSimpleModeCategoryCounts();
 
     int drawSrc(int iSRCGR, int iSRCID);
@@ -612,3 +625,9 @@ int CsvToCSTR(CSVbuf& csv, CSTR& line);
 int CountCsvColumns(CSTR& line);
 int RunAssetMetadataSelfTest();
 int RunSimpleModeProjectionSelfTest();
+int RunSimpleModeScopeRuleSelfTest();
+int RunWorkspaceReloadLifecycleSelfTest();
+int RunWorkspaceRuntimeReloadSmokeTest(const char* firstPath,
+    const char* secondPath);
+int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
+    const char* secondPath);

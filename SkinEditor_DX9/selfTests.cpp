@@ -239,7 +239,7 @@ int RunOlrPackageSelfTest() {
     simpleSlot.label = "Test image - Gear line";
     simpleSlot.objectId = "obj_test";
     simpleSlot.sourceCommand = "#SRC_IMAGE";
-    simpleSlot.sourceRow = 4;
+    simpleSlot.sourceRow = 5;
     simpleSlot.graphicId = 0;
     simpleSlot.width = 16;
     simpleSlot.height = 16;
@@ -251,7 +251,8 @@ int RunOlrPackageSelfTest() {
     std::string errorMessage;
     if (result == 0 && !SEWriteOLRSkinPackage(packagePath.c_str(), document,
         packageInfo, errorMessage)) result = 7;
-    if (result == 0 && (packageInfo.entries.size() != 8 ||
+    if (result == 0 && (packageInfo.formatVersion != 4 ||
+        packageInfo.entries.size() != 8 ||
         packageInfo.objectCount != 1 || packageInfo.simpleSlotCount != 1 ||
         packageInfo.assetCount != 2 ||
         packageInfo.virtualRootCount != 1 || packageInfo.virtualFileCount != 1))
@@ -261,6 +262,8 @@ int RunOlrPackageSelfTest() {
     if (result == 0 && !SEExtractOLRSkinPackage(packagePath.c_str(),
         extractedPath.c_str(), extractedMain, packageInfo, errorMessage))
         result = 9;
+    if (result == 0 && packageInfo.compiledSimpleSlotCount != 1)
+        result = 24;
     if (result == 0 && extractedMain != extractedPath + "\\main.lr2skin")
         result = 10;
     if (result == 0) {
@@ -279,6 +282,43 @@ int RunOlrPackageSelfTest() {
         if (extractedBytes.size() != sizeof(assetBytes) ||
             memcmp(extractedBytes.data(), assetBytes, sizeof(assetBytes)) != 0)
             result = 12;
+    }
+
+    if (result == 0) {
+        const std::string compileJson =
+            "{\"simple_mode\":{\"authority\":\"lr2-source-v0.4\",\"slots\":["
+            "{\"id\":\"note\",\"category\":\"notes\","
+            "\"source_command\":\"#SRC_NOTE\",\"source_row\":2,"
+            "\"asset\":{\"gr\":7,\"x\":8,\"y\":9,\"width\":40,"
+            "\"height\":20,\"div_x\":2,\"div_y\":1,\"cycle\":120}},"
+            "{\"id\":\"gauge\",\"category\":\"gauge\","
+            "\"source_command\":\"#SRC_GROOVEGAUGE\",\"source_row\":3,"
+            "\"asset\":{\"gr\":8,\"x\":1,\"y\":2,\"width\":80,"
+            "\"height\":10,\"div_x\":4,\"div_y\":1,\"cycle\":240}}]}}";
+        const std::string compileInput =
+            "#RAW_PASSTHROUGH,keep,exact\r\n"
+            "#SRC_NOTE,1,0,0,0,16,16,1,1,0,77,88,99\n"
+            "#SRC_GROOVEGAUGE,0,0,0,0,20,10,1,1,0,55,3,4\r\n"
+            "#DST_NOTE,1,0,100,200,16,16,0,255";
+        std::string compiled;
+        int compiledCount = 0;
+        if (!SECompileOLRSimpleMode(compileJson, compileInput, compiled,
+            compiledCount, errorMessage) || compiledCount != 2 ||
+            compiled != "#RAW_PASSTHROUGH,keep,exact\r\n"
+                "#SRC_NOTE,1,7,8,9,40,20,2,1,120,77,88,99\n"
+                "#SRC_GROOVEGAUGE,0,8,1,2,80,10,4,1,240,55,3,4\r\n"
+                "#DST_NOTE,1,0,100,200,16,16,0,255")
+            result = 25;
+        std::string rejectedOutput;
+        int rejectedCount = 0;
+        const std::string mismatchedJson = compileJson.substr(0,
+            compileJson.find("#SRC_NOTE")) + "#SRC_MINE" +
+            compileJson.substr(compileJson.find("#SRC_NOTE") + 9);
+        if (result == 0 && SECompileOLRSimpleMode(mismatchedJson,
+            compileInput, rejectedOutput, rejectedCount, errorMessage))
+            result = 26;
+        if (result == 0 && (!rejectedOutput.empty() || rejectedCount != 0))
+            result = 27;
     }
 
     if (result == 0) {
@@ -359,6 +399,67 @@ int RunOlrPackageSelfTest() {
             _stricmp(resolved.c_str(),
                 (virtualNoteFolder + "\\*.png").c_str()) != 0)
             result = 20;
+    }
+
+    if (result == 0) {
+        // A CP932 lead byte followed by ASCII is invalid in common non-Japanese
+        // Windows code pages. LR2 still treats the declaration as a byte path,
+        // so resolving its already-validated virtual root must not throw.
+        std::string legacySuffix = "groove\\";
+        legacySuffix.push_back((char)0x81);
+        legacySuffix += "(DEFAULT).dds";
+        const std::string requested =
+            ".\\LR2files\\Theme\\Test\\" + legacySuffix;
+        const std::string expected = virtualRoot + "\\" + legacySuffix;
+        const std::string owner = virtualRoot + "\\play.lr2skin";
+        std::string resolved;
+        if (!SEResolveSkinResourcePath(requested.c_str(), owner.c_str(),
+            owner.c_str(), resolved) || resolved != expected)
+            result = 28;
+        std::string resolvedAgain;
+        if (result == 0 && (!SEResolveSkinResourcePath(resolved.c_str(),
+            owner.c_str(), owner.c_str(), resolvedAgain) ||
+            resolvedAgain != expected))
+            result = 29;
+    }
+
+    if (result == 0) {
+        // The opened skin owns its LR2 virtual namespace. An unrelated
+        // process-side LR2files tree with the same logical Theme must not
+        // shadow the standalone folder selected by owner/main.
+        const std::string ambientRoot = root + "\\ambient";
+        const std::string ambientVirtualRoot = ambientRoot +
+            "\\LR2files\\Theme\\Test";
+        std::error_code createError;
+        std::filesystem::create_directories(ambientVirtualRoot, createError);
+        if (createError) result = 30;
+
+        char originalDirectory[MAX_PATH] = {};
+        const DWORD originalLength = GetCurrentDirectoryA(
+            MAX_PATH, originalDirectory);
+        if (result == 0 &&
+            (originalLength == 0 || originalLength >= MAX_PATH))
+            result = 31;
+
+        bool changedDirectory = false;
+        if (result == 0) {
+            changedDirectory = SetCurrentDirectoryA(ambientRoot.c_str()) != FALSE;
+            if (!changedDirectory) result = 32;
+        }
+
+        const std::string owner = virtualRoot + "\\play.lr2skin";
+        std::string resolved;
+        if (result == 0 &&
+            (!SEResolveSkinResourcePath(
+                ".\\LR2files\\Theme\\Test\\note\\*.png",
+                owner.c_str(), owner.c_str(), resolved) ||
+                _stricmp(resolved.c_str(),
+                    (virtualNoteFolder + "\\*.png").c_str()) != 0))
+            result = 33;
+
+        if (changedDirectory &&
+            !SetCurrentDirectoryA(originalDirectory) && result == 0)
+            result = 34;
     }
 
     std::error_code cleanupError;

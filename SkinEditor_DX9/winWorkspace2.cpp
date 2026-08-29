@@ -29,6 +29,151 @@ int CountCsvColumns(CSTR& line) {
     return count > 30 ? 30 : count;
 }
 
+int RunWorkspaceReloadLifecycleSelfTest() {
+    WORKSPACE workspace{};
+    if (workspace.ResetEditorDocumentForLoad() != 0) return 1;
+
+    SKINFILELINEREAD* line =
+        (SKINFILELINEREAD*)workspace.skinfileLines.Get_new();
+    if (!line) return 2;
+    line->filename.assign("first.lr2skin");
+    line->line.assign("#SRC_IMAGE,0,0,0,0,32,32,1,1,0");
+    SplitCSV(line->line, &line->csv, ",");
+
+    CSTR* includePath = (CSTR*)workspace.arr_subpath.Get_new();
+    if (!includePath) return 3;
+    includePath->assign("parts\\notes.csv");
+
+    SRCGR* graphic = (SRCGR*)workspace.arr_SRCGR.Get_new();
+    if (!graphic) return 4;
+    graphic->path.assign("notes.png");
+    graphic->filename.assign("notes.png");
+    graphic->name.assign("notes");
+    graphic->arr_wildcard.Alloc(sizeof(CSTR), 1);
+    CSTR* wildcard = (CSTR*)graphic->arr_wildcard.Get_new();
+    if (!wildcard) return 5;
+    wildcard->assign("notes-red.png");
+
+    SRC* source = (SRC*)workspace.arr_SRC.Get_new();
+    DST* destination = (DST*)workspace.arr_DST.Get_new();
+    IMG* image = (IMG*)workspace.arr_IMG.Get_new();
+    CSTR* customFile = (CSTR*)workspace.arr_CustomFile.Get_new();
+    SEOBJ* object = (SEOBJ*)workspace.arr_seobj.Get_new();
+    if (!source || !destination || !image || !customFile || !object) return 6;
+    source->name.assign("source");
+    destination->name.assign("destination");
+    destination->arr_animation.Alloc(sizeof(DST_ANIMATION), 1);
+    destination->arr_animation.Get_new();
+    image->name.assign("crop");
+    customFile->assign("custom.png");
+    object->name.assign("object");
+    object->body.Alloc(sizeof(CSTR), 1);
+    ((CSTR*)object->body.Get_new())->assign("#SRC_IMAGE,0");
+    object->bodyCSV.Alloc(sizeof(CSVbuf), 1);
+    ((CSVbuf*)object->bodyCSV.Get_new())->str[0].assign("#SRC_IMAGE");
+    object->srcc.name.assign("object source");
+    object->dstt.name.assign("object destination");
+    object->dstt.arr_animation.Alloc(sizeof(DST_ANIMATION), 1);
+    object->dstt.arr_animation.Get_new();
+    workspace.arr_ifunit.Get_new();
+
+    HISTORY* history = (HISTORY*)workspace.arr_history.Get_new();
+    if (!history) return 7;
+    history->older.line.assign("old");
+    history->newer.line.assign("new");
+
+    if (workspace.ResetEditorDocumentForLoad() != 0) return 8;
+    if (!workspace.skinfileLines.data || workspace.skinfileLines.count != 0 ||
+        !workspace.arr_subpath.data || workspace.arr_subpath.count != 0 ||
+        !workspace.arr_SRCGR.data || workspace.arr_SRCGR.count != 0 ||
+        !workspace.arr_SRC.data || workspace.arr_SRC.count != 0 ||
+        !workspace.arr_DST.data || workspace.arr_DST.count != 0 ||
+        !workspace.arr_IMG.data || workspace.arr_IMG.count != 0 ||
+        !workspace.arr_CustomFile.data || workspace.arr_CustomFile.count != 0 ||
+        !workspace.arr_seobj.data || workspace.arr_seobj.count != 0 ||
+        !workspace.arr_history.data || workspace.arr_history.count != 0)
+        return 9;
+
+    // A second reset is the regression boundary: loading a new skin must not
+    // double-destroy any nested CSTR or retain stale array counts.
+    SKINFILELINEREAD* secondLine =
+        (SKINFILELINEREAD*)workspace.skinfileLines.Get_new();
+    CSTR* secondInclude = (CSTR*)workspace.arr_subpath.Get_new();
+    if (!secondLine || !secondInclude) return 10;
+    secondLine->line.assign("#IMAGE,second.png");
+    secondInclude->assign("parts\\second.csv");
+    if (workspace.ResetEditorDocumentForLoad() != 0) return 11;
+    return workspace.skinfileLines.count == 0 && workspace.arr_subpath.count == 0
+        ? 0 : 12;
+}
+
+int RunWorkspaceRuntimeReloadSmokeTest(const char* firstPath,
+    const char* secondPath) {
+    if (!firstPath || !*firstPath || !secondPath || !*secondPath) return 1;
+
+    WORKSPACE workspace{};
+    if (!InitSkinData(&workspace.g.skinData)) return 2;
+    workspace.skinBrowserDataInitialized = true;
+
+    const auto loadSkin = [&](const char* path, int parseError,
+        int loadError) -> int {
+        ResetSkinData(&workspace.g.skinData);
+        ParseLR2SkinCustom(&workspace.g.skinData, CSTR(path));
+        if (workspace.g.skinData.Count <= 0) return parseError;
+        workspace.meta = workspace.g.skinData.Data[0];
+        strncpy_s(workspace.mainpath, path, _TRUNCATE);
+        if (workspace.LoadSkin(workspace.mainpath) != 0) return loadError;
+        workspace.loaded = true;
+        return 0;
+    };
+
+    const int firstResult = loadSkin(firstPath, 3, 4);
+    if (firstResult != 0) return firstResult;
+    return loadSkin(secondPath, 5, 6);
+}
+
+int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
+    const char* secondPath) {
+    if (!firstPath || !*firstPath || !secondPath || !*secondPath) return 1;
+
+    std::unique_ptr<WORKSPACE> firstWorkspace(new WORKSPACE());
+    std::unique_ptr<WORKSPACE> secondWorkspace(new WORKSPACE());
+    if (!InitSkinData(&firstWorkspace->g.skinData)) return 2;
+    if (!InitSkinData(&secondWorkspace->g.skinData)) return 3;
+    firstWorkspace->skinBrowserDataInitialized = true;
+    secondWorkspace->skinBrowserDataInitialized = true;
+
+    const auto loadSkin = [](WORKSPACE& workspace, const char* path,
+        int parseError, int loadError) -> int {
+        ResetSkinData(&workspace.g.skinData);
+        ParseLR2SkinCustom(&workspace.g.skinData, CSTR(path));
+        if (workspace.g.skinData.Count <= 0) return parseError;
+        workspace.meta = workspace.g.skinData.Data[0];
+        strncpy_s(workspace.mainpath, path, _TRUNCATE);
+        if (workspace.LoadSkin(workspace.mainpath) != 0) return loadError;
+        workspace.loaded = true;
+        return 0;
+    };
+
+    const int firstResult = loadSkin(*firstWorkspace, firstPath, 4, 5);
+    if (firstResult != 0) return firstResult;
+    const int secondResult = loadSkin(*secondWorkspace, secondPath, 6, 7);
+    if (secondResult != 0) return secondResult;
+
+    // The normal frame loop draws every visible workspace after LOAD returns.
+    // Exercise both preview states so a second workspace cannot merely finish
+    // loading and then fail on the following frame.
+    LR2SEResetRenderFault();
+    if (LR2SEDrawLoopSafe(&firstWorkspace->g, firstWorkspace->previewScreen,
+        firstWorkspace->skinSizeX, firstWorkspace->skinSizeY, true) != 0)
+        return 8;
+    LR2SEResetRenderFault();
+    if (LR2SEDrawLoopSafe(&secondWorkspace->g, secondWorkspace->previewScreen,
+        secondWorkspace->skinSizeX, secondWorkspace->skinSizeY, true) != 0)
+        return 9;
+    return 0;
+}
+
 int RunSimpleModeProjectionSelfTest() {
     if (arr_CommandHelp.count <= 0 && LoadCommandHelp(nullptr) != 0) return 1;
 
@@ -55,6 +200,10 @@ int RunSimpleModeProjectionSelfTest() {
         "#SRC_AUTO_LN_START,0,0,0,0,20,10,1,1,0,0,0,0,0",
         "#SRC_AUTO_LN_BODY,0,0,0,0,20,10,1,1,0,0,0,0,0",
         "#SRC_AUTO_LN_END,0,0,0,0,20,10,1,1,0,0,0,0,0",
+        "#SRC_GROOVEGAUGE,0,0,0,0,20,10,1,1,0,0,0,0",
+        "#SRC_GAUGECHART_1P,0,0,0,0,20,10,1,1,0,0,0,0,0,0",
+        "#SRC_GAUGECHART_2P,0,0,0,0,20,10,1,1,0,0,0,0,0,0",
+        "#SRC_SCORECHART,0,0,0,0,20,10,1,1,0,0,0,0,0,0",
         "#SRC_IMAGE,0,0,0,0,20,10,1,1,0,0,0,0,0"
     };
     for (const char* text : sourceRows) {
@@ -75,7 +224,9 @@ int RunSimpleModeProjectionSelfTest() {
     if (counts.judgementFonts != 2) return 3;
     if (counts.gear != 2) return 4;
     if (counts.notes != 10) return 5;
-    return 0;
+    if (counts.gauge != 4) return 6;
+    const int scopeResult = RunSimpleModeScopeRuleSelfTest();
+    return scopeResult == 0 ? 0 : 10 + scopeResult;
 }
 
 int RunAssetMetadataSelfTest() {

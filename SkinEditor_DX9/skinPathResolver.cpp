@@ -21,6 +21,15 @@ bool StartsWithIgnoreCase(const std::string& value, const char* prefix) {
         _strnicmp(value.c_str(), prefix, prefixLength) == 0;
 }
 
+bool IsAbsoluteWindowsBytePath(const char* path) {
+    if (!path || !*path) return false;
+    const bool hasDrive = std::isalpha((unsigned char)path[0]) &&
+        path[1] == ':' && (path[2] == '\\' || path[2] == '/');
+    const bool isUnc = (path[0] == '\\' && path[1] == '\\') ||
+        (path[0] == '/' && path[1] == '/');
+    return hasDrive || isUnc;
+}
+
 std::vector<std::string> SplitPath(const std::string& path) {
     std::vector<std::string> segments;
     size_t start = 0;
@@ -134,9 +143,13 @@ bool SEResolveLr2VirtualRoot(const char* requestedPath,
 
     std::vector<std::filesystem::path> candidates;
     std::set<std::string> keys;
-    AddCandidate(candidates, keys, std::filesystem::path(resolution.logicalRoot));
+    // The opened document owns its virtual LR2 namespace. Resolve from its
+    // declaring include/main skin before consulting the process working
+    // directory; otherwise an unrelated editor-side LR2files tree can shadow
+    // a portable standalone skin with the same Theme name.
     AddAncestorCandidates(ownerFilePath, segments, rootSegmentCount, candidates, keys);
     AddAncestorCandidates(mainSkinPath, segments, rootSegmentCount, candidates, keys);
+    AddCandidate(candidates, keys, std::filesystem::path(resolution.logicalRoot));
 
     for (const std::filesystem::path& candidate : candidates) {
         if (!DirectoryExists(candidate)) continue;
@@ -155,13 +168,34 @@ bool SEResolveSkinResourcePath(const char* requestedPath,
     resolvedPath.clear();
     if (!requestedPath || !*requestedPath) return false;
 
+    // Callers may pass a path already resolved by an earlier parser phase.
+    // Reconstructing std::filesystem::path from that CP932 byte stream can
+    // throw on non-Japanese Windows. Absolute paths need no further root
+    // discovery, so keep the original bytes intact.
+    if (IsAbsoluteWindowsBytePath(requestedPath)) {
+        resolvedPath = requestedPath;
+        std::replace(resolvedPath.begin(), resolvedPath.end(), '/', '\\');
+        return true;
+    }
+
     SELr2VirtualRootResolution root;
     if (SEResolveLr2VirtualRoot(requestedPath, ownerFilePath, mainSkinPath, root)) {
         const std::string suffix = root.logicalPath.size() > root.logicalRoot.size()
             ? root.logicalPath.substr(root.logicalRoot.size() + 1) : std::string();
-        std::filesystem::path candidate(root.physicalRoot);
-        if (!suffix.empty()) candidate /= std::filesystem::path(suffix);
-        resolvedPath = candidate.lexically_normal().string();
+        // LR2 CSV files are commonly CP932 byte streams even on a machine
+        // whose active ANSI code page is not Japanese. std::filesystem::path
+        // converts narrow text through that active code page, and malformed
+        // legacy bytes can throw while loading an otherwise valid skin. The
+        // logical suffix is already traversal-checked, so joining its bytes is
+        // both sufficient and faithful to LR2's original char-path behavior.
+        resolvedPath = root.physicalRoot;
+        if (!suffix.empty()) {
+            if (!resolvedPath.empty() && resolvedPath.back() != '\\' &&
+                resolvedPath.back() != '/')
+                resolvedPath += '\\';
+            resolvedPath += suffix;
+        }
+        std::replace(resolvedPath.begin(), resolvedPath.end(), '/', '\\');
         return true;
     }
 

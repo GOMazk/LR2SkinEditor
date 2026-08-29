@@ -227,9 +227,9 @@ scrolls to the new row and shows the same Object in Inspector.
 
 ### Simple Mode
 
-`WORKSPACE::drawSimpleMode()` projects authoritative LR2 `#SRC_*` rows into four
-authoring groups: number fonts (including NOWCOMBO), judgement fonts, gear parts
-and notes. Object Model names and ids enrich labels and selection when present,
+`WORKSPACE::drawSimpleMode()` projects authoritative LR2 `#SRC_*` rows into five
+authoring groups: number fonts (including NOWCOMBO), judgement fonts, gear parts,
+notes and gauge sources. Object Model names and ids enrich labels and selection when present,
 but they are not a discovery gate; legacy skins and newer note-family commands
 remain visible even when an older `skinObjGroup.txt` does not know them. Each
 card resolves back to one authoritative source row and displays compatible
@@ -240,13 +240,19 @@ row index.
 
 Applying art changes only the shared atlas fields (`gr`, crop rectangle,
 division grid and cycle). NUMBER ids, note lane ids, timers, ops, DST placement,
-conditions and owner files remain intact. `Apply to every matching lane / source`
-matches both category and exact source command, so normal notes do not
-accidentally replace mines or long-note parts.
+conditions and owner files remain intact. Apply scope is explicit: one component,
+same white/black/scratch note family or 1P/2P font pair, exact source command, or
+the complete category. The note-family scope also requires the exact part command,
+so normal notes do not silently replace mines or long-note parts.
 
 `Import image...` copies the selected bitmap into `simple-assets/`, appends a
 new trailing `#IMAGE` plus `$SRC_IMAGE`, and points the chosen semantic slot at
-that graphic. The document mutation is one snapshot-backed History action;
+that graphic. By default it inherits the target `div_x/div_y/cycle`; dimensions
+that do not divide evenly by the atlas grid are rejected before the copy. Asset
+choices can be filtered to the same grid. Hue/Saturation/Brightness creates a
+cropped PNG in `simple-assets` without modifying the source texture and applies
+it through the same scope. Before/After previews and a local Undo button use the
+normal Workspace History path. The document mutation is one snapshot-backed History action;
 Undo restores all touched rows even when the import changed the line count.
 The copied file intentionally remains as an unused local asset after Undo.
 Preview and both asset windows continue to use their existing rebuild path.
@@ -336,6 +342,22 @@ current location; Default locations returns to `LR2files/Theme` and
 unrepresentable or over-`MAX_PATH` paths because the legacy loader is ANSI and
 fixed-path based.
 
+`WORKSPACE::LoadSkin()` owns the reload boundary. It first destroys nested
+editor-owned CSTR/CSV/Object/History values, recreates every derived array, then
+releases LR2 graph and image-font handles before changing DxLib graph mode.
+Parser passes may only populate the freshly reset containers. Resource paths
+already resolved to an absolute Windows byte path are idempotent: they must not
+be reconstructed through `std::filesystem`, because CP932 skin filenames can be
+invalid in the host ANSI code page. D3DX image inspection/loading receives file
+bytes opened by Win32 rather than interpreting the legacy filename itself.
+
+The LR2 preview core is also per workspace. `WORKSPACE::lr2CoreInitialized`
+tracks whether that workspace's `game` has initialized its song list, text
+storage, gameplay buffers and critical sections. A function-local or
+process-wide static flag is invalid here: it would skip initialization for the
+second workspace while its `game` storage is still empty. Same-workspace reload
+reuses the initialized core; a newly created workspace initializes its own.
+
 OLR uses two explicit `WORKSPACE` file flows. `ExportOlrSkin()` reads the same
 expanded CSV rows and per-workspace Object Model used by the editor, then hands
 an `SEOLRSkinDocument` to `olrSkin.cpp`; it does not create another editable
@@ -344,7 +366,9 @@ because bundled assets are read from disk. Export does not mark the workspace
 saved and does not change `mainpath`.
 
 `ImportOlrSkinInteractive()` validates the complete archive before creating a
-directory, extracts only `lr2/` to a newly named folder, reparses its
+directory. V0.4 then validates every `skin.json.simple_mode` row/command and
+atomically compiles only source atlas fields into the extracted compatibility
+script; a mismatch removes the new directory. It reparses the resulting
 `#INFORMATION`, and enters the normal `LoadSkin()` path. It never follows owner
 labels from `compatibility/source-map.json` and never overwrites an existing
 folder. The result popup is presentation state only; the loaded document and

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -11,14 +12,51 @@
 
 
 LPDIRECT3DDEVICE9 g_pd3dDevice;
+
+static bool ReadImageFileBytes(const char* filename,
+    std::vector<unsigned char>& bytes)
+{
+    bytes.clear();
+    if (!filename || !*filename) return false;
+
+    // D3DX's filename overload converts the legacy byte path internally and
+    // can terminate the process for CP932 names on a non-Japanese code page.
+    // Win32's byte-path API fails normally instead, and the in-memory D3DX
+    // overload never needs to interpret the filename.
+    HANDLE file = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+    if (file == INVALID_HANDLE_VALUE) return false;
+
+    LARGE_INTEGER fileSize = {};
+    const bool hasSize = GetFileSizeEx(file, &fileSize) != FALSE;
+    if (!hasSize || fileSize.QuadPart <= 0 || fileSize.QuadPart > MAXDWORD) {
+        CloseHandle(file);
+        return false;
+    }
+
+    bytes.resize((size_t)fileSize.QuadPart);
+    DWORD bytesRead = 0;
+    const bool didRead = ReadFile(file, bytes.data(), (DWORD)bytes.size(),
+        &bytesRead, NULL) != FALSE;
+    CloseHandle(file);
+    if (!didRead || bytesRead != bytes.size()) {
+        bytes.clear();
+        return false;
+    }
+    return true;
+}
+
 // Simple helper function to load an image into a DX9 texture with common settings
 bool LoadTextureFromFile(const char* filename, PDIRECT3DTEXTURE9* out_texture, int* out_width, int* out_height)
 {
-    PDIRECT3DTEXTURE9 texture;
-    D3DXIMAGE_INFO info;
-    //HRESULT hr = D3DXCreateTextureFromFileA(g_pd3dDevice, filename, &texture);
-    HRESULT hr = D3DXCreateTextureFromFileEx(
-            g_pd3dDevice, filename,
+    if (!out_texture || !out_width || !out_height) return false;
+    std::vector<unsigned char> bytes;
+    if (!ReadImageFileBytes(filename, bytes)) return false;
+
+    PDIRECT3DTEXTURE9 texture = NULL;
+    D3DXIMAGE_INFO info = {};
+    HRESULT hr = D3DXCreateTextureFromFileInMemoryEx(
+            g_pd3dDevice, bytes.data(), (UINT)bytes.size(),
             D3DX_DEFAULT_NONPOW2, D3DX_DEFAULT_NONPOW2,
             D3DX_DEFAULT,
             0,
@@ -41,8 +79,11 @@ bool LoadTextureFromFile(const char* filename, PDIRECT3DTEXTURE9* out_texture, i
 bool GetImageSizeFromFile(const char* filename, int* out_width, int* out_height)
 {
     if (!filename || !out_width || !out_height) return false;
+    std::vector<unsigned char> bytes;
+    if (!ReadImageFileBytes(filename, bytes)) return false;
     D3DXIMAGE_INFO info = {};
-    if (FAILED(D3DXGetImageInfoFromFileA(filename, &info))) return false;
+    if (FAILED(D3DXGetImageInfoFromFileInMemory(bytes.data(),
+        (UINT)bytes.size(), &info))) return false;
     *out_width = (int)info.Width;
     *out_height = (int)info.Height;
     return true;
@@ -50,19 +91,9 @@ bool GetImageSizeFromFile(const char* filename, int* out_width, int* out_height)
 
 bool LoadTextureFromFile(const char* filename, D3Image* d3)
 {
-    // Load texture from disk
-    PDIRECT3DTEXTURE9 texture;
-    HRESULT hr = D3DXCreateTextureFromFileA(g_pd3dDevice, filename, &texture);
-    if (hr != S_OK)
-        return false;
-
-    // Retrieve description of the texture surface so we can access its size
-    D3DSURFACE_DESC my_image_desc;
-    texture->GetLevelDesc(0, &my_image_desc);
-    d3->texture = texture;
-    d3->width = (int)my_image_desc.Width;
-    d3->height = (int)my_image_desc.Height;
-    return true;
+    if (!d3) return false;
+    return LoadTextureFromFile(filename, &d3->texture, &d3->width,
+        &d3->height);
 }
 bool LoadTextureFromMemory(void* data, size_t size, PDIRECT3DTEXTURE9* out_texture, int* out_width, int* out_height)
 {
@@ -359,6 +390,114 @@ static bool CreateArgbTexture(const std::vector<D3DCOLOR>& pixels,
             pixels.data() + (size_t)y * width, (size_t)width * sizeof(D3DCOLOR));
     (*output)->UnlockRect(0);
     return true;
+}
+
+static float ClampColorUnit(float value)
+{
+    return (std::max)(0.0f, (std::min)(1.0f, value));
+}
+
+static void RgbToHsv(float red, float green, float blue,
+    float& hue, float& saturation, float& value)
+{
+    const float maximum = (std::max)(red, (std::max)(green, blue));
+    const float minimum = (std::min)(red, (std::min)(green, blue));
+    const float delta = maximum - minimum;
+    value = maximum;
+    saturation = maximum <= 0.0f ? 0.0f : delta / maximum;
+    if (delta <= 0.0f) hue = 0.0f;
+    else if (maximum == red)
+        hue = fmodf((green - blue) / delta, 6.0f) / 6.0f;
+    else if (maximum == green)
+        hue = ((blue - red) / delta + 2.0f) / 6.0f;
+    else
+        hue = ((red - green) / delta + 4.0f) / 6.0f;
+    if (hue < 0.0f) hue += 1.0f;
+}
+
+static void HsvToRgb(float hue, float saturation, float value,
+    float& red, float& green, float& blue)
+{
+    hue -= floorf(hue);
+    const float sector = hue * 6.0f;
+    const int index = (int)floorf(sector) % 6;
+    const float fraction = sector - floorf(sector);
+    const float p = value * (1.0f - saturation);
+    const float q = value * (1.0f - fraction * saturation);
+    const float t = value * (1.0f - (1.0f - fraction) * saturation);
+    switch (index) {
+    case 0: red = value; green = t; blue = p; break;
+    case 1: red = q; green = value; blue = p; break;
+    case 2: red = p; green = value; blue = t; break;
+    case 3: red = p; green = q; blue = value; break;
+    case 4: red = t; green = p; blue = value; break;
+    default: red = value; green = p; blue = q; break;
+    }
+}
+
+bool CreateColorAdjustedImageRegionAtomic(const char* filename,
+    PDIRECT3DTEXTURE9 sourceTexture, int sourceX, int sourceY,
+    int sourceWidth, int sourceHeight, float hueShiftDegrees,
+    float saturationScale, float brightnessScale,
+    char* errorText, size_t errorTextSize)
+{
+    if (errorText && errorTextSize) errorText[0] = '\0';
+    std::vector<D3DCOLOR> sourcePixels;
+    int textureWidth = 0;
+    int textureHeight = 0;
+    if (!TextureToArgbPixels(sourceTexture, sourcePixels,
+        textureWidth, textureHeight)) {
+        SetImageSaveError(errorText, errorTextSize,
+            "The source image pixels could not be read.");
+        return false;
+    }
+    if (sourceX < 0 || sourceY < 0 || sourceWidth <= 0 || sourceHeight <= 0 ||
+        sourceX > textureWidth - sourceWidth ||
+        sourceY > textureHeight - sourceHeight ||
+        sourceWidth > 16384 || sourceHeight > 16384) {
+        SetImageSaveError(errorText, errorTextSize,
+            "The selected atlas region is outside the source image.");
+        return false;
+    }
+
+    saturationScale = (std::max)(0.0f, (std::min)(2.0f, saturationScale));
+    brightnessScale = (std::max)(0.0f, (std::min)(2.0f, brightnessScale));
+    const float hueShift = hueShiftDegrees / 360.0f;
+    std::vector<D3DCOLOR> outputPixels((size_t)sourceWidth * sourceHeight);
+    for (int y = 0; y < sourceHeight; ++y) {
+        for (int x = 0; x < sourceWidth; ++x) {
+            const D3DCOLOR pixel = sourcePixels[
+                (size_t)(sourceY + y) * textureWidth + sourceX + x];
+            const unsigned int alpha = (pixel >> 24) & 0xff;
+            float red = ((pixel >> 16) & 0xff) / 255.0f;
+            float green = ((pixel >> 8) & 0xff) / 255.0f;
+            float blue = (pixel & 0xff) / 255.0f;
+            float hue = 0.0f;
+            float saturation = 0.0f;
+            float value = 0.0f;
+            RgbToHsv(red, green, blue, hue, saturation, value);
+            hue += hueShift;
+            saturation = ClampColorUnit(saturation * saturationScale);
+            value = ClampColorUnit(value * brightnessScale);
+            HsvToRgb(hue, saturation, value, red, green, blue);
+            outputPixels[(size_t)y * sourceWidth + x] = D3DCOLOR_ARGB(alpha,
+                (unsigned int)(ClampColorUnit(red) * 255.0f + 0.5f),
+                (unsigned int)(ClampColorUnit(green) * 255.0f + 0.5f),
+                (unsigned int)(ClampColorUnit(blue) * 255.0f + 0.5f));
+        }
+    }
+
+    PDIRECT3DTEXTURE9 outputTexture = NULL;
+    if (!CreateArgbTexture(outputPixels, sourceWidth, sourceHeight,
+        &outputTexture)) {
+        SetImageSaveError(errorText, errorTextSize,
+            "Direct3D could not allocate the adjusted image.");
+        return false;
+    }
+    const bool saved = SaveNewTextureToImageFileAtomic(filename, outputTexture,
+        errorText, errorTextSize);
+    outputTexture->Release();
+    return saved;
 }
 
 bool CreateSolidImageFileAtomic(const char* filename, int width, int height,
@@ -701,18 +840,23 @@ int RunPixelPaintSelfTest()
     char solidPath[MAX_PATH] = {};
     char mergedPath[MAX_PATH] = {};
     char packedPath[MAX_PATH] = {};
+    char adjustedPath[MAX_PATH] = {};
     snprintf(solidPath, sizeof(solidPath), "%sSkinEditor_solid_%lu.png",
         tempDirectory, GetCurrentProcessId());
     snprintf(mergedPath, sizeof(mergedPath), "%sSkinEditor_merged_%lu.png",
         tempDirectory, GetCurrentProcessId());
     snprintf(packedPath, sizeof(packedPath), "%sSkinEditor_packed_%lu.png",
         tempDirectory, GetCurrentProcessId());
+    snprintf(adjustedPath, sizeof(adjustedPath), "%sSkinEditor_adjusted_%lu.png",
+        tempDirectory, GetCurrentProcessId());
     DeleteFileA(solidPath);
     DeleteFileA(mergedPath);
     DeleteFileA(packedPath);
+    DeleteFileA(adjustedPath);
     DeleteFileA((std::string(solidPath) + ".skineditor-create.tmp").c_str());
     DeleteFileA((std::string(mergedPath) + ".skineditor-create.tmp").c_str());
     DeleteFileA((std::string(packedPath) + ".skineditor-create.tmp").c_str());
+    DeleteFileA((std::string(adjustedPath) + ".skineditor-create.tmp").c_str());
     const D3DCOLOR solidBlue = D3DCOLOR_ARGB(77, 14, 32, 210);
     if (!CreateSolidImageFileAtomic(solidPath, 3, 2, solidBlue,
         errorText, sizeof(errorText))) return 50;
@@ -725,6 +869,27 @@ int RunPixelPaintSelfTest()
         solidPixel != solidBlue) {
         baseTexture->Release();
         return 52;
+    }
+    if (!CreateColorAdjustedImageRegionAtomic(adjustedPath, baseTexture,
+        1, 0, 2, 2, 120.0f, 1.0f, 1.0f,
+        errorText, sizeof(errorText))) {
+        baseTexture->Release();
+        return 61;
+    }
+    PDIRECT3DTEXTURE9 adjustedTexture = NULL;
+    if (!LoadTextureFromFile(adjustedPath, &adjustedTexture, &width, &height) ||
+        width != 2 || height != 2) {
+        baseTexture->Release();
+        return 62;
+    }
+    D3DCOLOR adjustedPixel = 0;
+    const bool adjustedPixelMatches = ReadTexturePixel(adjustedTexture,
+        0, 0, &adjustedPixel) && ((adjustedPixel >> 24) & 0xff) == 77 &&
+        ((adjustedPixel >> 16) & 0xff) > (adjustedPixel & 0xff);
+    adjustedTexture->Release();
+    if (!adjustedPixelMatches) {
+        baseTexture->Release();
+        return 63;
     }
 
     PDIRECT3DTEXTURE9 overlayTexture = NULL;
@@ -808,8 +973,10 @@ int RunPixelPaintSelfTest()
     DeleteFileA(solidPath);
     DeleteFileA(mergedPath);
     DeleteFileA(packedPath);
+    DeleteFileA(adjustedPath);
     DeleteFileA((std::string(solidPath) + ".skineditor-create.tmp").c_str());
     DeleteFileA((std::string(mergedPath) + ".skineditor-create.tmp").c_str());
     DeleteFileA((std::string(packedPath) + ".skineditor-create.tmp").c_str());
+    DeleteFileA((std::string(adjustedPath) + ".skineditor-create.tmp").c_str());
     return 0;
 }

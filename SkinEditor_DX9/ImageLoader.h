@@ -23,6 +23,13 @@ bool SaveTextureToImageFileAtomic(const char* filename, PDIRECT3DTEXTURE9 textur
     char* errorText, size_t errorTextSize);
 bool CreateSolidImageFileAtomic(const char* filename, int width, int height,
     D3DCOLOR color, char* errorText, size_t errorTextSize);
+// Creates a new cropped PNG-compatible image and adjusts RGB in HSV space.
+// The source texture and its alpha channel are never modified.
+bool CreateColorAdjustedImageRegionAtomic(const char* filename,
+    PDIRECT3DTEXTURE9 sourceTexture, int sourceX, int sourceY,
+    int sourceWidth, int sourceHeight, float hueShiftDegrees,
+    float saturationScale, float brightnessScale,
+    char* errorText, size_t errorTextSize);
 bool MergeTextureRegionToImageFileAtomic(const char* filename,
     PDIRECT3DTEXTURE9 baseTexture, PDIRECT3DTEXTURE9 overlayTexture,
     int overlaySourceX, int overlaySourceY, int overlaySourceWidth,

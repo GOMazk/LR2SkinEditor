@@ -5,11 +5,14 @@ container without losing commands that do not yet have a semantic model.
 
 Entry points:
 
-- `SEWriteOLRSkinPackage()` writes the V0.3 manifest, semantic/Object index,
+- `SEWriteOLRSkinPackage()` writes the V0.4 manifest, semantic/Object index,
   Simple Mode slots, source/path maps, merged LR2 script, captured virtual roots
   and fixed external images.
 - `SEInspectOLRSkinPackage()` validates and lists a package without writing.
-- `SEExtractOLRSkinPackage()` extracts only the `lr2/` subtree to a new folder.
+- `SECompileOLRSimpleMode()` validates V0.4 Simple Mode rows and compiles only
+  source atlas fields while preserving every unsupported LR2 row and column.
+- `SEExtractOLRSkinPackage()` extracts the `lr2/` subtree, compiles V0.4 Simple
+  Mode in memory, then atomically replaces the new `main.lr2skin`.
 - `SEExportOLRWorkspaceToLR2()` materializes an imported workspace into a new
   install-ready `LR2files/` tree and restores virtual CSV path fields.
 - `SEResolveSkinResourcePath()` maps LR2-rooted declarations to either a real
@@ -24,9 +27,11 @@ Entry points:
 Important invariants:
 
 - `skinfileLines` and `SEObjectEditorModel` remain authoritative while editing.
-- V0.3 `skin.json` is descriptive; `lr2/main.lr2skin` owns round-trip output.
-- Simple Mode edits authoritative workspace CSV fields and then regenerates the
-  descriptive slots at export. Editing the exported slots alone does not compile.
+- V0.4 `skin.json.simple_mode` owns only `gr`, crop, division and cycle fields of
+  validated source rows. Semantic `sections` and all other LR2 data remain
+  descriptive/compatibility-owned.
+- Export translates expanded Workspace row ids through source-map packaged rows;
+  the compiler never guesses across omitted include or `$FILE` rows.
 - runtime path resolution changes only derived Preview/load paths; the raw CSV,
   owner rows and save model remain authoritative.
 - ZIP paths are relative and forward-slash separated. Case-insensitive duplicate,

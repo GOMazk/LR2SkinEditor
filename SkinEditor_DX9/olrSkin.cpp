@@ -3,6 +3,7 @@
 #include <Windows.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
@@ -23,6 +24,8 @@ constexpr uint32_t kEndOfCentralDirectorySignature = 0x06054b50u;
 constexpr uint16_t kStoredMethod = 0;
 constexpr uint64_t kMaximumClassicZipSize = 0xFFFFFFFFull;
 constexpr size_t kCopyBufferSize = 64 * 1024;
+constexpr int kOlrFormatVersion = 4;
+constexpr const char* kSimpleModeAuthority = "lr2-source-v0.4";
 
 struct PackageEntrySource {
     std::string name;
@@ -189,7 +192,7 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
     std::ostringstream json;
     json << "{\n";
     json << "  \"format\": \"olrskin-semantic\",\n";
-    json << "  \"version\": 2,\n";
+    json << "  \"version\": 3,\n";
     json << "  \"metadata\": {\"title\": \"" << JsonEscape(document.title)
         << "\", \"maker\": \"" << JsonEscape(document.maker)
         << "\", \"scene\": \"" << JsonEscape(document.scene) << "\"},\n";
@@ -217,7 +220,8 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
             ? ",\n" : "\n");
     }
     json << "  },\n";
-    json << "  \"simple_mode\": {\"authority\": \"descriptive\", \"slots\": [";
+    json << "  \"simple_mode\": {\"authority\": \""
+        << kSimpleModeAuthority << "\", \"slots\": [";
     for (size_t index = 0; index < document.simpleSlots.size(); ++index) {
         json << (index ? ",\n" : "\n");
         WriteSimpleSlot(json, document.simpleSlots[index], "    ");
@@ -279,9 +283,9 @@ std::string BuildManifestJson(const SEOLRSkinDocument& document,
     std::ostringstream json;
     json << "{\n"
         << "  \"format\": \"olrskin\",\n"
-        << "  \"version\": 3,\n"
-        << "  \"profile\": \"lr2-simple-v0.3\",\n"
-        << "  \"semantic_authority\": \"descriptive\",\n"
+        << "  \"version\": " << kOlrFormatVersion << ",\n"
+        << "  \"profile\": \"lr2-simple-v0.4\",\n"
+        << "  \"semantic_authority\": \"simple_mode\",\n"
         << "  \"lr2_entry\": \"lr2/main.lr2skin\",\n"
         << "  \"skin_entry\": \"skin.json\",\n"
         << "  \"path_map_entry\": \"compatibility/path-map.json\",\n"
@@ -293,7 +297,7 @@ std::string BuildManifestJson(const SEOLRSkinDocument& document,
         << "  \"skipped_virtual_file_count\": " << skippedVirtualFileCount << ",\n"
         << "  \"unresolved_image_count\": " << document.unresolvedImageCount << ",\n"
         << "  \"unresolved_resource_count\": " << document.unresolvedResourceCount << ",\n"
-        << "  \"limitations\": [\"semantic JSON remains descriptive\", "
+        << "  \"limitations\": [\"semantic sections outside simple_mode remain descriptive\", "
         << "\"resources outside captured LR2 roots remain external\"]\n"
         << "}\n";
     return json.str();
@@ -708,6 +712,470 @@ bool CopyAndValidateEntry(FILE* archive, const PackageEntryRecord& entry,
     return true;
 }
 
+struct SimpleModeCompileSlot {
+    std::string id;
+    std::string category;
+    std::string sourceCommand;
+    int sourceRow = -1;
+    int graphicId = -1;
+    int x = -1;
+    int y = -1;
+    int width = -1;
+    int height = -1;
+    int divX = -1;
+    int divY = -1;
+    int cycle = -1;
+    bool hasCategory = false;
+    bool hasSourceCommand = false;
+    bool hasSourceRow = false;
+    bool hasAsset = false;
+};
+
+class SimpleModeJsonReader {
+public:
+    explicit SimpleModeJsonReader(const std::string& text) : text_(text) {}
+
+    bool Read(std::string& authority, std::vector<SimpleModeCompileSlot>& slots,
+        std::string& errorMessage) {
+        authority.clear();
+        slots.clear();
+        SkipWhitespace();
+        if (!Take('{')) return Fail("skin.json root must be an object.", errorMessage);
+        bool foundSimpleMode = false;
+        SkipWhitespace();
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
+                    return false;
+                if (key == "simple_mode") {
+                    if (foundSimpleMode)
+                        return Fail("skin.json contains duplicate simple_mode objects.", errorMessage);
+                    foundSimpleMode = true;
+                    if (!ReadSimpleMode(authority, slots, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                SkipWhitespace();
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        SkipWhitespace();
+        if (at_ != text_.size())
+            return Fail("skin.json has trailing data after its root object.", errorMessage);
+        if (!foundSimpleMode)
+            return Fail("skin.json has no simple_mode object.", errorMessage);
+        return true;
+    }
+
+private:
+    const std::string& text_;
+    size_t at_ = 0;
+
+    void SkipWhitespace() {
+        while (at_ < text_.size() &&
+            std::isspace((unsigned char)text_[at_])) ++at_;
+    }
+
+    bool Take(char expected) {
+        SkipWhitespace();
+        if (at_ >= text_.size() || text_[at_] != expected) return false;
+        ++at_;
+        return true;
+    }
+
+    bool Fail(const char* message, std::string& errorMessage) const {
+        errorMessage = std::string(message) + " At byte " + std::to_string(at_) + ".";
+        return false;
+    }
+
+    bool Require(char expected, std::string& errorMessage) {
+        if (Take(expected)) return true;
+        const std::string message = std::string("skin.json expected '") +
+            expected + "'.";
+        return Fail(message.c_str(), errorMessage);
+    }
+
+    bool ReadString(std::string& value, std::string& errorMessage) {
+        SkipWhitespace();
+        if (at_ >= text_.size() || text_[at_] != '"')
+            return Fail("skin.json expected a string.", errorMessage);
+        ++at_;
+        value.clear();
+        while (at_ < text_.size()) {
+            const unsigned char ch = (unsigned char)text_[at_++];
+            if (ch == '"') return true;
+            if (ch < 0x20)
+                return Fail("skin.json string contains a control character.", errorMessage);
+            if (ch != '\\') {
+                value.push_back((char)ch);
+                continue;
+            }
+            if (at_ >= text_.size())
+                return Fail("skin.json string ends inside an escape.", errorMessage);
+            const char escaped = text_[at_++];
+            switch (escaped) {
+            case '"': value.push_back('"'); break;
+            case '\\': value.push_back('\\'); break;
+            case '/': value.push_back('/'); break;
+            case 'b': value.push_back('\b'); break;
+            case 'f': value.push_back('\f'); break;
+            case 'n': value.push_back('\n'); break;
+            case 'r': value.push_back('\r'); break;
+            case 't': value.push_back('\t'); break;
+            case 'u': {
+                if (at_ + 4 > text_.size())
+                    return Fail("skin.json has a truncated Unicode escape.", errorMessage);
+                unsigned int codepoint = 0;
+                for (int digit = 0; digit < 4; ++digit) {
+                    const char hex = text_[at_++];
+                    codepoint <<= 4;
+                    if (hex >= '0' && hex <= '9') codepoint += hex - '0';
+                    else if (hex >= 'a' && hex <= 'f') codepoint += hex - 'a' + 10;
+                    else if (hex >= 'A' && hex <= 'F') codepoint += hex - 'A' + 10;
+                    else return Fail("skin.json has an invalid Unicode escape.", errorMessage);
+                }
+                if (codepoint <= 0x7f) value.push_back((char)codepoint);
+                else if (codepoint <= 0x7ff) {
+                    value.push_back((char)(0xc0 | (codepoint >> 6)));
+                    value.push_back((char)(0x80 | (codepoint & 0x3f)));
+                }
+                else {
+                    value.push_back((char)(0xe0 | (codepoint >> 12)));
+                    value.push_back((char)(0x80 | ((codepoint >> 6) & 0x3f)));
+                    value.push_back((char)(0x80 | (codepoint & 0x3f)));
+                }
+                break;
+            }
+            default:
+                return Fail("skin.json has an unsupported string escape.", errorMessage);
+            }
+        }
+        return Fail("skin.json has an unterminated string.", errorMessage);
+    }
+
+    bool ReadInteger(int& value, std::string& errorMessage) {
+        SkipWhitespace();
+        const size_t start = at_;
+        if (at_ < text_.size() && text_[at_] == '-') ++at_;
+        const size_t digits = at_;
+        while (at_ < text_.size() && text_[at_] >= '0' && text_[at_] <= '9')
+            ++at_;
+        if (digits == at_)
+            return Fail("skin.json expected an integer.", errorMessage);
+        if (at_ < text_.size() && (text_[at_] == '.' || text_[at_] == 'e' ||
+            text_[at_] == 'E'))
+            return Fail("Simple Mode compiler fields must be integers.", errorMessage);
+        const long long parsed = _strtoi64(text_.c_str() + start, nullptr, 10);
+        if (parsed < (std::numeric_limits<int>::min)() ||
+            parsed > (std::numeric_limits<int>::max)())
+            return Fail("Simple Mode compiler integer is out of range.", errorMessage);
+        value = (int)parsed;
+        return true;
+    }
+
+    bool SkipValue(int depth, std::string& errorMessage) {
+        if (depth > 64) return Fail("skin.json nesting is too deep.", errorMessage);
+        SkipWhitespace();
+        if (at_ >= text_.size())
+            return Fail("skin.json ended before a value.", errorMessage);
+        if (text_[at_] == '"') {
+            std::string ignored;
+            return ReadString(ignored, errorMessage);
+        }
+        if (text_[at_] == '{') {
+            ++at_;
+            SkipWhitespace();
+            if (Take('}')) return true;
+            for (;;) {
+                std::string ignored;
+                if (!ReadString(ignored, errorMessage) ||
+                    !Require(':', errorMessage) ||
+                    !SkipValue(depth + 1, errorMessage)) return false;
+                if (Take('}')) return true;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (text_[at_] == '[') {
+            ++at_;
+            SkipWhitespace();
+            if (Take(']')) return true;
+            for (;;) {
+                if (!SkipValue(depth + 1, errorMessage)) return false;
+                if (Take(']')) return true;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        const char* literals[] = { "true", "false", "null" };
+        for (const char* literal : literals) {
+            const size_t length = strlen(literal);
+            if (text_.compare(at_, length, literal) == 0) {
+                at_ += length;
+                return true;
+            }
+        }
+        const size_t start = at_;
+        if (text_[at_] == '-') ++at_;
+        const size_t integerDigits = at_;
+        while (at_ < text_.size() && text_[at_] >= '0' && text_[at_] <= '9') ++at_;
+        if (integerDigits == at_)
+            return Fail("skin.json contains an invalid number.", errorMessage);
+        if (at_ < text_.size() && text_[at_] == '.') {
+            ++at_;
+            const size_t fractionDigits = at_;
+            while (at_ < text_.size() && text_[at_] >= '0' && text_[at_] <= '9') ++at_;
+            if (fractionDigits == at_)
+                return Fail("skin.json contains an invalid number fraction.", errorMessage);
+        }
+        if (at_ < text_.size() && (text_[at_] == 'e' || text_[at_] == 'E')) {
+            ++at_;
+            if (at_ < text_.size() && (text_[at_] == '+' || text_[at_] == '-')) ++at_;
+            const size_t exponentDigits = at_;
+            while (at_ < text_.size() && text_[at_] >= '0' && text_[at_] <= '9') ++at_;
+            if (exponentDigits == at_)
+                return Fail("skin.json contains an invalid number exponent.", errorMessage);
+        }
+        if (at_ > start) return true;
+        return Fail("skin.json contains an invalid value.", errorMessage);
+    }
+
+    bool ReadSimpleMode(std::string& authority,
+        std::vector<SimpleModeCompileSlot>& slots, std::string& errorMessage) {
+        if (!Take('{'))
+            return Fail("skin.json simple_mode must be an object.", errorMessage);
+        bool foundAuthority = false;
+        bool foundSlots = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
+                    return false;
+                if (key == "authority") {
+                    if (foundAuthority)
+                        return Fail("simple_mode contains duplicate authority fields.", errorMessage);
+                    foundAuthority = true;
+                    if (!ReadString(authority, errorMessage)) return false;
+                }
+                else if (key == "slots") {
+                    if (foundSlots)
+                        return Fail("simple_mode contains duplicate slots fields.", errorMessage);
+                    foundSlots = true;
+                    if (!ReadSlots(slots, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundAuthority || !foundSlots)
+            return Fail("simple_mode requires authority and slots.", errorMessage);
+        return true;
+    }
+
+    bool ReadSlots(std::vector<SimpleModeCompileSlot>& slots,
+        std::string& errorMessage) {
+        if (!Take('['))
+            return Fail("simple_mode.slots must be an array.", errorMessage);
+        if (Take(']')) return true;
+        for (;;) {
+            SimpleModeCompileSlot slot;
+            if (!ReadSlot(slot, errorMessage)) return false;
+            slots.push_back(std::move(slot));
+            if (Take(']')) return true;
+            if (!Require(',', errorMessage)) return false;
+        }
+    }
+
+    bool ReadSlot(SimpleModeCompileSlot& slot, std::string& errorMessage) {
+        if (!Take('{'))
+            return Fail("Each simple_mode slot must be an object.", errorMessage);
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
+                    return false;
+                if (key == "id") {
+                    if (!ReadString(slot.id, errorMessage)) return false;
+                }
+                else if (key == "category") {
+                    if (slot.hasCategory)
+                        return Fail("A simple_mode slot contains duplicate category fields.", errorMessage);
+                    slot.hasCategory = true;
+                    if (!ReadString(slot.category, errorMessage)) return false;
+                }
+                else if (key == "source_command") {
+                    if (slot.hasSourceCommand)
+                        return Fail("A simple_mode slot contains duplicate source_command fields.", errorMessage);
+                    slot.hasSourceCommand = true;
+                    if (!ReadString(slot.sourceCommand, errorMessage)) return false;
+                }
+                else if (key == "source_row") {
+                    if (slot.hasSourceRow)
+                        return Fail("A simple_mode slot contains duplicate source_row fields.", errorMessage);
+                    slot.hasSourceRow = true;
+                    if (!ReadInteger(slot.sourceRow, errorMessage)) return false;
+                }
+                else if (key == "asset") {
+                    if (slot.hasAsset)
+                        return Fail("A simple_mode slot contains duplicate asset fields.", errorMessage);
+                    slot.hasAsset = true;
+                    if (!ReadAsset(slot, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!slot.hasCategory || !slot.hasSourceCommand ||
+            !slot.hasSourceRow || !slot.hasAsset)
+            return Fail("A simple_mode slot is missing a compiler field.", errorMessage);
+        return true;
+    }
+
+    bool ReadAsset(SimpleModeCompileSlot& slot, std::string& errorMessage) {
+        if (!Take('{'))
+            return Fail("A simple_mode slot asset must be an object.", errorMessage);
+        bool fields[8] = {};
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
+                    return false;
+                int* destination = nullptr;
+                int field = -1;
+                if (key == "gr") { destination = &slot.graphicId; field = 0; }
+                else if (key == "x") { destination = &slot.x; field = 1; }
+                else if (key == "y") { destination = &slot.y; field = 2; }
+                else if (key == "width") { destination = &slot.width; field = 3; }
+                else if (key == "height") { destination = &slot.height; field = 4; }
+                else if (key == "div_x") { destination = &slot.divX; field = 5; }
+                else if (key == "div_y") { destination = &slot.divY; field = 6; }
+                else if (key == "cycle") { destination = &slot.cycle; field = 7; }
+                if (destination) {
+                    if (fields[field])
+                        return Fail("A simple_mode asset contains a duplicate field.", errorMessage);
+                    fields[field] = true;
+                    if (!ReadInteger(*destination, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        for (bool present : fields)
+            if (!present)
+                return Fail("A simple_mode asset is missing a compiler field.", errorMessage);
+        return true;
+    }
+};
+
+struct PreservedScriptLine {
+    std::string content;
+    std::string ending;
+};
+
+std::vector<PreservedScriptLine> SplitPreservedScriptLines(
+    const std::string& script) {
+    std::vector<PreservedScriptLine> lines;
+    size_t start = 0;
+    while (start < script.size()) {
+        const size_t end = script.find_first_of("\r\n", start);
+        PreservedScriptLine line;
+        if (end == std::string::npos) {
+            line.content = script.substr(start);
+            lines.push_back(std::move(line));
+            break;
+        }
+        line.content = script.substr(start, end - start);
+        size_t next = end + 1;
+        if (script[end] == '\r' && next < script.size() && script[next] == '\n')
+            ++next;
+        line.ending = script.substr(end, next - end);
+        lines.push_back(std::move(line));
+        start = next;
+    }
+    if (script.empty()) lines.push_back(PreservedScriptLine());
+    return lines;
+}
+
+std::vector<std::string> SplitSimpleCsv(const std::string& line) {
+    std::vector<std::string> fields;
+    size_t start = 0;
+    for (;;) {
+        const size_t comma = line.find(',', start);
+        fields.push_back(line.substr(start, comma == std::string::npos
+            ? std::string::npos : comma - start));
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    return fields;
+}
+
+bool StartsWith(const std::string& value, const char* prefix) {
+    return prefix && value.compare(0, strlen(prefix), prefix) == 0;
+}
+
+bool IsCompilableSimpleModeCommand(const SimpleModeCompileSlot& slot) {
+    const std::string& command = slot.sourceCommand;
+    if (slot.category == "number-fonts")
+        return command == "#SRC_NUMBER" || StartsWith(command, "#SRC_NOWCOMBO_");
+    if (slot.category == "judgement-fonts")
+        return StartsWith(command, "#SRC_NOWJUDGE_");
+    if (slot.category == "notes")
+        return command == "#SRC_NOTE" || command == "#SRC_MINE" ||
+            StartsWith(command, "#SRC_LN_") || command == "#SRC_AUTO_NOTE" ||
+            command == "#SRC_AUTO_MINE" || StartsWith(command, "#SRC_AUTO_LN_");
+    if (slot.category == "gear")
+        return command == "#SRC_IMAGE" || command == "#SRC_LINE" ||
+            command == "#SRC_JUDGELINE";
+    if (slot.category == "gauge")
+        return command == "#SRC_GROOVEGAUGE" ||
+            command == "#SRC_SCORECHART" ||
+            StartsWith(command, "#SRC_GAUGECHART_");
+    return false;
+}
+
+bool ValidateSimpleModeAsset(const SimpleModeCompileSlot& slot,
+    std::string& errorMessage) {
+    const std::string label = slot.id.empty() ?
+        std::string("row ") + std::to_string(slot.sourceRow) : slot.id;
+    if (slot.graphicId < 0 || slot.graphicId > 99 || slot.x < 0 || slot.y < 0 ||
+        slot.width <= 0 || slot.height <= 0 || slot.divX <= 0 || slot.divY <= 0 ||
+        slot.cycle < 0 || slot.x > 1000000 || slot.y > 1000000 ||
+        slot.width > 1000000 || slot.height > 1000000 || slot.divX > 100000 ||
+        slot.divY > 100000 || slot.cycle > 1000000000) {
+        errorMessage = "Simple Mode asset values are outside the safe LR2 range: " +
+            label + ".";
+        return false;
+    }
+    return true;
+}
+
+bool WriteTextFileAtomic(const std::filesystem::path& path,
+    const std::string& bytes, std::string& errorMessage) {
+    const std::filesystem::path temporary = path.string() + ".olr-compile.tmp";
+    DeleteFileA(temporary.string().c_str());
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+    if (!output) {
+        errorMessage = "The OLR compiler could not create its temporary LR2 script.";
+        return false;
+    }
+    output.write(bytes.data(), (std::streamsize)bytes.size());
+    output.close();
+    if (!output) {
+        DeleteFileA(temporary.string().c_str());
+        errorMessage = "The OLR compiler could not write the complete LR2 script.";
+        return false;
+    }
+    if (!MoveFileExA(temporary.string().c_str(), path.string().c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DeleteFileA(temporary.string().c_str());
+        errorMessage = "The OLR compiler could not atomically replace the LR2 script.";
+        return false;
+    }
+    return true;
+}
+
 bool ValidateManifest(FILE* archive,
     const std::vector<PackageEntryRecord>& entries, SEOLRPackageInfo& info,
     std::string& errorMessage) {
@@ -741,16 +1209,19 @@ bool ValidateManifest(FILE* archive,
     const bool isVersion1 = text.find("\"version\": 1") != std::string::npos;
     const bool isVersion2 = text.find("\"version\": 2") != std::string::npos;
     const bool isVersion3 = text.find("\"version\": 3") != std::string::npos;
+    const bool isVersion4 = text.find("\"version\": 4") != std::string::npos;
     if (text.find("\"format\": \"olrskin\"") == std::string::npos ||
-        (!isVersion1 && !isVersion2 && !isVersion3) ||
+        (!isVersion1 && !isVersion2 && !isVersion3 && !isVersion4) ||
         text.find("\"lr2_entry\": \"lr2/main.lr2skin\"") == std::string::npos) {
         errorMessage = "The OLR manifest format or version is unsupported.";
         return false;
     }
-    if ((isVersion2 || isVersion3) && (!hasPathMap || !hasExportMain)) {
+    if ((isVersion2 || isVersion3 || isVersion4) &&
+        (!hasPathMap || !hasExportMain)) {
         errorMessage = "The OLR V0.2+ package is missing its virtual path metadata.";
         return false;
     }
+    info.formatVersion = isVersion4 ? 4 : isVersion3 ? 3 : isVersion2 ? 2 : 1;
     const char* objectKey = "\"object_count\": ";
     const char* simpleSlotKey = "\"simple_slot_count\": ";
     const char* unresolvedKey = "\"unresolved_image_count\": ";
@@ -802,6 +1273,72 @@ bool OpenAndValidateArchive(const char* packagePath, FILE*& archive,
     return true;
 }
 
+}
+
+bool SECompileOLRSimpleMode(const std::string& skinJson,
+    const std::string& lr2Script, std::string& compiledScript,
+    int& compiledSlotCount, std::string& errorMessage) {
+    compiledScript.clear();
+    compiledSlotCount = 0;
+    errorMessage.clear();
+
+    std::string authority;
+    std::vector<SimpleModeCompileSlot> slots;
+    SimpleModeJsonReader reader(skinJson);
+    if (!reader.Read(authority, slots, errorMessage)) return false;
+    if (authority != kSimpleModeAuthority) {
+        errorMessage = "skin.json simple_mode authority is not supported: " +
+            authority + ".";
+        return false;
+    }
+
+    std::vector<PreservedScriptLine> lines = SplitPreservedScriptLines(lr2Script);
+    std::set<int> compiledRows;
+    for (const SimpleModeCompileSlot& slot : slots) {
+        if (!IsCompilableSimpleModeCommand(slot)) {
+            errorMessage = "Simple Mode slot category/command is not compilable: " +
+                slot.category + " / " + slot.sourceCommand + ".";
+            return false;
+        }
+        if (!ValidateSimpleModeAsset(slot, errorMessage)) return false;
+        if (slot.sourceRow <= 0 || slot.sourceRow > (int)lines.size()) {
+            errorMessage = "Simple Mode source_row is outside lr2/main.lr2skin: " +
+                std::to_string(slot.sourceRow) + ".";
+            return false;
+        }
+        if (!compiledRows.insert(slot.sourceRow).second) {
+            errorMessage = "Two Simple Mode slots target LR2 row " +
+                std::to_string(slot.sourceRow) + ".";
+            return false;
+        }
+
+        PreservedScriptLine& line = lines[(size_t)slot.sourceRow - 1];
+        std::vector<std::string> fields = SplitSimpleCsv(line.content);
+        if (fields.size() < 10 || _stricmp(fields[0].c_str(),
+            slot.sourceCommand.c_str()) != 0) {
+            errorMessage = "Simple Mode row/command mismatch at LR2 row " +
+                std::to_string(slot.sourceRow) + ": expected " +
+                slot.sourceCommand + ".";
+            return false;
+        }
+        const int values[] = { slot.graphicId, slot.x, slot.y, slot.width,
+            slot.height, slot.divX, slot.divY, slot.cycle };
+        for (int field = 0; field < 8; ++field)
+            fields[(size_t)field + 2] = std::to_string(values[field]);
+        std::ostringstream rebuilt;
+        for (size_t field = 0; field < fields.size(); ++field) {
+            if (field) rebuilt << ',';
+            rebuilt << fields[field];
+        }
+        line.content = rebuilt.str();
+    }
+
+    std::ostringstream output;
+    for (const PreservedScriptLine& line : lines)
+        output << line.content << line.ending;
+    compiledScript = output.str();
+    compiledSlotCount = (int)slots.size();
+    return true;
 }
 
 bool SEWriteOLRSkinPackage(const char* packagePath,
@@ -896,8 +1433,12 @@ bool SEExtractOLRSkinPackage(const char* packagePath,
     // Validate the complete package before creating any output. Import only
     // extracts lr2/, but a corrupt semantic or source-map entry still makes
     // the container invalid.
+    std::vector<unsigned char> semanticBytes;
     for (const PackageEntryRecord& entry : entries) {
-        if (!CopyAndValidateEntry(archive, entry, nullptr, nullptr, errorMessage)) {
+        std::vector<unsigned char>* captured =
+            packageInfo.formatVersion >= 4 && entry.name == "skin.json"
+            ? &semanticBytes : nullptr;
+        if (!CopyAndValidateEntry(archive, entry, nullptr, captured, errorMessage)) {
             fclose(archive);
             return false;
         }
@@ -950,6 +1491,29 @@ bool SEExtractOLRSkinPackage(const char* packagePath,
         mainSkinPath.clear();
         errorMessage = "The extracted OLR package had no main LR2 script.";
         return false;
+    }
+    if (packageInfo.formatVersion >= 4) {
+        std::ifstream input(mainSkinPath, std::ios::binary);
+        const std::string lr2Script((std::istreambuf_iterator<char>(input)),
+            std::istreambuf_iterator<char>());
+        if (!input && !input.eof()) {
+            std::filesystem::remove_all(target, filesystemError);
+            mainSkinPath.clear();
+            errorMessage = "The extracted LR2 script could not be read for semantic compilation.";
+            return false;
+        }
+        input.close();
+        const std::string skinJson(semanticBytes.begin(), semanticBytes.end());
+        std::string compiledScript;
+        int compiledSlotCount = 0;
+        if (!SECompileOLRSimpleMode(skinJson, lr2Script, compiledScript,
+            compiledSlotCount, errorMessage) ||
+            !WriteTextFileAtomic(mainSkinPath, compiledScript, errorMessage)) {
+            std::filesystem::remove_all(target, filesystemError);
+            mainSkinPath.clear();
+            return false;
+        }
+        packageInfo.compiledSimpleSlotCount = compiledSlotCount;
     }
     return true;
 }

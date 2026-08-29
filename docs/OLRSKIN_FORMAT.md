@@ -4,15 +4,18 @@
 human-facing semantic index next to the compatibility data needed to return to
 LR2 without silently deleting commands the editor does not understand.
 
-## V0.3 scope
+## V0.4 scope
 
-V0.3 keeps the virtual LR2 filesystem introduced in V0.2 and adds an explicit
-Simple Mode projection for safe component replacement:
+V0.4 keeps the virtual LR2 filesystem introduced in V0.2 and promotes the V0.3
+Simple Mode projection into the first deliberately small semantic compiler:
 
 - export the currently loaded, fully expanded LR2 document as one ZIP package;
 - classify editor Objects into semantic categories in `skin.json`;
-- list number-font, judgement-font, gear and note source slots with their LR2
-  row, command, graphic crop and animation grid in `skin.json.simple_mode`;
+- list number-font, judgement-font, gear, note and gauge source slots with their
+  packaged LR2 row, command, graphic crop and animation grid in
+  `skin.json.simple_mode`;
+- compile edited Simple Mode `gr`, crop, division and cycle values back into the
+  matching `#SRC_*` row during V0.4 import;
 - retain all LR2 commands, comments, conditions, timers and editor metadata in
   `lr2/main.lr2skin`;
 - map resolvable `LR2files/...` declarations to `vfs/LR2files/...` while the
@@ -23,21 +26,27 @@ Simple Mode projection for safe component replacement:
 - materialize a new install-ready `LR2files/...` tree only when the user invokes
   `File > Export LR2 folder` from an imported V0.2+ workspace.
 
-The semantic layer remains descriptive. The compatibility script is the
-compilation authority. Consumers must not assume that changing `skin.json`
-changes LR2 output until a later compiler explicitly promotes that semantic
-area and provides round-trip tests.
+Only `skin.json.simple_mode` has compile authority. Semantic `sections` remain
+descriptive, and `lr2/main.lr2skin` remains the compatibility authority for all
+destination placement, conditions, timers, ops, events, comments, metadata and
+unknown commands. A consumer must not compile any field outside the V0.4 Simple
+Mode contract merely because a similar value appears in `sections`.
 
 ## Runtime path model
 
 The editor does not rewrite source CSV just to make Preview work. At resource
 open boundaries it resolves paths in this order:
 
-1. an existing real `LR2files/...` tree;
-2. the matching standalone skin folder found from the declaring include or
+1. the matching standalone or real skin folder found from the declaring include or
    main skin, for example `LR2files/Theme/IIDX/...` to an opened `IIDX` folder;
+2. an existing process-side `LR2files/...` tree as a compatibility fallback;
 3. normal paths relative to the declaring include, then the main skin; and
 4. the legacy sibling-play fallback.
+
+This document-owned order keeps a same-named `LR2files/Theme/<skin>` beside the
+editor from shadowing the standalone skin that is actually open. A skin opened
+inside a real LR2 installation still resolves to that installation through its
+owner/main ancestors.
 
 Wildcard patterns stay wildcard patterns so the existing LR2 selection flow
 chooses the concrete file. `#INCLUDE`, `#IMAGE`, `#CUSTOMFILE`,
@@ -89,14 +98,14 @@ target directory.
 
 ## `manifest.json`
 
-Required V0.3 fields include:
+Required V0.4 fields include:
 
 ```json
 {
   "format": "olrskin",
-  "version": 3,
-  "profile": "lr2-simple-v0.3",
-  "semantic_authority": "descriptive",
+  "version": 4,
+  "profile": "lr2-simple-v0.4",
+  "semantic_authority": "simple_mode",
   "lr2_entry": "lr2/main.lr2skin",
   "skin_entry": "skin.json",
   "path_map_entry": "compatibility/path-map.json"
@@ -116,17 +125,26 @@ unresolved data instead of pretending it was bundled.
 - `sections`: semantic Objects grouped as `gear`, `notes`, `judge`, `combo`,
   `gauge`, `bga`, `effects`, `texts`, `ui` and `misc`;
 - `simple_mode.slots`: source components grouped as `number-fonts`,
-  `judgement-fonts`, `gear` and `notes`, with stable Object id, source command,
+  `judgement-fonts`, `gear`, `notes` and `gauge`, with stable Object id, source command,
   source row, `gr`, crop rectangle, division grid and cycle;
 - each Object's stable editor id when available, group, source/destination
   commands, source row ids, first destination rectangle, timer, loop and ops;
   and
 - `compatibility`: the LR2 entry, source map and path map.
 
-Rows are discovery aids, not long-term identity. `$SE_OBJECT_ID` remains the
-stable identifier when it exists. `simple_mode.authority` is `descriptive`:
-the editor changes authoritative CSV rows first and regenerates these slots on
-export; changing the exported JSON alone does not alter LR2 output.
+Rows are discovery aids for descriptive sections, not general long-term identity.
+`$SE_OBJECT_ID` remains the stable object identifier when it exists. The V0.4
+Simple Mode compiler uses `source_row` as a deliberately narrow package address,
+paired with an exact `source_command` check. Export translates the expanded
+Workspace row through `compatibility/source-map.json`; it never writes an
+expanded row number directly when include flattening omitted rows.
+
+`simple_mode.authority` is `lr2-source-v0.4`. Every slot requires `category`,
+`source_command`, positive `source_row`, and all eight asset integers: `gr`, `x`,
+`y`, `width`, `height`, `div_x`, `div_y`, and `cycle`. Import rejects duplicate
+target rows, unsupported category/command pairs, command mismatches, invalid
+ranges and incomplete assets. It assigns compiled output only after every slot
+passes, then replaces the newly extracted script atomically.
 
 ## Compatibility maps
 
@@ -151,8 +169,12 @@ skin.
 ## Import and LR2 export
 
 Import validates the whole archive and extracts only the `lr2/` subtree into a
-new folder. This creates `main.lr2skin`, `.olr-export-main.txt`, `vfs/` and any
-flat `assets/`. Preview then follows the normal workspace load path.
+new folder. For V0.4 it captures the validated `skin.json`, compiles Simple Mode
+into the extracted `main.lr2skin`, and deletes the complete new folder if
+validation or atomic replacement fails. V0.1-V0.3 keep their compatibility
+script unchanged. A successful import creates `main.lr2skin`,
+`.olr-export-main.txt`, `vfs/` and any flat `assets/`; Preview then follows the
+normal workspace load path.
 
 `File > Export LR2 folder` is enabled only for an imported V0.2+ workspace. It:
 
@@ -171,10 +193,10 @@ exported folder can be inspected first and then copied into LR2 by the user.
 
 ## Compatibility and lossless boundary
 
-The reader accepts V0.1, V0.2 and V0.3 packages. V0.1 imports remain loadable but
+The reader accepts V0.1, V0.2, V0.3 and V0.4 packages. V0.1 imports remain loadable but
 do not expose LR2 folder export because they have no path map or export marker.
 
-V0.3 substantially improves discoverability and portability, but does not claim perfect lossless
+V0.4 adds a tested source-asset compiler, but does not claim perfect lossless
 coverage for every skin:
 
 - includes are flattened into the authoritative compatibility script; their
@@ -183,13 +205,14 @@ coverage for every skin:
 - paths longer than the safe package-entry limit are skipped and counted;
 - Windows ANSI/`MAX_PATH` constraints still apply to the legacy editor and ZIP
   filename encoding; and
-- exported semantic JSON is not a standalone compiler input yet. Simple Mode
-  edits do compile because they update the authoritative LR2 source rows inside
-  the editor before export.
+- semantic `sections` are not compiler input yet. Only validated Simple Mode
+  source asset fields, including gauge image sources, compile; destination
+  geometry, animation/event models, gauge layout behavior and unsupported LR2
+  features stay compatibility-owned.
 
 ## Versioning rules
 
-- V0.3 readers must continue to accept V0.1 and V0.2 extraction.
+- V0.4 readers must continue to accept V0.1, V0.2 and V0.3 extraction.
 - A V0.2+ package requires both `compatibility/path-map.json` and
   `lr2/.olr-export-main.txt`.
 - A change in which layer is authoritative requires a new format version.
@@ -199,9 +222,12 @@ coverage for every skin:
 ## Verification
 
 The `olr-package` self-test creates a synthetic virtual theme, writes and
-inspects a V0.3 package with one Simple Mode slot, extracts it, verifies virtual
-and fixed asset bytes, materializes a new LR2 tree, checks restored script paths,
-rejects unsafe roots and CRC tampering, and tests standalone LR2-root resolution. Manual verification
+inspects a V0.4 package with one Simple Mode slot, extracts and compiles it,
+verifies virtual and fixed asset bytes, materializes a new LR2 tree, checks
+restored script paths, rejects unsafe roots and CRC tampering, and tests
+standalone LR2-root resolution. Its compiler fixture changes all eight supported
+asset fields, preserves raw rows, trailing columns and mixed line endings, and
+rejects a row/command mismatch without returning partial output. Manual verification
 must additionally open a real standalone M.H/IIDX-style skin, exercise Preview
 wildcards, notes, explosions, judge/combo, gauge and fonts, import the package,
 repeat Preview, and inspect the LR2 export in an actual LR2 installation.

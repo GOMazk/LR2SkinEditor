@@ -55,6 +55,10 @@ $tests = @(
         Argument = '--self-test-simple-mode'
     },
     [pscustomobject]@{
+        Name = 'reload-lifecycle'
+        Argument = '--self-test-reload-lifecycle'
+    },
+    [pscustomobject]@{
         Name = 'asset-metadata'
         Argument = '--self-test-asset-metadata'
     },

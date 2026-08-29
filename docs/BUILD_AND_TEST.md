@@ -43,9 +43,12 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 - `resolution-estimator`: `#INFORMATION`/`#RESOLUTION` 우선순위, TenRiff에서 이식한
   lane/backdrop 기반 SD/HD/FHD 판정, 화면 밖 전환 panel 제외, 640x480 fallback
 - `olr-package`: stored ZIP 생성/검사/추출, manifest와 semantic object/asset count,
-  LR2·asset byte 보존, path traversal 거부 및 CRC 손상 탐지
+  LR2·asset byte 보존, path traversal 거부, CRC 손상 탐지, CP932 가상/절대 경로의
+  반복 해석 안전성
 - `simple-mode`: Object Editor 그룹이 없는 기존 LR2 행에서도 숫자/콤보 폰트,
   판정 폰트, 기어 라인, 일반·롱·마인·AUTO 노트를 직접 분류하는 투영 계약
+- `reload-lifecycle`: 중첩 CSTR/CSV/Object/History를 포함한 편집 문서를 두 번
+  초기화해 이전 스킨의 소유 메모리와 파생 배열이 남거나 이중 해제되지 않는지 확인
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제 및 graphic ID 배정
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
 
@@ -251,6 +254,15 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
     `<target>/LR2files/...`가 생기고 main CSV에 `vfs/`가 남지 않아야 한다.
     기존 대상 폴더를 덮어쓰지 않고, 해결불가/과도하게 긴 경로는 Export 결과의
     외부 의존성/누락 경고와 manifest 개수에 나타나야 한다.
+12. Simple Mode의 Notes에서 흰 건반/검은 건반/scratch scope를 각각 적용해 같은
+    note part만 바뀌는지 확인한다. 판정/콤보는 1P/2P pair를 확인하고, atlas grid와
+    맞지 않는 image import가 거부되는지 확인한다. Hue/Saturation/Brightness variant가
+    `simple-assets`의 새 PNG를 사용하고 Undo 시 원본 PNG가 변하지 않는지도 확인한다.
+13. V0.4 package의 `skin.json.simple_mode.slots[].asset` 하나를 바꾸어 Import하면
+    대응 `#SRC_*`의 `gr/x/y/w/h/div_x/div_y/cycle`만 바뀌는지 비교한다. 잘못된
+    `source_row` 또는 `source_command` package는 새 import folder 없이 실패해야 한다.
+    `#SRC_GROOVEGAUGE`, `#SRC_SCORECHART`, `#SRC_GAUGECHART_*`도 Gauge 그룹에서
+    같은 계약으로 편집되는지 확인한다.
 
 ## 회귀 테스트
 
@@ -259,8 +271,33 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 - tricoro `20th tricoro for HD - 7KEYS`를 단독으로 연다.
 - tricoro 로딩 성공 후 bluewhite를 이어서 연다.
 - 다시 tricoro를 열어 세 번째 load에서도 이전 배열/texture가 남지 않는지 본다.
+- CP932 이름과 대형 include tree가 있는 스킨은 일반 스킨 전후 양방향으로 연다.
+  이미 절대 경로로 해석한 리소스를 다시 filesystem 경로로 변환하지 않아야 한다.
 - 실패 시 `Release\SkinEditor_load_crash.log`의 마지막 완료 stage를 기록한다.
 - malformed include, 존재하지 않는 내부 Theme 폴더명, 대형 CSV를 확인한다.
+
+로컬에 실제 스킨 두 개가 있을 때는 숨겨진 runtime smoke 경로로 같은 프로세스의
+연속 로드를 자동 확인할 수 있다. CI에는 사용자 스킨을 포함하지 않으므로 넣지 않는다.
+
+```powershell
+$env:SKINEDITOR_RELOAD_FIRST = 'D:\skins\first.lr2skin'
+$env:SKINEDITOR_RELOAD_SECOND = 'D:\skins\second.lr2skin'
+$test = Start-Process .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
+  -ArgumentList '--skin-reload-smoke' -Wait -PassThru
+$test.ExitCode # 0이면 두 스킨 모두 같은 WORKSPACE에서 load 완료
+```
+
+`Workspace > New Workspace` 경계는 별도 mode로 확인한다. 첫 Workspace를 유지한
+채 두 번째 Workspace에서 다른 스킨을 load하고, 다음 frame에서 두 Preview를 모두
+한 번씩 렌더한다. `tricoro -> m.h(IIDX)`처럼 첫 스킨이 큰 경우도 이 경로를 사용한다.
+
+```powershell
+$env:SKINEDITOR_RELOAD_FIRST = 'D:\skins\tricoro\play_7.lr2skin'
+$env:SKINEDITOR_RELOAD_SECOND = 'D:\skins\mh\play_single.lr2skin'
+$test = Start-Process .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
+  -ArgumentList '--skin-multi-workspace-smoke' -Wait -PassThru
+$test.ExitCode # 0이면 두 Workspace의 load와 다음 Preview frame 완료
+```
 
 ### B. 조건 분기
 

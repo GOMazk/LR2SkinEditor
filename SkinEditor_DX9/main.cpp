@@ -84,6 +84,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunOlrPackageSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-simple-mode"))
         return RunSimpleModeProjectionSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-reload-lifecycle"))
+        return RunWorkspaceReloadLifecycleSelfTest();
 
     if (cmdline && strstr(cmdline, "--self-test-asset-metadata"))
         return RunAssetMetadataSelfTest();
@@ -194,6 +196,30 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     SetWindowVisibleFlag(0);
     SetMainWindowText("skinPreview2");
     DxLib_Init();
+
+    // Optional real-skin regression probe. It is intentionally not part of CI
+    // because the two paths refer to user-supplied LR2 trees.
+    if (cmdline && (strstr(cmdline, "--skin-reload-smoke") ||
+        strstr(cmdline, "--skin-multi-workspace-smoke"))) {
+        LoadCommandHelp("..\\skinHelper.txt");
+        const bool useSeparateWorkspaces =
+            strstr(cmdline, "--skin-multi-workspace-smoke") != NULL;
+        const int result = useSeparateWorkspaces
+            ? RunWorkspaceRuntimeMultiWorkspaceSmokeTest(
+                getenv("SKINEDITOR_RELOAD_FIRST"),
+                getenv("SKINEDITOR_RELOAD_SECOND"))
+            : RunWorkspaceRuntimeReloadSmokeTest(
+                getenv("SKINEDITOR_RELOAD_FIRST"),
+                getenv("SKINEDITOR_RELOAD_SECOND"));
+        ImGui_ImplDX9_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        if (DxLib_IsInit()) DxLib_End();
+        return result;
+    }
 
     //SE init
     // Development builds read the editable source file. Packaged builds fall

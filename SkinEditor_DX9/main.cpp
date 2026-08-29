@@ -195,6 +195,24 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     SetMainWindowText("skinPreview2");
     DxLib_Init();
 
+    // Optional real-skin regression probe. User-supplied paths keep it out of
+    // the portable self-test suite, but the complete two-workspace load and
+    // alternating runtime path remains reproducible from one command.
+    if (cmdline && strstr(cmdline, "--skin-multi-workspace-smoke")) {
+        LoadCommandHelp("..\\skinHelper.txt");
+        const int result = RunWorkspaceRuntimeMultiWorkspaceSmokeTest(
+            getenv("SKINEDITOR_RELOAD_FIRST"),
+            getenv("SKINEDITOR_RELOAD_SECOND"));
+        ImGui_ImplDX9_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        if (DxLib_IsInit()) DxLib_End();
+        return result;
+    }
+
     //SE init
     // Development builds read the editable source file. Packaged builds fall
     // back to the RCDATA copy embedded in the executable.

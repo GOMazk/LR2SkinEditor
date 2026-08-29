@@ -8,7 +8,7 @@
 
 
 
-int LR2SEInit(game* g);
+int LR2SEInit(game* g, bool initializeCore);
 
 int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview);
 int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview);

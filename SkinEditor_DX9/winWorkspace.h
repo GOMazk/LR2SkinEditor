@@ -233,6 +233,9 @@ typedef struct WORKSPACE {
     char initFlag = 0;
     //data
     game g;
+    // LR2SE core buffers live inside this workspace's game instance. They are
+    // initialized once per workspace, not once per editor process.
+    bool lr2CoreInitialized = false;
 
     SkinHeader meta;
     SESkinResolutionSource skinResolutionSource =
@@ -405,6 +408,7 @@ typedef struct WORKSPACE {
     bool previewTextureDirty = true;
     bool previewSimulationPlaying = false;
     bool previewChartFull = false;
+    bool UpdatePreviewRuntime(unsigned long long previewNow);
     ImVec2 clickPos;
     bool drawRightClick;
     float zoom = 1.0f;
@@ -670,4 +674,6 @@ int AutoSRCObjectPos(SRCGR* gr, int* x, int* y, int* w, int* h);
 int CsvToCSTR(CSVbuf& csv, CSTR& line);
 int CountCsvColumns(CSTR& line);
 int RunAssetMetadataSelfTest();
+int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
+    const char* secondPath);
 int RunInitialPresetSelfTest();

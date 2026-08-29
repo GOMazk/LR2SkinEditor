@@ -735,19 +735,17 @@ void LR2SEPreparePreviewState(game* g, int type) {
 	}
 }
 
-int LR2SEInit(game* g) {
-	// These are application-wide LR2 work buffers, not per-skin data.
-	// Reinitializing them on every skin change leaked two 1000-entry song
-	// lists, gameplay note buffers, and reinitialized critical sections.
-	// A large skin followed by another skin could therefore terminate here.
-	static bool coreInitialized = false;
-	if (!coreInitialized) {
+int LR2SEInit(game* g, bool initializeCore) {
+	// These buffers belong to game, which is owned by one WORKSPACE. Reloading
+	// the same workspace must reuse them, while a newly-created workspace must
+	// initialize its own copy. A process-wide flag left the second workspace's
+	// CSTR and list storage uninitialized and crashed during its first load.
+	if (initializeCore) {
 		InitBmsList(&g->sSelect);
 		InitObjectString(&g->txtStruct);
 		InitGameplay(&g->gameplay, &g->config.play);
 		InitializeCriticalSection(&g->gameplay.criticalSection);
 		InitializeCriticalSection(&g->criticalSection);
-		coreInitialized = true;
 	}
 
 

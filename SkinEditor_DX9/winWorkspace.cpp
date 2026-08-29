@@ -2770,7 +2770,11 @@ int WORKSPACE::LoadSkin(char* path) {
     // used while ParseSkin decides which image branches to keep. Prepare the
     // standalone scene state first; doing this after ParseSkin left complex
     // RESULT skins with only their unconditional chart objects.
-    LR2SEInit(&g);
+    if (LR2SEInit(&g, !lr2CoreInitialized) != 0) {
+        WriteSkinLoadLog("LR2SE core initialization failed");
+        return -1;
+    }
+    lr2CoreInitialized = true;
     LR2SEPreparePreviewState(&g, meta.type);
     WriteSkinLoadLog("LR2SE preview state prepared");
     ParseSkin();
@@ -4437,21 +4441,7 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
     return preview_selected_obj_valid ? 0 : -1;
 }
 
-int WORKSPACE::drawPreview() {
-    // Preview texture is owned by this workspace and recreated whenever
-    // the loaded skin resolution changes.
-    
-    char title[260];
-    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Preview, num);
-
-    // An inactive dock tab returns false here. Do not run LR2 rendering or
-    // transfer a full preview texture while the user cannot see it.
-    if (!ImGui::Begin(title, &wPreview, ImGuiWindowFlags_HorizontalScrollbar)) {
-        ImGui::End();
-        return 0;
-    }
-
-    const unsigned long long previewNow = GetTickCount64();
+bool WORKSPACE::UpdatePreviewRuntime(unsigned long long previewNow) {
     bool previewFrameUpdated = false;
     const LR2SEPreviewChartMode chartMode = previewChartFull
         ? LR2SE_PREVIEW_CHART_FULL : LR2SE_PREVIEW_CHART_SIMPLE;
@@ -4494,6 +4484,26 @@ int WORKSPACE::drawPreview() {
             previewTextureDirty = true;
         }
         previewLastRenderAt = previewNow;
+    }
+
+    return previewFrameUpdated;
+}
+
+int WORKSPACE::drawPreview() {
+    // Preview texture is owned by this workspace and recreated whenever
+    // the loaded skin resolution changes. ImGui::Begin returns false for an
+    // inactive dock tab, but a running scene must still tick and consume its
+    // Workspace draw buffer before the presentation-only early return.
+    char title[260];
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Preview, num);
+    const bool previewWindowVisible = ImGui::Begin(
+        title, &wPreview, ImGuiWindowFlags_HorizontalScrollbar);
+    const bool previewFrameUpdated = previewWindowVisible ||
+        previewSimulationPlaying
+        ? UpdatePreviewRuntime(GetTickCount64()) : false;
+    if (!previewWindowVisible) {
+        ImGui::End();
+        return 0;
     }
 
     float previewCanvasScale = 1.0f / zoom;

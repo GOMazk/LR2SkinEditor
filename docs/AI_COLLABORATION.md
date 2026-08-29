@@ -36,6 +36,7 @@
 | 전체 구조 | `README.md`, `PROJECT_STATE.md` | `.build/ai-context/context-manifest.json` |
 | UI 수정 | `UI_ARCHITECTURE.md`, `UI_MAP.md` | `.build/ui-map/ui-map.json` |
 | 빌드/CI | `BUILD_AND_TEST.md` | JUnit, MSBuild binlog |
+| AI_1 Workspace 버그 이식 | `WORKSPACE_MULTI_PREVIEW_FIX.md` | `--skin-multi-workspace-smoke` |
 | 변경 인계 | `HANDOFF_TEMPLATE.md` | `.build/ai-context/context-pack.md` |
 | 결정 이유 | `docs/decisions/` | manifest의 문서 SHA-256 |
 

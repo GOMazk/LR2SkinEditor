@@ -66,6 +66,25 @@ int RunSchemaContractSelfTest() {
     if (GetCommandValueKind("#SRC_BARGRAPH", "$type") != SE_VALUE_BARGRAPH)
         return 10;
 
+    // Keep every symbolic combo range in sync with the highest id currently
+    // declared by op.cpp. These providers are shared by CSV Table, New Object
+    // and Object Inspector, so one truncated range hides the value everywhere.
+    if (GetCommandValueItemCount(SE_VALUE_TEXT) <= 302 ||
+        std::strcmp(GetCommandValueName(SE_VALUE_TEXT, 302), "LIFT_ONOFF") != 0)
+        return 22;
+    if (GetCommandValueItemCount(SE_VALUE_NUMBER) <= 422 ||
+        std::strcmp(GetCommandValueName(SE_VALUE_NUMBER, 422), "LIFT_2P") != 0)
+        return 23;
+    if (GetCommandValueItemCount(SE_VALUE_BUTTON) <= 401 ||
+        std::strcmp(GetCommandValueName(SE_VALUE_BUTTON, 401), "stretch") != 0)
+        return 24;
+    if (GetCommandValueItemCount(SE_VALUE_SLIDER) <= 28 ||
+        std::strcmp(GetCommandValueName(SE_VALUE_SLIDER, 28), "LIFT2P") != 0)
+        return 25;
+    if (GetCommandValueItemCount(SE_VALUE_BARGRAPH) <= 59 ||
+        std::strcmp(GetCommandValueName(SE_VALUE_BARGRAPH, 59), "2P_ratio_slow") != 0)
+        return 26;
+
     SEObjectEditorModel model;
     if (!model.LoadGroups(nullptr)) return 11;
     if (model.Groups().size() != 40) return 12;

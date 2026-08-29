@@ -21,6 +21,11 @@ bool PaintTextureLine(PDIRECT3DTEXTURE9 texture, int x0, int y0, int x1, int y1,
     D3DCOLOR color);
 bool SaveTextureToImageFileAtomic(const char* filename, PDIRECT3DTEXTURE9 texture,
     char* errorText, size_t errorTextSize);
+// Saves row-major A8R8G8B8 pixels using the format selected by filename.
+// PNG output preserves each pixel's alpha channel.
+bool CreateArgbImageFileAtomic(const char* filename, int width, int height,
+    const D3DCOLOR* pixels, size_t pixelCount,
+    char* errorText, size_t errorTextSize);
 bool CreateSolidImageFileAtomic(const char* filename, int width, int height,
     D3DCOLOR color, char* errorText, size_t errorTextSize);
 // Creates a new cropped PNG-compatible image and adjusts RGB in HSV space.

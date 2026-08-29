@@ -148,8 +148,10 @@ New에서 Scene과 해상도를 선택하여 필수 Object가 포함된 시작 �
 - DECIDE
 - RESULT
 
-New는 `LR2files\Theme` 아래에 새 `.lr2skin`과 `preset.bmp`를 만든 후 그 스킨을
-즉시 연다. `..`, 드라이브명 같은 범위 이탈 경로는 거부하고 기존 파일은
+New는 `LR2files\Theme` 아래에 새 `.lr2skin`과 알파 채널을 보존하는
+`preset.png`를 만든 후 그 스킨을 즉시 연다. PNG 아틀라스에서 시작 프리셋이 쓰는
+영역은 불투명하고 나머지 빈 영역은 투명하므로, 이후 이미지 편집에서도 투명도를
+유지할 수 있다. `..`, 드라이브명 같은 범위 이탈 경로는 거부하고 기존 파일은
 덮어쓰지 않는다.
 
 PLAY 프리셋은 배경, BGA, 키 모드별 Note/Mine/LN, Judge Line, Groove Gauge,

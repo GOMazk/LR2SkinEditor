@@ -628,6 +628,7 @@ int RunAssetMetadataSelfTest();
 int RunSimpleModeProjectionSelfTest();
 int RunSimpleModeScopeRuleSelfTest();
 int RunWorkspaceReloadLifecycleSelfTest();
+int RunInitialPresetSelfTest();
 int RunWorkspaceRuntimeReloadSmokeTest(const char* firstPath,
     const char* secondPath);
 int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,

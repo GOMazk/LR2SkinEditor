@@ -65,6 +65,10 @@ $tests = @(
     [pscustomobject]@{
         Name = 'pixel-paint'
         Argument = '--self-test-pixel-paint'
+    },
+    [pscustomobject]@{
+        Name = 'initial-preset'
+        Argument = '--self-test-initial-preset'
     }
 )
 

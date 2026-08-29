@@ -8479,25 +8479,15 @@ namespace {
         return result;
     }
 
-    static bool WritePresetAtlasBmp(const std::filesystem::path& outputPath, std::string& error) {
+    static bool WritePresetAtlasPng(const std::filesystem::path& outputPath, std::string& error) {
         const int width = 256, height = 256;
-        const int rowBytes = (width * 3 + 3) & ~3;
-        std::vector<unsigned char> bmp(54 + rowBytes * height, 0);
-        auto put16 = [&](int offset, unsigned value) {
-            bmp[offset] = (unsigned char)(value & 0xff);
-            bmp[offset + 1] = (unsigned char)((value >> 8) & 0xff);
-        };
-        auto put32 = [&](int offset, unsigned value) {
-            for (int i = 0; i < 4; ++i) bmp[offset + i] = (unsigned char)((value >> (i * 8)) & 0xff);
-        };
-        bmp[0] = 'B'; bmp[1] = 'M';
-        put32(2, (unsigned)bmp.size());
-        put32(10, 54); put32(14, 40); put32(18, width); put32(22, height);
-        put16(26, 1); put16(28, 24); put32(34, rowBytes * height);
-
-        auto pixelColor = [&](int x, int y, unsigned char& r, unsigned char& g, unsigned char& b) {
-            r = 14; g = 20; b = 31; // background tile at x >= 192
-            if (x < 192) {
+        std::vector<D3DCOLOR> pixels((size_t)width * height,
+            D3DCOLOR_ARGB(0, 0, 0, 0));
+        auto pixelColor = [&](int x, int y) {
+            unsigned char r = 14, g = 20, b = 31;
+            bool isPresetContent = x >= 192; // opaque background tile
+            if (x < 192 && y < 136) {
+                isPresetContent = true;
                 if (y < 16) { r = 235; g = 242; b = 255; }
                 else if (y < 32) { r = 70; g = 180; b = 255; }
                 else if (y < 48) { r = 255; g = 70; b = 85; }
@@ -8519,26 +8509,21 @@ namespace {
                 }
                 else if (y < 136) { r = 75; g = 235; b = 105; }
             }
+            return isPresetContent ? D3DCOLOR_ARGB(255, r, g, b) :
+                D3DCOLOR_ARGB(0, 0, 0, 0);
         };
-        for (int y = 0; y < height; ++y) {
-            const int fileY = height - 1 - y;
-            for (int x = 0; x < width; ++x) {
-                unsigned char r, g, b;
-                pixelColor(x, y, r, g, b);
-                const size_t pos = 54 + (size_t)fileY * rowBytes + (size_t)x * 3;
-                bmp[pos] = b; bmp[pos + 1] = g; bmp[pos + 2] = r;
-            }
-        }
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
+                pixels[(size_t)y * width + x] = pixelColor(x, y);
 
-        const std::filesystem::path tempPath = outputPath.string() + ".tmp";
-        std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
-        if (!output) { error = "Could not create the preset image."; return false; }
-        output.write((const char*)bmp.data(), (std::streamsize)bmp.size());
-        output.close();
-        if (!output) { std::filesystem::remove(tempPath); error = "Could not write the preset image."; return false; }
-        std::error_code ec;
-        std::filesystem::rename(tempPath, outputPath, ec);
-        if (ec) { std::filesystem::remove(tempPath); error = "Could not finalize the preset image."; return false; }
+        char imageError[256] = {};
+        const std::string outputPathBytes = outputPath.string();
+        if (!CreateArgbImageFileAtomic(outputPathBytes.c_str(), width, height,
+            pixels.data(), pixels.size(), imageError, sizeof(imageError))) {
+            error = std::string("Could not create the transparent preset PNG: ") +
+                (imageError[0] ? imageError : "Unknown image error.");
+            return false;
+        }
         return true;
     }
 
@@ -8655,9 +8640,9 @@ namespace {
         if (relativeSkin.size() < 8 || _stricmp(relativeSkin.c_str() + relativeSkin.size() - 8, ".lr2skin") != 0)
             relativeSkin += ".lr2skin";
         const std::filesystem::path skinPath = std::filesystem::path("LR2files") / "Theme" / relativeSkin;
-        const std::filesystem::path atlasPath = skinPath.parent_path() / "preset.bmp";
+        const std::filesystem::path atlasPath = skinPath.parent_path() / "preset.png";
         if (std::filesystem::exists(skinPath) || std::filesystem::exists(atlasPath)) {
-            error = "The skin file or preset.bmp already exists. Choose a new folder/path.";
+            error = "The skin file or preset.png already exists. Choose a new folder/path.";
             return false;
         }
         std::error_code ec;
@@ -8762,7 +8747,7 @@ namespace {
         else if (type == 6) AppendDecidePreset(skin, width, height);
         else if (type == 7) AppendResultPreset(skin, width, height);
 
-        if (!WritePresetAtlasBmp(atlasPath, error)) return false;
+        if (!WritePresetAtlasPng(atlasPath, error)) return false;
         const std::filesystem::path tempSkinPath = skinPath.string() + ".tmp";
         std::ofstream output(tempSkinPath, std::ios::binary | std::ios::trunc);
         if (!output) { std::filesystem::remove(atlasPath); error = "Could not create the skin script."; return false; }
@@ -8782,6 +8767,74 @@ namespace {
         outputAtlasPath = atlasPath.string();
         return true;
     }
+}
+
+int RunInitialPresetSelfTest() {
+    if (!g_pd3dDevice) return 40;
+
+    char originalDirectory[MAX_PATH] = {};
+    char temporaryDirectory[MAX_PATH] = {};
+    char testRoot[MAX_PATH] = {};
+    if (!GetCurrentDirectoryA(MAX_PATH, originalDirectory)) return 41;
+    if (!GetTempPathA(MAX_PATH, temporaryDirectory)) return 42;
+    if (!GetTempFileNameA(temporaryDirectory, "SEN", 0, testRoot)) return 43;
+    DeleteFileA(testRoot);
+    if (!CreateDirectoryA(testRoot, NULL)) return 44;
+
+    int result = 0;
+    if (!SetCurrentDirectoryA(testRoot)) {
+        result = 45;
+    } else {
+        std::string skinPath;
+        std::string atlasPath;
+        std::string error;
+        if (!BuildInitialPreset(0, 1280, 720, "Transparent preset",
+            "SkinEditor", "TransparentPreset\\skin.lr2skin",
+            skinPath, atlasPath, error)) {
+            result = 46;
+        } else if (std::filesystem::path(atlasPath).filename() != "preset.png" ||
+            std::filesystem::exists(std::filesystem::path(atlasPath).replace_extension(".bmp"))) {
+            result = 47;
+        } else {
+            std::ifstream skinInput(skinPath, std::ios::binary);
+            std::ostringstream skinContents;
+            skinContents << skinInput.rdbuf();
+            if (!skinInput || skinContents.str().find(
+                "#IMAGE,LR2files\\Theme\\TransparentPreset\\preset.png") ==
+                std::string::npos) {
+                result = 48;
+            } else {
+                PDIRECT3DTEXTURE9 atlasTexture = NULL;
+                int atlasWidth = 0;
+                int atlasHeight = 0;
+                if (!LoadTextureFromFile(atlasPath.c_str(), &atlasTexture,
+                    &atlasWidth, &atlasHeight) || atlasWidth != 256 ||
+                    atlasHeight != 256) {
+                    if (atlasTexture) atlasTexture->Release();
+                    result = 49;
+                } else {
+                    D3DCOLOR transparentPixel = 0xffffffff;
+                    D3DCOLOR backgroundPixel = 0;
+                    const bool alphaMatches = ReadTexturePixel(atlasTexture,
+                        191, 255, &transparentPixel) &&
+                        ReadTexturePixel(atlasTexture, 192, 255, &backgroundPixel) &&
+                        ((transparentPixel >> 24) & 0xff) == 0 &&
+                        ((backgroundPixel >> 24) & 0xff) == 255;
+                    atlasTexture->Release();
+                    if (!alphaMatches) result = 50;
+                }
+            }
+        }
+    }
+
+    if (!SetCurrentDirectoryA(originalDirectory)) {
+        if (result == 0) result = 51;
+        return result;
+    }
+    std::error_code cleanupError;
+    std::filesystem::remove_all(testRoot, cleanupError);
+    if (result == 0 && cleanupError) result = 52;
+    return result;
 }
 
 int WORKSPACE::drawNewskin() {
@@ -8815,7 +8868,7 @@ int WORKSPACE::drawNewskin() {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(340.0f);
         ImGui::InputText("##NewSkinPath", relativePath, IM_ARRAYSIZE(relativePath));
-        ImGui::TextDisabled("Creates a scene starter script and preset.bmp. Existing files are never overwritten.");
+        ImGui::TextDisabled("Creates a scene starter script and transparent preset.png. Existing files are never overwritten.");
 
         ImGui::Dummy(ImVec2(0.0f, 4.0f));
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.46f, 0.78f, 1.00f));

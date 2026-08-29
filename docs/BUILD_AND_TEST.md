@@ -167,6 +167,20 @@ $test.ExitCode # 0이면 성공
 값과 `.skineditor-pixel.bak` 생성을 검사한다. 이어서 새 solid PNG 생성과 Asset
 region alpha 병합/확장 canvas를 저장·재로드해 크기와 대표 pixel도 확인한다.
 
+New 시작 프리셋 PNG 자동 점검:
+
+```powershell
+$test = Start-Process `
+  .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
+  -ArgumentList '--self-test-initial-preset' -Wait -PassThru
+$test.ExitCode # 0이면 성공
+```
+
+임시 작업 폴더에서 New와 같은 경로로 시작 프리셋을 생성해 스크립트가
+`preset.png`를 참조하는지 확인한다. 생성된 256x256 PNG를 다시 읽어 빈 아틀라스
+영역의 alpha가 0이고 실제 배경 source 영역의 alpha가 255인지 검사한 뒤 임시 파일을
+삭제한다.
+
 ## 실행과 배포 파일
 
 실행:
@@ -199,6 +213,8 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    실제 LR2 설치 밖의 M.H/IIDX 형태 폴더를 열어 `LR2files\Theme\IIDX`
    include와 wildcard image/custom file, LR2FONT가 원본 CSV 수정 없이 해결되고
    Preview에서 note/폭발/judge/combo/gauge가 표시되는지 확인한다.
+   New로 스킨을 만들면 `preset.png`가 생성되고 빈 아틀라스 영역이 투명한지,
+   생성 직후 해당 스킨이 정상적으로 열리는지도 확인한다.
 3. 640x480 스킨 하나와 1280x720 이상 HD 스킨 하나를 각각 연다.
    HD 스킨은 `#INFORMATION` 크기가 없고 include 안의 DST 좌표만 있는 사례도
    포함한다. toolbar tooltip과 status bar가 `inferred`를 표시하고 Preview가 추정

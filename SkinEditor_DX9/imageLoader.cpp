@@ -392,6 +392,22 @@ static bool CreateArgbTexture(const std::vector<D3DCOLOR>& pixels,
     return true;
 }
 
+static bool SaveArgbPixelsToImageFileAtomic(const char* filename,
+    int width, int height, const std::vector<D3DCOLOR>& pixels,
+    char* errorText, size_t errorTextSize)
+{
+    PDIRECT3DTEXTURE9 texture = NULL;
+    if (!CreateArgbTexture(pixels, width, height, &texture)) {
+        SetImageSaveError(errorText, errorTextSize,
+            "Direct3D could not allocate the new image.");
+        return false;
+    }
+    const bool saved = SaveNewTextureToImageFileAtomic(filename, texture,
+        errorText, errorTextSize);
+    texture->Release();
+    return saved;
+}
+
 static float ClampColorUnit(float value)
 {
     return (std::max)(0.0f, (std::min)(1.0f, value));
@@ -509,16 +525,29 @@ bool CreateSolidImageFileAtomic(const char* filename, int width, int height,
         return false;
     }
     std::vector<D3DCOLOR> pixels((size_t)width * height, color);
-    PDIRECT3DTEXTURE9 texture = NULL;
-    if (!CreateArgbTexture(pixels, width, height, &texture)) {
+    return SaveArgbPixelsToImageFileAtomic(filename, width, height, pixels,
+        errorText, errorTextSize);
+}
+
+bool CreateArgbImageFileAtomic(const char* filename, int width, int height,
+    const D3DCOLOR* pixels, size_t pixelCount,
+    char* errorText, size_t errorTextSize)
+{
+    if (width <= 0 || height <= 0 || width > 16384 || height > 16384) {
         SetImageSaveError(errorText, errorTextSize,
-            "Direct3D could not allocate the new image.");
+            "Image dimensions must be between 1 and 16384 pixels.");
         return false;
     }
-    const bool saved = SaveNewTextureToImageFileAtomic(filename, texture,
+    const size_t requiredPixelCount = (size_t)width * height;
+    if (!pixels || pixelCount < requiredPixelCount) {
+        SetImageSaveError(errorText, errorTextSize,
+            "The ARGB pixel buffer is smaller than the requested image.");
+        return false;
+    }
+    const std::vector<D3DCOLOR> pixelCopy(pixels,
+        pixels + requiredPixelCount);
+    return SaveArgbPixelsToImageFileAtomic(filename, width, height, pixelCopy,
         errorText, errorTextSize);
-    texture->Release();
-    return saved;
 }
 
 static D3DCOLOR AlphaComposite(D3DCOLOR destination, D3DCOLOR source)

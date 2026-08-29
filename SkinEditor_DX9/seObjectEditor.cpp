@@ -6,6 +6,7 @@
 #include "resource.h"
 #include <fstream>
 #include <sstream>
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -23,6 +24,16 @@ static bool numericIndex(SKINFILELINEREAD& r, int& value) {
     if (end == s || *end != '\0') return false;
     value = (int)v;
     return true;
+}
+
+int SEFindObjectForRow(const std::vector<SEObjectInstance>& objects, int row) {
+    if (row < 0) return -1;
+    for (int modelIndex = 0; modelIndex < (int)objects.size(); ++modelIndex) {
+        const std::vector<int>& rows = objects[modelIndex].rows;
+        if (std::find(rows.begin(), rows.end(), row) != rows.end())
+            return modelIndex;
+    }
+    return -1;
 }
 
 bool SEObjectEditorModel::LoadGroups(const char* path) {

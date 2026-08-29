@@ -49,7 +49,15 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   판정 폰트, 기어 라인, 일반·롱·마인·AUTO 노트를 직접 분류하는 투영 계약
 - `reload-lifecycle`: 중첩 CSTR/CSV/Object/History를 포함한 편집 문서를 두 번
   초기화해 이전 스킨의 소유 메모리와 파생 배열이 남거나 이중 해제되지 않는지 확인
-- `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제 및 graphic ID 배정
+- `dst-color`: ARGB 네 필드를 한 picker gesture/History 항목으로 갱신하고 0~255로
+  제한하며, 다음 gesture와 Ctrl+Z 두 번이 각 단계의 전체 색상을 복원하는지 확인
+- `initial-preset`: 공용 atlas의 읽을 수 있는 0~9 NUMBER glyph, PLAY/BATTLE 키 모드별 lane index와 각 lane의
+  Normal/Mine/LN/DST_NOTE/Bomb, Measure Line, Judge Line, Gauge, FAST/SLOW,
+  플레이어별 NOWJUDGE/NOWCOMBO, RESULT의 label/판정 숫자/chart 및 COURSERESULT의
+  1~5스테이지 제목/레벨과 누적 결과 필수 Object 생성
+- `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제, graphic ID 배정과 선택
+  Object SRC에 대한 원자적 Asset 적용/Undo, `#IMAGE` 경로 교체/Undo, 이미지 상태
+  진단, named grid Asset 일괄 등록/단일 Undo
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
 
 결과는 `.build\test-results\skineditor-self-tests.xml` JUnit 파일로 남는다. 테스트
@@ -150,9 +158,25 @@ $test.ExitCode # 0이면 성공
 
 이 테스트는 시스템 임시 폴더에서 사용/미사용 `$SRC_IMAGE`를 실제 저장하고 다시
 파싱해 중복 제거, nocomment 보존, 논리 gr와 IF Branch 유지, crop 좌표 입력의
-영속성, 수동 Asset 삭제 후 메타데이터 제거를 확인한다. 또한 IF/ELSE 형제 branch의
+영속성, 수동 Asset 삭제 후 메타데이터 제거를 확인한다. 선택 Object의 SRC에 다른
+Asset을 적용할 때 `gr/x/y/w/h`만 바뀌고 NUMBER의 `num/align/keta`가 보존되며,
+History 한 건과 Ctrl+Z 한 번으로 원본 행이 복구되는지도 검사한다. 또한 IF/ELSE 형제 branch의
 최대 graphic slot 뒤에 생성 이미지의 `#IMAGE + $SRC_IMAGE`가 root end marker
-직전에 등록되는지 검사한 뒤 임시 파일을 삭제한다.
+직전에 등록되는지 검사한다. 이어서 missing/unused 이미지 진단, `#IMAGE` 경로만
+교체한 뒤 Undo 복원, 2x2 named `$SRC_IMAGE` 분할의 재파싱 및 일괄 Ctrl+Z를 확인한
+뒤 임시 파일을 삭제한다.
+
+DST ARGB 색상 편집과 History 자동 점검:
+
+```powershell
+$test = Start-Process `
+  .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
+  -ArgumentList '--self-test-dst-color' -Wait -PassThru
+$test.ExitCode # 0이면 성공
+```
+
+한 picker gesture 안의 여러 ARGB 갱신이 History 한 건으로 합쳐지고, byte 범위 제한과
+gesture별 Ctrl+Z 복원이 모두 동작하는지 검사한다.
 
 도트 그리기 texture와 파일 저장 경로:
 
@@ -177,9 +201,10 @@ $test.ExitCode # 0이면 성공
 ```
 
 임시 작업 폴더에서 New와 같은 경로로 시작 프리셋을 생성해 스크립트가
-`preset.png`를 참조하는지 확인한다. 생성된 256x256 PNG를 다시 읽어 빈 아틀라스
-영역의 alpha가 0이고 실제 배경 source 영역의 alpha가 255인지 검사한 뒤 임시 파일을
-삭제한다.
+`preset.png`만 참조하는지 확인한다. 생성된 모든 PLAY/BATTLE/SELECT/DECIDE/RESULT/
+COURSERESULT 256x256 PNG를 다시 읽어 빈 아틀라스 영역의 alpha가 0이고 실제 source
+영역의 alpha가 255인지 검사한다. SELECT bar 색상, RESULT 숫자 glyph와 gauge/chart
+색상도 pixel 단위로 확인한 뒤 임시 파일을 삭제한다.
 
 ## 실행과 배포 파일
 
@@ -215,6 +240,15 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    Preview에서 note/폭발/judge/combo/gauge가 표시되는지 확인한다.
    New로 스킨을 만들면 `preset.png`가 생성되고 빈 아틀라스 영역이 투명한지,
    생성 직후 해당 스킨이 정상적으로 열리는지도 확인한다.
+   New Skin 창은 열릴 때 `620 x 400` 크기로 표시되고, 생성 실패 메시지가 세로
+   스크롤 없이 하단에 보여야 한다.
+   Image Manager의 같은 gr 콤보에는 LR2 와일드카드에 잡힌 폴더와 비이미지 파일도
+   후보로 유지되어야 한다. 다만 처음 열거나 tagged image를 바꿀 때는 그 항목을
+   자동 기본값으로 선택하지 않고, 실제로 로드 가능한 첫 이미지가 표시되어야 한다.
+   `...\\*\\main.png`는 후보 `Default`를 그대로 표시하면서 실제로는
+   `...\\Default\\main.png`를 로드해야 한다.
+   `...\\*.png`는 다른 확장자의 파일을 후보로 포함하지 않고 `OFF` 후보를
+   `...\\OFF.png`로 해석해야 하며, `OFF.png.png`를 만들면 안 된다.
 3. 640x480 스킨 하나와 1280x720 이상 HD 스킨 하나를 각각 연다.
    HD 스킨은 `#INFORMATION` 크기가 없고 include 안의 DST 좌표만 있는 사례도
    포함한다. toolbar tooltip과 status bar가 `inferred`를 표시하고 Preview가 추정
@@ -231,6 +265,9 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    runtime 상태인 timer는 기본 배경이고, 사용자가 직접 시작하거나 reset한 timer는
    각각 빨간 배경의 체크/빈 칸이어야 한다. Restart scene 후 빨간 배경이 사라지는지도
    확인한다.
+   Text Editor에서 SRC 또는 DST Object 명령 행을 좌클릭하면 Object Browser/Inspector가
+   열리고 Type/Group/Search/Active-only 필터에 가려지지 않은 채 해당 Object로 자동
+   스크롤되어야 한다. IF 헤더나 주석을 누르면 기존 Object 선택이 유지되어야 한다.
    PLAY scene을 restart하면 선택한 무음 Preview chart가 LR2의 원본
    `ProcI_Play`/`DrawNotes` 경로로 실행되어야 한다. normal/LN/mine과 함께 key beam,
    note explosion, judge/combo가 해당 스킨 정의대로 반응하는지 확인한다. `Full`에서
@@ -368,6 +405,9 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 
 ### D. DST 프레임과 History
 
+- 단일 DST의 `a/r/g/b` 네 숫자 입력 대신 `ARGB` 색상 선택기 하나가 표시되는지
+- 여러 DST animation frame 표에서도 각 열마다 `ARGB` 선택기가 하나씩 표시되고,
+  색상 변경이 Preview에 반영되며 Ctrl+Z 한 번으로 조작 전 네 값이 모두 복구되는지
 - DST 1개에서 `- DST`가 비활성인지
 - `+ DST` 후 개수가 즉시 바뀌고 DST 탭이 유지되는지
 - 추가 후 다른 Object Inspector로 바뀌지 않는지
@@ -386,6 +426,21 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 ### E. 선택 동기화
 
 - Object Browser 선택이 Inspector, DST View, Preview에 반영되는지
+- Object Browser, Preview, DST View 또는 Text Editor에서 Object를 선택하면
+  Image Manager가 그 Object의 SRC crop으로 이동하고 atlas 위에 주황색 점멸
+  사각형을 표시하는지
+- Preview scene timer를 멈추거나 skin을 막 연 상태에서도 Image Manager의
+  주황색 사각형이 투명하게 고정되지 않고 계속 점멸하는지
+- Image Manager atlas의 crop 위에 mouse를 올리면 파란 점멸 사각형과 좌표
+  tooltip이 표시되는지. `w/h == -1`인 crop도 texture 끝까지 올바르게 잡히는지
+- Image Manager 왼쪽 목록에서 현재 선택되지 않은 crop에 mouse를 올려도, 실제
+  같은 texture를 쓰는 crop이라면 atlas에 파란 점멸 사각형이 표시되는지. 다른
+  IF Branch 소속이라는 이유만으로 제외되지 않는지
+- Object Browser에서 선택되지 않은 Object row에 mouse를 올리면 현재 Object와
+  Inspector 선택은 유지되고, 같은 texture를 사용하는 hover Object의 SRC crop이
+  Image Manager atlas에 파란 점멸 사각형으로 표시되는지
+- Undo 또는 Object 모델 재구성 뒤에도 복원된 Object와 Image Manager crop이
+  일치하는지
 - Object 선택 후 Delete를 누르면 확인 modal이 뜨고 Cancel은 문서를 바꾸지 않는지
 - 확인 modal의 Delete를 누르면 해당 Object의 SRC/DST와 `$SE_OBJECT_ID`,
   `$SE_OBJECT_NAME`, `$SE_GROUP_MEMBER` 참조가 함께 삭제되는지
@@ -406,7 +461,48 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
   전환할 수 있는지
 - Image Manager의 동일 gr 파일 콤보와 선택 경로에서 CP932 한글·일본어 파일명이
   UTF-8 replacement 문자 없이 표시되는지
+- Image Manager 왼쪽 crop 목록과 이름 편집, `Usage`로 연 Image status에서 CP932
+  한글·일본어 이름과 경로가 깨지지 않는지
+- Image Manager의 `grReload` 옆 `Folder`를 누르면 현재 이미지 파일이 선택된
+  Windows Explorer가 열리는지. 후보 파일이 없으면 가장 가까운 기존 폴더가
+  열리는지
+- 디스크에서 현재 이미지를 바꾼 뒤 `grReload`를 누르면 다음 frame에 새 내용이
+  나타나고, 미저장 Pixel paint가 있을 때는 reload가 차단되는지
+- Image Manager의 `Replace`에서 같은 크기 파일은 즉시 `#IMAGE` 경로만 바뀌고,
+  다른 크기 파일은 영향 crop/경계 이탈 수를 확인한 뒤 바뀌는지. crop 좌표와 논리
+  gr/IF Branch가 유지되고 Ctrl+Z 한 번으로 원래 경로가 복구되는지
+- Pixel paint가 저장되지 않은 상태에서는 `Replace`가 비활성화되는지
+- `Split grid`가 SRC의 `div_x/div_y`를 초기 Columns/Rows로 제안하고 전체 crop
+  preview에서 선택한 cell만 순번 이름의 `$SRC_IMAGE`로 등록하는지. 중복 cell은
+  건너뛰고 저장·재로드 후 이름/좌표가 유지되며 Ctrl+Z 한 번에 batch 전체가
+  제거되는지
+- `Image status`가 missing/unloadable 파일, bounds 밖 crop, 중복 crop, 미사용
+  `$SRC_IMAGE`, Asset 없는 Object SRC와 다음/남은 gr slot을 표시하는지. 진단 행을
+  누르면 대응 Asset 또는 Object 선택으로 이동하는지
 - Asset Browser가 `#SRC` crop을 썸네일 카드로 표시하고 검색/크기 조절이 되는지
+- Asset Browser card와 Image Manager crop 목록에 실제 사용 중인 고유 Object 수
+  또는 `Unused`가 표시되는지. 한 Object의 중복 SRC를 두 번 세지 않는지
+- `Unused only`를 켜면 Object SRC에서 참조하지 않는 Asset만 남고 CSV/선택 상태는
+  바뀌지 않는지
+- Object Browser의 활성/비활성 배경이 label 폭까지만 표시되고, 왼쪽 상태 stripe와
+  중첩 IF Branch 행이 서로 겹치지 않아 이름을 읽을 수 있는지
+- OVER ACTiVE DX+ 7keys처럼 SRC가 1만 개 이상인 스킨에서 Object Browser와 Image
+  Manager를 열고 scroll해도 화면 밖 행을 전부 제출할 때의 심한 입력 지연이 없는지.
+  Object 선택 자동 scroll, hover, 우클릭, drag reorder도 그대로 동작하는지
+- Asset Browser에서 사용 중인 Asset과 Object `#SRC`에서 파생된 Asset은 Delete가
+  차단되는지. 미사용 `$SRC_IMAGE`는 Delete key/우클릭 확인 modal로 제거되며 실제
+  texture 파일은 남고, 저장·재로드 후 crop만 사라지는지
+- 사용 중인 Asset을 우클릭해 `Used by Objects`의 항목을 선택하면 Object Browser와
+  Inspector가 열리고 해당 Object로 자동 스크롤되는지
+- Object와 Asset을 선택하고 `Use in selected Object`를 누르면 SRC가 하나인
+  Object는 즉시 `gr/x/y/w/h`가 교체되는지. 같은 명령이 card 우클릭에도 있는지
+- Object에 적용 가능한 SRC가 여러 개면 modal이 뜨고, 선택한 SRC 행만 바뀌는지
+- `Copy animation`을 끄면 기존 `div_x/div_y/cycle/timer`와 NUMBER/SLIDER/BUTTON
+  고유 값이 유지되고, 켜면 animation 네 필드만 Asset 원본 값으로 바뀌는지
+- Asset 적용과 Object Inspector의 Tagged image 변경이 각각 Ctrl+Z 한 번으로
+  SRC 행 전체를 복구하며 Object/Inspector/Preview/Image Manager 선택이 유지되는지
+- Image Manager의 같은 gr texture 후보에 그 논리 gr를 사용하는 고유 Object 수가
+  표시되는지
 - `Animate SRC` on/off가 동작하고, `div_x/div_y/cycle`이 있는 SRC 카드가
   cycle 시간 동안 모든 frame을 올바른 행/열 순서로 재생하는지
 - 같은 좌표의 SRC 선언이 여러 개여도 원본 선언 행의 animation grid를 사용하고
@@ -489,8 +585,30 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - 각 지원 Scene/key mode로 새 폴더를 만든다.
 - 기존 파일이 있는 경로는 덮어쓰지 않는지 확인한다.
 - 생성 직후 skin이 열리고 Preview가 표시되는지 확인한다.
-- PLAY의 note/mine/LN/judge/gauge/FAST/SLOW를 확인한다.
-- SELECT bar/title, DECIDE panel/flash, RESULT numbers/charts를 확인한다.
+- `#SCENETIME`은 DECIDE에만 있고 PLAY, SELECT, RESULT, COURSERESULT에는
+  생성되지 않는지 확인한다.
+- PLAY의 note/mine/LN, lane별 Bomb, measure line/judge line/gauge/FAST/SLOW와 플레이어별
+  NOWJUDGE/NOWCOMBO를 확인한다. BMS note 판정 시 해당 lane Bomb과 판정/콤보가
+  정해진 시간 뒤 사라지는지도 확인한다.
+- PLAY BGA에는 zero-sized `#SRC_BGA`와 `#DST_BGA`가 이 순서로 한 쌍 존재하고,
+  실제 BMS의 정지 이미지/동영상 BGA가 지정한 영역 안에 표시되는지 확인한다.
+- 생성한 PLAY/BATTLE 스킨을 실제 LR2에서 열고 BMS 재생을 시작했을 때
+  Measure Line 누락으로 `ProcI_Play` 접근 위반이 발생하지 않는지 확인한다.
+- Groove Gauge가 50칸으로 lane 폭을 채우고, gauge 값 변화에 따라 밝은 채움과
+  어두운 빈칸 및 80% 경계 색상이 바뀌는지 확인한다.
+- PLAY 생성 직후 첫 Note가 Object Browser에서 자동 선택·스크롤되고 Inspector에
+  같은 Note의 Normal/Mine/LN/DST_NOTE 행이 함께 표시되는지 확인한다.
+- 공용 `preset.bmp`의 NUMBER source가 알 수 없는 색/기호가 아니라 또렷한 숫자
+  `0~9`로 표시되는지 확인한다. LR2 number frame 대응상 atlas cell 순서는 0부터다.
+- SELECT bar가 NOWJUDGE용 무지개 strip을 늘린 형태가 아니라 어두운 단색 면과 밝은
+  테두리로 표시되고, OFF/ON tint와 title이 정상인지 확인한다. DECIDE panel/flash와
+  `$st 10`의 실제 곡 제목 TEXT가 중앙에 표시되는지 확인한다. RESULT는 전용 dark panel 위에
+  EX SCORE/MAX COMBO와 PERFECT/GREAT/GOOD/BAD/POOR label 및 값이 좌우 column으로
+  정렬되고, 하단 gauge/score chart가 각 backdrop 안에 표시되는지 확인한다. 일반
+  Groove Gauge의 result graph는 80% 미만에서 초록색, 80% 이상에서 빨간색으로 바뀌며 두 구간 모두
+  backdrop 안에서 아래쪽 기준으로 위로 그려지는지 확인한다.
+- COURSERESULT에서 1~5스테이지 제목/레벨과 EX Score, Max Combo,
+  Perfect/Great/Good/Bad/Poor 누적 숫자를 확인한다.
 - 임의 해상도에서 화면 밖으로 심하게 벗어나는 필수 Object가 없는지 확인한다.
 
 ### I. 인코딩과 저장

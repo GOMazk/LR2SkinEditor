@@ -19,6 +19,8 @@
 #include "arr.hpp"
 #include "seHelper.h"
 
+#include <filesystem>
+
 int CountCsvColumns(CSTR& line) {
     if (!line.body || line.length() <= 0) return 0;
     int count = 1;
@@ -278,9 +280,11 @@ int RunAssetMetadataSelfTest() {
     WORKSPACE workspace;
     workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 8);
     workspace.arr_IMG.Alloc(sizeof(IMG), 8);
+    workspace.arr_SRCGR.Alloc(sizeof(SRCGR), 4);
     workspace.arr_SRC.Alloc(sizeof(SRC), 4);
     workspace.arr_seobj.Alloc(sizeof(SEOBJ), 8);
     workspace.arr_ifunit.Alloc(sizeof(IFUNIT), 4);
+    workspace.arr_history.Alloc(sizeof(HISTORY), 8);
     strncpy(workspace.mainpath, outputPath, MAX_PATH - 1);
 
     auto appendLine = [&](const char* text, int ifgroup) {
@@ -309,6 +313,46 @@ int RunAssetMetadataSelfTest() {
     appendLine(unusedMetadata, 0);
     appendLine("#ENDIF", 0);
 
+    // LR2 wildcard candidates include directory and non-image matches. Keep
+    // both in Image Manager, preserve the suffix after '*', and automatically
+    // resolve only a loadable final image path.
+    const std::string graphicRoot = std::string(outputPath) + "_graphics";
+    const std::string graphicVariant = graphicRoot + "\\Default";
+    const std::string brokenVariant = graphicRoot + "\\Broken";
+    const std::string graphicImage = graphicVariant + "\\main.bmp";
+    const std::string graphicFileCandidate = graphicRoot + "\\Default.png";
+    if (!CreateDirectoryA(graphicRoot.c_str(), NULL) ||
+        !CreateDirectoryA(graphicVariant.c_str(), NULL) ||
+        !CreateDirectoryA(brokenVariant.c_str(), NULL)) return 43;
+    const unsigned char onePixelBmp[] = {
+        0x42, 0x4d, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x36, 0x00, 0x00, 0x00, 0x28, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x18, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00,
+        0x00, 0x00
+    };
+    FILE* graphicFile = fopen(graphicImage.c_str(), "wb");
+    if (!graphicFile) return 44;
+    const bool wroteGraphic = fwrite(onePixelBmp, 1, sizeof(onePixelBmp),
+        graphicFile) == sizeof(onePixelBmp);
+    fclose(graphicFile);
+    if (!wroteGraphic) return 44;
+    FILE* candidateFile = fopen(graphicFileCandidate.c_str(), "wb");
+    if (!candidateFile) return 44;
+    const bool wroteCandidate = fwrite(onePixelBmp, 1, sizeof(onePixelBmp),
+        candidateFile) == sizeof(onePixelBmp);
+    fclose(candidateFile);
+    if (!wroteCandidate) return 44;
+    const std::string wildcardGraphic =
+        std::string("#IMAGE,") + graphicRoot + "\\*\\main.bmp";
+    appendLine(wildcardGraphic.c_str(), 0);
+    const std::string wildcardFileGraphic =
+        std::string("#IMAGE,") + graphicRoot + "\\*.png";
+    appendLine(wildcardFileGraphic.c_str(), 0);
+
     if (workspace.ParseSkinConditions() != 0) return 11;
     const int assetIfgroup =
         ((SKINFILELINEREAD*)workspace.skinfileLines.data)[1].ifgroup;
@@ -317,6 +361,50 @@ int RunAssetMetadataSelfTest() {
         return 12;
     if (workspace.ParseSkinLegacyObjectsAndAssets() != 0 ||
         workspace.arr_IMG.count != 2) return 11;
+    if (workspace.ParseSkinGraphics() != 0 ||
+        workspace.arr_SRCGR.count != 3) return 45;
+    int invalidCandidate = -1;
+    int directoryImageCandidate = -1;
+    int fileImageCandidate = -1;
+    for (int candidate = 0; candidate < workspace.arr_SRCGR.count; ++candidate) {
+        SRCGR& graphic = ((SRCGR*)workspace.arr_SRCGR.data)[candidate];
+        if (graphic.grID == 0 && graphic.filename.isSame("Default") &&
+            graphic.path.body &&
+            _stricmp(graphic.path.outstr(), graphicImage.c_str()) == 0)
+            directoryImageCandidate = candidate;
+        else if (graphic.grID == 0 && graphic.filename.isSame("Broken") &&
+            graphic.path.body && GetFileAttributesA(graphic.path.outstr()) ==
+                INVALID_FILE_ATTRIBUTES)
+            invalidCandidate = candidate;
+        else if (graphic.grID == 1 && graphic.filename.isSame("Default") &&
+            graphic.path.body &&
+            _stricmp(graphic.path.outstr(), graphicFileCandidate.c_str()) == 0)
+            fileImageCandidate = candidate;
+    }
+    if (invalidCandidate < 0 || directoryImageCandidate < 0 ||
+        fileImageCandidate < 0) return 46;
+    SRCGR& invalidGraphic =
+        ((SRCGR*)workspace.arr_SRCGR.data)[invalidCandidate];
+    SRCGR& directoryImage =
+        ((SRCGR*)workspace.arr_SRCGR.data)[directoryImageCandidate];
+    SRCGR& fileImage = ((SRCGR*)workspace.arr_SRCGR.data)[fileImageCandidate];
+    invalidGraphic.loaded = true;
+    directoryImage.texture = reinterpret_cast<PDIRECT3DTEXTURE9>(1);
+    const int resolverTag = workspace.NewIMG(0, 0, 0, 1, 1, 0);
+    if (resolverTag != 2 ||
+        workspace.ResolveIMGTextureIndex(resolverTag) != directoryImageCandidate)
+        return 47;
+    directoryImage.texture = NULL;
+    directoryImage.loaded = true;
+    if (workspace.ResolveIMGTextureIndex(resolverTag) != -1) return 48;
+    if (workspace.DeleteIMG(resolverTag) != 0) return 49;
+    fileImage.texture = reinterpret_cast<PDIRECT3DTEXTURE9>(1);
+    const int fileResolverTag = workspace.NewIMG(1, 0, 0, 1, 1, 0);
+    if (fileResolverTag != 2 ||
+        workspace.ResolveIMGTextureIndex(fileResolverTag) != fileImageCandidate)
+        return 50;
+    fileImage.texture = NULL;
+    if (workspace.DeleteIMG(fileResolverTag) != 0) return 51;
     IMG& used = ((IMG*)workspace.arr_IMG.data)[0];
     IMG& unused = ((IMG*)workspace.arr_IMG.data)[1];
     if (used.sourceDeclare != 2 || used.editorDeclare != -1 ||
@@ -367,8 +455,165 @@ int RunAssetMetadataSelfTest() {
     workspace.SynchronizeNewObjectAutoName("#SRC_NUMBER", false);
     if (!workspace.newObjectName.isSame("My counter")) return 42;
 
+    if (!workspace.objectEditorModel.LoadGroups(nullptr)) return 52;
+    workspace.RebuildObjectModel();
+    const int sourceObject = SEFindObjectForRow(
+        workspace.objectEditorModel.Objects(), 2);
+    if (sourceObject < 0) return 53;
+    workspace.src_selected = 1;
+    workspace.imageManagerFocusRequest = -1;
+    workspace.SetObjectSelection(std::vector<int>(1, sourceObject),
+        sourceObject, sourceObject, false);
+    if (workspace.src_selected != 0 || workspace.grID_selected != used.gr ||
+        workspace.imageManagerFocusRequest != 0) return 54;
+    workspace.src_selected = 1;
+    workspace.RestoreObjectSelection();
+    if (workspace.src_selected != 0 || workspace.imageManagerFocusRequest != 0)
+        return 55;
+    if (!workspace.SetImageManagerHoveredObject(sourceObject, 123) ||
+        workspace.imageManagerHoveredAssetIndex != 0 ||
+        workspace.imageManagerHoveredAssetFrame != 123) return 56;
+    if (workspace.SetImageManagerHoveredObject(-1, 124) ||
+        workspace.imageManagerHoveredAssetIndex != -1 ||
+        workspace.imageManagerHoveredAssetFrame != 124) return 57;
+    std::vector<std::vector<int>> assetUsage;
+    workspace.BuildImageAssetUsage(assetUsage);
+    if (assetUsage.size() != 2 || assetUsage[0].size() != 1 ||
+        assetUsage[0][0] != sourceObject) return 58;
+    if (!assetUsage[1].empty()) return 59;
+    const std::vector<std::vector<int>>& cachedUsage =
+        workspace.ImageAssetUsage();
+    if (cachedUsage.size() != 2 || cachedUsage[0].size() != 1 ||
+        !cachedUsage[1].empty()) return 60;
+    std::string deleteReason;
+    if (workspace.CanDeleteIMG(0, &deleteReason) ||
+        deleteReason.find("used by 1 Object") == std::string::npos)
+        return 78;
+    if (!workspace.CanDeleteIMG(1, &deleteReason) || !deleteReason.empty())
+        return 79;
+
+    std::vector<int> assignableRows;
+    workspace.CollectImageAssignableSourceRows(sourceObject, assignableRows);
+    if (assignableRows.size() != 1 || assignableRows.front() != 2) return 62;
+    SKINFILELINEREAD& editableSource =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[2];
+    const std::string originalSourceLine = editableSource.line.outstr();
+    const int historyBeforeApply = workspace.arr_history.count;
+    if (!workspace.ApplyImageAssetToObjectSource(1, sourceObject, 2, false))
+        return 63;
+    int appliedColumns[5];
+    if (!workspace.ResolveImageCropColumns("#SRC_NUMBER", appliedColumns) ||
+        editableSource.csv.val[appliedColumns[0]] != unused.gr ||
+        editableSource.csv.val[appliedColumns[1]] != unused.x ||
+        editableSource.csv.val[appliedColumns[2]] != unused.y ||
+        editableSource.csv.val[appliedColumns[3]] != unused.w ||
+        editableSource.csv.val[appliedColumns[4]] != unused.h ||
+        editableSource.csv.val[11] != 212 ||
+        editableSource.csv.val[12] != 2 ||
+        editableSource.csv.val[13] != 4) return 64;
+    if (workspace.arr_history.count != historyBeforeApply + 1) return 65;
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.arr_history.count != historyBeforeApply ||
+        !editableSource.line.body ||
+        originalSourceLine != editableSource.line.outstr()) return 66;
+
+    std::vector<SEImageDiagnostic> diagnostics;
+    workspace.BuildImageDiagnostics(diagnostics);
+    bool foundMissingGraphic = false;
+    bool foundUnusedAsset = false;
+    for (const SEImageDiagnostic& diagnostic : diagnostics) {
+        foundMissingGraphic |= diagnostic.kind ==
+            SEImageDiagnosticKind::MissingFile;
+        foundUnusedAsset |= diagnostic.kind ==
+            SEImageDiagnosticKind::UnusedAsset && diagnostic.assetIndex == 1;
+    }
+    if (!foundMissingGraphic || !foundUnusedAsset) return 67;
+
+    const int historyBeforeReplace = workspace.arr_history.count;
+    const int replaceDeclaration = fileImage.declare;
+    const std::string originalImageDeclaration =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)
+        [replaceDeclaration].line.outstr();
+    std::string imageOperationError;
+    if (!workspace.ReplaceImageDeclarationPath(fileImageCandidate,
+        graphicImage.c_str(), imageOperationError) ||
+        workspace.arr_history.count != historyBeforeReplace + 1 ||
+        strstr(((SKINFILELINEREAD*)workspace.skinfileLines.data)
+            [replaceDeclaration].line.outstr(), "#IMAGE,") !=
+            ((SKINFILELINEREAD*)workspace.skinfileLines.data)
+            [replaceDeclaration].line.outstr()) return 68;
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.arr_history.count != historyBeforeReplace ||
+        originalImageDeclaration !=
+            ((SKINFILELINEREAD*)workspace.skinfileLines.data)
+            [replaceDeclaration].line.outstr()) return 69;
+
+    // Grid splitting persists named, editor-only cells and records every row
+    // insertion as one user-visible Undo action.
+    std::unique_ptr<WORKSPACE> gridWorkspace(new WORKSPACE());
+    gridWorkspace->skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 8);
+    gridWorkspace->arr_IMG.Alloc(sizeof(IMG), 8);
+    gridWorkspace->arr_SRCGR.Alloc(sizeof(SRCGR), 2);
+    gridWorkspace->arr_SRC.Alloc(sizeof(SRC), 2);
+    gridWorkspace->arr_seobj.Alloc(sizeof(SEOBJ), 4);
+    gridWorkspace->arr_ifunit.Alloc(sizeof(IFUNIT), 2);
+    gridWorkspace->arr_history.Alloc(sizeof(HISTORY), 16);
+    strncpy(gridWorkspace->mainpath, outputPath, MAX_PATH - 1);
+    auto appendGridLine = [&](const char* text) {
+        SKINFILELINEREAD* line =
+            (SKINFILELINEREAD*)gridWorkspace->skinfileLines.Get_new();
+        line->line.assign(text);
+        line->filename.assign(outputPath);
+        line->numTotal = gridWorkspace->skinfileLines.count - 1;
+        line->num = line->numTotal;
+        line->isComment = text[0] != '#';
+        line->isSEcomment = text[0] == '$';
+        line->ifgroup = 0;
+        SplitCSV(line->line, &line->csv, ",");
+        line->csvColumnCount = CountCsvColumns(line->line);
+    };
+    appendGridLine("#IMAGE,grid.png");
+    appendGridLine("$SRC_IMAGE,0,0,0,0,8,8,1,1,0,0,0,0,0,base");
+    SRCGR* gridGraphic = (SRCGR*)gridWorkspace->arr_SRCGR.Get_new();
+    gridGraphic->path.assign(graphicImage.c_str());
+    gridGraphic->filename.assign("grid.png");
+    gridGraphic->texture = reinterpret_cast<PDIRECT3DTEXTURE9>(1);
+    gridGraphic->loaded = true;
+    gridGraphic->sizeX = 8;
+    gridGraphic->sizeY = 8;
+    gridGraphic->grID = 0;
+    gridGraphic->isIf = 0;
+    gridGraphic->declare = 0;
+    const int gridBaseIndex = gridWorkspace->NewIMG(0, 0, 0, 8, 8, 0);
+    ((IMG*)gridWorkspace->arr_IMG.data)[gridBaseIndex].editorDeclare = 1;
+    std::vector<unsigned char> selectedGridCells(4, 1);
+    std::vector<int> insertedGridRows;
+    if (!gridWorkspace->RegisterImageAssetGrid(gridBaseIndex, 2, 2,
+        selectedGridCells, "grid", insertedGridRows, imageOperationError) ||
+        insertedGridRows.size() != 4 ||
+        gridWorkspace->skinfileLines.count != 6 ||
+        gridWorkspace->arr_history.count != 9) return 70;
+    SKINFILELINEREAD& firstGridCell =
+        ((SKINFILELINEREAD*)gridWorkspace->skinfileLines.data)
+        [insertedGridRows.front()];
+    if (!firstGridCell.line.body ||
+        strstr(firstGridCell.line.outstr(),
+            "$SRC_IMAGE,0,0,0,0,4,4,1,1,0,0,0,0,0,grid_001") !=
+            firstGridCell.line.outstr()) return 71;
+    if (gridWorkspace->ParseSkinConditions() != 0) return 72;
+    if (gridWorkspace->ParseSkinLegacyObjectsAndAssets() != 0) return 74;
+    if (gridWorkspace->arr_IMG.count != 5) return 75;
+    if (!((IMG*)gridWorkspace->arr_IMG.data)[1].name.isSame("grid_001"))
+        return 76;
+    if (gridWorkspace->UndoLastEdit() != 0 ||
+        gridWorkspace->arr_history.count != 0 ||
+        gridWorkspace->skinfileLines.count != 2) return 73;
+
     const int manualIndex = workspace.NewIMG(17, 1, 2, 3, 4, 23);
     if (manualIndex != 2) return 14;
+    const std::vector<std::vector<int>>& expandedUsage =
+        workspace.ImageAssetUsage();
+    if (expandedUsage.size() != 3 || !expandedUsage[2].empty()) return 61;
     IMG& manual = ((IMG*)workspace.arr_IMG.data)[manualIndex];
     if (manual.gr != 17 || manual.ifGroup != 23 ||
         manual.sourceDeclare != -2) return 15;
@@ -501,6 +746,8 @@ int RunAssetMetadataSelfTest() {
     remove(outputPath);
     remove((std::string(outputPath) + ".skineditor.tmp").c_str());
     remove((std::string(outputPath) + ".skineditor.bak").c_str());
+    std::error_code graphicCleanupError;
+    std::filesystem::remove_all(graphicRoot, graphicCleanupError);
     return 0;
 }
 
@@ -522,6 +769,7 @@ int WORKSPACE::NewIMG(int gr, int x, int y, int w, int h, int ifGroup) {
 
     //TODO:history here
 
+    ++imageAssetUsageGeneration;
     return imageIndex;
 }
 
@@ -544,6 +792,7 @@ int WORKSPACE::DeleteIMG(int pos) {
 
     //TODO:history here
 
+    ++imageAssetUsageGeneration;
     return 0;
 }
 
@@ -616,7 +865,36 @@ int WORKSPACE::ModifyIMG(int pos, int gr, int x, int y, int w, int h) {
     img.w = w;
     img.h = h;
 
+    ++imageAssetUsageGeneration;
     return 0;
+}
+
+bool WORKSPACE::CanDeleteIMG(int pos, std::string* reason) {
+    if (reason) reason->clear();
+    if (pos < 0 || pos >= arr_IMG.count) {
+        if (reason) *reason = "The selected Asset is no longer available.";
+        return false;
+    }
+
+    const std::vector<std::vector<int>>& usage = ImageAssetUsage();
+    if (pos < (int)usage.size() && !usage[pos].empty()) {
+        if (reason) {
+            *reason = "This Asset is used by " +
+                std::to_string(usage[pos].size()) + " Object" +
+                (usage[pos].size() == 1 ? "." : "s.");
+        }
+        return false;
+    }
+
+    const IMG& asset = ((const IMG*)arr_IMG.data)[pos];
+    if (asset.editorDeclare < 0 && asset.sourceDeclare != -2) {
+        if (reason) {
+            *reason = "This Asset is derived from an Object SRC declaration. "
+                "Delete or edit that Object instead.";
+        }
+        return false;
+    }
+    return true;
 }
 
 //check duplicated
@@ -633,6 +911,134 @@ int WORKSPACE::FindIMG(int gr, int x, int y, int w, int h, int ifGroup) {
             break;
     }
     return j;
+}
+
+bool WORKSPACE::ResolveImageCropColumns(const char* command,
+    int columns[5]) const {
+    if (!columns) return false;
+    for (int field = 0; field < 5; ++field) columns[field] = -1;
+    if (!command || strncmp(command, "#SRC", 4) != 0) return false;
+
+    const char* fieldNames[5] = { "gr", "x", "y", "w", "h" };
+    for (int column = 1; column < 30; ++column) {
+        CSTR help = GetCommandHelp(command, column);
+        help.trimWhiteSpace();
+        const char* label = help.body ? help.outstr() : "";
+        if (*label == '$') ++label;
+        for (int field = 0; field < 5; ++field) {
+            if (_stricmp(label, fieldNames[field]) == 0)
+                columns[field] = column;
+        }
+    }
+    for (int field = 0; field < 5; ++field)
+        if (columns[field] < 0) return false;
+    return true;
+}
+
+int WORKSPACE::FindImageAssetForRow(int row) {
+    if (row < 0 || row >= skinfileLines.count || arr_IMG.count <= 0)
+        return -1;
+    SKINFILELINEREAD& line =
+        ((SKINFILELINEREAD*)skinfileLines.data)[row];
+    const char* command = line.csv.str[0].body
+        ? line.csv.str[0].outstr() : "";
+    int columns[5];
+    if (!ResolveImageCropColumns(command, columns)) return -1;
+
+    const int values[5] = {
+        line.csv.val[columns[0]], line.csv.val[columns[1]],
+        line.csv.val[columns[2]], line.csv.val[columns[3]],
+        line.csv.val[columns[4]]
+    };
+    int imageIndex = FindIMG(values[0], values[1], values[2], values[3],
+        values[4], line.ifgroup);
+    // Editor-only presets created before branch metadata existed can still be
+    // shared by coordinates. Prefer the Object branch, then use that legacy
+    // compatibility path.
+    if (imageIndex >= arr_IMG.count)
+        imageIndex = FindIMG(values[0], values[1], values[2], values[3],
+            values[4]);
+    return imageIndex >= 0 && imageIndex < arr_IMG.count ? imageIndex : -1;
+}
+
+int WORKSPACE::FindImageAssetForObject(int modelIndex) {
+    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+    if (modelIndex < 0 || modelIndex >= (int)objects.size()) return -1;
+    for (int row : objects[modelIndex].rows) {
+        const int imageIndex = FindImageAssetForRow(row);
+        if (imageIndex >= 0) return imageIndex;
+    }
+    return -1;
+}
+
+void WORKSPACE::BuildImageAssetUsage(
+    std::vector<std::vector<int>>& usage) {
+    usage.clear();
+    usage.resize((std::max)(0, arr_IMG.count));
+    if (arr_IMG.count <= 0) return;
+
+    // The declaring row is the stable and cheapest link between an IMG crop
+    // and an Object SRC command. Keep the schema-based fallback for legacy
+    // crops that predate sourceDeclare/editorDeclare metadata.
+    std::map<int, int> assetByRow;
+    for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
+        IMG& asset = ((IMG*)arr_IMG.data)[imageIndex];
+        if (asset.sourceDeclare >= 0 &&
+            assetByRow.find(asset.sourceDeclare) == assetByRow.end())
+            assetByRow[asset.sourceDeclare] = imageIndex;
+        if (asset.editorDeclare >= 0 &&
+            assetByRow.find(asset.editorDeclare) == assetByRow.end())
+            assetByRow[asset.editorDeclare] = imageIndex;
+    }
+
+    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+    for (int modelIndex = 0; modelIndex < (int)objects.size(); ++modelIndex) {
+        std::vector<int> objectAssets;
+        for (int row : objects[modelIndex].rows) {
+            int imageIndex = -1;
+            const std::map<int, int>::const_iterator direct = assetByRow.find(row);
+            if (direct != assetByRow.end()) {
+                imageIndex = direct->second;
+            } else if (row >= 0 && row < skinfileLines.count) {
+                SKINFILELINEREAD& line =
+                    ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                const char* command = line.csv.str[0].body
+                    ? line.csv.str[0].outstr() : "";
+                if (!strncmp(command, "#SRC", 4))
+                    imageIndex = FindImageAssetForRow(row);
+            }
+            if (imageIndex < 0 || imageIndex >= arr_IMG.count ||
+                std::find(objectAssets.begin(), objectAssets.end(), imageIndex) !=
+                    objectAssets.end()) continue;
+            objectAssets.push_back(imageIndex);
+            usage[imageIndex].push_back(modelIndex);
+        }
+    }
+}
+
+const std::vector<std::vector<int>>& WORKSPACE::ImageAssetUsage() {
+    if (imageAssetUsageCacheGeneration != imageAssetUsageGeneration ||
+        imageAssetUsageCacheAssetCount != arr_IMG.count) {
+        BuildImageAssetUsage(imageAssetUsageCache);
+        imageAssetUsageCacheGeneration = imageAssetUsageGeneration;
+        imageAssetUsageCacheAssetCount = arr_IMG.count;
+    }
+    return imageAssetUsageCache;
+}
+
+bool WORKSPACE::SynchronizeImageManagerToObject(int modelIndex) {
+    const int imageIndex = FindImageAssetForObject(modelIndex);
+    if (imageIndex < 0 || !SelectIMGAsset(imageIndex, false)) return false;
+    // Do not force the Image Manager window open. If it is already available,
+    // this one-shot request scrolls the selected crop into view when drawn.
+    imageManagerFocusRequest = imageIndex;
+    return true;
+}
+
+bool WORKSPACE::SetImageManagerHoveredObject(int modelIndex, int frameCount) {
+    imageManagerHoveredAssetIndex = FindImageAssetForObject(modelIndex);
+    imageManagerHoveredAssetFrame = frameCount;
+    return imageManagerHoveredAssetIndex >= 0;
 }
 
 
@@ -736,6 +1142,8 @@ void WORKSPACE::SetObjectSelection(const std::vector<int>& modelIndices,
     preview_selection_anchor_model_index = ResolveObjectSelectionKey(objectSelection.anchor);
     if (requestBrowserFocus && preview_selected_object_model_index >= 0)
         object_editor_select_request = preview_selected_object_model_index;
+    if (preview_selected_object_model_index >= 0)
+        SynchronizeImageManagerToObject(preview_selected_object_model_index);
 }
 
 void WORKSPACE::RestoreObjectSelection() {
@@ -770,7 +1178,7 @@ void WORKSPACE::RestoreObjectSelection() {
     if (preview_selected_object_model_index < 0) {
         preview_selected_obj_valid = false;
         preview_selected_obj_last_valid = false;
-    }
+    } else SynchronizeImageManagerToObject(preview_selected_object_model_index);
 }
 
 void WORKSPACE::RebuildObjectModel() {
@@ -788,6 +1196,7 @@ void WORKSPACE::RebuildObjectModel() {
         objectSelection.anchor = MakeObjectSelectionKey(preview_selection_anchor_model_index);
     }
     objectEditorModel.Rebuild(*this);
+    ++imageAssetUsageGeneration;
     objectEditorLastLineCount = skinfileLines.count;
     objectModelRebuildPending = false;
     InvalidateSimpleModeProjection();
@@ -1314,6 +1723,17 @@ int WORKSPACE::UndoLastEdit() {
     const int target = history.target;
     CSTR oldLine(history.older.line);
     --arr_history.count;
+
+    // Batch commands append a group marker after their normal line edits.
+    // Undo the recorded operations in reverse order so one Ctrl+Z restores
+    // the complete action while each primitive keeps its existing logic.
+    if (operation == group) {
+        if (target <= 0 || target > arr_history.count) return -1;
+        for (int edit = 0; edit < target; ++edit) {
+            if (UndoLastEdit() != 0) return -1;
+        }
+        return 0;
+    }
 
     applyingHistory = true;
     int result = 0;

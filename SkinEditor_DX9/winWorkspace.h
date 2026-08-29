@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 enum DOCUMENTCHANGE {
@@ -99,6 +100,23 @@ typedef struct IMG {
     int sourceDeclare = -1;
     int editorDeclare = -1;
 }IMG;
+
+enum class SEImageDiagnosticKind {
+    MissingFile,
+    UnloadableFile,
+    CropOutOfBounds,
+    DuplicateCrop,
+    UnusedAsset,
+    SourceWithoutAsset,
+};
+
+struct SEImageDiagnostic {
+    SEImageDiagnosticKind kind = SEImageDiagnosticKind::MissingFile;
+    std::string message;
+    int graphicIndex = -1;
+    int assetIndex = -1;
+    int sourceRow = -1;
+};
 
 typedef struct SRCGR {
     CSTR path{};
@@ -306,6 +324,13 @@ typedef struct WORKSPACE {
     std::vector<SkinDocumentSnapshot> historyDocumentSnapshots;
     int pendingHistorySnapshotRestore = -1;
     bool applyingHistory = false;
+    // A ColorEdit gesture may update several ARGB columns over many frames.
+    // Keep one live history entry for the gesture instead of recording every
+    // component and mouse movement as a separate undo step.
+    int objectColorEditRow = -1;
+    int objectColorEditHistoryIndex = -1;
+    int ApplyDstArgbEdit(int row, const int argb[4]);
+    void EndDstArgbEdit();
     int UndoLastEdit();
     void NotifyDocumentChanged(unsigned int changes);
     bool IsDocumentDirty() const;
@@ -327,6 +352,17 @@ typedef struct WORKSPACE {
         int activeModelIndex = -1, int anchorModelIndex = -1,
         bool requestBrowserFocus = false);
     void RestoreObjectSelection();
+    bool ResolveImageCropColumns(const char* command, int columns[5]) const;
+    void CollectImageAssignableSourceRows(int modelIndex,
+        std::vector<int>& rows) const;
+    bool ApplyImageAssetToObjectSource(int imageIndex, int modelIndex,
+        int sourceRow, bool copyAnimationFields);
+    int FindImageAssetForRow(int row);
+    int FindImageAssetForObject(int modelIndex);
+    void BuildImageAssetUsage(std::vector<std::vector<int>>& usage);
+    const std::vector<std::vector<int>>& ImageAssetUsage();
+    bool SynchronizeImageManagerToObject(int modelIndex);
+    bool SetImageManagerHoveredObject(int modelIndex, int frameCount);
     void RebuildObjectModel();
     int SetObjectName(int modelIndex, const char* name);
     int DeleteObject(int modelIndex);
@@ -440,20 +476,46 @@ typedef struct WORKSPACE {
     int imagePixelPaintLastButton = -1;
     std::map<std::string, bool> imagePixelPaintDirtyPaths;
     std::string imagePixelPaintStatus;
+    std::string imageManagerReloadPathRequest;
     bool imageNewDialogRequested = false;
     bool imageMergeDialogRequested = false;
+    bool imageReplaceDialogRequested = false;
+    bool imageGridDialogRequested = false;
     char imageToolOutputPathUtf8[1024] = {};
     int imageNewWidth = 1;
     int imageNewHeight = 1;
     ImVec4 imageNewColor = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     int imageMergeAssetIndex = 0;
+    int imageReplaceDeclarationRow = -1;
+    int imageReplaceOldWidth = 0;
+    int imageReplaceOldHeight = 0;
+    int imageReplaceNewWidth = 0;
+    int imageReplaceNewHeight = 0;
+    int imageReplaceAffectedCropCount = 0;
+    int imageReplaceOutOfBoundsCropCount = 0;
+    std::string imageReplaceDiskPath;
+    int imageGridAssetIndex = -1;
+    int imageGridGr = 0;
+    int imageGridX = 0;
+    int imageGridY = 0;
+    int imageGridW = 0;
+    int imageGridH = 0;
+    int imageGridIfGroup = 0;
+    int imageGridColumns = 1;
+    int imageGridRows = 1;
+    char imageGridNamePrefix[128] = {};
+    std::vector<unsigned char> imageGridSelectedCells;
     bool imageToolRegisterInCsv = true;
     std::string imageToolStatus;
     int imageManagerGeneratedGrFocusRequest = -1;
+    int imageManagerGraphicDeclarationFocusRequest = -1;
+    int imageManagerAssetDeclarationFocusRequest = -1;
     int grID_selected = 0;
     int gr_selected = 0;
     int src_selected = 0;
     int imageManagerFocusRequest = -1;
+    int imageManagerHoveredAssetIndex = -1;
+    int imageManagerHoveredAssetFrame = -1;
     int loadSRC();
     ImVec4 bgColor;
     int oldIf = -1;
@@ -465,9 +527,23 @@ typedef struct WORKSPACE {
     int drawAssetBrowser();
     float assetThumbnailSize = 96.0f;
     bool assetAnimateSrc = true;
+    bool assetShowUnusedOnly = false;
+    bool assetApplyCopyAnimation = false;
+    bool assetApplyDialogRequested = false;
+    int assetApplyAssetIndex = -1;
+    SEObjectSelectionKey assetApplyObject;
+    bool assetDeleteDialogRequested = false;
+    int assetDeleteAssetIndex = -1;
+    std::string assetDeleteStatus;
     char assetSearch[128] = {};
     int assetBrowserFocusRequest = -1;
+    unsigned long long imageAssetUsageGeneration = 0;
+    unsigned long long imageAssetUsageCacheGeneration = ~0ULL;
+    int imageAssetUsageCacheAssetCount = -1;
+    std::vector<std::vector<int>> imageAssetUsageCache;
     int ResolveIMGTextureIndex(int imageIndex);
+    void CollectIMGTextureCandidates(int imageIndex,
+        std::vector<std::pair<int, int>>& candidates);
     int ResolveIMGSourceIndex(int imageIndex) const;
     void ResolveIMGDivision(int imageIndex, int& divX, int& divY,
         int& cycle, int& timer) const;
@@ -479,6 +555,12 @@ typedef struct WORKSPACE {
     bool OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY);
     int RegisterGeneratedImage(const char* diskPath, int width, int height,
         std::string& errorText);
+    bool ReplaceImageDeclarationPath(int graphicIndex, const char* diskPath,
+        std::string& errorText);
+    bool RegisterImageAssetGrid(int imageIndex, int columns, int rows,
+        const std::vector<unsigned char>& selectedCells, const char* namePrefix,
+        std::vector<int>& insertedRows, std::string& errorText);
+    void BuildImageDiagnostics(std::vector<SEImageDiagnostic>& diagnostics);
 
     int printSrcImg(SRC src, bool button = 0);
     int printSrcImgButton(SRC src, int num, int w, int h);
@@ -635,6 +717,7 @@ typedef struct WORKSPACE {
     bool op[1000];
     
     int NewIMG(int gr, int x, int y, int w, int h, int ifGroup = 0);
+    bool CanDeleteIMG(int pos, std::string* reason = nullptr);
     int DeleteIMG(int pos);
     int ModifyIMG(int pos, int gr, int x, int y, int w, int h);
     int FindIMG(int gr, int x, int y, int w, int h, int ifGroup = -1);
@@ -665,6 +748,7 @@ int RunAssetMetadataSelfTest();
 int RunSimpleModeProjectionSelfTest();
 int RunSimpleModeScopeRuleSelfTest();
 int RunWorkspaceReloadLifecycleSelfTest();
+int RunDstColorSelfTest();
 int RunInitialPresetSelfTest();
 int RunWorkspaceRuntimeReloadSmokeTest(const char* firstPath,
     const char* secondPath);

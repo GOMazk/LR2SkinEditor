@@ -301,6 +301,14 @@ state belongs to `WORKSPACE`, never to a function-local static, so two open
 skins cannot start or stop one another. A preview rebuild while running must
 reinitialize the scene before the next draw-buffer pass.
 
+An inactive Preview dock tab returns false from `ImGui::Begin`, but that is
+only a presentation result and must not pause its Workspace scene.
+`drawPreview()` calls `WORKSPACE::UpdatePreviewRuntime()` for a running scene
+before taking the inactive-tab early return. Keep the runtime on the UI thread
+and consume each Workspace draw buffer once per tick;
+do not add a `ProcGameThread` for apparent parallelism because LR2/DxLib render
+state is process-wide and the application frame already interleaves workspaces.
+
 The editor may synthesize chart data, but it must not synthesize note screen
 coordinates, judgement state, combo values or effect timers. Those remain
 owned by LR2's PLAY pipeline so a skin preview cannot silently diverge from

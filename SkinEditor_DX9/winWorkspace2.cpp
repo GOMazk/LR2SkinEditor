@@ -160,17 +160,36 @@ int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
     const int secondResult = loadSkin(*secondWorkspace, secondPath, 6, 7);
     if (secondResult != 0) return secondResult;
 
-    // The normal frame loop draws every visible workspace after LOAD returns.
-    // Exercise both preview states so a second workspace cannot merely finish
-    // loading and then fail on the following frame.
+    // Start and advance both scene runtimes for several alternating frames.
+    // A one-frame draw-only probe did not catch inactive dock tabs returning
+    // before the scene tick, which left every background Workspace paused.
     LR2SEResetRenderFault();
-    if (LR2SEDrawLoopSafe(&firstWorkspace->g, firstWorkspace->previewScreen,
-        firstWorkspace->skinSizeX, firstWorkspace->skinSizeY, true) != 0)
+    if (LR2SESceneInitSafe(&firstWorkspace->g, firstWorkspace->meta.type,
+        LR2SE_PREVIEW_CHART_SIMPLE) != 0)
         return 8;
-    LR2SEResetRenderFault();
-    if (LR2SEDrawLoopSafe(&secondWorkspace->g, secondWorkspace->previewScreen,
-        secondWorkspace->skinSizeX, secondWorkspace->skinSizeY, true) != 0)
+    if (LR2SESceneInitSafe(&secondWorkspace->g, secondWorkspace->meta.type,
+        LR2SE_PREVIEW_CHART_SIMPLE) != 0)
         return 9;
+    firstWorkspace->previewSimulationPlaying = true;
+    secondWorkspace->previewSimulationPlaying = true;
+    firstWorkspace->previewLastRenderAt = 0;
+    secondWorkspace->previewLastRenderAt = 0;
+
+    const double firstStart = GetTimeLapse(41, &firstWorkspace->g.timer1);
+    const double secondStart = GetTimeLapse(41, &secondWorkspace->g.timer1);
+    for (int frame = 0; frame < 4; ++frame) {
+        Sleep(20);
+        const unsigned long long frameNow = GetTickCount64();
+        if (!firstWorkspace->UpdatePreviewRuntime(frameNow)) return 10;
+        if (!secondWorkspace->UpdatePreviewRuntime(frameNow)) return 11;
+    }
+    if (!firstWorkspace->previewSimulationPlaying ||
+        !secondWorkspace->previewSimulationPlaying)
+        return 12;
+    if (GetTimeLapse(41, &firstWorkspace->g.timer1) <= firstStart)
+        return 13;
+    if (GetTimeLapse(41, &secondWorkspace->g.timer1) <= secondStart)
+        return 14;
     return 0;
 }
 

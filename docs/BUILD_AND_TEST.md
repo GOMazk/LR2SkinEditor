@@ -288,15 +288,17 @@ $test.ExitCode # 0이면 두 스킨 모두 같은 WORKSPACE에서 load 완료
 ```
 
 `Workspace > New Workspace` 경계는 별도 mode로 확인한다. 첫 Workspace를 유지한
-채 두 번째 Workspace에서 다른 스킨을 load하고, 다음 frame에서 두 Preview를 모두
-한 번씩 렌더한다. `tricoro -> m.h(IIDX)`처럼 첫 스킨이 큰 경우도 이 경로를 사용한다.
+채 두 번째 Workspace에서 다른 스킨을 load하고, 두 scene을 시작해 여러 frame 동안
+번갈아 `ProcGame`/draw를 실행한다. 두 Workspace의 timer 41이 모두 전진해야 하며,
+비활성 Preview dock tab도 멈추면 안 된다. `tricoro -> m.h(IIDX)`처럼 첫 스킨이 큰
+경우도 이 경로를 사용한다.
 
 ```powershell
 $env:SKINEDITOR_RELOAD_FIRST = 'D:\skins\tricoro\play_7.lr2skin'
 $env:SKINEDITOR_RELOAD_SECOND = 'D:\skins\mh\play_single.lr2skin'
 $test = Start-Process .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
   -ArgumentList '--skin-multi-workspace-smoke' -Wait -PassThru
-$test.ExitCode # 0이면 두 Workspace의 load와 다음 Preview frame 완료
+$test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Preview draw 완료
 ```
 
 ### B. 조건 분기

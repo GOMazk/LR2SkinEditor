@@ -346,7 +346,10 @@ judge/combo 상태를 직접 만들지 않으므로 판정 시 `ApplyJudgeNote`�
 lane별 50/100/120 타이머를 key beam, note explosion, judge/combo를 포함한 실제
 스킨 Object가 LR2와 같은 방식으로 소비한다. 오디오만 의도적으로 비활성 상태다.
 시뮬레이터 실행 상태는 각 WORKSPACE가 소유하므로 여러 스킨 탭 사이에서 공유되지
-않고, 실행 중 Object 편집으로 Preview가 재구성되면 장면도 안전하게 재시작한다.
+않는다. `drawPreview()`는 Preview 창의 `ImGui::Begin()`이 비활성 탭을 반환해도
+조기 종료 전에 실행 중인 `UpdatePreviewRuntime()`을 호출하므로, 다른 Workspace가
+활성 탭이어도 scene tick과 draw-buffer 소비가 계속된다.
+실행 중 Object 편집으로 Preview가 재구성되면 장면도 안전하게 재시작한다.
 선택한 chart가 끝나면 동일한 scene init을 거쳐 반복한다.
 
 Timer Control의 `Simple / Full`은 CSV에 저장하지 않는 Workspace Preview 설정이다.

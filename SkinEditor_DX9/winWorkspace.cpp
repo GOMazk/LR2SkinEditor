@@ -4504,21 +4504,7 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
     return preview_selected_obj_valid ? 0 : -1;
 }
 
-int WORKSPACE::drawPreview() {
-    // Preview texture is owned by this workspace and recreated whenever
-    // the loaded skin resolution changes.
-    
-    char title[260];
-    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Preview, num);
-
-    // An inactive dock tab returns false here. Do not run LR2 rendering or
-    // transfer a full preview texture while the user cannot see it.
-    if (!ImGui::Begin(title, &wPreview, ImGuiWindowFlags_HorizontalScrollbar)) {
-        ImGui::End();
-        return 0;
-    }
-
-    const unsigned long long previewNow = GetTickCount64();
+bool WORKSPACE::UpdatePreviewRuntime(unsigned long long previewNow) {
     bool previewFrameUpdated = false;
     const LR2SEPreviewChartMode chartMode = previewChartFull
         ? LR2SE_PREVIEW_CHART_FULL : LR2SE_PREVIEW_CHART_SIMPLE;
@@ -4561,6 +4547,25 @@ int WORKSPACE::drawPreview() {
             previewTextureDirty = true;
         }
         previewLastRenderAt = previewNow;
+    }
+
+    return previewFrameUpdated;
+}
+
+int WORKSPACE::drawPreview() {
+    // Preview texture is owned by this workspace and recreated whenever
+    // the loaded skin resolution changes. An inactive dock tab returns false
+    // from ImGui::Begin, but a running scene must still advance and consume its
+    // draw buffer before this function takes the presentation-only early exit.
+    char title[260];
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Preview, num);
+    const bool previewWindowVisible = ImGui::Begin(
+        title, &wPreview, ImGuiWindowFlags_HorizontalScrollbar);
+    const bool previewFrameUpdated = previewWindowVisible || previewSimulationPlaying
+        ? UpdatePreviewRuntime(GetTickCount64()) : false;
+    if (!previewWindowVisible) {
+        ImGui::End();
+        return 0;
     }
 
     float previewCanvasScale = 1.0f / zoom;

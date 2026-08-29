@@ -106,17 +106,41 @@ New에서 Scene과 해상도를 선택하여 필수 Object가 포함된 시작 �
 
 New는 `LR2files\Theme` 아래에 새 `.lr2skin`과 `preset.bmp`를 만든 후 그 스킨을
 즉시 연다. `..`, 드라이브명 같은 범위 이탈 경로는 거부하고 기존 파일은
-덮어쓰지 않는다.
+덮어쓰지 않는다. `#SCENETIME`은 DECIDE 프리셋에만 생성하며 PLAY, SELECT,
+RESULT, COURSERESULT에는 기록하지 않는다.
 
-PLAY 프리셋은 배경, BGA, 키 모드별 Note/Mine/LN, Judge Line, Groove Gauge,
-FAST/SLOW를 만든다. 생성 직후에는 첫 Note Object를 Object Browser/Inspector에서
-자동 선택해 필수 lane 구성이 바로 보이게 한다. SELECT는 선택 바와 제목, DECIDE는 패널/강조/플래시,
-RESULT는 패널/점수 숫자/게이지 및 스코어 차트를 포함한다. COURSERESULT는
+PLAY 프리셋은 배경, BGA, 키 모드별 Note/Mine/LN과 lane별 Bomb, Measure Line, Judge Line,
+Groove Gauge, FAST/SLOW, 플레이어별 NOWJUDGE 6개 상태와 GOOD 이상에서 사용하는
+NOWCOMBO를 만든다. 1P/2P 판정 timer는 각각 46/47, Bomb timer는 lane index에
+맞춘 50~69를 사용한다. Groove Gauge는 채움/빈칸과 80% 경계의 네 atlas 상태를
+50칸으로 배치하여 실제 gauge 값에 따라 채워진다. Measure Line은 LR2의 PLAY
+노트 처리에서 스크롤 원점으로 직접 참조되므로 플레이어별 필수 Object로 생성한다.
+BGA는 BMS가 제공하는 graph handle을 사용하더라도 LR2 parser가 `#DST_BGA`를
+소유시킬 수 있도록 zero-sized `#SRC_BGA`를 먼저 생성한다.
+생성 직후에는 첫 Note Object를 Object Browser/Inspector에서
+자동 선택해 필수 lane 구성이 바로 보이게 한다. 공용 `preset.bmp`의 NUMBER 영역은
+LR2 frame index에 맞춰 `0~9` 순서를 유지하면서 각 16x16 cell에 읽을 수 있는 숫자
+glyph를 그린다. SELECT는 NOWJUDGE 색상 strip과 분리된 전용 dark-blue 단색/밝은 테두리
+bar sprite와 제목을 포함한다. DECIDE는 패널/강조/플래시와 중앙 정렬된 곡 제목
+TEXT를 포함한다. 곡 제목은 SELECT가 DECIDE 진입 전에 채우는 `$st 10`
+(`THISSONG_TITLE`)을 직접 사용한다.
+RESULT는 전용 dark panel과 EX SCORE/MAX COMBO/PERFECT/GREAT/GOOD/BAD/POOR label,
+해당 숫자 및 두 chart를 좌우 column으로 배치한다. Gauge chart는 LR2의 Result
+renderer 규칙대로 80% 미만용 index 0과 80% 이상용 index 1을 모두 만든다. index 0은
+초록색, index 1은 빨간색 atlas cell을 사용한다. Chart DST의 y는 음수 높이 offset의
+기준이 되는 backdrop 하단이다.
+COURSERESULT는
 1~5스테이지 제목과 레벨, 코스 누적 EX Score/Max Combo 및 판정 수를 포함한다.
 
 `initial-preset` 자가 테스트는 모든 PLAY/BATTLE key mode에서 scratch를 포함한
 lane index 집합과 각 lane의 `#SRC_NOTE`, `#SRC_MINE`, LN start/end/body,
-`#DST_NOTE`가 모두 생성되는지 검사한다. COURSERESULT의 `$st 150~154`,
+`#DST_NOTE`, Bomb 및 플레이어별 Measure Line/NOWJUDGE/NOWCOMBO가 모두 생성되는지와
+`#SRC_BGA`가 `#DST_BGA`보다 먼저 정확히 한 쌍 생성되는지 검사한다.
+생성한 BMP의 NUMBER cell도 0~9 bitmap 원본과 pixel 단위로 비교하며, RESULT의 label,
+101/105/110~114 number와 panel/chart Object가 모두 독립 ID로 생성되는지 검사한다.
+Gauge chart의 두 SRC/DST index, 초록/빨강 source 좌표와 하단 기준 좌표도 같은
+테스트에서 고정한다. SELECT bar의 전용 source crop과 border/fill pixel도 검사한다.
+COURSERESULT의 `$st 150~154`,
 `$num 250~254`와 누적 결과 숫자도 같은 테스트에서 검사한다.
 
 향후 프리셋 확장 시 `BuildInitialPreset()`에 Scene별 생성기를 추가하되,
@@ -253,6 +277,13 @@ DST View는 조건 Branch 활성 여부와 무관하게 선택한 SRC/DST의 텍
 `wObjectEditor = true`를 요청하면 Browser와 Inspector를 함께 연다.
 Browser의 Type/Group/Search/Active 필터 영역은 네 control이 모두 들어가는
 계산 높이를 사용하고 내부 scrollbar를 만들지 않는다.
+Object와 Branch의 활성 상태 배경은 label 폭 안에서만 낮은 alpha로 표시한다.
+Object 행 왼쪽의 가는 초록/빨강 stripe가 현재 OP 판정 결과를 보조하므로, 중첩된
+행끼리 넓은 배경이 겹치지 않는다.
+대형 스킨에서는 열린 Branch 안의 Object도 `ImGuiListClipper`로 화면에 보이는 행만
+제출한다. 조건 header와 sibling root는 한 번의 선형 pass로 계산하며, 매 frame마다
+각 IF마다 전체 CSV를 다시 검색하지 않는다. 선택 이동, 자동 scroll, drag reorder와
+context menu는 clip된 목록에서도 같은 model index를 사용한다.
 
 Browser 선택:
 
@@ -409,6 +440,9 @@ file 이름을 우선해 고르며, `gr == arr_SRCGR index`라고 가정하지 �
 Image Manager에 one-shot scroll request를 보내고, 더블클릭은 Image Manager 탭을
 활성화한다. 별도 asset 복사본을 만들지 않으므로 ImageManager의 crop 추가/삭제와
 재파싱 결과가 다음 frame에 그대로 반영된다.
+Image Manager의 왼쪽 crop 목록 역시 `ImGuiListClipper`로 보이는 행만 UTF-8 변환하고
+widget으로 제출한다. 외부 Object 선택으로 이동할 때는 대상 행을 clip 범위에 포함한
+뒤 가운데로 scroll하므로 대형 atlas 목록에서도 선택 동기화가 유지된다.
 
 각 Asset card와 Image Manager crop 목록은 Object Model의 SRC 선언 행을 역참조해
 해당 crop을 사용하는 고유 Object 수 또는 `Unused`를 표시한다. `Unused only`는
@@ -416,6 +450,12 @@ Image Manager에 one-shot scroll request를 보내고, 더블클릭은 Image Man
 최대 32개 Object를 이름과 함께 보여주고, 선택하면 기존 shared selection 경로로
 Object Browser/Inspector를 열어 해당 Object에 이동한다. Image Manager의 texture
 후보에는 같은 논리 gr를 사용하는 고유 Object 수를 표시한다.
+
+Asset Browser에서 선택한 crop은 Delete key 또는 card 우클릭의 `Delete Asset...`로
+삭제할 수 있다. 단, Object가 사용 중인 Asset과 Object의 `#SRC`에서 직접 파생된
+Asset은 삭제를 막는다. 삭제 가능한 대상은 미사용 `$SRC_IMAGE` 또는 아직 저장되지
+않은 수동 crop이며 확인 modal을 거친다. 이 동작은 crop 선언만 제거하고 실제 texture
+파일은 삭제하지 않는다.
 
 `Use in selected Object`와 Asset 우클릭의 같은 명령은 선택 Asset을 현재 Object의
 이미지 기반 SRC에 적용한다. 적용 가능한 SRC가 하나면 즉시 바꾸고, 여러 개면

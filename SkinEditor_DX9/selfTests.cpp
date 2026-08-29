@@ -49,12 +49,13 @@ const SEObjectGroupDef* FindGroup(const SEObjectEditorModel& model,
 int RunSchemaContractSelfTest() {
     // Passing no override path exercises the RCDATA used by packaged builds.
     if (LoadCommandHelp(nullptr) != 0) return 1;
-    if (arr_CommandHelp.count != 117) return 2;
+    if (arr_CommandHelp.count != 118) return 2;
 
     if (!IsSchemaField("#SRC_NUMBER", 11, "$num")) return 3;
     if (!IsSchemaField("#SRC_SLIDER", 13, "$type")) return 4;
     if (!IsSchemaField("#SRC_BUTTON", 11, "$type")) return 5;
     if (!IsSchemaField("#SRC_BARGRAPH", 11, "$type")) return 6;
+    if (!IsSchemaField("#SRC_BGA", 1, "unused")) return 21;
 
     if (GetCommandValueKind("#SRC_NUMBER", "$num") != SE_VALUE_NUMBER)
         return 7;
@@ -67,7 +68,7 @@ int RunSchemaContractSelfTest() {
 
     SEObjectEditorModel model;
     if (!model.LoadGroups(nullptr)) return 11;
-    if (model.Groups().size() != 39) return 12;
+    if (model.Groups().size() != 40) return 12;
 
     const SEObjectGroupDef* number = FindGroup(model, "NUMBER");
     if (!number || !GroupContains(*number, "#SRC_NUMBER") ||
@@ -78,6 +79,11 @@ int RunSchemaContractSelfTest() {
     if (!note || !GroupContains(*note, "#SRC_NOTE") ||
         !GroupContains(*note, "#DST_NOTE"))
         return 14;
+
+    const SEObjectGroupDef* barTitle = FindGroup(model, "BAR_TITLE");
+    if (!barTitle || !GroupContains(*barTitle, "#SRC_BAR_TITLE") ||
+        !GroupContains(*barTitle, "#DST_BAR_TITLE"))
+        return 20;
 
     std::vector<SEObjectInstance> rowObjects(2);
     rowObjects[0].rows.push_back(3);

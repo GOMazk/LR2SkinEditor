@@ -754,6 +754,9 @@ int WORKSPACE::init() {
     assetThumbnailSize = 96.0f;
     assetAnimateSrc = true;
     assetShowUnusedOnly = false;
+    assetDeleteDialogRequested = false;
+    assetDeleteAssetIndex = -1;
+    assetDeleteStatus.clear();
     assetSearch[0] = '\0';
     assetBrowserFocusRequest = -1;
     imageManagerFocusRequest = -1;
@@ -2838,6 +2841,9 @@ int WORKSPACE::LoadSkin(char* path) {
     imageManagerAssetDeclarationFocusRequest = -1;
     assetThumbnailSize = 96.0f;
     assetShowUnusedOnly = false;
+    assetDeleteDialogRequested = false;
+    assetDeleteAssetIndex = -1;
+    assetDeleteStatus.clear();
     assetSearch[0] = '\0';
     imageManagerFocusRequest = -1;
     newObjectCsvInitialized = false;
@@ -6385,6 +6391,17 @@ int WORKSPACE::drawAssetBrowser() {
         assetApplyDialogRequested = true;
         return true;
     };
+    auto requestAssetDelete = [&](int imageIndex) {
+        std::string reason;
+        if (!CanDeleteIMG(imageIndex, &reason)) {
+            assetDeleteStatus = reason;
+            return false;
+        }
+        assetDeleteAssetIndex = imageIndex;
+        assetDeleteDialogRequested = true;
+        assetDeleteStatus.clear();
+        return true;
+    };
     char applyAssetPopup[96];
     snprintf(applyAssetPopup, sizeof(applyAssetPopup),
         "Apply Asset to Object##%d", num);
@@ -6446,6 +6463,66 @@ int WORKSPACE::drawAssetBrowser() {
         if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     };
+    char deleteAssetPopup[96];
+    snprintf(deleteAssetPopup, sizeof(deleteAssetPopup),
+        "Delete Asset##%d", num);
+    auto drawAssetDeleteDialog = [&]() {
+        bool deleted = false;
+        if (assetDeleteDialogRequested) {
+            assetDeleteDialogRequested = false;
+            ImGui::OpenPopup(deleteAssetPopup);
+        }
+        ImGui::SetNextWindowSize(ImVec2(480.0f, 0.0f), ImGuiCond_Appearing);
+        if (!ImGui::BeginPopupModal(deleteAssetPopup, NULL,
+            ImGuiWindowFlags_AlwaysAutoResize)) return deleted;
+
+        std::string reason;
+        const bool canDelete = CanDeleteIMG(assetDeleteAssetIndex, &reason);
+        if (!canDelete) {
+            ImGui::TextWrapped("%s", reason.c_str());
+            if (ImGui::Button("Close", ImVec2(100.0f, 0.0f)))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return deleted;
+        }
+
+        IMG& asset = ((IMG*)arr_IMG.data)[assetDeleteAssetIndex];
+        const std::string assetName = Cp932ToUtf8(
+            asset.name.body ? asset.name.outstr() : "(unnamed)");
+        ImGui::Text("Asset %03d  gr %d", assetDeleteAssetIndex, asset.gr);
+        ImGui::TextWrapped("%s", assetName.c_str());
+        ImGui::Text("Crop: x %d  y %d  w %d  h %d",
+            asset.x, asset.y, asset.w, asset.h);
+        ImGui::Separator();
+        ImGui::TextWrapped(
+            "Remove this unused crop from the skin? The texture file on disk will not be deleted.");
+        ImGui::Spacing();
+        if (ImGui::Button("Delete", ImVec2(100.0f, 0.0f))) {
+            const int deletedIndex = assetDeleteAssetIndex;
+            if (DeleteIMG(deletedIndex) == 0) {
+                assetDeleteStatus = "Deleted Asset " +
+                    std::to_string(deletedIndex) + ".";
+                assetDeleteAssetIndex = -1;
+                imageManagerFocusRequest = -1;
+                assetBrowserFocusRequest = -1;
+                if (arr_IMG.count > 0) {
+                    SelectIMGAsset((std::min)(deletedIndex,
+                        arr_IMG.count - 1), false);
+                } else {
+                    src_selected = -1;
+                    gr_selected = -1;
+                    grID_selected = -1;
+                }
+                deleted = true;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100.0f, 0.0f)))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return deleted;
+    };
 
     ImGui::SetNextItemWidth((std::min)(260.0f,
         (std::max)(120.0f, ImGui::GetContentRegionAvail().x * 0.42f)));
@@ -6482,6 +6559,17 @@ int WORKSPACE::drawAssetBrowser() {
     ImGui::Checkbox("Copy animation", &assetApplyCopyAnimation);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
         ImGui::SetTooltip("Also copy div_x, div_y, cycle and timer from the Asset SRC.");
+    if (!assetDeleteStatus.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", assetDeleteStatus.c_str());
+    }
+
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive() &&
+        ImGui::IsKeyPressed(ImGuiKey_Delete, false) &&
+        src_selected >= 0 && src_selected < arr_IMG.count) {
+        requestAssetDelete(src_selected);
+    }
 
     auto lowercase = [](std::string value) {
         std::transform(value.begin(), value.end(), value.begin(),
@@ -6515,6 +6603,10 @@ int WORKSPACE::drawAssetBrowser() {
 
     if (filteredAssets.empty()) {
         SEUI::EmptyState("No matching assets", "Clear the search text to show every crop.");
+        if (drawAssetDeleteDialog()) {
+            ImGui::End();
+            return 0;
+        }
         drawAssetApplyDialog();
         ImGui::End();
         return 0;
@@ -6766,6 +6858,19 @@ int WORKSPACE::drawAssetBrowser() {
                                     (int)users.size() - shownUsers);
                             ImGui::EndMenu();
                         }
+                        ImGui::Separator();
+                        std::string deleteReason;
+                        const bool canDeleteAsset =
+                            CanDeleteIMG(imageIndex, &deleteReason);
+                        if (ImGui::MenuItem("Delete Asset...", "Delete", false,
+                            canDeleteAsset)) {
+                            requestAssetDelete(imageIndex);
+                        }
+                        if (!canDeleteAsset && ImGui::IsItemHovered(
+                            ImGuiHoveredFlags_AllowWhenDisabled |
+                            ImGuiHoveredFlags_DelayNormal)) {
+                            ImGui::SetTooltip("%s", deleteReason.c_str());
+                        }
                         ImGui::EndPopup();
                     }
                     if (ImGui::BeginDragDropSource()) {
@@ -6825,6 +6930,10 @@ int WORKSPACE::drawAssetBrowser() {
         clipper.End();
     }
     ImGui::EndChild();
+    if (drawAssetDeleteDialog()) {
+        ImGui::End();
+        return 0;
+    }
     drawAssetApplyDialog();
     ImGui::End();
     return 0;
@@ -6870,12 +6979,14 @@ int WORKSPACE::drawImgManager() {
     int deleteImageRequest = -1;
     int diagnosticObjectNavigationRequest = -1;
     bool openImageStatusRequest = false;
+    bool focusImageListSelection = false;
     const float imageEditPanelHeight = 150.0f;
     if (imageManagerGeneratedGrFocusRequest >= 0) {
         for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
             IMG& generated = ((IMG*)arr_IMG.data)[imageIndex];
             if (generated.gr != imageManagerGeneratedGrFocusRequest) continue;
             clicked = SelectIMGAsset(imageIndex, false);
+            focusImageListSelection = true;
             assetBrowserFocusRequest = imageIndex;
             imageManagerFocusRequest = imageIndex;
             imageManagerGeneratedGrFocusRequest = -1;
@@ -6900,6 +7011,7 @@ int WORKSPACE::drawImgManager() {
             if (candidate.editorDeclare != imageManagerAssetDeclarationFocusRequest)
                 continue;
             clicked = SelectIMGAsset(imageIndex, false);
+            focusImageListSelection = true;
             assetBrowserFocusRequest = imageIndex;
             imageManagerFocusRequest = imageIndex;
             imageManagerAssetDeclarationFocusRequest = -1;
@@ -6908,6 +7020,7 @@ int WORKSPACE::drawImgManager() {
     }
     if (imageManagerFocusRequest >= 0) {
         clicked = SelectIMGAsset(imageManagerFocusRequest, false);
+        focusImageListSelection = true;
         imageManagerFocusRequest = -1;
     }
 
@@ -6918,22 +7031,33 @@ int WORKSPACE::drawImgManager() {
     if (ImGui::BeginChild(title, { 250,-imageEditPanelHeight },
         ImGuiChildFlags_ResizeX | ImGuiChildFlags_FrameStyle)) {
 
-        for (int i = 0; i < arr_IMG.count; i++) {
+        ImGuiListClipper imageListClipper;
+        imageListClipper.Begin(arr_IMG.count);
+        if (focusImageListSelection && src_selected >= 0 &&
+            src_selected < arr_IMG.count)
+            imageListClipper.IncludeItemByIndex(src_selected);
+        while (imageListClipper.Step()) {
+        for (int i = imageListClipper.DisplayStart;
+            i < imageListClipper.DisplayEnd; ++i) {
             IMG& img = ((IMG*)arr_IMG.data)[i];
             char buf[260];
             const int usageCount = (int)assetUsage[i].size();
             const std::string usageText = usageCount == 0 ? "Unused" :
                 std::to_string(usageCount) +
                     (usageCount == 1 ? " Object" : " Objects");
+            const std::string imageName = Cp932ToUtf8(
+                img.name.body ? img.name.outstr() : "");
             snprintf(buf, sizeof(buf), "%03d %02d [%s] %s", i, img.gr,
                 usageText.c_str(),
-                img.name.body ? img.name.outstr() : "");
+                imageName.c_str());
             ImGui::PushID(i);
             const bool imageRowSelected = i == src_selected;
             if (ImGui::Selectable(buf, imageRowSelected)) {
                 SelectIMGAsset(i, false);
                 clicked = true;
             }
+            if (focusImageListSelection && imageRowSelected)
+                ImGui::SetScrollHereY(0.5f);
             if (!imageRowSelected &&
                 ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone)) {
                 imageManagerHoveredAssetIndex = i;
@@ -6949,6 +7073,8 @@ int WORKSPACE::drawImgManager() {
             
             ImGui::PopID();
         }
+        }
+        imageListClipper.End();
         IMG& img = ((IMG*)arr_IMG.data)[src_selected];
         if (ImGui::BeginPopupContextWindow()) {
             ImGui::Text("selected : %03d", src_selected);
@@ -6986,11 +7112,7 @@ int WORKSPACE::drawImgManager() {
         ImGuiChildFlags_ResizeX | ImGuiChildFlags_FrameStyle)) {
         IMG& img = ((IMG*)arr_IMG.data)[src_selected];
         
-        char buf[64];
-        strncpy(buf, img.name.outstr(), sizeof(buf) - 1);
-        buf[sizeof(buf) - 1] = '\0';
-        ImGui::InputText("##name", buf, sizeof(buf));
-        img.name.assign(buf);
+        CstrInputText("##name", &img.name);
 
         int editedGr = img.gr;
         int editedPosition[2] = { img.x, img.y };
@@ -8934,6 +9056,80 @@ namespace {
         return result;
     }
 
+    // The NUMBER renderer indexes frames as 0..9, so the atlas must keep 0 in
+    // the first 16 px cell even though the visible sequence is commonly
+    // described as "1234567890".  Five-bit rows are expanded 2x into a crisp
+    // 10x14 glyph inside each 16x16 cell.
+    static const unsigned char kPresetDigitGlyphs[10][7] = {
+        { 14, 17, 19, 21, 25, 17, 14 }, // 0
+        {  4, 12,  4,  4,  4,  4, 14 }, // 1
+        { 14, 17,  1,  2,  4,  8, 31 }, // 2
+        { 30,  1,  1, 14,  1,  1, 30 }, // 3
+        {  2,  6, 10, 18, 31,  2,  2 }, // 4
+        { 31, 16, 16, 30,  1,  1, 30 }, // 5
+        { 14, 16, 16, 30, 17, 17, 14 }, // 6
+        { 31,  1,  2,  4,  8,  8,  8 }, // 7
+        { 14, 17, 17, 14, 17, 17, 14 }, // 8
+        { 14, 17, 17, 15,  1,  1, 14 }, // 9
+    };
+
+    struct PresetLabelSprite {
+        const char* text;
+        int x;
+        int y;
+        int w;
+        int h;
+    };
+
+    static const PresetLabelSprite kResultLabelSprites[] = {
+        { "EX SCORE",  0, 168, 47, 7 },
+        { "MAX COMBO", 0, 180, 53, 7 },
+        { "PERFECT",  64, 168, 41, 7 },
+        { "GREAT",    64, 180, 29, 7 },
+        { "GOOD",     64, 192, 23, 7 },
+        { "BAD",      64, 204, 17, 7 },
+        { "POOR",     64, 216, 23, 7 },
+    };
+
+    static unsigned char PresetGlyphRow(char glyph, int row) {
+        if (row < 0 || row >= 7) return 0;
+        static const unsigned char A[7] = { 14,17,17,31,17,17,17 };
+        static const unsigned char B[7] = { 30,17,17,30,17,17,30 };
+        static const unsigned char C[7] = { 15,16,16,16,16,16,15 };
+        static const unsigned char D[7] = { 30,17,17,17,17,17,30 };
+        static const unsigned char E[7] = { 31,16,16,30,16,16,31 };
+        static const unsigned char F[7] = { 31,16,16,30,16,16,16 };
+        static const unsigned char G[7] = { 15,16,16,23,17,17,15 };
+        static const unsigned char M[7] = { 17,27,21,21,17,17,17 };
+        static const unsigned char O[7] = { 14,17,17,17,17,17,14 };
+        static const unsigned char P[7] = { 30,17,17,30,16,16,16 };
+        static const unsigned char R[7] = { 30,17,17,30,20,18,17 };
+        static const unsigned char S[7] = { 15,16,16,14, 1, 1,30 };
+        static const unsigned char T[7] = { 31, 4, 4, 4, 4, 4, 4 };
+        static const unsigned char X[7] = { 17,17,10, 4,10,17,17 };
+        switch (glyph) {
+        case 'A': return A[row]; case 'B': return B[row];
+        case 'C': return C[row]; case 'D': return D[row];
+        case 'E': return E[row]; case 'F': return F[row];
+        case 'G': return G[row]; case 'M': return M[row];
+        case 'O': return O[row]; case 'P': return P[row];
+        case 'R': return R[row]; case 'S': return S[row];
+        case 'T': return T[row]; case 'X': return X[row];
+        default: return 0;
+        }
+    }
+
+    static bool PresetLabelPixel(const PresetLabelSprite& label,
+        int localX, int localY) {
+        if (localX < 0 || localY < 0 || localX >= label.w ||
+            localY >= label.h) return false;
+        const int character = localX / 6;
+        const int column = localX % 6;
+        if (column >= 5 || character >= (int)strlen(label.text)) return false;
+        const unsigned char row = PresetGlyphRow(label.text[character], localY);
+        return (row & (1 << (4 - column))) != 0;
+    }
+
     static bool WritePresetAtlasBmp(const std::filesystem::path& outputPath, std::string& error) {
         const int width = 256, height = 256;
         const int rowBytes = (width * 3 + 3) & ~3;
@@ -8966,13 +9162,76 @@ namespace {
                     };
                     r = colors[band][0]; g = colors[band][1]; b = colors[band][2];
                 }
-                else if (y < 120) {
-                    const int digit = (x / 16) % 10;
-                    const bool edge = (x % 16 < 2) || (x % 16 > 13) || (y % 16 < 2) || (y % 16 > 13);
-                    const unsigned char shade = edge ? 40 : (unsigned char)(120 + digit * 12);
-                    r = shade; g = (unsigned char)(210 - digit * 8); b = 255;
+                else if (y < 120 && x < 160) {
+                    const int digit = x / 16;
+                    const int localX = x % 16;
+                    const int localY = y - 104;
+                    const bool edge = localX == 0 || localX == 15 ||
+                        localY == 0 || localY == 15;
+                    r = edge ? 44 : 18;
+                    g = edge ? 65 : 28;
+                    b = edge ? 92 : 43;
+                    const int glyphX = (localX - 3) / 2;
+                    const int glyphY = (localY - 1) / 2;
+                    if (localX >= 3 && localX < 13 && localY >= 1 &&
+                        localY < 15 && glyphX >= 0 && glyphX < 5 &&
+                        glyphY >= 0 && glyphY < 7 &&
+                        (kPresetDigitGlyphs[digit][glyphY] &
+                            (1 << (4 - glyphX)))) {
+                        r = 245; g = 250; b = 255;
+                    }
                 }
-                else if (y < 136) { r = 75; g = 235; b = 105; }
+                else if (y < 136 && x < 64) {
+                    static const unsigned char gaugeColors[4][3] = {
+                        { 255, 90, 70 }, { 70, 235, 145 },
+                        { 70, 28, 32 }, { 24, 48, 58 }
+                    };
+                    const int gaugeState = x / 16;
+                    r = gaugeColors[gaugeState][0];
+                    g = gaugeColors[gaugeState][1];
+                    b = gaugeColors[gaugeState][2];
+                }
+            }
+            if (x < 192 && y >= 136 && y < 168) {
+                const int frame = x / 32;
+                const int localX = x % 32 - 16;
+                const int localY = y - 136 - 16;
+                const int radius = (std::max)(2, 15 - frame * 2);
+                const int distance = abs(localX) + abs(localY);
+                if (distance <= radius) {
+                    const bool core = distance <= (std::max)(1, radius / 3);
+                    r = 255;
+                    g = core ? 255 : (unsigned char)(190 - frame * 15);
+                    b = core ? 245 : (unsigned char)(70 + frame * 12);
+                }
+            }
+            // Dedicated RESULT surfaces and baked labels.  Keeping these in
+            // the atlas avoids depending on a system font in the generated
+            // skin and makes the default result screen understandable in LR2.
+            if (x >= 128 && x < 192 && y >= 168 && y < 224) {
+                const int shade = 24 + (y - 168) / 7;
+                r = (unsigned char)shade;
+                g = (unsigned char)(shade + 8);
+                b = (unsigned char)(shade + 18);
+            }
+            // SELECT bar body: a dedicated flat tile.  The old preset reused
+            // y=72..103, which is the six-color NOWJUDGE strip and therefore
+            // became a rainbow when stretched across the selection list.
+            if (x < 192 && y >= 224) {
+                const bool border = x < 2 || x >= 190 ||
+                    y < 226 || y >= 254;
+                r = border ? 92 : 28;
+                g = border ? 158 : 45;
+                b = border ? 225 : 68;
+            }
+            for (const PresetLabelSprite& label : kResultLabelSprites) {
+                if (x < label.x || x >= label.x + label.w ||
+                    y < label.y || y >= label.y + label.h) continue;
+                r = 24; g = 32; b = 48;
+                if (PresetLabelPixel(label, x - label.x, y - label.y)) {
+                    r = 225; g = 235; b = 248;
+                }
+                break;
             }
         };
         for (int y = 0; y < height; ++y) {
@@ -9003,6 +9262,57 @@ namespace {
             << ",0,255,255,255,255,0,0,0,0,0," << timer << ",0,0,0\r\n";
     }
 
+    static void AppendTimedDstPair(std::ostringstream& skin, const char* command,
+        int index, int x, int y, int w, int h, int duration, int timer,
+        int blend) {
+        skin << command << ',' << index << ",0," << x << ',' << y << ',' << w << ',' << h
+            << ",0,255,255,255,255," << blend
+            << ",0,0,0,-1," << timer << ",0,0,0\r\n";
+        skin << command << ',' << index << ',' << duration << ',' << x << ',' << y << ',' << w << ',' << h
+            << ",0,255,255,255,255," << blend
+            << ",0,0,0,-1," << timer << ",0,0,0\r\n";
+    }
+
+    static void AppendPlayFeedbackPreset(std::ostringstream& skin, int player,
+        int fieldX, int fieldWidth, int judgeY, int screenHeight) {
+        const char* playerSuffix = player == 0 ? "1P" : "2P";
+        const int timer = 46 + player;
+        const int judgeWidth = (std::max)(64, fieldWidth * 72 / 100);
+        const int judgeHeight = (std::max)(20, screenHeight / 24);
+        const int judgeX = fieldX + (fieldWidth - judgeWidth) / 2;
+        const int judgeDisplayY = judgeY - (std::max)(judgeHeight + 8,
+            screenHeight / 9);
+        const int comboDigitWidth = (std::max)(10, fieldWidth / 18);
+        const int comboDigitHeight = (std::max)(16, screenHeight / 30);
+        const int comboX = fieldX + fieldWidth / 2;
+        const int comboY = judgeDisplayY + judgeHeight;
+
+        skin << "$SE_OBJECT_NAME,Current Judge " << playerSuffix
+            << "\r\n$SE_OBJECT_ID,preset_nowjudge_" << player << "\r\n";
+        for (int judge = 0; judge < 6; ++judge) {
+            skin << "#SRC_NOWJUDGE_" << playerSuffix << ',' << judge
+                << ",0," << (judge * 32) << ",72,32,32,1,1,0,"
+                << timer << ",0,0,0\r\n";
+            const std::string command = std::string("#DST_NOWJUDGE_") +
+                playerSuffix;
+            AppendTimedDstPair(skin, command.c_str(), judge, judgeX,
+                judgeDisplayY, judgeWidth, judgeHeight, 500, timer, 1);
+        }
+
+        skin << "$SE_OBJECT_NAME,Current Combo " << playerSuffix
+            << "\r\n$SE_OBJECT_ID,preset_nowcombo_" << player << "\r\n";
+        // LR2 displays combo digits only for GOOD/GREAT/PGREAT (slots 3..5).
+        for (int judge = 3; judge < 6; ++judge) {
+            skin << "#SRC_NOWCOMBO_" << playerSuffix << ',' << judge
+                << ",0,0,104,160,16,10,1,0," << timer
+                << ",0,1,7\r\n";
+            const std::string command = std::string("#DST_NOWCOMBO_") +
+                playerSuffix;
+            AppendTimedDstPair(skin, command.c_str(), judge, comboX,
+                comboY, comboDigitWidth, comboDigitHeight, 500, timer, 1);
+        }
+    }
+
     static void AppendSelectPreset(std::ostringstream& skin, int width, int height) {
         const int barW = (std::max)(240, width * 54 / 100);
         const int barH = (std::max)(24, height / 15);
@@ -9011,7 +9321,7 @@ namespace {
 
         skin << "$SE_OBJECT_NAME,Selection Bar Sources\r\n$SE_OBJECT_ID,preset_select_bar_sources\r\n";
         for (int barType = 0; barType < 10; ++barType)
-            skin << "#SRC_BAR_BODY," << barType << ",0,0,72,192,32,1,1,0,0\r\n";
+            skin << "#SRC_BAR_BODY," << barType << ",0,0,224,192,32,1,1,0,0\r\n";
         for (int slot = 0; slot <= 20; ++slot) {
             const int y = centerY + (slot - 10) * barH;
             skin << "#DST_BAR_BODY_OFF," << slot << ",0," << barX << ',' << y << ',' << barW << ',' << barH
@@ -9053,6 +9363,20 @@ namespace {
             << (std::max)(8, height / 30) << ",0,0,255,255,255,1,0,0,0,500,0,0,0,0\r\n";
         skin << "#DST_IMAGE,0,500," << panelX << ',' << (panelY + panelH / 2) << ',' << panelW << ','
             << (std::max)(8, height / 30) << ",0,220,255,255,255,1,0,0,0,0,0,0,0,0\r\n";
+
+        const int titleFontSize = (std::max)(18, height / 18);
+        const int titleX = panelX + panelW * 8 / 100;
+        const int titleY = panelY + panelH / 2 - titleFontSize / 2;
+        const int titleW = panelW * 84 / 100;
+        skin << "$SE_OBJECT_NAME,Song Title\r\n"
+            "$SE_OBJECT_ID,preset_decide_song_title\r\n";
+        skin << "#FONT," << titleFontSize << ",2,2,Arial\r\n";
+        // $st 10 is THISSONG_TITLE and is populated by SELECT before LR2
+        // enters the DECIDE scene.
+        skin << "#SRC_TEXT,0,0,10,1,0,0\r\n";
+        skin << "#DST_TEXT,0,0," << titleX << ',' << titleY << ','
+            << titleW << ',' << titleFontSize
+            << ",0,255,245,250,255,0,0,0,0,0,0,0,0,0\r\n";
     }
 
     static void AppendResultNumber(std::ostringstream& skin, const char* name, const char* id,
@@ -9062,6 +9386,20 @@ namespace {
         AppendDst(skin, "#DST_NUMBER", 0, x, y, digitW, digitH);
     }
 
+    static void AppendResultLabel(std::ostringstream& skin, int labelIndex,
+        const char* name, const char* id, int x, int y, int targetHeight) {
+        if (labelIndex < 0 || labelIndex >= IM_ARRAYSIZE(kResultLabelSprites))
+            return;
+        const PresetLabelSprite& label = kResultLabelSprites[labelIndex];
+        const int targetWidth = (std::max)(label.w,
+            label.w * targetHeight / label.h);
+        skin << "$SE_OBJECT_NAME," << name << " Label\r\n$SE_OBJECT_ID,"
+            << id << "\r\n";
+        skin << "#SRC_IMAGE,0,0," << label.x << ',' << label.y << ','
+            << label.w << ',' << label.h << ",1,1,0,0,0,0,0\r\n";
+        AppendDst(skin, "#DST_IMAGE", 0, x, y, targetWidth, targetHeight);
+    }
+
     static void AppendResultPreset(std::ostringstream& skin, int width, int height) {
         const int panelX = width * 8 / 100;
         const int panelY = height * 14 / 100;
@@ -9069,31 +9407,83 @@ namespace {
         const int panelH = height * 70 / 100;
         const int digitW = (std::max)(12, width / 55);
         const int digitH = (std::max)(18, height / 24);
+        const int labelH = (std::max)(9, height / 45);
+        const int padding = (std::max)(18, panelW / 24);
 
         skin << "$SE_OBJECT_NAME,Result Panel\r\n$SE_OBJECT_ID,preset_result_panel\r\n";
-        skin << "#SRC_IMAGE,0,0,0,72,192,32,1,1,0,0,0,0,0\r\n";
+        skin << "#SRC_IMAGE,0,0,128,168,64,56,1,1,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY, panelW, panelH);
 
-        const int leftX = panelX + panelW / 12;
-        const int rightX = panelX + panelW * 58 / 100;
+        const int leftLabelX = panelX + padding;
+        const int leftNumberX = panelX + panelW * 24 / 100;
+        const int rightLabelX = panelX + panelW * 54 / 100;
+        const int rightNumberX = panelX + panelW * 72 / 100;
         const int firstY = panelY + panelH / 8;
         const int row = digitH * 3 / 2;
-        AppendResultNumber(skin, "EX Score", "preset_result_exscore", 101, leftX, firstY, digitW, digitH, 6);
-        AppendResultNumber(skin, "Max Combo", "preset_result_maxcombo", 105, leftX, firstY + row, digitW, digitH, 5);
-        AppendResultNumber(skin, "Perfect", "preset_result_perfect", 110, rightX, firstY, digitW, digitH, 5);
-        AppendResultNumber(skin, "Great", "preset_result_great", 111, rightX, firstY + row, digitW, digitH, 5);
-        AppendResultNumber(skin, "Miss Count", "preset_result_miss", 114, rightX, firstY + row * 2, digitW, digitH, 5);
+        const int labelOffsetY = (std::max)(0, (digitH - labelH) / 2);
 
-        const int chartX = leftX;
+        AppendResultLabel(skin, 0, "EX Score", "preset_result_label_exscore",
+            leftLabelX, firstY + labelOffsetY, labelH);
+        AppendResultNumber(skin, "EX Score", "preset_result_exscore", 101,
+            leftNumberX, firstY, digitW, digitH, 6);
+        AppendResultLabel(skin, 1, "Max Combo", "preset_result_label_maxcombo",
+            leftLabelX, firstY + row + labelOffsetY, labelH);
+        AppendResultNumber(skin, "Max Combo", "preset_result_maxcombo", 105,
+            leftNumberX, firstY + row, digitW, digitH, 5);
+
+        struct ResultJudgeRow {
+            const char* name;
+            const char* id;
+            const char* labelId;
+            int numberId;
+            int labelIndex;
+        };
+        const ResultJudgeRow judgeRows[] = {
+            { "Perfect", "preset_result_perfect", "preset_result_label_perfect", 110, 2 },
+            { "Great",   "preset_result_great",   "preset_result_label_great",   111, 3 },
+            { "Good",    "preset_result_good",    "preset_result_label_good",    112, 4 },
+            { "Bad",     "preset_result_bad",     "preset_result_label_bad",     113, 5 },
+            { "Poor",    "preset_result_poor",    "preset_result_label_poor",    114, 6 },
+        };
+        for (int index = 0; index < IM_ARRAYSIZE(judgeRows); ++index) {
+            const int y = firstY + row * index;
+            AppendResultLabel(skin, judgeRows[index].labelIndex,
+                judgeRows[index].name, judgeRows[index].labelId,
+                rightLabelX, y + labelOffsetY, labelH);
+            AppendResultNumber(skin, judgeRows[index].name,
+                judgeRows[index].id, judgeRows[index].numberId,
+                rightNumberX, y, digitW, digitH, 5);
+        }
+
+        const int chartX = leftLabelX;
         const int chartY = panelY + panelH * 60 / 100;
         const int chartW = panelW * 38 / 100;
         const int chartH = panelH * 24 / 100;
+        const int chartFieldH = (std::max)(2, chartH - 2);
+        const int chartBaseY = chartY + chartFieldH;
+        const int secondChartX = panelX + panelW * 54 / 100;
+        skin << "$SE_OBJECT_NAME,Result Gauge Chart Backdrop\r\n"
+            "$SE_OBJECT_ID,preset_result_gauge_chart_backdrop\r\n";
+        skin << "#SRC_IMAGE,0,0,128,168,64,56,1,1,0,0,0,0,0\r\n";
+        AppendDst(skin, "#DST_IMAGE", 0, chartX, chartY, chartW, chartH);
+        skin << "$SE_OBJECT_NAME,Result Score Chart Backdrop\r\n"
+            "$SE_OBJECT_ID,preset_result_score_chart_backdrop\r\n";
+        skin << "#SRC_IMAGE,0,0,128,168,64,56,1,1,0,0,0,0,0\r\n";
+        AppendDst(skin, "#DST_IMAGE", 0, secondChartX, chartY, chartW, chartH);
         skin << "$SE_OBJECT_NAME,Groove Gauge Chart\r\n$SE_OBJECT_ID,preset_result_gauge_chart\r\n";
-        skin << "#SRC_GAUGECHART_1P,0,0,0,120,2,2,1,1,0,0," << chartW << ',' << chartH << ",500,2000\r\n";
-        AppendDst(skin, "#DST_GAUGECHART_1P", 0, chartX, chartY, 2, 2);
+        // LR2 switches from index 0 to index 1 at the 80% clear border.
+        // Both destinations use the bottom of the backdrop as their origin;
+        // Scene05_Result applies a negative y offset while drawing the graph.
+        skin << "#SRC_GAUGECHART_1P,0,0,16,120,2,2,1,1,0,0,"
+            << chartW << ',' << chartFieldH << ",500,2000\r\n";
+        AppendDst(skin, "#DST_GAUGECHART_1P", 0, chartX, chartBaseY, 2, 2);
+        skin << "#SRC_GAUGECHART_1P,1,0,0,120,2,2,1,1,0,0,"
+            << chartW << ',' << chartFieldH << ",500,2000\r\n";
+        AppendDst(skin, "#DST_GAUGECHART_1P", 1, chartX, chartBaseY, 2, 2);
         skin << "$SE_OBJECT_NAME,Score Chart\r\n$SE_OBJECT_ID,preset_result_score_chart\r\n";
-        skin << "#SRC_SCORECHART,0,0,0,16,2,2,1,1,0,0," << chartW << ',' << chartH << ",500,2000\r\n";
-        AppendDst(skin, "#DST_SCORECHART", 0, chartX + panelW * 46 / 100, chartY, 2, 2);
+        skin << "#SRC_SCORECHART,0,0,0,16,2,2,1,1,0,0,"
+            << chartW << ',' << chartFieldH << ",500,2000\r\n";
+        AppendDst(skin, "#DST_SCORECHART", 0, secondChartX, chartBaseY, 2, 2);
     }
 
     static void AppendCourseResultPreset(std::ostringstream& skin,
@@ -9213,15 +9603,15 @@ namespace {
         skin << "#RESOLUTION," << width << ',' << height << "\r\n";
         skin << "#ENDOFHEADER\r\n\r\n";
         if (type == 5)
-            skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#SCENETIME,3600000\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
+            skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
         else if (type == 6)
             skin << "#STARTINPUT,500\r\n#LOADSTART,0\r\n#SCENETIME,3000\r\n#SKIP,250\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
         else if (type == 7)
-            skin << "#STARTINPUT,500,1600,500\r\n#LOADSTART,0\r\n#SCENETIME,3600000\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
+            skin << "#STARTINPUT,500,1600,500\r\n#LOADSTART,0\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
         else if (type == 15)
-            skin << "#STARTINPUT,0,1500,500\r\n#LOADSTART,0\r\n#SCENETIME,3600000\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
+            skin << "#STARTINPUT,0,1500,500\r\n#LOADSTART,0\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
         else
-            skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#SCENETIME,3600000\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
+            skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
         skin << "#IMAGE," << atlasScriptPath << "\r\n\r\n";
 
         skin << "$SE_OBJECT_NAME,Background\r\n$SE_OBJECT_ID,preset_background\r\n";
@@ -9233,6 +9623,11 @@ namespace {
         const int bgaH = (std::max)(120, height * 48 / 100);
         const int bgaX = twoPlayers ? (width - bgaW) / 2 : margin * 2 + fieldWidth;
         skin << "$SE_OBJECT_NAME,BGA\r\n$SE_OBJECT_ID,preset_bga\r\n";
+        // LR2 creates one BGA destination per preceding BGA source.  The
+        // source row is intentionally a zero-sized placeholder because the
+        // actual graph handle comes from the BMS #BMP channel at runtime.
+        // Emitting only #DST_BGA makes LR2 discard the destination entirely.
+        skin << "#SRC_BGA,0,0,0,0,0,0,0,0,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_BGA", 0, bgaX, fieldTop, bgaW, bgaH);
 
             int generatedLane = 0;
@@ -9245,7 +9640,8 @@ namespace {
                 // while DP/Battle uses a second bank beginning at 10.
                 const int laneIndex = player * 10 + lane + (keysPerPlayer == 9 ? 1 : 0);
                 const int laneX = fieldX + lane * laneWidth;
-                const int noteSourceY = lane % 2 ? 16 : 0;
+                const int noteSourceY = hasScratch && lane == 0
+                    ? 32 : (((lane - (hasScratch ? 1 : 0)) % 2) ? 16 : 0);
                 skin << "$SE_OBJECT_NAME,Note P" << (player + 1) << " Lane " << lane << "\r\n";
                 skin << "$SE_OBJECT_ID,preset_note_" << generatedLane << "\r\n";
                 skin << "#SRC_NOTE," << laneIndex << ",0,0," << noteSourceY << ",16,16,1,1,0,0,0,0,0\r\n";
@@ -9254,18 +9650,47 @@ namespace {
                 skin << "#SRC_LN_END," << laneIndex << ",0,16,48,16,16,1,1,0\r\n";
                 skin << "#SRC_LN_START," << laneIndex << ",0,32,48,16,16,1,1,0\r\n";
                 AppendDst(skin, "#DST_NOTE", laneIndex, laneX, judgeY, laneWidth, laneHeight);
+
+                const int bombTimer = 50 + laneIndex;
+                const int bombSize = (std::max)(24,
+                    (std::min)(laneWidth * 2, height / 12));
+                const int bombX = laneX + laneWidth / 2 - bombSize / 2;
+                const int bombY = judgeY - bombSize / 2;
+                skin << "$SE_OBJECT_NAME,Bomb P" << (player + 1)
+                    << " Lane " << lane << "\r\n";
+                skin << "$SE_OBJECT_ID,preset_bomb_" << generatedLane << "\r\n";
+                skin << "#SRC_IMAGE,0,0,0,136,192,32,6,1,280,"
+                    << bombTimer << ",0,0,0\r\n";
+                AppendTimedDstPair(skin, "#DST_IMAGE", 0, bombX, bombY,
+                    bombSize, bombSize, 280, bombTimer, 2);
             }
+
+            // LR2's PLAY note renderer uses dst_LINE[0] as the scroll origin
+            // whenever the chart contains measure events.  A PLAY skin without
+            // LINE therefore crashes in ProcI_Play instead of merely hiding the
+            // measure lines, so keep one LINE object for every player.
+            skin << "$SE_OBJECT_NAME,Measure Line P" << (player + 1) << "\r\n";
+            skin << "$SE_OBJECT_ID,preset_line_" << player << "\r\n";
+            skin << "#SRC_LINE," << player << ",0,0,64,192,8,1,1,0,0,0,0,0\r\n";
+            AppendDst(skin, "#DST_LINE", player, fieldX, judgeY, usedWidth,
+                (std::max)(1, height / 720));
 
             skin << "$SE_OBJECT_NAME,Judge Line P" << (player + 1) << "\r\n";
             skin << "$SE_OBJECT_ID,preset_judgeline_" << player << "\r\n";
             skin << "#SRC_JUDGELINE," << player << ",0,0,64,192,8,1,1,0,0,0,0,0\r\n";
             AppendDst(skin, "#DST_JUDGELINE", player, fieldX, judgeY, usedWidth, laneHeight);
 
+            AppendPlayFeedbackPreset(skin, player, fieldX, usedWidth,
+                judgeY, height);
+
             skin << "$SE_OBJECT_NAME,Groove Gauge P" << (player + 1) << "\r\n";
             skin << "$SE_OBJECT_ID,preset_gauge_" << player << "\r\n";
-            skin << "#SRC_GROOVEGAUGE," << player << ",0,0,120,192,16,48,1,0,0,4,0\r\n";
+            const int gaugeCellWidth = (std::max)(2, usedWidth / 50);
+            skin << "#SRC_GROOVEGAUGE," << player
+                << ",0,0,120,64,16,4,1,0,0," << gaugeCellWidth
+                << ",0\r\n";
             AppendDst(skin, "#DST_GROOVEGAUGE", player, fieldX, height * 90 / 100,
-                (std::max)(2, usedWidth / 50), (std::max)(10, height / 35));
+                gaugeCellWidth, (std::max)(10, height / 35));
 
             // LR2 documents FAST/SLOW counters 212/214 for 1P. Do not create
             // misleading duplicate P2 counters in DP/Battle presets.
@@ -9353,6 +9778,8 @@ int RunInitialPresetSelfTest() {
         if (!input || !fs::exists(atlasPath)) return 20 + testIndex;
         const std::string contents((std::istreambuf_iterator<char>(input)),
             std::istreambuf_iterator<char>());
+        if (contents.find("#SCENETIME") != std::string::npos)
+            return 100 + testIndex;
 
         int keysPerPlayer = 7;
         if (type == 1 || type == 3 || type == 13) keysPerPlayer = 5;
@@ -9363,7 +9790,9 @@ int RunInitialPresetSelfTest() {
         const int playerCount = twoPlayers ? 2 : 1;
 
         std::set<int> expectedLanes;
+        std::set<int> expectedPlayers;
         for (int player = 0; player < playerCount; ++player) {
+            expectedPlayers.insert(player);
             for (int lane = 0; lane < lanesPerPlayer; ++lane) {
                 expectedLanes.insert(player * 10 + lane +
                     (keysPerPlayer == 9 ? 1 : 0));
@@ -9403,16 +9832,74 @@ int RunInitialPresetSelfTest() {
             if (collectIndices(command) != expectedLanes)
                 return 30 + testIndex;
         }
+        if (collectIndices("#SRC_LINE,") != expectedPlayers ||
+            collectIndices("#DST_LINE,") != expectedPlayers)
+            return 90 + testIndex;
+        for (int player = 0; player < playerCount; ++player) {
+            for (int lane = 0; lane < lanesPerPlayer; ++lane) {
+                const int laneIndex = player * 10 + lane +
+                    (keysPerPlayer == 9 ? 1 : 0);
+                const int expectedSourceY = hasScratch && lane == 0
+                    ? 32 : (((lane - (hasScratch ? 1 : 0)) % 2) ? 16 : 0);
+                const std::string notePrefix = "#SRC_NOTE," +
+                    std::to_string(laneIndex) + ",0,0," +
+                    std::to_string(expectedSourceY) + ",16,16,";
+                if (contents.find(notePrefix) == std::string::npos)
+                    return 70 + testIndex;
+            }
+        }
         if (countPrefix("$SE_OBJECT_ID,preset_note_") !=
                 (int)expectedLanes.size() ||
             countPrefix("$SE_OBJECT_NAME,Note P") !=
                 (int)expectedLanes.size() ||
+            countPrefix("$SE_OBJECT_ID,preset_bomb_") !=
+                (int)expectedLanes.size() ||
+            countPrefix("$SE_OBJECT_ID,preset_line_") != playerCount ||
             countPrefix("$SE_OBJECT_ID,preset_judgeline_") != playerCount ||
+            countPrefix("$SE_OBJECT_ID,preset_nowjudge_") != playerCount ||
+            countPrefix("$SE_OBJECT_ID,preset_nowcombo_") != playerCount ||
             countPrefix("$SE_OBJECT_ID,preset_gauge_") != playerCount ||
             countPrefix("$SE_OBJECT_ID,preset_bga") != 1 ||
+            countPrefix("#SRC_BGA,") != 1 ||
+            countPrefix("#DST_BGA,") != 1 ||
             countPrefix("$SE_OBJECT_ID,preset_fast") != 1 ||
             countPrefix("$SE_OBJECT_ID,preset_slow") != 1)
             return 40 + testIndex;
+
+        const size_t bgaSource = contents.find(
+            "#SRC_BGA,0,0,0,0,0,0,0,0,0,0,0,0,0");
+        const size_t bgaDestination = contents.find("#DST_BGA,");
+        if (bgaSource == std::string::npos ||
+            bgaDestination == std::string::npos ||
+            bgaSource > bgaDestination)
+            return 150 + testIndex;
+
+        if (countPrefix("#SRC_NOWJUDGE_1P,") != 6 ||
+            countPrefix("#DST_NOWJUDGE_1P,") != 12 ||
+            countPrefix("#SRC_NOWCOMBO_1P,") != 3 ||
+            countPrefix("#DST_NOWCOMBO_1P,") != 6 ||
+            countPrefix("#SRC_NOWJUDGE_2P,") != (twoPlayers ? 6 : 0) ||
+            countPrefix("#DST_NOWJUDGE_2P,") != (twoPlayers ? 12 : 0) ||
+            countPrefix("#SRC_NOWCOMBO_2P,") != (twoPlayers ? 3 : 0) ||
+            countPrefix("#DST_NOWCOMBO_2P,") != (twoPlayers ? 6 : 0))
+            return 50 + testIndex;
+
+        const int presetMargin = (std::max)(16, 1280 / 40);
+        const int presetGap = twoPlayers ? (std::max)(12, 1280 / 50) : 0;
+        const int presetFieldWidth = twoPlayers
+            ? (1280 - presetMargin * 2 - presetGap) / 2
+            : (std::max)(220, 1280 * 38 / 100);
+        const int presetLaneWidth = (std::max)(8,
+            presetFieldWidth / lanesPerPlayer);
+        const int expectedGaugeCellWidth = (std::max)(2,
+            presetLaneWidth * lanesPerPlayer / 50);
+        for (int player = 0; player < playerCount; ++player) {
+            const std::string gaugeSource = "#SRC_GROOVEGAUGE," +
+                std::to_string(player) + ",0,0,120,64,16,4,1,0,0," +
+                std::to_string(expectedGaugeCellWidth) + ",0";
+            if (contents.find(gaugeSource) == std::string::npos)
+                return 80 + testIndex;
+        }
     }
 
     std::string courseSkinPath;
@@ -9472,6 +9959,8 @@ int RunInitialPresetSelfTest() {
     if (courseContents.find("#INFORMATION,15,") == std::string::npos ||
         courseContents.find("#STARTINPUT,0,1500,500") == std::string::npos)
         return 62;
+    if (courseContents.find("#SCENETIME") != std::string::npos)
+        return 67;
     if (collectCourseColumn("#SRC_TEXT", 3) != expectedCourseTitles ||
         countCoursePrefix("#SRC_TEXT,") != 5 ||
         countCoursePrefix("#DST_TEXT,") != 5)
@@ -9488,6 +9977,222 @@ int RunInitialPresetSelfTest() {
     if (countCoursePrefix("#SRC_NOTE,") != 0 ||
         countCoursePrefix("#FONT,") != 1)
         return 66;
+
+    const int nonPlayTypes[] = { 5, 6, 7 };
+    for (int testIndex = 0; testIndex < IM_ARRAYSIZE(nonPlayTypes); ++testIndex) {
+        const int type = nonPlayTypes[testIndex];
+        std::string sceneSkinPath;
+        std::string sceneAtlasPath;
+        std::string sceneError;
+        if (!BuildInitialPreset(type, 1280, 720, "Scene preset test",
+            "SkinEditor", "scene_" + std::to_string(type) +
+            "\\skin.lr2skin", sceneSkinPath, sceneAtlasPath, sceneError))
+            return 110 + testIndex;
+        std::ifstream sceneInput(sceneSkinPath, std::ios::binary);
+        if (!sceneInput || !fs::exists(sceneAtlasPath))
+            return 120 + testIndex;
+        const std::string sceneContents(
+            (std::istreambuf_iterator<char>(sceneInput)),
+            std::istreambuf_iterator<char>());
+        const bool hasSceneTime =
+            sceneContents.find("#SCENETIME") != std::string::npos;
+        if (hasSceneTime != (type == 6))
+            return 130 + testIndex;
+        if (type == 6) {
+            if (sceneContents.find("#SCENETIME,3000") == std::string::npos)
+                return 140 + testIndex;
+            if (sceneContents.find(
+                    "$SE_OBJECT_ID,preset_decide_song_title\r\n") ==
+                    std::string::npos ||
+                sceneContents.find("#SRC_TEXT,0,0,10,1,0,0\r\n") ==
+                    std::string::npos ||
+                sceneContents.find("#DST_TEXT,0,0,") ==
+                    std::string::npos ||
+                sceneContents.find("#FONT,40,2,2,Arial\r\n") ==
+                    std::string::npos)
+                return 235 + testIndex;
+        }
+        if (type == 5) {
+            int barSourceCount = 0;
+            std::istringstream rows(sceneContents);
+            std::string row;
+            while (std::getline(rows, row)) {
+                if (!row.empty() && row.back() == '\r') row.pop_back();
+                if (row.compare(0, strlen("#SRC_BAR_BODY,"),
+                    "#SRC_BAR_BODY,") != 0) continue;
+                ++barSourceCount;
+                if (row.find(",0,0,224,192,32,1,1,0,0") ==
+                    std::string::npos)
+                    return 215 + testIndex;
+            }
+            if (barSourceCount != 10 ||
+                sceneContents.find("#SRC_BAR_BODY,0,0,0,72,192,32") !=
+                    std::string::npos)
+                return 220 + testIndex;
+
+            std::ifstream atlasInput(sceneAtlasPath, std::ios::binary);
+            const std::vector<unsigned char> atlasBytes(
+                (std::istreambuf_iterator<char>(atlasInput)),
+                std::istreambuf_iterator<char>());
+            const int atlasWidth = 256;
+            const int atlasHeight = 256;
+            const int atlasRowBytes = (atlasWidth * 3 + 3) & ~3;
+            if (atlasBytes.size() !=
+                54 + (size_t)atlasRowBytes * atlasHeight)
+                return 225 + testIndex;
+            auto atlasPixel = [&](int x, int y) {
+                return 54 + (size_t)(atlasHeight - 1 - y) *
+                    atlasRowBytes + (size_t)x * 3;
+            };
+            const size_t borderPixel = atlasPixel(0, 224);
+            const size_t fillPixel = atlasPixel(10, 230);
+            if (atlasBytes[borderPixel] != 225 ||
+                atlasBytes[borderPixel + 1] != 158 ||
+                atlasBytes[borderPixel + 2] != 92 ||
+                atlasBytes[fillPixel] != 68 ||
+                atlasBytes[fillPixel + 1] != 45 ||
+                atlasBytes[fillPixel + 2] != 28)
+                return 230 + testIndex;
+        }
+        if (type == 7) {
+            const char* requiredResultObjectIds[] = {
+                "preset_result_panel",
+                "preset_result_label_exscore",
+                "preset_result_exscore",
+                "preset_result_label_maxcombo",
+                "preset_result_maxcombo",
+                "preset_result_label_perfect",
+                "preset_result_perfect",
+                "preset_result_label_great",
+                "preset_result_great",
+                "preset_result_label_good",
+                "preset_result_good",
+                "preset_result_label_bad",
+                "preset_result_bad",
+                "preset_result_label_poor",
+                "preset_result_poor",
+                "preset_result_gauge_chart_backdrop",
+                "preset_result_score_chart_backdrop",
+                "preset_result_gauge_chart",
+                "preset_result_score_chart",
+            };
+            for (const char* id : requiredResultObjectIds) {
+                const std::string declaration =
+                    std::string("$SE_OBJECT_ID,") + id + "\r\n";
+                if (sceneContents.find(declaration) == std::string::npos)
+                    return 160 + testIndex;
+            }
+            const int requiredResultNumbers[] = {
+                101, 105, 110, 111, 112, 113, 114
+            };
+            for (int numberId : requiredResultNumbers) {
+                const std::string numberSource =
+                    "#SRC_NUMBER,0,0,0,104,160,16,10,1,0,0," +
+                    std::to_string(numberId) + ",0,";
+                if (sceneContents.find(numberSource) == std::string::npos)
+                    return 170 + testIndex;
+            }
+            if (sceneContents.find("preset_result_miss") != std::string::npos ||
+                sceneContents.find("Miss Count") != std::string::npos ||
+                sceneContents.find("#SRC_IMAGE,0,0,128,168,64,56,") ==
+                    std::string::npos)
+                return 180 + testIndex;
+
+            auto countResultPrefix = [&](const char* prefix) {
+                int count = 0;
+                std::istringstream rows(sceneContents);
+                std::string row;
+                const size_t prefixLength = strlen(prefix);
+                while (std::getline(rows, row)) {
+                    if (!row.empty() && row.back() == '\r') row.pop_back();
+                    if (row.compare(0, prefixLength, prefix) == 0) ++count;
+                }
+                return count;
+            };
+            const int testPanelX = 1280 * 8 / 100;
+            const int testPanelY = 720 * 14 / 100;
+            const int testPanelW = 1280 * 84 / 100;
+            const int testPanelH = 720 * 70 / 100;
+            const int testChartX = testPanelX +
+                (std::max)(18, testPanelW / 24);
+            const int testChartY = testPanelY + testPanelH * 60 / 100;
+            const int testChartW = testPanelW * 38 / 100;
+            const int testChartH = testPanelH * 24 / 100;
+            const int testChartFieldH = (std::max)(2, testChartH - 2);
+            const int testChartBaseY = testChartY + testChartFieldH;
+            const std::string lowGaugeSource =
+                "#SRC_GAUGECHART_1P,0,0,16,120,2,2,1,1,0,0," +
+                std::to_string(testChartW) + ',' +
+                std::to_string(testChartFieldH) + ",500,2000";
+            const std::string highGaugeSource =
+                "#SRC_GAUGECHART_1P,1,0,0,120,2,2,1,1,0,0," +
+                std::to_string(testChartW) + ',' +
+                std::to_string(testChartFieldH) + ",500,2000";
+            const std::string lowGaugeDestination =
+                "#DST_GAUGECHART_1P,0,0," +
+                std::to_string(testChartX) + ',' +
+                std::to_string(testChartBaseY) + ",2,2,";
+            const std::string highGaugeDestination =
+                "#DST_GAUGECHART_1P,1,0," +
+                std::to_string(testChartX) + ',' +
+                std::to_string(testChartBaseY) + ",2,2,";
+            if (countResultPrefix("#SRC_GAUGECHART_1P,") != 2 ||
+                countResultPrefix("#DST_GAUGECHART_1P,") != 2 ||
+                countResultPrefix("#SRC_SCORECHART,") != 1 ||
+                countResultPrefix("#DST_SCORECHART,") != 1 ||
+                sceneContents.find(lowGaugeSource) == std::string::npos ||
+                sceneContents.find(highGaugeSource) == std::string::npos ||
+                sceneContents.find(lowGaugeDestination) == std::string::npos ||
+                sceneContents.find(highGaugeDestination) == std::string::npos)
+                return 185 + testIndex;
+
+            std::ifstream atlasInput(sceneAtlasPath, std::ios::binary);
+            const std::vector<unsigned char> atlasBytes(
+                (std::istreambuf_iterator<char>(atlasInput)),
+                std::istreambuf_iterator<char>());
+            const int atlasWidth = 256;
+            const int atlasHeight = 256;
+            const int atlasRowBytes = (atlasWidth * 3 + 3) & ~3;
+            const size_t expectedAtlasSize =
+                54 + (size_t)atlasRowBytes * atlasHeight;
+            if (atlasBytes.size() != expectedAtlasSize ||
+                atlasBytes[0] != 'B' || atlasBytes[1] != 'M')
+                return 190 + testIndex;
+            for (int digit = 0; digit < 10; ++digit) {
+                for (int row = 0; row < 7; ++row) {
+                    for (int column = 0; column < 5; ++column) {
+                        const int x = digit * 16 + 3 + column * 2;
+                        const int y = 104 + 1 + row * 2;
+                        const int fileY = atlasHeight - 1 - y;
+                        const size_t pixel = 54 +
+                            (size_t)fileY * atlasRowBytes + (size_t)x * 3;
+                        const bool bright = atlasBytes[pixel] > 200 &&
+                            atlasBytes[pixel + 1] > 200 &&
+                            atlasBytes[pixel + 2] > 200;
+                        const bool expected =
+                            (kPresetDigitGlyphs[digit][row] &
+                                (1 << (4 - column))) != 0;
+                        if (bright != expected)
+                            return 200 + testIndex;
+                    }
+                }
+            }
+            auto atlasPixel = [&](int x, int y) {
+                const int fileY = atlasHeight - 1 - y;
+                return 54 + (size_t)fileY * atlasRowBytes +
+                    (size_t)x * 3;
+            };
+            const size_t redGaugePixel = atlasPixel(0, 120);
+            const size_t greenGaugePixel = atlasPixel(16, 120);
+            if (atlasBytes[redGaugePixel] != 70 ||
+                atlasBytes[redGaugePixel + 1] != 90 ||
+                atlasBytes[redGaugePixel + 2] != 255 ||
+                atlasBytes[greenGaugePixel] != 145 ||
+                atlasBytes[greenGaugePixel + 1] != 235 ||
+                atlasBytes[greenGaugePixel + 2] != 70)
+                return 210 + testIndex;
+        }
+    }
     return 0;
 }
 
@@ -11286,35 +11991,52 @@ int WORKSPACE::drawObjectEditor() {
             std::vector<BranchBlock> branches;
         };
         std::vector<ConditionBlock> conditions;
+        std::map<int, int> conditionIndexByRoot;
+        std::map<std::pair<int, int>, int> branchIndexByCondition;
+
+        std::vector<std::string> conditionHeaders(
+            (std::max)(0, arr_ifunit.count));
+        std::vector<int> conditionOrders((std::max)(0, arr_ifunit.count), 0);
+        for (int group = 1; group < arr_ifunit.count; ++group)
+            conditionOrders[group] = ((IFUNIT*)arr_ifunit.data)[group].order;
+        for (int row = 0; row < skinfileLines.count; ++row) {
+            SKINFILELINEREAD& header =
+                ((SKINFILELINEREAD*)skinfileLines.data)[row];
+            if (!header.isIfGroupHead || header.ifgroup <= 0 ||
+                header.ifgroup >= arr_ifunit.count ||
+                !header.csv.str[0].body ||
+                !conditionHeaders[header.ifgroup].empty()) continue;
+            conditionHeaders[header.ifgroup] = formatConditionHeader(header);
+        }
+
+        std::vector<int> conditionRoots((std::max)(0, arr_ifunit.count), 0);
+        std::map<std::pair<int, int>, int> latestRootByParentDepth;
+        for (int group = 1; group < arr_ifunit.count; ++group) {
+            IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[group];
+            const std::pair<int, int> chainKey(unit.parentID, unit.depth);
+            if (unit.order == 0) {
+                conditionRoots[group] = group;
+                latestRootByParentDepth[chainKey] = group;
+            } else {
+                const std::map<std::pair<int, int>, int>::const_iterator root =
+                    latestRootByParentDepth.find(chainKey);
+                conditionRoots[group] = root == latestRootByParentDepth.end()
+                    ? group : root->second;
+            }
+        }
 
         auto getHeader = [&](int ifgroup, std::string& label, int& order) -> bool {
             label = "";
             order = 0;
             if (ifgroup <= 0 || ifgroup >= arr_ifunit.count) return false;
-            IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[ifgroup];
-            order = unit.order;
-            for (int rno = 0; rno < skinfileLines.count; ++rno) {
-                SKINFILELINEREAD& r = ((SKINFILELINEREAD*)skinfileLines.data)[rno];
-                if (r.ifgroup != ifgroup || !r.isIfGroupHead || !r.csv.str[0].body) continue;
-                label = formatConditionHeader(r);
-                return true;
-            }
-            return false;
+            order = conditionOrders[ifgroup];
+            label = conditionHeaders[ifgroup];
+            return !label.empty();
         };
 
         auto getRootIfgroup = [&](int ifgroup) -> int {
             if (ifgroup <= 0 || ifgroup >= arr_ifunit.count) return 0;
-            IFUNIT& u = ((IFUNIT*)arr_ifunit.data)[ifgroup];
-            if (u.order == 0) return ifgroup;
-            int root = ifgroup;
-            for (int j = ifgroup - 1; j > 0; --j) {
-                IFUNIT& c = ((IFUNIT*)arr_ifunit.data)[j];
-                if (c.depth == u.depth && c.parentID == u.parentID && c.order == 0) {
-                    root = j;
-                    break;
-                }
-            }
-            return root;
+            return conditionRoots[ifgroup];
         };
 
         // Cache the exact active branch state. A branch is active only when
@@ -11351,23 +12073,16 @@ int WORKSPACE::drawObjectEditor() {
                     branchMatches[header.ifgroup] = matches;
                 }
             }
+            std::map<int, bool> earlierBranchTaken;
             for (int group = 1; group < arr_ifunit.count; ++group) {
                 IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[group];
                 const int chainRoot = getRootIfgroup(group);
-                bool earlierTaken = false;
-                for (int sibling = 1; sibling < group; ++sibling) {
-                    IFUNIT& previous = ((IFUNIT*)arr_ifunit.data)[sibling];
-                    if (previous.parentID == unit.parentID && previous.depth == unit.depth &&
-                        previous.order < unit.order && getRootIfgroup(sibling) == chainRoot &&
-                        branchMatches[sibling]) {
-                        earlierTaken = true;
-                        break;
-                    }
-                }
+                const bool earlierTaken = earlierBranchTaken[chainRoot];
                 const bool parentActive = unit.parentID >= 0 &&
                     unit.parentID < (int)objectBranchActive.size()
                     ? objectBranchActive[unit.parentID] : false;
                 objectBranchActive[group] = parentActive && !earlierTaken && branchMatches[group];
+                if (branchMatches[group]) earlierBranchTaken[chainRoot] = true;
             }
             objectStatusCacheLineCount = skinfileLines.count;
             objectStatusCacheIfCount = arr_ifunit.count;
@@ -11443,12 +12158,15 @@ int WORKSPACE::drawObjectEditor() {
 
             if (ifgroup == 0) {
                 int ci = -1;
-                for (int i = 0; i < (int)conditions.size(); ++i)
-                    if (conditions[i].rootIfgroup == 0) { ci = i; break; }
+                const std::map<int, int>::const_iterator existingCondition =
+                    conditionIndexByRoot.find(0);
+                if (existingCondition != conditionIndexByRoot.end())
+                    ci = existingCondition->second;
                 if (ci < 0) {
                     ConditionBlock c;
                     c.rootIfgroup = 0; c.depth = 0; c.label = "ALWAYS";
                     conditions.push_back(c); ci = (int)conditions.size() - 1;
+                    conditionIndexByRoot[0] = ci;
                 }
                 if (conditions[ci].branches.empty()) {
                     BranchBlock b; b.ifgroup = 0; b.order = 0; b.label = "ALWAYS";
@@ -11460,8 +12178,10 @@ int WORKSPACE::drawObjectEditor() {
 
             int root = getRootIfgroup(ifgroup);
             int ci = -1;
-            for (int i = 0; i < (int)conditions.size(); ++i)
-                if (conditions[i].rootIfgroup == root) { ci = i; break; }
+            const std::map<int, int>::const_iterator existingCondition =
+                conditionIndexByRoot.find(root);
+            if (existingCondition != conditionIndexByRoot.end())
+                ci = existingCondition->second;
             if (ci < 0) {
                 ConditionBlock c;
                 c.rootIfgroup = root;
@@ -11470,17 +12190,22 @@ int WORKSPACE::drawObjectEditor() {
                 getHeader(root, c.label, dummyOrder);
                 if (c.label.empty()) c.label = "#IF";
                 conditions.push_back(c); ci = (int)conditions.size() - 1;
+                conditionIndexByRoot[root] = ci;
             }
 
             int bi = -1;
-            for (int i = 0; i < (int)conditions[ci].branches.size(); ++i)
-                if (conditions[ci].branches[i].ifgroup == ifgroup) { bi = i; break; }
+            const std::pair<int, int> branchKey(root, ifgroup);
+            const std::map<std::pair<int, int>, int>::const_iterator
+                existingBranch = branchIndexByCondition.find(branchKey);
+            if (existingBranch != branchIndexByCondition.end())
+                bi = existingBranch->second;
             if (bi < 0) {
                 BranchBlock b;
                 b.ifgroup = ifgroup;
                 getHeader(ifgroup, b.label, b.order);
                 if (b.label.empty()) b.label = (b.order == 0) ? "#IF" : "#ELSE";
                 conditions[ci].branches.push_back(b); bi = (int)conditions[ci].branches.size() - 1;
+                branchIndexByCondition[branchKey] = bi;
             }
             conditions[ci].branches[bi].localObjectIndices.push_back(oi);
         }
@@ -11497,13 +12222,8 @@ int WORKSPACE::drawObjectEditor() {
                 ? ((IFUNIT*)arr_ifunit.data)[visibleRoot].parentID : 0;
             while (ancestorBranch > 0 && ancestorBranch < arr_ifunit.count) {
                 const int ancestorRoot = getRootIfgroup(ancestorBranch);
-                bool alreadyPresent = false;
-                for (const ConditionBlock& condition : conditions) {
-                    if (condition.rootIfgroup == ancestorRoot) {
-                        alreadyPresent = true;
-                        break;
-                    }
-                }
+                const bool alreadyPresent = conditionIndexByRoot.find(
+                    ancestorRoot) != conditionIndexByRoot.end();
                 if (!alreadyPresent) {
                     ConditionBlock ancestor;
                     ancestor.rootIfgroup = ancestorRoot;
@@ -11520,6 +12240,8 @@ int WORKSPACE::drawObjectEditor() {
                         ancestor.branches.push_back(branch);
                     }
                     conditions.push_back(ancestor);
+                    conditionIndexByRoot[ancestorRoot] =
+                        (int)conditions.size() - 1;
                 }
                 ancestorBranch = ((IFUNIT*)arr_ifunit.data)[ancestorRoot].parentID;
             }
@@ -11591,7 +12313,21 @@ int WORKSPACE::drawObjectEditor() {
             ImGui::PushID(cond.rootIfgroup);
 
             auto drawBranchObjects = [&](BranchBlock& branch) {
-                for (int k = 0; k < (int)branch.localObjectIndices.size(); ++k) {
+                ImGuiListClipper objectClipper;
+                objectClipper.Begin((int)branch.localObjectIndices.size());
+                if (requestedObjectModel >= 0) {
+                    for (int k = 0; k < (int)branch.localObjectIndices.size(); ++k) {
+                        const int requestedOi = branch.localObjectIndices[k];
+                        if (requestedOi >= 0 && requestedOi < (int)groupObjects.size() &&
+                            groupObjects[requestedOi] == requestedObjectModel) {
+                            objectClipper.IncludeItemByIndex(k);
+                            break;
+                        }
+                    }
+                }
+                while (objectClipper.Step()) {
+                for (int k = objectClipper.DisplayStart;
+                    k < objectClipper.DisplayEnd; ++k) {
                     int oi = branch.localObjectIndices[k];
                     const SEObjectInstance& o = objectEditorModel.Objects()[groupObjects[oi]];
                     char label[256];
@@ -11683,18 +12419,17 @@ int WORKSPACE::drawObjectEditor() {
                     const bool objectEnabled = objectIsActive(o);
 
                     ImGui::PushID(oi);
+                    ImVec4 objectStatusColor(0, 0, 0, 0);
                     if (hasDst) {
                         const ImVec4 rowColor = objectEnabled
-                            ? ImVec4(0.18f, 0.48f, 0.23f, 0.62f)
-                            : ImVec4(0.55f, 0.18f, 0.18f, 0.62f);
+                            ? ImVec4(0.18f, 0.48f, 0.23f, 0.22f)
+                            : ImVec4(0.55f, 0.18f, 0.18f, 0.22f);
                         const ImVec4 hoverColor = objectEnabled
-                            ? ImVec4(0.24f, 0.62f, 0.30f, 0.78f)
-                            : ImVec4(0.68f, 0.22f, 0.22f, 0.78f);
-                        const ImVec2 rowMin = ImGui::GetCursorScreenPos();
-                        const float rowWidth = ImGui::GetContentRegionAvail().x;
-                        ImGui::GetWindowDrawList()->AddRectFilled(rowMin,
-                            ImVec2(rowMin.x + rowWidth, rowMin.y + ImGui::GetFrameHeight()),
-                            ImGui::GetColorU32(rowColor));
+                            ? ImVec4(0.24f, 0.62f, 0.30f, 0.36f)
+                            : ImVec4(0.68f, 0.22f, 0.22f, 0.36f);
+                        objectStatusColor = objectEnabled
+                            ? ImVec4(0.35f, 0.82f, 0.42f, 0.95f)
+                            : ImVec4(0.92f, 0.32f, 0.30f, 0.95f);
                         ImGui::PushStyleColor(ImGuiCol_Header, rowColor);
                         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, hoverColor);
                         ImGui::PushStyleColor(ImGuiCol_HeaderActive, hoverColor);
@@ -11703,7 +12438,12 @@ int WORKSPACE::drawObjectEditor() {
                     const bool isMultiSelected = std::find(preview_selected_object_model_indices.begin(),
                         preview_selected_object_model_indices.end(), modelIndex) !=
                         preview_selected_object_model_indices.end();
-                    const bool clicked = ImGui::Selectable(label, isMultiSelected);
+                    const float objectRowWidth = (std::min)(
+                        ImGui::GetContentRegionAvail().x,
+                        ImGui::CalcTextSize(label).x +
+                            ImGui::GetStyle().FramePadding.x * 2.0f + 8.0f);
+                    const bool clicked = ImGui::Selectable(label, isMultiSelected,
+                        ImGuiSelectableFlags_None, ImVec2(objectRowWidth, 0.0f));
                     const bool objectRowHovered =
                         ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone);
                     if (objectRowHovered) {
@@ -11713,6 +12453,12 @@ int WORKSPACE::drawObjectEditor() {
                     }
                     const ImVec2 reorderRowMin = ImGui::GetItemRectMin();
                     const ImVec2 reorderRowMax = ImGui::GetItemRectMax();
+                    if (hasDst) {
+                        ImGui::GetWindowDrawList()->AddRectFilled(
+                            reorderRowMin,
+                            ImVec2(reorderRowMin.x + 3.0f, reorderRowMax.y),
+                            ImGui::GetColorU32(objectStatusColor));
+                    }
                     if (modelIndex == requestedObjectModel)
                         ImGui::SetScrollHereY(0.5f);
                     if (hasDst) ImGui::PopStyleColor(3);
@@ -11851,6 +12597,8 @@ int WORKSPACE::drawObjectEditor() {
                     }
                     ImGui::PopID();
                 }
+                }
+                objectClipper.End();
             };
 
             if (cond.rootIfgroup == 0) {
@@ -11882,20 +12630,15 @@ int WORKSPACE::drawObjectEditor() {
                             parent < (int)objectBranchActive.size() && objectBranchActive[parent];
                     }
                     const ImVec4 branchColor = !isParentActive
-                        ? ImVec4(0.28f, 0.28f, 0.30f, 0.62f)
+                        ? ImVec4(0.28f, 0.28f, 0.30f, 0.22f)
                         : (isBranchActive
-                            ? ImVec4(0.18f, 0.48f, 0.23f, 0.62f)
-                            : ImVec4(0.55f, 0.18f, 0.18f, 0.62f));
+                            ? ImVec4(0.18f, 0.48f, 0.23f, 0.22f)
+                            : ImVec4(0.55f, 0.18f, 0.18f, 0.22f));
                     const ImVec4 branchHoverColor = !isParentActive
-                        ? ImVec4(0.38f, 0.38f, 0.41f, 0.78f)
+                        ? ImVec4(0.38f, 0.38f, 0.41f, 0.36f)
                         : (isBranchActive
-                            ? ImVec4(0.24f, 0.62f, 0.30f, 0.78f)
-                            : ImVec4(0.68f, 0.22f, 0.22f, 0.78f));
-                    const ImVec2 branchRowMin = ImGui::GetCursorScreenPos();
-                    ImGui::GetWindowDrawList()->AddRectFilled(branchRowMin,
-                        ImVec2(branchRowMin.x + ImGui::GetContentRegionAvail().x,
-                            branchRowMin.y + ImGui::GetFrameHeight()),
-                        ImGui::GetColorU32(branchColor));
+                            ? ImVec4(0.24f, 0.62f, 0.30f, 0.36f)
+                            : ImVec4(0.68f, 0.22f, 0.22f, 0.36f));
                     ImGui::PushStyleColor(ImGuiCol_Header, branchColor);
                     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, branchHoverColor);
                     ImGui::PushStyleColor(ImGuiCol_HeaderActive, branchHoverColor);

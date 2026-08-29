@@ -249,6 +249,12 @@ int RunAssetMetadataSelfTest() {
         workspace.ImageAssetUsage();
     if (cachedUsage.size() != 2 || cachedUsage[0].size() != 1 ||
         !cachedUsage[1].empty()) return 60;
+    std::string deleteReason;
+    if (workspace.CanDeleteIMG(0, &deleteReason) ||
+        deleteReason.find("used by 1 Object") == std::string::npos)
+        return 78;
+    if (!workspace.CanDeleteIMG(1, &deleteReason) || !deleteReason.empty())
+        return 79;
 
     std::vector<int> assignableRows;
     workspace.CollectImageAssignableSourceRows(sourceObject, assignableRows);
@@ -625,6 +631,34 @@ int WORKSPACE::ModifyIMG(int pos, int gr, int x, int y, int w, int h) {
 
     ++imageAssetUsageGeneration;
     return 0;
+}
+
+bool WORKSPACE::CanDeleteIMG(int pos, std::string* reason) {
+    if (reason) reason->clear();
+    if (pos < 0 || pos >= arr_IMG.count) {
+        if (reason) *reason = "The selected Asset is no longer available.";
+        return false;
+    }
+
+    const std::vector<std::vector<int>>& usage = ImageAssetUsage();
+    if (pos < (int)usage.size() && !usage[pos].empty()) {
+        if (reason) {
+            *reason = "This Asset is used by " +
+                std::to_string(usage[pos].size()) + " Object" +
+                (usage[pos].size() == 1 ? "." : "s.");
+        }
+        return false;
+    }
+
+    const IMG& asset = ((const IMG*)arr_IMG.data)[pos];
+    if (asset.editorDeclare < 0 && asset.sourceDeclare != -2) {
+        if (reason) {
+            *reason = "This Asset is derived from an Object SRC declaration. "
+                "Delete or edit that Object instead.";
+        }
+        return false;
+    }
+    return true;
 }
 
 //check duplicated

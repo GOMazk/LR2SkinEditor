@@ -484,6 +484,9 @@ typedef struct WORKSPACE {
     bool assetApplyDialogRequested = false;
     int assetApplyAssetIndex = -1;
     SEObjectSelectionKey assetApplyObject;
+    bool assetDeleteDialogRequested = false;
+    int assetDeleteAssetIndex = -1;
+    std::string assetDeleteStatus;
     char assetSearch[128] = {};
     int assetBrowserFocusRequest = -1;
     unsigned long long imageAssetUsageGeneration = 0;
@@ -639,6 +642,7 @@ typedef struct WORKSPACE {
     bool op[1000];
     
     int NewIMG(int gr, int x, int y, int w, int h, int ifGroup = 0);
+    bool CanDeleteIMG(int pos, std::string* reason = nullptr);
     int DeleteIMG(int pos);
     int ModifyIMG(int pos, int gr, int x, int y, int w, int h);
     int FindIMG(int gr, int x, int y, int w, int h, int ifGroup = -1);

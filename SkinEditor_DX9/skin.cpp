@@ -1037,6 +1037,30 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 				AddDrawingBuffer_Object(&g->skstruct.drBuf, &src, &dst, &g->timer1, x, y);
 			}
 		};
+		auto resultGaugeChart = [&](SRCstruct* src, DSTstruct* dst, int phase) {
+			if (src[0].graphcount <= 0 || !visible(dst[0])) return;
+			const int chartWidth = src[0].op1 > 0
+				? src[0].op1 : (int)dst[0].draw[0].w;
+			int step = (int)fabs(dst[0].draw[0].w);
+			if (step < 1) step = 1;
+			if (chartWidth <= 0) return;
+			for (int x = 0; x < chartWidth; x += step) {
+				const double progress = chartWidth > 1
+					? x / (double)(chartWidth - 1) : 0.0;
+				double value = 18.0 + progress * 72.0 +
+					sin(progress * 6.28318530718 + phase) * 8.0;
+				if (value < 0.0) value = 0.0;
+				if (value > 100.0) value = 100.0;
+				// LR2 uses slot 0 below the normal-gauge clear border and
+				// slot 1 at/above 80%.  Mirror that rule in the editor so a
+				// missing second declaration is immediately visible.
+				const int sourceIndex = value >= 80.0 &&
+					src[1].graphcount > 0 && visible(dst[1]) ? 1 : 0;
+				const int y = (int)(src[sourceIndex].op2 * value / -100.0);
+				AddDrawingBuffer_Object(&g->skstruct.drBuf, &src[sourceIndex],
+					&dst[sourceIndex], &g->timer1, x, y);
+			}
+		};
 
 		g_previewRenderStage = "SPECIAL_STATIC";
 		for (int i = 0; i < 2; ++i) {
@@ -1046,12 +1070,12 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 			if (g->skstruct.src_GROOVEGAUGE[i].graphcount > 0 && visible(g->skstruct.dst_GROOVEGAUGE[i]))
 				AddDrawingBuffer_Gauge(&g->skstruct.drBuf, &g->skstruct.src_GROOVEGAUGE[i],
 					&g->skstruct.dst_GROOVEGAUGE[i], &g->timer1, 50, 0);
-			if (g->procSelecter != 5) {
-				resultChart(g->skstruct.src_GAUGECHART_1P[i], g->skstruct.dst_GAUGECHART_1P[i], i);
-				resultChart(g->skstruct.src_GAUGECHART_2P[i], g->skstruct.dst_GAUGECHART_2P[i], i + 2);
-			}
 		}
 		if (g->procSelecter != 5) {
+			resultGaugeChart(g->skstruct.src_GAUGECHART_1P,
+				g->skstruct.dst_GAUGECHART_1P, 0);
+			resultGaugeChart(g->skstruct.src_GAUGECHART_2P,
+				g->skstruct.dst_GAUGECHART_2P, 2);
 			for (int i = 0; i < 3; ++i)
 				resultChart(g->skstruct.src_SCORECHART[i], g->skstruct.dst_SCORECHART[i], i + 4);
 		}

@@ -44,8 +44,9 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   DST 경계 기반 720p/1080p 추정, 화면 밖 전환 frame 내성, 640x480 fallback
 - `olr-package`: stored ZIP 생성/검사/추출, manifest와 semantic object/asset count,
   LR2·asset byte 보존, path traversal 거부 및 CRC 손상 탐지
-- `initial-preset`: PLAY/BATTLE 키 모드별 lane index와 각 lane의
-  Normal/Mine/LN/DST_NOTE, Judge Line, Gauge, FAST/SLOW 및 COURSERESULT의
+- `initial-preset`: 공용 atlas의 읽을 수 있는 0~9 NUMBER glyph, PLAY/BATTLE 키 모드별 lane index와 각 lane의
+  Normal/Mine/LN/DST_NOTE/Bomb, Measure Line, Judge Line, Gauge, FAST/SLOW,
+  플레이어별 NOWJUDGE/NOWCOMBO, RESULT의 label/판정 숫자/chart 및 COURSERESULT의
   1~5스테이지 제목/레벨과 누적 결과 필수 Object 생성
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제, graphic ID 배정과 선택
   Object SRC에 대한 원자적 Asset 적용/Undo, `#IMAGE` 경로 교체/Undo, 이미지 상태
@@ -380,6 +381,8 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
   전환할 수 있는지
 - Image Manager의 동일 gr 파일 콤보와 선택 경로에서 CP932 한글·일본어 파일명이
   UTF-8 replacement 문자 없이 표시되는지
+- Image Manager 왼쪽 crop 목록과 이름 편집, `Usage`로 연 Image status에서 CP932
+  한글·일본어 이름과 경로가 깨지지 않는지
 - Image Manager의 `grReload` 옆 `Folder`를 누르면 현재 이미지 파일이 선택된
   Windows Explorer가 열리는지. 후보 파일이 없으면 가장 가까운 기존 폴더가
   열리는지
@@ -401,6 +404,14 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
   또는 `Unused`가 표시되는지. 한 Object의 중복 SRC를 두 번 세지 않는지
 - `Unused only`를 켜면 Object SRC에서 참조하지 않는 Asset만 남고 CSV/선택 상태는
   바뀌지 않는지
+- Object Browser의 활성/비활성 배경이 label 폭까지만 표시되고, 왼쪽 상태 stripe와
+  중첩 IF Branch 행이 서로 겹치지 않아 이름을 읽을 수 있는지
+- OVER ACTiVE DX+ 7keys처럼 SRC가 1만 개 이상인 스킨에서 Object Browser와 Image
+  Manager를 열고 scroll해도 화면 밖 행을 전부 제출할 때의 심한 입력 지연이 없는지.
+  Object 선택 자동 scroll, hover, 우클릭, drag reorder도 그대로 동작하는지
+- Asset Browser에서 사용 중인 Asset과 Object `#SRC`에서 파생된 Asset은 Delete가
+  차단되는지. 미사용 `$SRC_IMAGE`는 Delete key/우클릭 확인 modal로 제거되며 실제
+  texture 파일은 남고, 저장·재로드 후 crop만 사라지는지
 - 사용 중인 Asset을 우클릭해 `Used by Objects`의 항목을 선택하면 Object Browser와
   Inspector가 열리고 해당 Object로 자동 스크롤되는지
 - Object와 Asset을 선택하고 `Use in selected Object`를 누르면 SRC가 하나인
@@ -494,10 +505,28 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 - 각 지원 Scene/key mode로 새 폴더를 만든다.
 - 기존 파일이 있는 경로는 덮어쓰지 않는지 확인한다.
 - 생성 직후 skin이 열리고 Preview가 표시되는지 확인한다.
-- PLAY의 note/mine/LN/judge/gauge/FAST/SLOW를 확인한다.
+- `#SCENETIME`은 DECIDE에만 있고 PLAY, SELECT, RESULT, COURSERESULT에는
+  생성되지 않는지 확인한다.
+- PLAY의 note/mine/LN, lane별 Bomb, measure line/judge line/gauge/FAST/SLOW와 플레이어별
+  NOWJUDGE/NOWCOMBO를 확인한다. BMS note 판정 시 해당 lane Bomb과 판정/콤보가
+  정해진 시간 뒤 사라지는지도 확인한다.
+- PLAY BGA에는 zero-sized `#SRC_BGA`와 `#DST_BGA`가 이 순서로 한 쌍 존재하고,
+  실제 BMS의 정지 이미지/동영상 BGA가 지정한 영역 안에 표시되는지 확인한다.
+- 생성한 PLAY/BATTLE 스킨을 실제 LR2에서 열고 BMS 재생을 시작했을 때
+  Measure Line 누락으로 `ProcI_Play` 접근 위반이 발생하지 않는지 확인한다.
+- Groove Gauge가 50칸으로 lane 폭을 채우고, gauge 값 변화에 따라 밝은 채움과
+  어두운 빈칸 및 80% 경계 색상이 바뀌는지 확인한다.
 - PLAY 생성 직후 첫 Note가 Object Browser에서 자동 선택·스크롤되고 Inspector에
   같은 Note의 Normal/Mine/LN/DST_NOTE 행이 함께 표시되는지 확인한다.
-- SELECT bar/title, DECIDE panel/flash, RESULT numbers/charts를 확인한다.
+- 공용 `preset.bmp`의 NUMBER source가 알 수 없는 색/기호가 아니라 또렷한 숫자
+  `0~9`로 표시되는지 확인한다. LR2 number frame 대응상 atlas cell 순서는 0부터다.
+- SELECT bar가 NOWJUDGE용 무지개 strip을 늘린 형태가 아니라 어두운 단색 면과 밝은
+  테두리로 표시되고, OFF/ON tint와 title이 정상인지 확인한다. DECIDE panel/flash와
+  `$st 10`의 실제 곡 제목 TEXT가 중앙에 표시되는지 확인한다. RESULT는 전용 dark panel 위에
+  EX SCORE/MAX COMBO와 PERFECT/GREAT/GOOD/BAD/POOR label 및 값이 좌우 column으로
+  정렬되고, 하단 gauge/score chart가 각 backdrop 안에 표시되는지 확인한다. 일반
+  Groove Gauge의 result graph는 80% 미만에서 초록색, 80% 이상에서 빨간색으로 바뀌며 두 구간 모두
+  backdrop 안에서 아래쪽 기준으로 위로 그려지는지 확인한다.
 - COURSERESULT에서 1~5스테이지 제목/레벨과 EX Score, Max Combo,
   Perfect/Great/Good/Bad/Poor 누적 숫자를 확인한다.
 - 임의 해상도에서 화면 밖으로 심하게 벗어나는 필수 Object가 없는지 확인한다.

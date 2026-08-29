@@ -30,10 +30,13 @@
 #include <climits>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <fstream>
+#include <iterator>
 #include <map>
+#include <set>
 #include <sstream>
 #include <shellapi.h>
 #include <shobjidl.h>
@@ -59,6 +62,49 @@ static bool SkinPathExists(const char* path) {
     if (find == INVALID_HANDLE_VALUE) return false;
     FindClose(find);
     return true;
+}
+
+static bool OpenCp932PathInExplorer(const char* path) {
+    if (!path || !*path) return false;
+
+    const int wideLength = MultiByteToWideChar(932, 0, path, -1, NULL, 0);
+    if (wideLength <= 0) return false;
+    std::vector<wchar_t> widePath((size_t)wideLength);
+    if (!MultiByteToWideChar(932, 0, path, -1, widePath.data(), wideLength))
+        return false;
+
+    std::vector<wchar_t> fullPath(32768, L'\0');
+    const DWORD fullLength = GetFullPathNameW(widePath.data(),
+        (DWORD)fullPath.size(), fullPath.data(), NULL);
+    if (fullLength == 0 || fullLength >= fullPath.size()) return false;
+
+    std::filesystem::path target(fullPath.data());
+    DWORD attributes = GetFileAttributesW(target.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES &&
+        !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        std::wstring arguments = L"/select,\"";
+        arguments += target.native();
+        arguments += L"\"";
+        return (INT_PTR)ShellExecuteW(NULL, L"open", L"explorer.exe",
+            arguments.c_str(), NULL, SW_SHOWNORMAL) > 32;
+    }
+
+    // Wildcard candidates and files removed outside the editor may not exist.
+    // In that case, still open the nearest existing containing directory.
+    std::filesystem::path folder = attributes != INVALID_FILE_ATTRIBUTES &&
+        (attributes & FILE_ATTRIBUTE_DIRECTORY) ? target : target.parent_path();
+    while (!folder.empty()) {
+        attributes = GetFileAttributesW(folder.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES &&
+            (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            return (INT_PTR)ShellExecuteW(NULL, L"open", folder.c_str(),
+                NULL, NULL, SW_SHOWNORMAL) > 32;
+        }
+        const std::filesystem::path parent = folder.parent_path();
+        if (parent == folder) break;
+        folder = parent;
+    }
+    return false;
 }
 
 // Some distributed skins were renamed after authoring (for example
@@ -376,6 +422,82 @@ static bool ReadCommandField(CSVbuf& values, const char* command,
         return true;
     }
     return false;
+}
+
+static bool ResolveDstArgbColumns(const char* command, int columns[4]) {
+    if (!command || strncmp(command, "#DST", 4) != 0 || !columns) return false;
+    columns[0] = columns[1] = columns[2] = columns[3] = -1;
+    const char* names[4] = { "a", "r", "g", "b" };
+    for (int column = 1; column < 30; ++column) {
+        CSTR help = GetCommandHelp(command, column);
+        help.trimWhiteSpace();
+        const char* label = help.body ? help.outstr() : "";
+        for (int component = 0; component < 4; ++component) {
+            if (_stricmp(label, names[component]) == 0)
+                columns[component] = column;
+        }
+    }
+    return columns[0] >= 0 && columns[1] == columns[0] + 1 &&
+        columns[2] == columns[0] + 2 && columns[3] == columns[0] + 3;
+}
+
+int WORKSPACE::ApplyDstArgbEdit(int row, const int argb[4]) {
+    if (!argb || row < 0 || row >= skinfileLines.count) return -1;
+    SKINFILELINEREAD& line =
+        ((SKINFILELINEREAD*)skinfileLines.data)[row];
+    const char* command = line.csv.str[0].body
+        ? line.csv.str[0].outstr() : "";
+    int columns[4];
+    if (!ResolveDstArgbColumns(command, columns)) return -1;
+
+    int edited[4];
+    bool hasChange = false;
+    for (int component = 0; component < 4; ++component) {
+        edited[component] = (std::max)(0, (std::min)(255, argb[component]));
+        if (line.csv.val[columns[component]] != edited[component])
+            hasChange = true;
+    }
+    if (!hasChange) return 0;
+
+    bool canReuseHistory = objectColorEditRow == row &&
+        objectColorEditHistoryIndex >= 0 &&
+        objectColorEditHistoryIndex < arr_history.count;
+    if (canReuseHistory) {
+        const HISTORY& history =
+            ((HISTORY*)arr_history.data)[objectColorEditHistoryIndex];
+        canReuseHistory = history.op == overwriteLine && history.target == row;
+    }
+    if (!canReuseHistory) {
+        HISTORY* history = (HISTORY*)arr_history.Get_new();
+        if (!history) return -1;
+        history->op = overwriteLine;
+        history->target = row;
+        history->older.line.assign(line.line);
+        history->newer.line.assign(line.line);
+        objectColorEditRow = row;
+        objectColorEditHistoryIndex = arr_history.count - 1;
+    }
+
+    for (int component = 0; component < 4; ++component) {
+        const int column = columns[component];
+        char value[8];
+        snprintf(value, sizeof(value), "%d", edited[component]);
+        line.csv.str[column].assign(value);
+        line.csv.val[column] = edited[component];
+        if (line.csvColumnCount < column + 1)
+            line.csvColumnCount = column + 1;
+    }
+    line.modified = true;
+    if (CsvToLine(row) != 0) return -1;
+    ((HISTORY*)arr_history.data)[objectColorEditHistoryIndex]
+        .newer.line.assign(line.line);
+    NotifyDocumentChanged(DOCUMENT_CHANGE_VALUE);
+    return 0;
+}
+
+void WORKSPACE::EndDstArgbEdit() {
+    objectColorEditRow = -1;
+    objectColorEditHistoryIndex = -1;
 }
 
 static bool IsAssetBackedObjectCommand(const char* command) {
@@ -698,14 +820,29 @@ int WORKSPACE::init() {
     imagePixelPaintLastButton = -1;
     imagePixelPaintDirtyPaths.clear();
     imagePixelPaintStatus.clear();
+    imageManagerReloadPathRequest.clear();
     imageNewDialogRequested = false;
     imageMergeDialogRequested = false;
+    imageReplaceDialogRequested = false;
+    imageGridDialogRequested = false;
+    imageReplaceDeclarationRow = -1;
+    imageReplaceDiskPath.clear();
+    imageGridAssetIndex = -1;
+    imageGridSelectedCells.clear();
     imageToolOutputPathUtf8[0] = '\0';
     imageToolStatus.clear();
     imageManagerGeneratedGrFocusRequest = -1;
+    imageManagerGraphicDeclarationFocusRequest = -1;
+    imageManagerAssetDeclarationFocusRequest = -1;
+    objectColorEditRow = -1;
+    objectColorEditHistoryIndex = -1;
     DstViewZoom = 0.0f;
     assetThumbnailSize = 96.0f;
     assetAnimateSrc = true;
+    assetShowUnusedOnly = false;
+    assetDeleteDialogRequested = false;
+    assetDeleteAssetIndex = -1;
+    assetDeleteStatus.clear();
     assetSearch[0] = '\0';
     assetBrowserFocusRequest = -1;
     imageManagerFocusRequest = -1;
@@ -749,6 +886,24 @@ int WORKSPACE::draw() {
     } else if (loaded && objectModelRebuildPending && !editorDerivedRebuildPending) {
         RebuildObjectModel();
         RefreshPreviewSelectionBounds();
+    }
+    if (loaded && !imageManagerReloadPathRequest.empty()) {
+        int reloadIndex = -1;
+        for (int graphicIndex = 0; graphicIndex < arr_SRCGR.count;
+            ++graphicIndex) {
+            SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
+            if (!graphic.path.body || _stricmp(graphic.path.outstr(),
+                imageManagerReloadPathRequest.c_str()) != 0) continue;
+            if (reloadIndex < 0) reloadIndex = graphicIndex;
+            if (graphic.texture) graphic.texture->Release();
+            graphic.texture = NULL;
+            graphic.loaded = false;
+        }
+        if (reloadIndex >= 0 && EnsureSRCGRTexture(reloadIndex))
+            imageToolStatus = "Reloaded the current texture.";
+        else
+            imageToolStatus = "The current texture could not be reloaded.";
+        imageManagerReloadPathRequest.clear();
     }
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
@@ -1786,7 +1941,9 @@ int WORKSPACE::ParseSkinLegacyObjectsAndAssets() {
             continue;
 
         IMG* img = (IMG*)arr_IMG.Get_new();
-        img->name.assign("manual crop");
+        const char* savedName = assetCsv.str[14].body
+            ? assetCsv.str[14].outstr() : "";
+        img->name.assign(*savedName ? savedName : "manual crop");
         img->gr = assetCsv.val[2];
         img->x = assetCsv.val[3];
         img->y = assetCsv.val[4];
@@ -1967,24 +2124,52 @@ int WORKSPACE::ParseSkinGraphics() {
                 WIN32_FIND_DATA FindFileData;
                 HANDLE hFindFile;
 
-                CSTR directoryPrefix(line.left(wildcardPosition));
-                const int slash = (std::max)(directoryPrefix.findChrBackPos('/'),
-                    directoryPrefix.findChrBackPos('\\'));
-                if (slash >= 0) directoryPrefix = directoryPrefix.left(slash + 1);
-                else directoryPrefix.fillzero();
+                CSTR wildcardPrefix(line.left(wildcardPosition));
+                CSTR wildcardSuffix(line.right(
+                    line.length() - wildcardPosition - 1));
+                const bool wildcardSelectsDirectory =
+                    !wildcardSuffix.body || wildcardSuffix.length() == 0 ||
+                    wildcardSuffix.outstr()[0] == '\\' ||
+                    wildcardSuffix.outstr()[0] == '/';
+                // LR2 searches the complete pattern for file wildcards such
+                // as *.png. GetRandomFile(..., 1) then removes the extension
+                // before replacing '*', yielding OFF + .png, not OFF.png.png.
+                CSTR searchPattern(wildcardPrefix);
+                searchPattern.add("*");
+                if (!wildcardSelectsDirectory && wildcardSuffix.body)
+                    searchPattern.add(wildcardSuffix.outstr());
 
-                hFindFile = FindFirstFileA(line.outstr(),
+                hFindFile = FindFirstFileA(searchPattern.outstr(),
                     (LPWIN32_FIND_DATAA)&FindFileData);
                 if (hFindFile != INVALID_HANDLE_VALUE) {
                     do {
-                        if (FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                            continue;
-                        CSTR resolvedFile(directoryPrefix);
-                        resolvedFile.add(FindFileData.cFileName);
-                        if (!appendGraphic(resolvedFile, FindFileData.cFileName,
-                            read, i, true)) {
-                            FindClose(hFindFile);
-                            return -1;
+                        if (strcmp("..", (char*)FindFileData.cFileName) &&
+                            strcmp(".", (char*)FindFileData.cFileName)) {
+                            if (wildcardSelectsDirectory &&
+                                (FindFileData.dwFileAttributes &
+                                    FILE_ATTRIBUTE_DIRECTORY) == 0)
+                                continue;
+
+                            // Keep every LR2 wildcard match as a candidate,
+                            // but resolve the complete #IMAGE path for loading.
+                            // For Frame\*\main.png the candidate remains
+                            // "Default" while its texture path becomes
+                            // Frame\Default\main.png.
+                            std::string wildcardValue = FindFileData.cFileName;
+                            if (!wildcardSelectsDirectory) {
+                                const size_t extension = wildcardValue.find('.');
+                                if (extension != std::string::npos)
+                                    wildcardValue.resize(extension);
+                            }
+                            CSTR resolvedPath(wildcardPrefix);
+                            resolvedPath.add(wildcardValue.c_str());
+                            if (wildcardSuffix.body)
+                                resolvedPath.add(wildcardSuffix.outstr());
+                            if (!appendGraphic(resolvedPath,
+                                wildcardValue.c_str(), read, i, true)) {
+                                FindClose(hFindFile);
+                                return -1;
+                            }
                         }
                     } while (FindNextFileA(hFindFile, (LPWIN32_FIND_DATAA)&FindFileData));
                     FindClose(hFindFile);
@@ -2676,8 +2861,12 @@ int WORKSPACE::RebuildEditorDerivedState() {
     const int result = ParseSkin();
     if (src_selected >= arr_IMG.count) src_selected = arr_IMG.count - 1;
     if (src_selected < 0) src_selected = 0;
-    if (gr_selected >= arr_SRCGR.count) gr_selected = arr_SRCGR.count - 1;
-    if (gr_selected < 0) gr_selected = 0;
+    if (arr_IMG.count > 0) {
+        SelectIMGAsset(src_selected, false);
+    } else {
+        grID_selected = -1;
+        gr_selected = -1;
+    }
     if (selected_dst >= arr_DST.count) selected_dst = arr_DST.count - 1;
     if (selected_dst < 0) selected_dst = 0;
     imageManagerFocusRequest = -1;
@@ -2816,6 +3005,15 @@ int WORKSPACE::LoadSkin(char* path) {
         return -1;
     }
     WriteSkinLoadLog("ParseSkin complete");
+    if (arr_IMG.count > 0) {
+        src_selected = (std::max)(0,
+            (std::min)(src_selected, arr_IMG.count - 1));
+        SelectIMGAsset(src_selected, false);
+    } else {
+        src_selected = -1;
+        grID_selected = -1;
+        gr_selected = -1;
+    }
     if (objectEditorModel.Groups().empty())
         objectEditorModel.LoadGroups("..\\skinObjGroup.txt");
     RebuildObjectModel();
@@ -2866,12 +3064,25 @@ int WORKSPACE::LoadSkin(char* path) {
     imagePixelPaintLastButton = -1;
     imagePixelPaintDirtyPaths.clear();
     imagePixelPaintStatus.clear();
+    imageManagerReloadPathRequest.clear();
     imageNewDialogRequested = false;
     imageMergeDialogRequested = false;
+    imageReplaceDialogRequested = false;
+    imageGridDialogRequested = false;
+    imageReplaceDeclarationRow = -1;
+    imageReplaceDiskPath.clear();
+    imageGridAssetIndex = -1;
+    imageGridSelectedCells.clear();
     imageToolOutputPathUtf8[0] = '\0';
     imageToolStatus.clear();
     imageManagerGeneratedGrFocusRequest = -1;
+    imageManagerGraphicDeclarationFocusRequest = -1;
+    imageManagerAssetDeclarationFocusRequest = -1;
     assetThumbnailSize = 96.0f;
+    assetShowUnusedOnly = false;
+    assetDeleteDialogRequested = false;
+    assetDeleteAssetIndex = -1;
+    assetDeleteStatus.clear();
     assetSearch[0] = '\0';
     imageManagerFocusRequest = -1;
     simpleModeCategory = 0;
@@ -4557,14 +4768,16 @@ bool WORKSPACE::UpdatePreviewRuntime(unsigned long long previewNow) {
 
 int WORKSPACE::drawPreview() {
     // Preview texture is owned by this workspace and recreated whenever
-    // the loaded skin resolution changes. An inactive dock tab returns false
-    // from ImGui::Begin, but a running scene must still advance and consume its
-    // draw buffer before this function takes the presentation-only early exit.
+    // the loaded skin resolution changes. ImGui::Begin returns false for an
+    // inactive dock tab, but a running scene must still tick and consume its
+    // Workspace draw buffer before the presentation-only early return.
     char title[260];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Preview, num);
     const bool previewWindowVisible = ImGui::Begin(
         title, &wPreview, ImGuiWindowFlags_HorizontalScrollbar);
-    const bool previewFrameUpdated = previewWindowVisible || previewSimulationPlaying
+
+    const bool previewFrameUpdated = previewWindowVisible ||
+        previewSimulationPlaying
         ? UpdatePreviewRuntime(GetTickCount64()) : false;
     if (!previewWindowVisible) {
         ImGui::End();
@@ -5280,6 +5493,8 @@ int WORKSPACE::drawTextEdit() {
         }
         if (isHide && !head) continue;
 
+        const float textRowTop = ImGui::GetCursorScreenPos().y;
+
         ImGui::PushID(n);
         ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor::HSV((head + isHide) / 3.0f, 0.6f, 0.6f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, (ImVec4)ImColor::HSV((head + isHide) / 3.0f, 0.7f, 0.7f));
@@ -5453,6 +5668,27 @@ int WORKSPACE::drawTextEdit() {
                     }
                 }
                 ImGui::EndTable();
+            }
+        }
+
+        const float textRowBottom = ImGui::GetCursorScreenPos().y;
+        const ImVec2 mousePosition = ImGui::GetIO().MousePos;
+        if (textRowBottom > textRowTop && ImGui::IsWindowHovered() &&
+            ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+            mousePosition.y >= textRowTop && mousePosition.y < textRowBottom) {
+            const int objectModelIndex = SEFindObjectForRow(
+                objectEditorModel.Objects(), n);
+            if (objectModelIndex >= 0) {
+                // Use the same stable workspace selection path as Preview and
+                // DST View. The one-shot request opens the tree path, clears
+                // filters that hide the Object and scrolls Browser to it.
+                wObjectEditor = true;
+                SetObjectSelection(std::vector<int>(1, objectModelIndex),
+                    objectModelIndex, objectModelIndex, true);
+                preview_object_dragging = false;
+                preview_selected_obj_valid = false;
+                preview_selected_obj_last_valid = false;
+                RefreshPreviewSelectionBounds();
             }
         }
         
@@ -5682,15 +5918,15 @@ int WORKSPACE::printSrcImgEx(SRC src, int w, int h, bool ignoreIfGroup) {
     return 0;
 }
 
-int WORKSPACE::ResolveIMGTextureIndex(int imageIndex) {
-    if (imageIndex < 0 || imageIndex >= arr_IMG.count) return -1;
+void WORKSPACE::CollectIMGTextureCandidates(int imageIndex,
+    std::vector<std::pair<int, int>>& candidates) {
+    candidates.clear();
+    if (imageIndex < 0 || imageIndex >= arr_IMG.count) return;
     IMG& tag = ((IMG*)arr_IMG.data)[imageIndex];
-
     // A logical gr number may be declared by several #IMAGE commands. Prefer
     // the declaration in the crop's IF branch, then the active custom-file
     // filename. This is the same ordering used by object thumbnails and keeps
     // an atlas crop from silently resolving to another branch's texture.
-    std::vector<std::pair<int, int> > candidates;
     for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
         SRCGR& source = ((SRCGR*)arr_SRCGR.data)[candidate];
         if (source.grID != tag.gr) continue;
@@ -5715,10 +5951,18 @@ int WORKSPACE::ResolveIMGTextureIndex(int imageIndex) {
         [](const std::pair<int, int>& a, const std::pair<int, int>& b) {
             return a.first > b.first;
         });
+}
+
+int WORKSPACE::ResolveIMGTextureIndex(int imageIndex) {
+    std::vector<std::pair<int, int>> candidates;
+    CollectIMGTextureCandidates(imageIndex, candidates);
     for (const std::pair<int, int>& candidate : candidates) {
         if (EnsureSRCGRTexture(candidate.second)) return candidate.second;
     }
-    return candidates.empty() ? -1 : candidates.front().second;
+    // Keep every LR2 wildcard candidate in arr_SRCGR, including directories
+    // and non-image files, but never make an unloadable entry the automatic
+    // Image Manager selection. The user may still inspect it in the combo.
+    return -1;
 }
 
 int WORKSPACE::ResolveIMGSourceIndex(int imageIndex) const {
@@ -5769,6 +6013,101 @@ void WORKSPACE::ResolveIMGDivision(int imageIndex, int& divX, int& divY,
     divY = (std::max)(1, source.div_y);
     cycle = (std::max)(0, source.cycle);
     timer = source.timer;
+}
+
+static bool BrowseImageOpenPath(const char* initialPath, char* selectedPath,
+    size_t selectedPathSize) {
+    if (!selectedPath || selectedPathSize == 0) return false;
+    char path[MAX_PATH] = {};
+    if (initialPath && *initialPath)
+        strncpy_s(path, initialPath, _TRUNCATE);
+
+    OPENFILENAMEA dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = GetActiveWindow();
+    dialog.lpstrFilter =
+        "Image files (*.png;*.bmp;*.jpg;*.jpeg;*.gif;*.tga)\0"
+        "*.png;*.bmp;*.jpg;*.jpeg;*.gif;*.tga\0"
+        "All files (*.*)\0*.*\0\0";
+    dialog.lpstrFile = path;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
+        OFN_NOCHANGEDIR;
+    if (!GetOpenFileNameA(&dialog)) return false;
+    strncpy_s(selectedPath, selectedPathSize, path, _TRUNCATE);
+    return true;
+}
+
+void WORKSPACE::CollectImageAssignableSourceRows(int modelIndex,
+    std::vector<int>& rows) const {
+    rows.clear();
+    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+    if (modelIndex < 0 || modelIndex >= (int)objects.size()) return;
+    for (int row : objects[modelIndex].rows) {
+        if (row < 0 || row >= skinfileLines.count) continue;
+        SKINFILELINEREAD& line =
+            ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        const char* command = line.csv.str[0].body
+            ? line.csv.str[0].outstr() : "";
+        int columns[5];
+        if (ResolveImageCropColumns(command, columns)) rows.push_back(row);
+    }
+}
+
+bool WORKSPACE::ApplyImageAssetToObjectSource(int imageIndex, int modelIndex,
+    int sourceRow, bool copyAnimationFields) {
+    if (imageIndex < 0 || imageIndex >= arr_IMG.count ||
+        sourceRow < 0 || sourceRow >= skinfileLines.count) return false;
+    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+    if (modelIndex < 0 || modelIndex >= (int)objects.size()) return false;
+    const SEObjectInstance& object = objects[modelIndex];
+    if (std::find(object.rows.begin(), object.rows.end(), sourceRow) ==
+        object.rows.end()) return false;
+
+    SKINFILELINEREAD& line =
+        ((SKINFILELINEREAD*)skinfileLines.data)[sourceRow];
+    const char* command = line.csv.str[0].body
+        ? line.csv.str[0].outstr() : "";
+    int columns[5];
+    if (!ResolveImageCropColumns(command, columns)) return false;
+
+    IMG& asset = ((IMG*)arr_IMG.data)[imageIndex];
+    CSVbuf editedCsv;
+    SplitCSV(line.line, &editedCsv, ",");
+    const int cropValues[5] = {
+        asset.gr, asset.x, asset.y, asset.w, asset.h
+    };
+    for (int field = 0; field < 5; ++field) {
+        char valueText[32];
+        snprintf(valueText, sizeof(valueText), "%d", cropValues[field]);
+        editedCsv.str[columns[field]].assign(valueText);
+    }
+    if (copyAnimationFields) {
+        int divX = 1;
+        int divY = 1;
+        int cycle = 0;
+        int timer = 0;
+        ResolveIMGDivision(imageIndex, divX, divY, cycle, timer);
+        AssignCommandField(editedCsv, command, "div_x", divX);
+        AssignCommandField(editedCsv, command, "div_y", divY);
+        AssignCommandField(editedCsv, command, "cycle", cycle);
+        AssignCommandField(editedCsv, command, "timer", timer);
+    }
+
+    CSTR editedLine;
+    CsvToCSTR(editedCsv, editedLine);
+    const char* oldText = line.line.body ? line.line.outstr() : "";
+    const char* newText = editedLine.body ? editedLine.outstr() : "";
+    if (strcmp(oldText, newText) != 0) {
+        CSTR oldLine(line.line);
+        if (EditLine(sourceRow, oldLine, editedLine) != 0) return false;
+        ++imageAssetUsageGeneration;
+    }
+
+    SelectIMGAsset(imageIndex, false);
+    assetBrowserFocusRequest = imageIndex;
+    imageManagerFocusRequest = imageIndex;
+    return true;
 }
 
 bool WORKSPACE::InitializeAssetBackedObjectSource(CSVbuf& values,
@@ -5920,6 +6259,364 @@ int WORKSPACE::RegisterGeneratedImage(const char* diskPath, int width, int heigh
     return newGraphicId;
 }
 
+bool WORKSPACE::ReplaceImageDeclarationPath(int graphicIndex,
+    const char* diskPath, std::string& errorText) {
+    errorText.clear();
+    if (graphicIndex < 0 || graphicIndex >= arr_SRCGR.count ||
+        !diskPath || !*diskPath) {
+        errorText = "The texture declaration or replacement path is invalid.";
+        return false;
+    }
+
+    SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
+    const int declarationRow = graphic.declare;
+    if (declarationRow < 0 || declarationRow >= skinfileLines.count) {
+        errorText = "The selected texture has no editable #IMAGE declaration.";
+        return false;
+    }
+    SKINFILELINEREAD& declaration =
+        ((SKINFILELINEREAD*)skinfileLines.data)[declarationRow];
+    if (!declaration.csv.str[0].body ||
+        !declaration.csv.str[0].isSame("#IMAGE")) {
+        errorText = "The selected row is no longer a #IMAGE declaration.";
+        return false;
+    }
+
+    int replacementWidth = 0;
+    int replacementHeight = 0;
+    if (!GetImageSizeFromFile(diskPath, &replacementWidth,
+        &replacementHeight) || replacementWidth <= 0 ||
+        replacementHeight <= 0) {
+        errorText = "The selected file cannot be loaded as an image.";
+        return false;
+    }
+
+    const char* ownerPath = declaration.filename.body &&
+        *declaration.filename.outstr() ? declaration.filename.outstr() : mainpath;
+    const std::string storedPath = MakePortableGeneratedImagePath(diskPath,
+        ownerPath);
+    if (storedPath.empty() || storedPath.find(',') != std::string::npos) {
+        errorText = "The CSV image path is empty or contains a comma.";
+        return false;
+    }
+
+    const std::string replacementLine = std::string("#IMAGE,") + storedPath;
+    CSTR previousLine(declaration.line);
+    if (EditLine(declarationRow, previousLine,
+        CSTR(replacementLine.c_str())) != 0) {
+        errorText = "The #IMAGE declaration could not be updated.";
+        return false;
+    }
+
+    // The derived arrays are rebuilt at the next frame boundary. Remember the
+    // document row instead of a transient SRCGR index so the same declaration
+    // remains selected after wildcard candidates are reparsed.
+    imageManagerGraphicDeclarationFocusRequest = declarationRow;
+    imageToolStatus = "Replaced the texture declaration; crop coordinates were preserved.";
+    return true;
+}
+
+bool WORKSPACE::RegisterImageAssetGrid(int imageIndex, int columns, int rows,
+    const std::vector<unsigned char>& selectedCells, const char* namePrefix,
+    std::vector<int>& insertedRows, std::string& errorText) {
+    insertedRows.clear();
+    errorText.clear();
+    if (imageIndex < 0 || imageIndex >= arr_IMG.count || columns < 1 ||
+        rows < 1 || columns > 64 || rows > 64 ||
+        columns * rows > 4096 ||
+        selectedCells.size() != (size_t)(columns * rows)) {
+        errorText = "The Asset or grid dimensions are invalid.";
+        return false;
+    }
+
+    IMG& base = ((IMG*)arr_IMG.data)[imageIndex];
+    const int textureIndex = ResolveIMGTextureIndex(imageIndex);
+    if (textureIndex < 0 || textureIndex >= arr_SRCGR.count) {
+        errorText = "The Asset has no matching #IMAGE declaration.";
+        return false;
+    }
+    SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[textureIndex];
+    const int baseWidth = base.w == -1 ? graphic.sizeX - base.x : base.w;
+    const int baseHeight = base.h == -1 ? graphic.sizeY - base.y : base.h;
+    if (baseWidth <= 0 || baseHeight <= 0 || columns > baseWidth ||
+        rows > baseHeight) {
+        errorText = "The grid needs at least one source pixel in every cell.";
+        return false;
+    }
+
+    std::string prefix = namePrefix && *namePrefix ? namePrefix : "asset";
+    for (char& character : prefix) {
+        if (character == ',' || character == '\r' || character == '\n')
+            character = '_';
+    }
+    while (!prefix.empty() && (prefix.back() == ' ' || prefix.back() == '\t'))
+        prefix.pop_back();
+    if (prefix.empty()) prefix = "asset";
+
+    CSTR owner(mainpath);
+    const int graphicDeclaration = graphic.declare;
+    if (graphicDeclaration >= 0 && graphicDeclaration < skinfileLines.count) {
+        SKINFILELINEREAD& declaration =
+            ((SKINFILELINEREAD*)skinfileLines.data)[graphicDeclaration];
+        if (declaration.filename.body && *declaration.filename.outstr())
+            owner.assign(declaration.filename);
+    }
+    int insertAt = graphicDeclaration >= 0
+        ? graphicDeclaration + 1
+        : FindOwnerFileEndRow(skinfileLines, owner.outstr());
+    while (insertAt >= 0 && insertAt < skinfileLines.count) {
+        SKINFILELINEREAD& following =
+            ((SKINFILELINEREAD*)skinfileLines.data)[insertAt];
+        const char* text = following.line.body ? following.line.outstr() : "";
+        if (strncmp(text, "$SRC_IMAGE,", 11) != 0) break;
+        ++insertAt;
+    }
+
+    std::map<std::string, bool> knownCrops;
+    auto cropKey = [](int gr, int x, int y, int w, int h, int ifgroup) {
+        char key[192];
+        snprintf(key, sizeof(key), "%d:%d:%d:%d:%d:%d",
+            gr, x, y, w, h, ifgroup);
+        return std::string(key);
+    };
+    for (int candidateIndex = 0; candidateIndex < arr_IMG.count;
+        ++candidateIndex) {
+        IMG& candidate = ((IMG*)arr_IMG.data)[candidateIndex];
+        knownCrops[cropKey(candidate.gr, candidate.x, candidate.y,
+            candidate.w, candidate.h, candidate.ifGroup)] = true;
+    }
+
+    const int historyStart = arr_history.count;
+    int registeredCount = 0;
+    for (int row = 0; row < rows; ++row) {
+        for (int column = 0; column < columns; ++column) {
+            const int cellIndex = row * columns + column;
+            if (!selectedCells[cellIndex]) continue;
+            const int x0 = base.x + (baseWidth * column) / columns;
+            const int x1 = base.x + (baseWidth * (column + 1)) / columns;
+            const int y0 = base.y + (baseHeight * row) / rows;
+            const int y1 = base.y + (baseHeight * (row + 1)) / rows;
+            const int cellWidth = x1 - x0;
+            const int cellHeight = y1 - y0;
+            const std::string key = cropKey(base.gr, x0, y0, cellWidth,
+                cellHeight, base.ifGroup);
+            if (knownCrops.find(key) != knownCrops.end()) continue;
+
+            ++registeredCount;
+            char assetName[256];
+            snprintf(assetName, sizeof(assetName), "%s_%03d", prefix.c_str(),
+                registeredCount);
+            char assetLine[640];
+            snprintf(assetLine, sizeof(assetLine),
+                "$SRC_IMAGE,0,%d,%d,%d,%d,%d,1,1,0,0,0,0,0,%s",
+                base.gr, x0, y0, cellWidth, cellHeight, assetName);
+
+            if (InsertLine(insertAt) != 0) {
+                errorText = "A grid Asset row could not be inserted.";
+                break;
+            }
+            for (int existing = 0; existing < arr_IMG.count; ++existing) {
+                IMG& shifted = ((IMG*)arr_IMG.data)[existing];
+                if (shifted.sourceDeclare >= insertAt) ++shifted.sourceDeclare;
+                if (shifted.editorDeclare >= insertAt) ++shifted.editorDeclare;
+            }
+            SKINFILELINEREAD& metadata =
+                ((SKINFILELINEREAD*)skinfileLines.data)[insertAt];
+            metadata.filename.assign(owner);
+            metadata.ifgroup = base.ifGroup;
+            CSTR placeholder(metadata.line);
+            if (EditLine(insertAt, placeholder, CSTR(assetLine)) != 0) {
+                errorText = "A grid Asset row could not be written.";
+                break;
+            }
+            SplitCSV(metadata.line, &metadata.csv, ",");
+            metadata.csvColumnCount = CountCsvColumns(metadata.line);
+            insertedRows.push_back(insertAt);
+            knownCrops[key] = true;
+            ++insertAt;
+        }
+        if (!errorText.empty()) break;
+    }
+
+    const int historyCount = arr_history.count - historyStart;
+    if (historyCount > 1) {
+        HISTORY* grouped = (HISTORY*)arr_history.Get_new();
+        grouped->op = group;
+        grouped->target = historyCount;
+    }
+    if (!errorText.empty()) return false;
+    if (insertedRows.empty()) {
+        errorText = "No new Assets were added; every selected cell already exists.";
+        return false;
+    }
+
+    imageManagerAssetDeclarationFocusRequest = insertedRows.front();
+    assetSearch[0] = '\0';
+    wAssetBrowser = true;
+    ++imageAssetUsageGeneration;
+    return true;
+}
+
+void WORKSPACE::BuildImageDiagnostics(
+    std::vector<SEImageDiagnostic>& diagnostics) {
+    diagnostics.clear();
+
+    std::map<int, bool> graphicDeclarations;
+    for (int graphicIndex = 0; graphicIndex < arr_SRCGR.count; ++graphicIndex) {
+        SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
+        if (graphic.declare >= 0) graphicDeclarations[graphic.declare] = true;
+        const char* path = graphic.path.body ? graphic.path.outstr() : "";
+        if (!*path || _stricmp(path, "CONTINUE") == 0) continue;
+        const DWORD attributes = GetFileAttributesA(path);
+        if (attributes == INVALID_FILE_ATTRIBUTES) {
+            SEImageDiagnostic diagnostic;
+            diagnostic.kind = SEImageDiagnosticKind::MissingFile;
+            diagnostic.graphicIndex = graphicIndex;
+            diagnostic.message = "Missing file: " + Cp932ToUtf8(path);
+            diagnostics.push_back(diagnostic);
+            continue;
+        }
+        int width = 0;
+        int height = 0;
+        if ((attributes & FILE_ATTRIBUTE_DIRECTORY) != 0 ||
+            !GetImageSizeFromFile(path, &width, &height)) {
+            SEImageDiagnostic diagnostic;
+            diagnostic.kind = SEImageDiagnosticKind::UnloadableFile;
+            diagnostic.graphicIndex = graphicIndex;
+            diagnostic.message = "Unloadable candidate: " + Cp932ToUtf8(path);
+            diagnostics.push_back(diagnostic);
+        }
+    }
+    for (int row = 0; row < skinfileLines.count; ++row) {
+        SKINFILELINEREAD& declaration =
+            ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        if (!declaration.csv.str[0].body ||
+            !declaration.csv.str[0].isSame("#IMAGE") ||
+            graphicDeclarations.find(row) != graphicDeclarations.end())
+            continue;
+        const char* declaredPath = declaration.csv.str[1].body
+            ? declaration.csv.str[1].outstr() : "";
+        if (_stricmp(declaredPath, "CONTINUE") == 0) continue;
+        SEImageDiagnostic diagnostic;
+        diagnostic.kind = SEImageDiagnosticKind::MissingFile;
+        diagnostic.sourceRow = row;
+        diagnostic.message = "No files match #IMAGE: " +
+            Cp932ToUtf8(declaredPath);
+        diagnostics.push_back(diagnostic);
+    }
+
+    std::map<std::string, int> firstCrop;
+    const std::vector<std::vector<int>>& usage = ImageAssetUsage();
+    for (int assetIndex = 0; assetIndex < arr_IMG.count; ++assetIndex) {
+        IMG& asset = ((IMG*)arr_IMG.data)[assetIndex];
+        std::vector<std::pair<int, int>> textureCandidates;
+        CollectIMGTextureCandidates(assetIndex, textureCandidates);
+        int textureIndex = -1;
+        for (const std::pair<int, int>& candidate : textureCandidates) {
+            SRCGR& texture = ((SRCGR*)arr_SRCGR.data)[candidate.second];
+            if (texture.sizeX > 0 && texture.sizeY > 0) {
+                textureIndex = candidate.second;
+                break;
+            }
+        }
+        if (textureIndex >= 0 && textureIndex < arr_SRCGR.count) {
+            SRCGR& texture = ((SRCGR*)arr_SRCGR.data)[textureIndex];
+            const int width = asset.w == -1 ? texture.sizeX - asset.x : asset.w;
+            const int height = asset.h == -1 ? texture.sizeY - asset.y : asset.h;
+            if (asset.x < 0 || asset.y < 0 || width <= 0 || height <= 0 ||
+                asset.x + width > texture.sizeX ||
+                asset.y + height > texture.sizeY) {
+                SEImageDiagnostic diagnostic;
+                diagnostic.kind = SEImageDiagnosticKind::CropOutOfBounds;
+                diagnostic.assetIndex = assetIndex;
+                diagnostic.graphicIndex = textureIndex;
+                diagnostic.message = "Crop outside image bounds: Asset " +
+                    std::to_string(assetIndex);
+                diagnostics.push_back(diagnostic);
+            }
+        }
+
+        char duplicateKey[192];
+        snprintf(duplicateKey, sizeof(duplicateKey), "%d:%d:%d:%d:%d:%d",
+            asset.gr, asset.x, asset.y, asset.w, asset.h, asset.ifGroup);
+        const std::map<std::string, int>::const_iterator duplicate =
+            firstCrop.find(duplicateKey);
+        if (duplicate == firstCrop.end()) {
+            firstCrop[duplicateKey] = assetIndex;
+        } else {
+            SEImageDiagnostic diagnostic;
+            diagnostic.kind = SEImageDiagnosticKind::DuplicateCrop;
+            diagnostic.assetIndex = assetIndex;
+            diagnostic.message = "Duplicate crop: Asset " +
+                std::to_string(assetIndex) + " matches Asset " +
+                std::to_string(duplicate->second);
+            diagnostics.push_back(diagnostic);
+        }
+
+        if (asset.editorDeclare >= 0 && assetIndex < (int)usage.size() &&
+            usage[assetIndex].empty()) {
+            SEImageDiagnostic diagnostic;
+            diagnostic.kind = SEImageDiagnosticKind::UnusedAsset;
+            diagnostic.assetIndex = assetIndex;
+            diagnostic.sourceRow = asset.editorDeclare;
+            diagnostic.message = "Unused editor Asset: " +
+                std::to_string(assetIndex);
+            diagnostics.push_back(diagnostic);
+        }
+    }
+
+    for (int row = 0; row < skinfileLines.count; ++row) {
+        SKINFILELINEREAD& source =
+            ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        const char* command = source.csv.str[0].body
+            ? source.csv.str[0].outstr() : "";
+        int columns[5];
+        if (strncmp(command, "#SRC", 4) != 0 ||
+            !ResolveImageCropColumns(command, columns) ||
+            FindImageAssetForRow(row) >= 0) continue;
+        SEImageDiagnostic diagnostic;
+        diagnostic.kind = SEImageDiagnosticKind::SourceWithoutAsset;
+        diagnostic.sourceRow = row;
+        diagnostic.message = "Object SRC has no Asset: line " +
+            std::to_string(row + 1) + " " + command;
+        diagnostics.push_back(diagnostic);
+    }
+
+    // Duplicate editor metadata is collapsed while parsing, so inspect the
+    // source rows too; otherwise a redundant saved $SRC_IMAGE has no second
+    // IMG card from which to report itself.
+    std::map<std::string, int> firstEditorCropRow;
+    for (int row = 0; row < skinfileLines.count; ++row) {
+        SKINFILELINEREAD& metadata =
+            ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        const char* text = metadata.line.body ? metadata.line.outstr() : "";
+        if (strncmp(text, "$SRC_IMAGE,", 11) != 0) continue;
+        CSVbuf values;
+        SplitCSV(metadata.line, &values, ",");
+        char duplicateKey[192];
+        snprintf(duplicateKey, sizeof(duplicateKey), "%d:%d:%d:%d:%d:%d",
+            values.val[2], values.val[3], values.val[4], values.val[5],
+            values.val[6], metadata.ifgroup);
+        const std::map<std::string, int>::const_iterator duplicate =
+            firstEditorCropRow.find(duplicateKey);
+        if (duplicate == firstEditorCropRow.end()) {
+            firstEditorCropRow[duplicateKey] = row;
+            continue;
+        }
+        SEImageDiagnostic diagnostic;
+        diagnostic.kind = SEImageDiagnosticKind::DuplicateCrop;
+        diagnostic.assetIndex = FindIMG(values.val[2], values.val[3],
+            values.val[4], values.val[5], values.val[6], metadata.ifgroup);
+        if (diagnostic.assetIndex >= arr_IMG.count)
+            diagnostic.assetIndex = -1;
+        diagnostic.sourceRow = row;
+        diagnostic.message = "Duplicate editor crop: line " +
+            std::to_string(row + 1) + " matches line " +
+            std::to_string(duplicate->second + 1);
+        diagnostics.push_back(diagnostic);
+    }
+}
+
 bool WORKSPACE::OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY) {
     if (imageIndex < 0 || imageIndex >= arr_IMG.count || arr_CommandHelp.count <= 0)
         return false;
@@ -6022,6 +6719,173 @@ int WORKSPACE::drawAssetBrowser() {
         return 0;
     }
 
+    const std::vector<std::vector<int>>& assetUsage = ImageAssetUsage();
+    const std::vector<SEObjectInstance>& usageObjects =
+        objectEditorModel.Objects();
+    auto selectUsageObject = [&](int modelIndex) {
+        if (modelIndex < 0 || modelIndex >= (int)usageObjects.size()) return;
+        wObjectBrowser = true;
+        wObjectInspector = true;
+        SetObjectSelection(std::vector<int>(1, modelIndex), modelIndex,
+            modelIndex, true);
+        preview_object_dragging = false;
+        preview_selected_obj_valid = false;
+        preview_selected_obj_last_valid = false;
+    };
+    const int activeObjectIndex =
+        ResolveObjectSelectionKey(objectSelection.active);
+    std::vector<int> activeSourceRows;
+    CollectImageAssignableSourceRows(activeObjectIndex, activeSourceRows);
+    const bool hasAssignableObject = activeObjectIndex >= 0 &&
+        !activeSourceRows.empty();
+    auto requestAssetApply = [&](int imageIndex) {
+        const int modelIndex = ResolveObjectSelectionKey(objectSelection.active);
+        std::vector<int> sourceRows;
+        CollectImageAssignableSourceRows(modelIndex, sourceRows);
+        if (imageIndex < 0 || imageIndex >= arr_IMG.count ||
+            modelIndex < 0 || sourceRows.empty()) return false;
+        if (sourceRows.size() == 1) {
+            return ApplyImageAssetToObjectSource(imageIndex, modelIndex,
+                sourceRows.front(), assetApplyCopyAnimation);
+        }
+        assetApplyAssetIndex = imageIndex;
+        assetApplyObject = MakeObjectSelectionKey(modelIndex);
+        assetApplyDialogRequested = true;
+        return true;
+    };
+    auto requestAssetDelete = [&](int imageIndex) {
+        std::string reason;
+        if (!CanDeleteIMG(imageIndex, &reason)) {
+            assetDeleteStatus = reason;
+            return false;
+        }
+        assetDeleteAssetIndex = imageIndex;
+        assetDeleteDialogRequested = true;
+        assetDeleteStatus.clear();
+        return true;
+    };
+    char applyAssetPopup[96];
+    snprintf(applyAssetPopup, sizeof(applyAssetPopup),
+        "Apply Asset to Object##%d", num);
+    auto drawAssetApplyDialog = [&]() {
+        if (assetApplyDialogRequested) {
+            assetApplyDialogRequested = false;
+            ImGui::OpenPopup(applyAssetPopup);
+        }
+        ImGui::SetNextWindowSize(ImVec2(500.0f, 0.0f), ImGuiCond_Appearing);
+        if (!ImGui::BeginPopupModal(applyAssetPopup, NULL,
+            ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+        const int modelIndex = ResolveObjectSelectionKey(assetApplyObject);
+        std::vector<int> sourceRows;
+        CollectImageAssignableSourceRows(modelIndex, sourceRows);
+        const bool validAsset = assetApplyAssetIndex >= 0 &&
+            assetApplyAssetIndex < arr_IMG.count;
+        const bool validObject = modelIndex >= 0 && !sourceRows.empty();
+        if (!validAsset || !validObject) {
+            ImGui::TextWrapped("The selected Asset or Object is no longer available.");
+            if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+
+        IMG& asset = ((IMG*)arr_IMG.data)[assetApplyAssetIndex];
+        const SEObjectInstance& object = usageObjects[modelIndex];
+        const std::string objectName = Cp932ToUtf8(
+            object.name.empty() ? "(unnamed)" : object.name.c_str());
+        ImGui::Text("Asset %03d  gr %d", assetApplyAssetIndex, asset.gr);
+        ImGui::Text("Object %03d  %s", modelIndex, objectName.c_str());
+        ImGui::Checkbox("Copy SRC animation fields", &assetApplyCopyAnimation);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Also replace div_x, div_y, cycle and timer. Object-specific fields remain unchanged.");
+        ImGui::Separator();
+        ImGui::TextDisabled("Choose the SRC row to replace:");
+        for (int sourceRow : sourceRows) {
+            SKINFILELINEREAD& line =
+                ((SKINFILELINEREAD*)skinfileLines.data)[sourceRow];
+            const char* command = line.csv.str[0].body
+                ? line.csv.str[0].outstr() : "#SRC";
+            int columns[5];
+            if (!ResolveImageCropColumns(command, columns)) continue;
+            char rowLabel[320];
+            snprintf(rowLabel, sizeof(rowLabel),
+                "Line %d  %s   gr %d  (%d, %d, %d, %d)",
+                sourceRow + 1, command, line.csv.val[columns[0]],
+                line.csv.val[columns[1]], line.csv.val[columns[2]],
+                line.csv.val[columns[3]], line.csv.val[columns[4]]);
+            ImGui::PushID(sourceRow);
+            if (ImGui::Selectable(rowLabel)) {
+                ApplyImageAssetToObjectSource(assetApplyAssetIndex,
+                    modelIndex, sourceRow, assetApplyCopyAnimation);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::PopID();
+        }
+        ImGui::Separator();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    };
+    char deleteAssetPopup[96];
+    snprintf(deleteAssetPopup, sizeof(deleteAssetPopup),
+        "Delete Asset##%d", num);
+    auto drawAssetDeleteDialog = [&]() {
+        bool deleted = false;
+        if (assetDeleteDialogRequested) {
+            assetDeleteDialogRequested = false;
+            ImGui::OpenPopup(deleteAssetPopup);
+        }
+        ImGui::SetNextWindowSize(ImVec2(480.0f, 0.0f), ImGuiCond_Appearing);
+        if (!ImGui::BeginPopupModal(deleteAssetPopup, NULL,
+            ImGuiWindowFlags_AlwaysAutoResize)) return deleted;
+
+        std::string reason;
+        const bool canDelete = CanDeleteIMG(assetDeleteAssetIndex, &reason);
+        if (!canDelete) {
+            ImGui::TextWrapped("%s", reason.c_str());
+            if (ImGui::Button("Close", ImVec2(100.0f, 0.0f)))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return deleted;
+        }
+
+        IMG& asset = ((IMG*)arr_IMG.data)[assetDeleteAssetIndex];
+        const std::string assetName = Cp932ToUtf8(
+            asset.name.body ? asset.name.outstr() : "(unnamed)");
+        ImGui::Text("Asset %03d  gr %d", assetDeleteAssetIndex, asset.gr);
+        ImGui::TextWrapped("%s", assetName.c_str());
+        ImGui::Text("Crop: x %d  y %d  w %d  h %d",
+            asset.x, asset.y, asset.w, asset.h);
+        ImGui::Separator();
+        ImGui::TextWrapped(
+            "Remove this unused crop from the skin? The texture file on disk will not be deleted.");
+        ImGui::Spacing();
+        if (ImGui::Button("Delete", ImVec2(100.0f, 0.0f))) {
+            const int deletedIndex = assetDeleteAssetIndex;
+            if (DeleteIMG(deletedIndex) == 0) {
+                assetDeleteStatus = "Deleted Asset " +
+                    std::to_string(deletedIndex) + ".";
+                assetDeleteAssetIndex = -1;
+                imageManagerFocusRequest = -1;
+                assetBrowserFocusRequest = -1;
+                if (arr_IMG.count > 0) {
+                    SelectIMGAsset((std::min)(deletedIndex,
+                        arr_IMG.count - 1), false);
+                } else {
+                    src_selected = -1;
+                    gr_selected = -1;
+                    grID_selected = -1;
+                }
+                deleted = true;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100.0f, 0.0f)))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return deleted;
+    };
+
     ImGui::SetNextItemWidth((std::min)(260.0f,
         (std::max)(120.0f, ImGui::GetContentRegionAvail().x * 0.42f)));
     ImGui::InputTextWithHint("##AssetSearch", "Search asset, gr or command...",
@@ -6034,6 +6898,40 @@ int WORKSPACE::drawAssetBrowser() {
     ImGui::Checkbox("Animate SRC", &assetAnimateSrc);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
         ImGui::SetTooltip("Preview div_x/div_y frames using the SRC cycle value.");
+    ImGui::SameLine();
+    ImGui::Checkbox("Unused only", &assetShowUnusedOnly);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("Show crops that are not referenced by any Object SRC command.");
+    ImGui::Spacing();
+    ImGui::BeginDisabled(src_selected < 0 || src_selected >= arr_IMG.count ||
+        !hasAssignableObject);
+    if (ImGui::Button("Use in selected Object"))
+        requestAssetApply(src_selected);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled |
+        ImGuiHoveredFlags_DelayNormal)) {
+        if (activeObjectIndex < 0)
+            ImGui::SetTooltip("Select an Object first.");
+        else if (activeSourceRows.empty())
+            ImGui::SetTooltip("The selected Object has no image-backed SRC row.");
+        else
+            ImGui::SetTooltip("Replace the selected Object SRC crop in one undoable edit.");
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("Copy animation", &assetApplyCopyAnimation);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("Also copy div_x, div_y, cycle and timer from the Asset SRC.");
+    if (!assetDeleteStatus.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", assetDeleteStatus.c_str());
+    }
+
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive() &&
+        ImGui::IsKeyPressed(ImGuiKey_Delete, false) &&
+        src_selected >= 0 && src_selected < arr_IMG.count) {
+        requestAssetDelete(src_selected);
+    }
 
     auto lowercase = [](std::string value) {
         std::transform(value.begin(), value.end(), value.begin(),
@@ -6045,14 +6943,18 @@ int WORKSPACE::drawAssetBrowser() {
     filteredAssets.reserve(arr_IMG.count);
     for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
         IMG& tag = ((IMG*)arr_IMG.data)[imageIndex];
+        const std::vector<int>& users = assetUsage[imageIndex];
+        if (assetShowUnusedOnly && !users.empty()) continue;
         if (query.empty()) {
             filteredAssets.push_back(imageIndex);
             continue;
         }
         const std::string tagName = Cp932ToUtf8(tag.name.body ? tag.name.outstr() : "");
         char metadata[256];
-        snprintf(metadata, sizeof(metadata), "%03d asset %d gr %d g%02d if %d %s",
-            imageIndex, imageIndex, tag.gr, tag.gr, tag.ifGroup, tagName.c_str());
+        snprintf(metadata, sizeof(metadata),
+            "%03d asset %d gr %d g%02d if %d %s %s",
+            imageIndex, imageIndex, tag.gr, tag.gr, tag.ifGroup,
+            tagName.c_str(), users.empty() ? "unused" : "used");
         if (query.empty() || lowercase(metadata).find(query) != std::string::npos)
             filteredAssets.push_back(imageIndex);
     }
@@ -6063,6 +6965,11 @@ int WORKSPACE::drawAssetBrowser() {
 
     if (filteredAssets.empty()) {
         SEUI::EmptyState("No matching assets", "Clear the search text to show every crop.");
+        if (drawAssetDeleteDialog()) {
+            ImGui::End();
+            return 0;
+        }
+        drawAssetApplyDialog();
         ImGui::End();
         return 0;
     }
@@ -6074,7 +6981,7 @@ int WORKSPACE::drawAssetBrowser() {
         const float spacing = (std::max)(6.0f, style.ItemSpacing.x);
         const float cardWidth = assetThumbnailSize + padding * 2.0f;
         const float cardHeight = assetThumbnailSize + padding * 2.0f +
-            ImGui::GetTextLineHeight() * 2.0f + 5.0f;
+            ImGui::GetTextLineHeight() * 3.0f + 5.0f;
         const float itemStepX = cardWidth + spacing;
         const float itemStepY = cardHeight + spacing;
         const float availableWidth = ImGui::GetContentRegionAvail().x;
@@ -6112,6 +7019,7 @@ int WORKSPACE::drawAssetBrowser() {
                     const int column = filteredIndex - rowStart;
                     const int imageIndex = filteredAssets[filteredIndex];
                     IMG& tag = ((IMG*)arr_IMG.data)[imageIndex];
+                    const std::vector<int>& users = assetUsage[imageIndex];
                     const ImVec2 cardPos(gridStart.x + column * itemStepX,
                         gridStart.y + row * itemStepY);
 
@@ -6245,6 +7153,18 @@ int WORKSPACE::drawAssetBrowser() {
                     drawList->AddText(ImVec2(cardMin.x + padding,
                         thumbMax.y + 4.0f + ImGui::GetTextLineHeight()),
                         ImGui::GetColorU32(ImGuiCol_TextDisabled), tagName.c_str());
+                    char usageLabel[64];
+                    if (users.empty()) {
+                        snprintf(usageLabel, sizeof(usageLabel), "Unused");
+                    } else {
+                        snprintf(usageLabel, sizeof(usageLabel), "%d Object%s",
+                            (int)users.size(), users.size() == 1 ? "" : "s");
+                    }
+                    drawList->AddText(ImVec2(cardMin.x + padding,
+                        thumbMax.y + 4.0f + ImGui::GetTextLineHeight() * 2.0f),
+                        users.empty() ? ImGui::GetColorU32(SEUI::Colors::Warning())
+                            : ImGui::GetColorU32(SEUI::Colors::Success()),
+                        usageLabel);
                     drawList->PopClipRect();
                     if (selected)
                         drawList->AddRect(cardMin, cardMax,
@@ -6262,6 +7182,56 @@ int WORKSPACE::drawAssetBrowser() {
                             imagePixelPaintLastY = -1;
                             imagePixelPaintLastButton = -1;
                             ImGui::SetWindowFocus(managerTitle);
+                        }
+                        if (ImGui::MenuItem("Use in selected Object", NULL,
+                            false, hasAssignableObject)) {
+                            requestAssetApply(imageIndex);
+                        }
+                        ImGui::Separator();
+                        if (ImGui::MenuItem("Select first using Object", NULL,
+                            false, !users.empty())) {
+                            selectUsageObject(users.front());
+                        }
+                        char usageMenuLabel[64];
+                        snprintf(usageMenuLabel, sizeof(usageMenuLabel),
+                            "Used by Objects (%d)", (int)users.size());
+                        if (ImGui::BeginMenu(usageMenuLabel, !users.empty())) {
+                            const int shownUsers = (std::min)(32,
+                                (int)users.size());
+                            for (int userIndex = 0; userIndex < shownUsers;
+                                ++userIndex) {
+                                const int modelIndex = users[userIndex];
+                                if (modelIndex < 0 ||
+                                    modelIndex >= (int)usageObjects.size()) continue;
+                                const SEObjectInstance& object =
+                                    usageObjects[modelIndex];
+                                const std::string objectName = Cp932ToUtf8(
+                                    object.name.empty() ? "(unnamed)" :
+                                        object.name.c_str());
+                                char objectLabel[320];
+                                snprintf(objectLabel, sizeof(objectLabel),
+                                    "%03d  %s", modelIndex,
+                                    objectName.c_str());
+                                if (ImGui::MenuItem(objectLabel))
+                                    selectUsageObject(modelIndex);
+                            }
+                            if ((int)users.size() > shownUsers)
+                                ImGui::TextDisabled("... %d more",
+                                    (int)users.size() - shownUsers);
+                            ImGui::EndMenu();
+                        }
+                        ImGui::Separator();
+                        std::string deleteReason;
+                        const bool canDeleteAsset =
+                            CanDeleteIMG(imageIndex, &deleteReason);
+                        if (ImGui::MenuItem("Delete Asset...", "Delete", false,
+                            canDeleteAsset)) {
+                            requestAssetDelete(imageIndex);
+                        }
+                        if (!canDeleteAsset && ImGui::IsItemHovered(
+                            ImGuiHoveredFlags_AllowWhenDisabled |
+                            ImGuiHoveredFlags_DelayNormal)) {
+                            ImGui::SetTooltip("%s", deleteReason.c_str());
                         }
                         ImGui::EndPopup();
                     }
@@ -6281,6 +7251,24 @@ int WORKSPACE::drawAssetBrowser() {
                         ImGui::Text("gr %d  x %d  y %d  w %d  h %d",
                             tag.gr, tag.x, tag.y, tag.w, tag.h);
                         ImGui::Text("IF branch %d", tag.ifGroup);
+                        ImGui::Text("Usage: %s", usageLabel);
+                        const int tooltipUsers = (std::min)(3,
+                            (int)users.size());
+                        for (int userIndex = 0; userIndex < tooltipUsers;
+                            ++userIndex) {
+                            const int modelIndex = users[userIndex];
+                            if (modelIndex < 0 ||
+                                modelIndex >= (int)usageObjects.size()) continue;
+                            const std::string objectName = Cp932ToUtf8(
+                                usageObjects[modelIndex].name.empty()
+                                    ? "(unnamed)"
+                                    : usageObjects[modelIndex].name.c_str());
+                            ImGui::BulletText("%03d  %s", modelIndex,
+                                objectName.c_str());
+                        }
+                        if ((int)users.size() > tooltipUsers)
+                            ImGui::TextDisabled("... %d more",
+                                (int)users.size() - tooltipUsers);
                         if (animationSource) {
                             ImGui::Text("SRC div %d x %d  cycle %d ms",
                                 (std::max)(1, animationSource->div_x),
@@ -6304,6 +7292,11 @@ int WORKSPACE::drawAssetBrowser() {
         clipper.End();
     }
     ImGui::EndChild();
+    if (drawAssetDeleteDialog()) {
+        ImGui::End();
+        return 0;
+    }
+    drawAssetApplyDialog();
     ImGui::End();
     return 0;
 }
@@ -6325,23 +7318,71 @@ int WORKSPACE::drawImgManager() {
     if (src_selected < 0 || src_selected >= arr_IMG.count)
         SelectIMGAsset(0, false);
 
+    const std::vector<std::vector<int>>& assetUsage = ImageAssetUsage();
+    std::map<int, std::vector<int>> logicalGraphicUsage;
+    for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
+        IMG& asset = ((IMG*)arr_IMG.data)[imageIndex];
+        std::vector<int>& graphicUsers = logicalGraphicUsage[asset.gr];
+        for (int modelIndex : assetUsage[imageIndex]) {
+            if (std::find(graphicUsers.begin(), graphicUsers.end(), modelIndex) ==
+                graphicUsers.end())
+                graphicUsers.push_back(modelIndex);
+        }
+    }
+    auto logicalGraphicUsageCount = [&](int logicalGr) {
+        const std::map<int, std::vector<int>>::const_iterator found =
+            logicalGraphicUsage.find(logicalGr);
+        return found == logicalGraphicUsage.end() ? 0 :
+            (int)found->second.size();
+    };
+
     static bool newSquare = 0;
     bool clicked = 0;
     int deleteImageRequest = -1;
+    int diagnosticObjectNavigationRequest = -1;
+    bool openImageStatusRequest = false;
+    bool focusImageListSelection = false;
     const float imageEditPanelHeight = 150.0f;
     if (imageManagerGeneratedGrFocusRequest >= 0) {
         for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
             IMG& generated = ((IMG*)arr_IMG.data)[imageIndex];
             if (generated.gr != imageManagerGeneratedGrFocusRequest) continue;
             clicked = SelectIMGAsset(imageIndex, false);
+            focusImageListSelection = true;
             assetBrowserFocusRequest = imageIndex;
             imageManagerFocusRequest = imageIndex;
             imageManagerGeneratedGrFocusRequest = -1;
             break;
         }
     }
+    if (imageManagerGraphicDeclarationFocusRequest >= 0) {
+        for (int graphicIndex = 0; graphicIndex < arr_SRCGR.count;
+            ++graphicIndex) {
+            SRCGR& candidate = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
+            if (candidate.declare != imageManagerGraphicDeclarationFocusRequest)
+                continue;
+            gr_selected = graphicIndex;
+            grID_selected = candidate.grID;
+            imageManagerGraphicDeclarationFocusRequest = -1;
+            break;
+        }
+    }
+    if (imageManagerAssetDeclarationFocusRequest >= 0) {
+        for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
+            IMG& candidate = ((IMG*)arr_IMG.data)[imageIndex];
+            if (candidate.editorDeclare != imageManagerAssetDeclarationFocusRequest)
+                continue;
+            clicked = SelectIMGAsset(imageIndex, false);
+            focusImageListSelection = true;
+            assetBrowserFocusRequest = imageIndex;
+            imageManagerFocusRequest = imageIndex;
+            imageManagerAssetDeclarationFocusRequest = -1;
+            break;
+        }
+    }
     if (imageManagerFocusRequest >= 0) {
         clicked = SelectIMGAsset(imageManagerFocusRequest, false);
+        focusImageListSelection = true;
         imageManagerFocusRequest = -1;
     }
 
@@ -6352,18 +7393,50 @@ int WORKSPACE::drawImgManager() {
     if (ImGui::BeginChild(title, { 250,-imageEditPanelHeight },
         ImGuiChildFlags_ResizeX | ImGuiChildFlags_FrameStyle)) {
 
-        for (int i = 0; i < arr_IMG.count; i++) {
+        ImGuiListClipper imageListClipper;
+        imageListClipper.Begin(arr_IMG.count);
+        if (focusImageListSelection && src_selected >= 0 &&
+            src_selected < arr_IMG.count)
+            imageListClipper.IncludeItemByIndex(src_selected);
+        while (imageListClipper.Step()) {
+        for (int i = imageListClipper.DisplayStart;
+            i < imageListClipper.DisplayEnd; ++i) {
             IMG& img = ((IMG*)arr_IMG.data)[i];
             char buf[260];
-            sprintf(buf, "%03d %02d:%s", i, img.gr, img.name.outstr());
+            const int usageCount = (int)assetUsage[i].size();
+            const std::string usageText = usageCount == 0 ? "Unused" :
+                std::to_string(usageCount) +
+                    (usageCount == 1 ? " Object" : " Objects");
+            const std::string imageName = Cp932ToUtf8(
+                img.name.body ? img.name.outstr() : "");
+            snprintf(buf, sizeof(buf), "%03d %02d [%s] %s", i, img.gr,
+                usageText.c_str(),
+                imageName.c_str());
             ImGui::PushID(i);
-            if (ImGui::Selectable(buf, i == src_selected)) {
+            const bool imageRowSelected = i == src_selected;
+            if (ImGui::Selectable(buf, imageRowSelected)) {
                 SelectIMGAsset(i, false);
                 clicked = true;
+            }
+            if (focusImageListSelection && imageRowSelected)
+                ImGui::SetScrollHereY(0.5f);
+            if (!imageRowSelected &&
+                ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone)) {
+                imageManagerHoveredAssetIndex = i;
+                imageManagerHoveredAssetFrame = ImGui::GetFrameCount();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                if (usageCount == 0)
+                    ImGui::SetTooltip("This crop is not used by an Object.");
+                else
+                    ImGui::SetTooltip("Used by %d Object%s.", usageCount,
+                        usageCount == 1 ? "" : "s");
             }
             
             ImGui::PopID();
         }
+        }
+        imageListClipper.End();
         IMG& img = ((IMG*)arr_IMG.data)[src_selected];
         if (ImGui::BeginPopupContextWindow()) {
             ImGui::Text("selected : %03d", src_selected);
@@ -6401,11 +7474,7 @@ int WORKSPACE::drawImgManager() {
         ImGuiChildFlags_ResizeX | ImGuiChildFlags_FrameStyle)) {
         IMG& img = ((IMG*)arr_IMG.data)[src_selected];
         
-        char buf[64];
-        strncpy(buf, img.name.outstr(), sizeof(buf) - 1);
-        buf[sizeof(buf) - 1] = '\0';
-        ImGui::InputText("##name", buf, sizeof(buf));
-        img.name.assign(buf);
+        CstrInputText("##name", &img.name);
 
         int editedGr = img.gr;
         int editedPosition[2] = { img.x, img.y };
@@ -6428,10 +7497,13 @@ int WORKSPACE::drawImgManager() {
     ImGui::BeginGroup();
 
     static int gr_type;
-    auto formatGraphicLabel = [](int index, SRCGR& graphic) {
-        char prefix[64];
-        snprintf(prefix, sizeof(prefix), "%03d %02d [IF %03d] : ",
-            index, graphic.grID, graphic.isIf);
+    auto formatGraphicLabel = [&](int index, SRCGR& graphic) {
+        char prefix[128];
+        const int usageCount = logicalGraphicUsageCount(graphic.grID);
+        snprintf(prefix, sizeof(prefix),
+            "%03d %02d [IF %03d] [%d Object%s] : ",
+            index, graphic.grID, graphic.isIf, usageCount,
+            usageCount == 1 ? "" : "s");
         const std::string filenameUtf8 = Cp932ToUtf8(
             graphic.filename.body ? graphic.filename.outstr() : "");
         return std::string(prefix) + filenameUtf8;
@@ -6441,22 +7513,7 @@ int WORKSPACE::drawImgManager() {
     if (gr_selected < 0 || gr_selected >= arr_SRCGR.count ||
         ((SRCGR*)arr_SRCGR.data)[gr_selected].grID != grID_selected ||
         ((SRCGR*)arr_SRCGR.data)[gr_selected].isIf != selectedImageTag.ifGroup) {
-        for (int i = 0; i < arr_SRCGR.count; i++) {
-            SRCGR& gr = ((SRCGR*)arr_SRCGR.data)[i];
-            if (gr.grID == grID_selected && gr.isIf == selectedImageTag.ifGroup) {
-                gr_selected = i;
-                break;
-            }
-        }
-        if (gr_selected < 0 || gr_selected >= arr_SRCGR.count ||
-            ((SRCGR*)arr_SRCGR.data)[gr_selected].grID != grID_selected) {
-            for (int i = 0; i < arr_SRCGR.count; ++i) {
-                if (((SRCGR*)arr_SRCGR.data)[i].grID == grID_selected) {
-                    gr_selected = i;
-                    break;
-                }
-            }
-        }
+        gr_selected = ResolveIMGTextureIndex(src_selected);
     }
     if (gr_selected >= 0 && gr_selected < arr_SRCGR.count) {
         SRCGR& selectedGraphic = ((SRCGR*)arr_SRCGR.data)[gr_selected];
@@ -6497,8 +7554,95 @@ int WORKSPACE::drawImgManager() {
         img.path.body ? img.path.outstr() : "");
     ImGui::Text("%s %d %d", imagePathUtf8.c_str(), img.sizeX, img.sizeY);
     ImGui::SameLine(0, 0);
+    const bool hasImageDiskPath = img.path.body && *img.path.outstr();
     snprintf(title, sizeof(title), "grReload##%d", num);
-    ImGui::Button(title);
+    ImGui::BeginDisabled(!hasImageDiskPath);
+    if (ImGui::Button(title)) {
+        const std::string reloadPath = img.path.body ? img.path.outstr() : "";
+        const bool reloadDirty = !reloadPath.empty() &&
+            imagePixelPaintDirtyPaths.find(reloadPath) !=
+                imagePixelPaintDirtyPaths.end();
+        if (reloadDirty) {
+            imageToolStatus =
+                "Save or revert pixel edits before reloading this texture.";
+        } else {
+            imageManagerReloadPathRequest = reloadPath;
+            imageToolStatus = "Texture reload queued.";
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine(0, 0);
+    ImGui::BeginDisabled(!hasImageDiskPath);
+    if (ImGui::Button("Folder##imageManagerExplorer")) {
+        if (!OpenCp932PathInExplorer(img.path.outstr()))
+            imageToolStatus = "Windows Explorer could not open this image path.";
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("Open the current image in Windows Explorer.");
+    ImGui::SameLine(0, 0);
+    const std::string selectedPaintPath = img.path.body
+        ? img.path.outstr() : "";
+    const bool selectedPaintDirty = !selectedPaintPath.empty() &&
+        imagePixelPaintDirtyPaths.find(selectedPaintPath) !=
+            imagePixelPaintDirtyPaths.end();
+    ImGui::BeginDisabled(selectedPaintDirty || img.declare < 0);
+    if (ImGui::Button("Replace##imageManagerReplace")) {
+        char replacementPath[MAX_PATH] = {};
+        if (BrowseImageOpenPath(img.path.body ? img.path.outstr() : NULL,
+            replacementPath, sizeof(replacementPath))) {
+            int replacementWidth = 0;
+            int replacementHeight = 0;
+            imageToolStatus.clear();
+            if (!GetImageSizeFromFile(replacementPath, &replacementWidth,
+                &replacementHeight)) {
+                imageToolStatus = "The selected file cannot be loaded as an image.";
+            } else {
+                imageReplaceDeclarationRow = img.declare;
+                imageReplaceOldWidth = img.sizeX;
+                imageReplaceOldHeight = img.sizeY;
+                imageReplaceNewWidth = replacementWidth;
+                imageReplaceNewHeight = replacementHeight;
+                imageReplaceAffectedCropCount = 0;
+                imageReplaceOutOfBoundsCropCount = 0;
+                for (int assetIndex = 0; assetIndex < arr_IMG.count;
+                    ++assetIndex) {
+                    IMG& asset = ((IMG*)arr_IMG.data)[assetIndex];
+                    if (asset.gr != img.grID || asset.ifGroup != img.isIf)
+                        continue;
+                    ++imageReplaceAffectedCropCount;
+                    const int width = asset.w == -1
+                        ? replacementWidth - asset.x : asset.w;
+                    const int height = asset.h == -1
+                        ? replacementHeight - asset.y : asset.h;
+                    if (asset.x < 0 || asset.y < 0 || width <= 0 ||
+                        height <= 0 || asset.x + width > replacementWidth ||
+                        asset.y + height > replacementHeight)
+                        ++imageReplaceOutOfBoundsCropCount;
+                }
+                imageReplaceDiskPath = replacementPath;
+                if (imageReplaceOldWidth != imageReplaceNewWidth ||
+                    imageReplaceOldHeight != imageReplaceNewHeight) {
+                    imageReplaceDialogRequested = true;
+                } else {
+                    ReplaceImageDeclarationPath(gr_selected,
+                        imageReplaceDiskPath.c_str(), imageToolStatus);
+                }
+            }
+        }
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort |
+        ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip(selectedPaintDirty
+            ? "Save or revert pixel edits before replacing this texture."
+            : "Change only this #IMAGE path; logical gr and crop coordinates stay unchanged.");
+    }
+    ImGui::SameLine(0, 0);
+    if (ImGui::Button("Usage##imageManagerUsage"))
+        openImageStatusRequest = true;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("Open image usage, file, crop and gr diagnostics.");
     ImGui::SameLine(0, 0);
     ImGui::ColorEdit4("MyColor##3", (float*)&bgColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_None);
 
@@ -6529,13 +7673,49 @@ int WORKSPACE::drawImgManager() {
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::TextDisabled("New files are appended as the final gr slot.");
+    if (ImGui::Button("Split grid##imageToolGrid")) {
+        imageGridAssetIndex = src_selected;
+        int suggestedColumns = 1;
+        int suggestedRows = 1;
+        int suggestedCycle = 0;
+        int suggestedTimer = 0;
+        ResolveIMGDivision(src_selected, suggestedColumns, suggestedRows,
+            suggestedCycle, suggestedTimer);
+        imageGridColumns = (std::max)(1, suggestedColumns);
+        imageGridRows = (std::max)(1, suggestedRows);
+        imageGridSelectedCells.assign(
+            (size_t)(imageGridColumns * imageGridRows), 1);
+        IMG& gridAsset = ((IMG*)arr_IMG.data)[src_selected];
+        imageGridGr = gridAsset.gr;
+        imageGridX = gridAsset.x;
+        imageGridY = gridAsset.y;
+        imageGridW = gridAsset.w;
+        imageGridH = gridAsset.h;
+        imageGridIfGroup = gridAsset.ifGroup;
+        std::string prefix = gridAsset.name.body
+            ? Cp932ToUtf8(gridAsset.name.outstr()) : std::string();
+        if (prefix.empty() || prefix == "manual crop" ||
+            prefix.find("#SRC") == 0)
+            prefix = "gr" + std::to_string(gridAsset.gr) + "_asset";
+        strncpy_s(imageGridNamePrefix, sizeof(imageGridNamePrefix),
+            prefix.c_str(), _TRUNCATE);
+        imageToolStatus.clear();
+        imageGridDialogRequested = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("New files use the final gr slot; grid cells reuse this gr.");
 
     char newImagePopup[96] = {};
     char mergeImagePopup[96] = {};
+    char replaceImagePopup[96] = {};
+    char gridImagePopup[96] = {};
     snprintf(newImagePopup, sizeof(newImagePopup), "New image##newImage%d", num);
     snprintf(mergeImagePopup, sizeof(mergeImagePopup),
         "Merge image##mergeImage%d", num);
+    snprintf(replaceImagePopup, sizeof(replaceImagePopup),
+        "Replace texture##replaceImage%d", num);
+    snprintf(gridImagePopup, sizeof(gridImagePopup),
+        "Split Asset grid##gridImage%d", num);
     if (imageNewDialogRequested) {
         ImGui::OpenPopup(newImagePopup);
         imageNewDialogRequested = false;
@@ -6543,6 +7723,14 @@ int WORKSPACE::drawImgManager() {
     if (imageMergeDialogRequested) {
         ImGui::OpenPopup(mergeImagePopup);
         imageMergeDialogRequested = false;
+    }
+    if (imageReplaceDialogRequested) {
+        ImGui::OpenPopup(replaceImagePopup);
+        imageReplaceDialogRequested = false;
+    }
+    if (imageGridDialogRequested) {
+        ImGui::OpenPopup(gridImagePopup);
+        imageGridDialogRequested = false;
     }
 
     ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_Appearing);
@@ -6730,9 +7918,291 @@ int WORKSPACE::drawImgManager() {
         ImGui::EndPopup();
     }
 
+    ImGui::SetNextWindowSize(ImVec2(520.0f, 0.0f), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal(replaceImagePopup, NULL,
+        ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Replace this #IMAGE file");
+        const std::string replacementPathUtf8 = Cp932ToUtf8(
+            imageReplaceDiskPath.c_str());
+        ImGui::TextWrapped("%s", replacementPathUtf8.c_str());
+        ImGui::Separator();
+        ImGui::Text("Dimensions: %d x %d  ->  %d x %d",
+            imageReplaceOldWidth, imageReplaceOldHeight,
+            imageReplaceNewWidth, imageReplaceNewHeight);
+        ImGui::Text("Affected crops: %d", imageReplaceAffectedCropCount);
+        if (imageReplaceOutOfBoundsCropCount > 0) {
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.42f, 1.0f),
+                "%d crop(s) will be outside the new image bounds.",
+                imageReplaceOutOfBoundsCropCount);
+        }
+        ImGui::TextDisabled("Crop coordinates are intentionally not adjusted.");
+        ImGui::Separator();
+        if (ImGui::Button("Replace", ImVec2(100.0f, 0.0f))) {
+            int replacementGraphicIndex = -1;
+            for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
+                if (((SRCGR*)arr_SRCGR.data)[candidate].declare ==
+                    imageReplaceDeclarationRow) {
+                    replacementGraphicIndex = candidate;
+                    break;
+                }
+            }
+            if (replacementGraphicIndex < 0) {
+                imageToolStatus =
+                    "The #IMAGE declaration changed while this dialog was open.";
+            } else if (ReplaceImageDeclarationPath(replacementGraphicIndex,
+                imageReplaceDiskPath.c_str(), imageToolStatus))
+                ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
+            imageToolStatus.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(620.0f, 0.0f), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal(gridImagePopup, NULL,
+        ImGuiWindowFlags_AlwaysAutoResize)) {
+        imageGridAssetIndex = FindIMG(imageGridGr, imageGridX, imageGridY,
+            imageGridW, imageGridH, imageGridIfGroup);
+        const bool validGridAsset = imageGridAssetIndex >= 0 &&
+            imageGridAssetIndex < arr_IMG.count;
+        if (!validGridAsset) {
+            ImGui::TextUnformatted("The source Asset is no longer available.");
+            if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        } else {
+            IMG& gridAsset = ((IMG*)arr_IMG.data)[imageGridAssetIndex];
+            const int gridTextureIndex = ResolveIMGTextureIndex(
+                imageGridAssetIndex);
+            const bool validGridTexture = gridTextureIndex >= 0 &&
+                gridTextureIndex < arr_SRCGR.count &&
+                EnsureSRCGRTexture(gridTextureIndex);
+            SRCGR* gridTexture = validGridTexture
+                ? &((SRCGR*)arr_SRCGR.data)[gridTextureIndex] : NULL;
+            const int gridWidth = gridAsset.w == -1 && gridTexture
+                ? gridTexture->sizeX - gridAsset.x : gridAsset.w;
+            const int gridHeight = gridAsset.h == -1 && gridTexture
+                ? gridTexture->sizeY - gridAsset.y : gridAsset.h;
+
+            ImGui::Text("Asset %03d  gr %d  %d x %d", imageGridAssetIndex,
+                gridAsset.gr, gridWidth, gridHeight);
+            int dimensions[2] = { imageGridColumns, imageGridRows };
+            ImGui::SetNextItemWidth(220.0f);
+            if (ImGui::InputInt2("Columns / rows", dimensions)) {
+                imageGridColumns = (std::max)(1, (std::min)(64,
+                    dimensions[0]));
+                imageGridRows = (std::max)(1, (std::min)(64,
+                    dimensions[1]));
+                while (imageGridColumns * imageGridRows > 4096) {
+                    if (imageGridColumns >= imageGridRows) --imageGridColumns;
+                    else --imageGridRows;
+                }
+                imageGridSelectedCells.assign(
+                    (size_t)(imageGridColumns * imageGridRows), 1);
+            }
+            ImGui::SetNextItemWidth(320.0f);
+            ImGui::InputText("Name prefix", imageGridNamePrefix,
+                sizeof(imageGridNamePrefix));
+            const int minimumCellWidth = imageGridColumns > 0
+                ? gridWidth / imageGridColumns : 0;
+            const int maximumCellWidth = imageGridColumns > 0
+                ? (gridWidth + imageGridColumns - 1) / imageGridColumns : 0;
+            const int minimumCellHeight = imageGridRows > 0
+                ? gridHeight / imageGridRows : 0;
+            const int maximumCellHeight = imageGridRows > 0
+                ? (gridHeight + imageGridRows - 1) / imageGridRows : 0;
+            ImGui::TextDisabled("Cell size: %d-%d x %d-%d px",
+                minimumCellWidth, maximumCellWidth,
+                minimumCellHeight, maximumCellHeight);
+
+            if (validGridTexture && gridWidth > 0 && gridHeight > 0) {
+                float previewScale = (std::min)(480.0f / gridWidth,
+                    240.0f / gridHeight);
+                previewScale = (std::max)(0.05f,
+                    (std::min)(previewScale, 4.0f));
+                const ImVec2 previewSize(gridWidth * previewScale,
+                    gridHeight * previewScale);
+                const ImVec2 uv0(gridAsset.x / (float)gridTexture->sizeX,
+                    gridAsset.y / (float)gridTexture->sizeY);
+                const ImVec2 uv1((gridAsset.x + gridWidth) /
+                    (float)gridTexture->sizeX,
+                    (gridAsset.y + gridHeight) /
+                    (float)gridTexture->sizeY);
+                ImGui::ImageWithBg(gridTexture->texture, previewSize, uv0, uv1,
+                    ImVec4(0.12f, 0.14f, 0.18f, 1.0f));
+                const ImVec2 previewMin = ImGui::GetItemRectMin();
+                const ImVec2 previewMax = ImGui::GetItemRectMax();
+                ImDrawList* draw = ImGui::GetWindowDrawList();
+                for (int gridRow = 0; gridRow < imageGridRows; ++gridRow) {
+                    for (int gridColumn = 0; gridColumn < imageGridColumns;
+                        ++gridColumn) {
+                        const int cell = gridRow * imageGridColumns + gridColumn;
+                        const ImVec2 cellMin(
+                            previewMin.x + previewSize.x * gridColumn /
+                                imageGridColumns,
+                            previewMin.y + previewSize.y * gridRow /
+                                imageGridRows);
+                        const ImVec2 cellMax(
+                            previewMin.x + previewSize.x * (gridColumn + 1) /
+                                imageGridColumns,
+                            previewMin.y + previewSize.y * (gridRow + 1) /
+                                imageGridRows);
+                        if (cell >= (int)imageGridSelectedCells.size() ||
+                            !imageGridSelectedCells[cell])
+                            draw->AddRectFilled(cellMin, cellMax,
+                                IM_COL32(8, 10, 14, 190));
+                        draw->AddRect(cellMin, cellMax,
+                            IM_COL32(73, 145, 230, 220));
+                    }
+                }
+                if (ImGui::IsItemHovered()) {
+                    const ImVec2 mouse = ImGui::GetIO().MousePos;
+                    int hoverColumn = (int)((mouse.x - previewMin.x) /
+                        previewSize.x * imageGridColumns);
+                    int hoverRow = (int)((mouse.y - previewMin.y) /
+                        previewSize.y * imageGridRows);
+                    hoverColumn = (std::min)(imageGridColumns - 1,
+                        (std::max)(0, hoverColumn));
+                    hoverRow = (std::min)(imageGridRows - 1,
+                        (std::max)(0, hoverRow));
+                    const int x0 = gridAsset.x + gridWidth * hoverColumn /
+                        imageGridColumns;
+                    const int x1 = gridAsset.x + gridWidth *
+                        (hoverColumn + 1) / imageGridColumns;
+                    const int y0 = gridAsset.y + gridHeight * hoverRow /
+                        imageGridRows;
+                    const int y1 = gridAsset.y + gridHeight *
+                        (hoverRow + 1) / imageGridRows;
+                    ImGui::SetTooltip("Cell %d, %d  |  %d %d  %d x %d",
+                        hoverColumn + 1, hoverRow + 1, x0, y0,
+                        x1 - x0, y1 - y0);
+                    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                        const int cell = hoverRow * imageGridColumns +
+                            hoverColumn;
+                        if (cell >= 0 && cell <
+                            (int)imageGridSelectedCells.size())
+                            imageGridSelectedCells[cell] =
+                                imageGridSelectedCells[cell] ? 0 : 1;
+                    }
+                }
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.42f, 1.0f),
+                    "The source texture cannot be previewed.");
+            }
+
+            int selectedCellCount = 0;
+            for (unsigned char selected : imageGridSelectedCells)
+                if (selected) ++selectedCellCount;
+            ImGui::Text("Selected cells: %d / %d", selectedCellCount,
+                imageGridColumns * imageGridRows);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("All"))
+                std::fill(imageGridSelectedCells.begin(),
+                    imageGridSelectedCells.end(), 1);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("None"))
+                std::fill(imageGridSelectedCells.begin(),
+                    imageGridSelectedCells.end(), 0);
+            if (!imageToolStatus.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.42f, 1.0f), "%s",
+                    imageToolStatus.c_str());
+            ImGui::Separator();
+            ImGui::BeginDisabled(selectedCellCount <= 0 || gridWidth <= 0 ||
+                gridHeight <= 0);
+            if (ImGui::Button("Register Assets", ImVec2(140.0f, 0.0f))) {
+                std::vector<int> insertedRows;
+                const std::string prefixCp932 = Utf8ToCp932(
+                    imageGridNamePrefix);
+                if (RegisterImageAssetGrid(imageGridAssetIndex,
+                    imageGridColumns, imageGridRows, imageGridSelectedCells,
+                    prefixCp932.c_str(), insertedRows, imageToolStatus)) {
+                    imageToolStatus = "Registered " +
+                        std::to_string(insertedRows.size()) +
+                        " grid Asset(s).";
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
+                imageToolStatus.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+    }
+
+    if (openImageStatusRequest) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+    if (ImGui::CollapsingHeader("Image status##imageManagerDiagnostics")) {
+        std::vector<SEImageDiagnostic> diagnostics;
+        BuildImageDiagnostics(diagnostics);
+        int counts[6] = {};
+        for (const SEImageDiagnostic& diagnostic : diagnostics)
+            ++counts[(int)diagnostic.kind];
+        const int nextGraphicId = CalculateTrailingGraphicId(skinfileLines);
+        ImGui::Text("gr slots: next %d  |  remaining %d", nextGraphicId,
+            (std::max)(0, 100 - nextGraphicId));
+        ImGui::TextDisabled(
+            "Missing %d  Unloadable %d  Bounds %d  Duplicate %d  Unused %d  SRC without Asset %d",
+            counts[(int)SEImageDiagnosticKind::MissingFile],
+            counts[(int)SEImageDiagnosticKind::UnloadableFile],
+            counts[(int)SEImageDiagnosticKind::CropOutOfBounds],
+            counts[(int)SEImageDiagnosticKind::DuplicateCrop],
+            counts[(int)SEImageDiagnosticKind::UnusedAsset],
+            counts[(int)SEImageDiagnosticKind::SourceWithoutAsset]);
+        if (diagnostics.empty()) {
+            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.58f, 1.0f),
+                "No image issues found.");
+        } else {
+            const bool diagnosticsVisible = ImGui::BeginChild(
+                "ImageDiagnosticsList", ImVec2(0, 150),
+                ImGuiChildFlags_Borders);
+            if (diagnosticsVisible) {
+                for (int diagnosticIndex = 0;
+                    diagnosticIndex < (int)diagnostics.size();
+                    ++diagnosticIndex) {
+                    const SEImageDiagnostic& diagnostic =
+                        diagnostics[diagnosticIndex];
+                    ImGui::PushID(diagnosticIndex);
+                    if (ImGui::Selectable(diagnostic.message.c_str())) {
+                        if (diagnostic.assetIndex >= 0 &&
+                            diagnostic.assetIndex < arr_IMG.count) {
+                            imageManagerFocusRequest = diagnostic.assetIndex;
+                            assetBrowserFocusRequest = diagnostic.assetIndex;
+                        } else if (diagnostic.sourceRow >= 0) {
+                            const int modelIndex = SEFindObjectForRow(
+                                objectEditorModel.Objects(),
+                                diagnostic.sourceRow);
+                            if (modelIndex >= 0) {
+                                wObjectBrowser = true;
+                                wObjectInspector = true;
+                                diagnosticObjectNavigationRequest = modelIndex;
+                            }
+                        } else if (diagnostic.graphicIndex >= 0 &&
+                            diagnostic.graphicIndex < arr_SRCGR.count) {
+                            SRCGR& diagnosticGraphic =
+                                ((SRCGR*)arr_SRCGR.data)
+                                [diagnostic.graphicIndex];
+                            imageManagerGraphicDeclarationFocusRequest =
+                                diagnosticGraphic.declare;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+            }
+            ImGui::EndChild();
+        }
+    }
+
     if (!imageToolStatus.empty()) {
         const bool success = imageToolStatus.find("Created") == 0 ||
-            imageToolStatus.find("Merged") == 0;
+            imageToolStatus.find("Merged") == 0 ||
+            imageToolStatus.find("Replaced") == 0 ||
+            imageToolStatus.find("Registered") == 0 ||
+            imageToolStatus.find("Reloaded") == 0 ||
+            imageToolStatus.find("Texture reload queued") == 0;
         ImGui::TextColored(success
             ? ImVec4(0.45f, 0.85f, 0.58f, 1.0f)
             : ImVec4(1.0f, 0.45f, 0.42f, 1.0f), "%s",
@@ -6939,8 +8409,10 @@ int WORKSPACE::drawImgManager() {
 
 
         if (img.texture != NULL) {
-            const ImVec2 p = ImGui::GetCursorScreenPos();
-            ImVec2 grpos = { p.x, p.y - imageDisplaySize.y - 4 };
+            // The crop overlay belongs to the image canvas itself. Using the
+            // cursor after ImageWithBg() made this depend on ImGui item spacing
+            // and other widgets submitted in this child.
+            const ImVec2 grpos = pb;
 
             IMG& src = ((IMG*)arr_IMG.data)[src_selected];
             int sizeX = src.w == -1 ? img.sizeX - src.x : src.w;
@@ -6953,37 +8425,119 @@ int WORKSPACE::drawImgManager() {
 
             ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-            bool flicking = ((int)GetTimeLapse(1, &g.timer1) % 200 > 100);
-            ImColor color = flicking ? 0xff0080ff : 0x000000;
-            draw_list->AddRect(srcposLU, srcposRB, color, 0.0f, ImDrawFlags_Closed, 1.0f);
+            // Editor selection must keep blinking even when the LR2 scene
+            // timer is stopped. GetTimeLapse(1) returns -1 in that state and
+            // previously made the rectangle permanently transparent.
+            bool flicking = ((int)(ImGui::GetTime() * 1000.0) % 400) < 260;
+            if (flicking) {
+                draw_list->AddRect(srcposLU, srcposRB,
+                    IM_COL32(48, 24, 0, 230), 0.0f,
+                    ImDrawFlags_Closed, 3.0f);
+                draw_list->AddRect(srcposLU, srcposRB,
+                    IM_COL32(255, 128, 0, 255), 0.0f,
+                    ImDrawFlags_Closed, 1.5f);
+            }
 
             if (clicked) {
                 ImGui::SetScrollX(src.x * imageScale);
                 ImGui::SetScrollY(src.y * imageScale);
             }
 
-            for (int i = 0; i < arr_IMG.count; i++) {
-                IMG& hoversrc = ((IMG*)arr_IMG.data)[i];
-                if (hoversrc.gr != src.gr || hoversrc.ifGroup != src.ifGroup) continue;
-                srcposLU = { grpos.x + hoversrc.x * imageScale,
-                    grpos.y + hoversrc.y * imageScale };
-                srcposRB = { grpos.x + (hoversrc.x + hoversrc.w) * imageScale,
-                    grpos.y + (hoversrc.y + hoversrc.h) * imageScale };
-                if (ImGui::IsMouseHoveringRect(srcposLU, srcposRB)) {
-                    flicking = ((int)GetTimeLapse(1, &g.timer1) % 200 < 100);
-                    ImColor color = flicking ? 0xffff0000 : 0x000000;
-                    draw_list->AddRect(srcposLU, srcposRB, color, 0.0f, ImDrawFlags_Closed, 1.0f);
-
-                    if (ImGui::IsItemClicked()) {
-                        src_selected = i;
+            int hoveredImageIndex = -1;
+            long long hoveredImageArea = 0;
+            ImVec2 hoveredImageLU;
+            ImVec2 hoveredImageRB;
+            bool hoveredImageFromAtlas = false;
+            const ImVec2 atlasMouse = ImGui::GetIO().MousePos;
+            const bool atlasHovered = ImGui::IsMouseHoveringRect(
+                pb, paintCanvasMax, true);
+            const int hoverFrameAge = ImGui::GetFrameCount() -
+                imageManagerHoveredAssetFrame;
+            if (imageManagerHoveredAssetIndex >= 0 &&
+                imageManagerHoveredAssetIndex < arr_IMG.count &&
+                hoverFrameAge >= 0 && hoverFrameAge <= 1 &&
+                ResolveIMGTextureIndex(imageManagerHoveredAssetIndex) ==
+                    gr_selected) {
+                IMG& hoveredObjectImage =
+                    ((IMG*)arr_IMG.data)[imageManagerHoveredAssetIndex];
+                const int hoverWidth = hoveredObjectImage.w == -1
+                    ? img.sizeX - hoveredObjectImage.x : hoveredObjectImage.w;
+                const int hoverHeight = hoveredObjectImage.h == -1
+                    ? img.sizeY - hoveredObjectImage.y : hoveredObjectImage.h;
+                if (hoverWidth > 0 && hoverHeight > 0) {
+                    hoveredImageIndex = imageManagerHoveredAssetIndex;
+                    hoveredImageArea =
+                        (long long)hoverWidth * (long long)hoverHeight;
+                    hoveredImageLU = ImVec2(
+                        grpos.x + hoveredObjectImage.x * imageScale,
+                        grpos.y + hoveredObjectImage.y * imageScale);
+                    hoveredImageRB = ImVec2(
+                        grpos.x + (hoveredObjectImage.x + hoverWidth) * imageScale,
+                        grpos.y + (hoveredObjectImage.y + hoverHeight) * imageScale);
+                }
+            }
+            if (atlasHovered) {
+                for (int i = 0; i < arr_IMG.count; i++) {
+                    IMG& hoversrc = ((IMG*)arr_IMG.data)[i];
+                    // Branch IDs alone are too restrictive: different SRC
+                    // branches may still resolve to the texture currently on
+                    // screen. Only crops on that resolved texture belong to
+                    // this canvas.
+                    if (hoversrc.gr != img.grID) continue;
+                    const int hoverWidth = hoversrc.w == -1
+                        ? img.sizeX - hoversrc.x : hoversrc.w;
+                    const int hoverHeight = hoversrc.h == -1
+                        ? img.sizeY - hoversrc.y : hoversrc.h;
+                    if (hoverWidth <= 0 || hoverHeight <= 0) continue;
+                    const ImVec2 candidateLU(
+                        grpos.x + hoversrc.x * imageScale,
+                        grpos.y + hoversrc.y * imageScale);
+                    const ImVec2 candidateRB(
+                        grpos.x + (hoversrc.x + hoverWidth) * imageScale,
+                        grpos.y + (hoversrc.y + hoverHeight) * imageScale);
+                    if (atlasMouse.x < candidateLU.x || atlasMouse.x >= candidateRB.x ||
+                        atlasMouse.y < candidateLU.y || atlasMouse.y >= candidateRB.y)
+                        continue;
+                    // Resolve only actual hit candidates. Resolving can load a
+                    // wildcard image, so doing it for every crop on every
+                    // hover frame would make large skins unnecessarily heavy.
+                    if (ResolveIMGTextureIndex(i) != gr_selected) continue;
+                    const long long candidateArea =
+                        (long long)hoverWidth * (long long)hoverHeight;
+                    if (hoveredImageIndex < 0 || candidateArea < hoveredImageArea ||
+                        (candidateArea == hoveredImageArea && i == src_selected)) {
+                        hoveredImageIndex = i;
+                        hoveredImageArea = candidateArea;
+                        hoveredImageLU = candidateLU;
+                        hoveredImageRB = candidateRB;
+                        hoveredImageFromAtlas = true;
                     }
-                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone) && ImGui::BeginTooltip())
-                    {
-                        ImGui::Text("%03d : %d %d ~ %d %d", i, hoversrc.x, hoversrc.y, hoversrc.x + hoversrc.w, hoversrc.y + hoversrc.h);
-                        ImGui::Text("Size %d %d", hoversrc.w, hoversrc.h);
-                        ImGui::EndTooltip();
-                    }
-                    
+                }
+            }
+            if (hoveredImageIndex >= 0) {
+                IMG& hoversrc = ((IMG*)arr_IMG.data)[hoveredImageIndex];
+                const int hoverWidth = hoversrc.w == -1
+                    ? img.sizeX - hoversrc.x : hoversrc.w;
+                const int hoverHeight = hoversrc.h == -1
+                    ? img.sizeY - hoversrc.y : hoversrc.h;
+                flicking = ((int)(ImGui::GetTime() * 1000.0) % 400) >= 200;
+                if (flicking) {
+                    draw_list->AddRect(hoveredImageLU, hoveredImageRB,
+                        IM_COL32(0, 20, 48, 230), 0.0f,
+                        ImDrawFlags_Closed, 3.0f);
+                    draw_list->AddRect(hoveredImageLU, hoveredImageRB,
+                        IM_COL32(0, 128, 255, 255), 0.0f,
+                        ImDrawFlags_Closed, 1.5f);
+                }
+                if (hoveredImageFromAtlas && !imagePixelPaintMode &&
+                    ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                    SelectIMGAsset(hoveredImageIndex, false);
+                if (ImGui::BeginTooltip()) {
+                    ImGui::Text("%03d : %d %d ~ %d %d", hoveredImageIndex,
+                        hoversrc.x, hoversrc.y,
+                        hoversrc.x + hoverWidth, hoversrc.y + hoverHeight);
+                    ImGui::Text("Size %d %d", hoverWidth, hoverHeight);
+                    ImGui::EndTooltip();
                 }
             }
 
@@ -7060,6 +8614,13 @@ int WORKSPACE::drawImgManager() {
     }
     ImGui::EndChild();
     ImGui::EndGroup();
+
+    if (diagnosticObjectNavigationRequest >= 0) {
+        SetObjectSelection(
+            std::vector<int>(1, diagnosticObjectNavigationRequest),
+            diagnosticObjectNavigationRequest,
+            diagnosticObjectNavigationRequest, true);
+    }
 
     ImGui::End();
     return 0;
@@ -8563,7 +10124,8 @@ namespace {
     }
 
     static bool IsInitialPresetType(int type) {
-        return IsPlayPresetType(type) || type == 5 || type == 6 || type == 7;
+        return IsPlayPresetType(type) || type == 5 || type == 6 ||
+            type == 7 || type == 15;
     }
 
     static bool IsSafePresetRelativePath(const std::string& value) {
@@ -8584,7 +10146,82 @@ namespace {
         return result;
     }
 
-    static bool WritePresetAtlasPng(const std::filesystem::path& outputPath, std::string& error) {
+    // The NUMBER renderer indexes frames as 0..9, so the atlas must keep 0 in
+    // the first 16 px cell even though the visible sequence is commonly
+    // described as "1234567890".  Five-bit rows are expanded 2x into a crisp
+    // 10x14 glyph inside each 16x16 cell.
+    static const unsigned char kPresetDigitGlyphs[10][7] = {
+        { 14, 17, 19, 21, 25, 17, 14 }, // 0
+        {  4, 12,  4,  4,  4,  4, 14 }, // 1
+        { 14, 17,  1,  2,  4,  8, 31 }, // 2
+        { 30,  1,  1, 14,  1,  1, 30 }, // 3
+        {  2,  6, 10, 18, 31,  2,  2 }, // 4
+        { 31, 16, 16, 30,  1,  1, 30 }, // 5
+        { 14, 16, 16, 30, 17, 17, 14 }, // 6
+        { 31,  1,  2,  4,  8,  8,  8 }, // 7
+        { 14, 17, 17, 14, 17, 17, 14 }, // 8
+        { 14, 17, 17, 15,  1,  1, 14 }, // 9
+    };
+
+    struct PresetLabelSprite {
+        const char* text;
+        int x;
+        int y;
+        int w;
+        int h;
+    };
+
+    static const PresetLabelSprite kResultLabelSprites[] = {
+        { "EX SCORE",  0, 168, 47, 7 },
+        { "MAX COMBO", 0, 180, 53, 7 },
+        { "PERFECT",  64, 168, 41, 7 },
+        { "GREAT",    64, 180, 29, 7 },
+        { "GOOD",     64, 192, 23, 7 },
+        { "BAD",      64, 204, 17, 7 },
+        { "POOR",     64, 216, 23, 7 },
+    };
+
+    static unsigned char PresetGlyphRow(char glyph, int row) {
+        if (row < 0 || row >= 7) return 0;
+        static const unsigned char A[7] = { 14,17,17,31,17,17,17 };
+        static const unsigned char B[7] = { 30,17,17,30,17,17,30 };
+        static const unsigned char C[7] = { 15,16,16,16,16,16,15 };
+        static const unsigned char D[7] = { 30,17,17,17,17,17,30 };
+        static const unsigned char E[7] = { 31,16,16,30,16,16,31 };
+        static const unsigned char F[7] = { 31,16,16,30,16,16,16 };
+        static const unsigned char G[7] = { 15,16,16,23,17,17,15 };
+        static const unsigned char M[7] = { 17,27,21,21,17,17,17 };
+        static const unsigned char O[7] = { 14,17,17,17,17,17,14 };
+        static const unsigned char P[7] = { 30,17,17,30,16,16,16 };
+        static const unsigned char R[7] = { 30,17,17,30,20,18,17 };
+        static const unsigned char S[7] = { 15,16,16,14, 1, 1,30 };
+        static const unsigned char T[7] = { 31, 4, 4, 4, 4, 4, 4 };
+        static const unsigned char X[7] = { 17,17,10, 4,10,17,17 };
+        switch (glyph) {
+        case 'A': return A[row]; case 'B': return B[row];
+        case 'C': return C[row]; case 'D': return D[row];
+        case 'E': return E[row]; case 'F': return F[row];
+        case 'G': return G[row]; case 'M': return M[row];
+        case 'O': return O[row]; case 'P': return P[row];
+        case 'R': return R[row]; case 'S': return S[row];
+        case 'T': return T[row]; case 'X': return X[row];
+        default: return 0;
+        }
+    }
+
+    static bool PresetLabelPixel(const PresetLabelSprite& label,
+        int localX, int localY) {
+        if (localX < 0 || localY < 0 || localX >= label.w ||
+            localY >= label.h) return false;
+        const int character = localX / 6;
+        const int column = localX % 6;
+        if (column >= 5 || character >= (int)strlen(label.text)) return false;
+        const unsigned char row = PresetGlyphRow(label.text[character], localY);
+        return (row & (1 << (4 - column))) != 0;
+    }
+
+    static bool WritePresetAtlasPng(const std::filesystem::path& outputPath,
+        std::string& error) {
         const int width = 256, height = 256;
         std::vector<D3DCOLOR> pixels((size_t)width * height,
             D3DCOLOR_ARGB(0, 0, 0, 0));
@@ -8606,13 +10243,80 @@ namespace {
                     };
                     r = colors[band][0]; g = colors[band][1]; b = colors[band][2];
                 }
-                else if (y < 120) {
-                    const int digit = (x / 16) % 10;
-                    const bool edge = (x % 16 < 2) || (x % 16 > 13) || (y % 16 < 2) || (y % 16 > 13);
-                    const unsigned char shade = edge ? 40 : (unsigned char)(120 + digit * 12);
-                    r = shade; g = (unsigned char)(210 - digit * 8); b = 255;
+                else if (y < 120 && x < 160) {
+                    const int digit = x / 16;
+                    const int localX = x % 16;
+                    const int localY = y - 104;
+                    const bool edge = localX == 0 || localX == 15 ||
+                        localY == 0 || localY == 15;
+                    r = edge ? 44 : 18;
+                    g = edge ? 65 : 28;
+                    b = edge ? 92 : 43;
+                    const int glyphX = (localX - 3) / 2;
+                    const int glyphY = (localY - 1) / 2;
+                    if (localX >= 3 && localX < 13 && localY >= 1 &&
+                        localY < 15 && glyphX >= 0 && glyphX < 5 &&
+                        glyphY >= 0 && glyphY < 7 &&
+                        (kPresetDigitGlyphs[digit][glyphY] &
+                            (1 << (4 - glyphX)))) {
+                        r = 245; g = 250; b = 255;
+                    }
                 }
-                else if (y < 136) { r = 75; g = 235; b = 105; }
+                else if (y < 136 && x < 64) {
+                    static const unsigned char gaugeColors[4][3] = {
+                        { 255, 90, 70 }, { 70, 235, 145 },
+                        { 70, 28, 32 }, { 24, 48, 58 }
+                    };
+                    const int gaugeState = x / 16;
+                    r = gaugeColors[gaugeState][0];
+                    g = gaugeColors[gaugeState][1];
+                    b = gaugeColors[gaugeState][2];
+                }
+            }
+            if (x < 192 && y >= 136 && y < 168) {
+                const int frame = x / 32;
+                const int localX = x % 32 - 16;
+                const int localY = y - 136 - 16;
+                const int radius = (std::max)(2, 15 - frame * 2);
+                const int distance = abs(localX) + abs(localY);
+                if (distance <= radius) {
+                    isPresetContent = true;
+                    const bool core = distance <= (std::max)(1, radius / 3);
+                    r = 255;
+                    g = core ? 255 : (unsigned char)(190 - frame * 15);
+                    b = core ? 245 : (unsigned char)(70 + frame * 12);
+                }
+            }
+            // Dedicated RESULT surfaces and baked labels.  Keeping these in
+            // the atlas avoids depending on a system font in the generated
+            // skin and makes the default result screen understandable in LR2.
+            if (x >= 128 && x < 192 && y >= 168 && y < 224) {
+                isPresetContent = true;
+                const int shade = 24 + (y - 168) / 7;
+                r = (unsigned char)shade;
+                g = (unsigned char)(shade + 8);
+                b = (unsigned char)(shade + 18);
+            }
+            // SELECT bar body: a dedicated flat tile.  The old preset reused
+            // y=72..103, which is the six-color NOWJUDGE strip and therefore
+            // became a rainbow when stretched across the selection list.
+            if (x < 192 && y >= 224) {
+                isPresetContent = true;
+                const bool border = x < 2 || x >= 190 ||
+                    y < 226 || y >= 254;
+                r = border ? 92 : 28;
+                g = border ? 158 : 45;
+                b = border ? 225 : 68;
+            }
+            for (const PresetLabelSprite& label : kResultLabelSprites) {
+                if (x < label.x || x >= label.x + label.w ||
+                    y < label.y || y >= label.y + label.h) continue;
+                isPresetContent = true;
+                r = 24; g = 32; b = 48;
+                if (PresetLabelPixel(label, x - label.x, y - label.y)) {
+                    r = 225; g = 235; b = 248;
+                }
+                break;
             }
             return isPresetContent ? D3DCOLOR_ARGB(255, r, g, b) :
                 D3DCOLOR_ARGB(0, 0, 0, 0);
@@ -8638,6 +10342,57 @@ namespace {
             << ",0,255,255,255,255,0,0,0,0,0," << timer << ",0,0,0\r\n";
     }
 
+    static void AppendTimedDstPair(std::ostringstream& skin, const char* command,
+        int index, int x, int y, int w, int h, int duration, int timer,
+        int blend) {
+        skin << command << ',' << index << ",0," << x << ',' << y << ',' << w << ',' << h
+            << ",0,255,255,255,255," << blend
+            << ",0,0,0,-1," << timer << ",0,0,0\r\n";
+        skin << command << ',' << index << ',' << duration << ',' << x << ',' << y << ',' << w << ',' << h
+            << ",0,255,255,255,255," << blend
+            << ",0,0,0,-1," << timer << ",0,0,0\r\n";
+    }
+
+    static void AppendPlayFeedbackPreset(std::ostringstream& skin, int player,
+        int fieldX, int fieldWidth, int judgeY, int screenHeight) {
+        const char* playerSuffix = player == 0 ? "1P" : "2P";
+        const int timer = 46 + player;
+        const int judgeWidth = (std::max)(64, fieldWidth * 72 / 100);
+        const int judgeHeight = (std::max)(20, screenHeight / 24);
+        const int judgeX = fieldX + (fieldWidth - judgeWidth) / 2;
+        const int judgeDisplayY = judgeY - (std::max)(judgeHeight + 8,
+            screenHeight / 9);
+        const int comboDigitWidth = (std::max)(10, fieldWidth / 18);
+        const int comboDigitHeight = (std::max)(16, screenHeight / 30);
+        const int comboX = fieldX + fieldWidth / 2;
+        const int comboY = judgeDisplayY + judgeHeight;
+
+        skin << "$SE_OBJECT_NAME,Current Judge " << playerSuffix
+            << "\r\n$SE_OBJECT_ID,preset_nowjudge_" << player << "\r\n";
+        for (int judge = 0; judge < 6; ++judge) {
+            skin << "#SRC_NOWJUDGE_" << playerSuffix << ',' << judge
+                << ",0," << (judge * 32) << ",72,32,32,1,1,0,"
+                << timer << ",0,0,0\r\n";
+            const std::string command = std::string("#DST_NOWJUDGE_") +
+                playerSuffix;
+            AppendTimedDstPair(skin, command.c_str(), judge, judgeX,
+                judgeDisplayY, judgeWidth, judgeHeight, 500, timer, 1);
+        }
+
+        skin << "$SE_OBJECT_NAME,Current Combo " << playerSuffix
+            << "\r\n$SE_OBJECT_ID,preset_nowcombo_" << player << "\r\n";
+        // LR2 displays combo digits only for GOOD/GREAT/PGREAT (slots 3..5).
+        for (int judge = 3; judge < 6; ++judge) {
+            skin << "#SRC_NOWCOMBO_" << playerSuffix << ',' << judge
+                << ",0,0,104,160,16,10,1,0," << timer
+                << ",0,1,7\r\n";
+            const std::string command = std::string("#DST_NOWCOMBO_") +
+                playerSuffix;
+            AppendTimedDstPair(skin, command.c_str(), judge, comboX,
+                comboY, comboDigitWidth, comboDigitHeight, 500, timer, 1);
+        }
+    }
+
     static void AppendSelectPreset(std::ostringstream& skin, int width, int height) {
         const int barW = (std::max)(240, width * 54 / 100);
         const int barH = (std::max)(24, height / 15);
@@ -8646,7 +10401,7 @@ namespace {
 
         skin << "$SE_OBJECT_NAME,Selection Bar Sources\r\n$SE_OBJECT_ID,preset_select_bar_sources\r\n";
         for (int barType = 0; barType < 10; ++barType)
-            skin << "#SRC_BAR_BODY," << barType << ",0,0,72,192,32,1,1,0,0\r\n";
+            skin << "#SRC_BAR_BODY," << barType << ",0,0,224,192,32,1,1,0,0\r\n";
         for (int slot = 0; slot <= 20; ++slot) {
             const int y = centerY + (slot - 10) * barH;
             skin << "#DST_BAR_BODY_OFF," << slot << ",0," << barX << ',' << y << ',' << barW << ',' << barH
@@ -8688,6 +10443,20 @@ namespace {
             << (std::max)(8, height / 30) << ",0,0,255,255,255,1,0,0,0,500,0,0,0,0\r\n";
         skin << "#DST_IMAGE,0,500," << panelX << ',' << (panelY + panelH / 2) << ',' << panelW << ','
             << (std::max)(8, height / 30) << ",0,220,255,255,255,1,0,0,0,0,0,0,0,0\r\n";
+
+        const int titleFontSize = (std::max)(18, height / 18);
+        const int titleX = panelX + panelW * 8 / 100;
+        const int titleY = panelY + panelH / 2 - titleFontSize / 2;
+        const int titleW = panelW * 84 / 100;
+        skin << "$SE_OBJECT_NAME,Song Title\r\n"
+            "$SE_OBJECT_ID,preset_decide_song_title\r\n";
+        skin << "#FONT," << titleFontSize << ",2,2,Arial\r\n";
+        // $st 10 is THISSONG_TITLE and is populated by SELECT before LR2
+        // enters the DECIDE scene.
+        skin << "#SRC_TEXT,0,0,10,1,0,0\r\n";
+        skin << "#DST_TEXT,0,0," << titleX << ',' << titleY << ','
+            << titleW << ',' << titleFontSize
+            << ",0,255,245,250,255,0,0,0,0,0,0,0,0,0\r\n";
     }
 
     static void AppendResultNumber(std::ostringstream& skin, const char* name, const char* id,
@@ -8697,6 +10466,20 @@ namespace {
         AppendDst(skin, "#DST_NUMBER", 0, x, y, digitW, digitH);
     }
 
+    static void AppendResultLabel(std::ostringstream& skin, int labelIndex,
+        const char* name, const char* id, int x, int y, int targetHeight) {
+        if (labelIndex < 0 || labelIndex >= IM_ARRAYSIZE(kResultLabelSprites))
+            return;
+        const PresetLabelSprite& label = kResultLabelSprites[labelIndex];
+        const int targetWidth = (std::max)(label.w,
+            label.w * targetHeight / label.h);
+        skin << "$SE_OBJECT_NAME," << name << " Label\r\n$SE_OBJECT_ID,"
+            << id << "\r\n";
+        skin << "#SRC_IMAGE,0,0," << label.x << ',' << label.y << ','
+            << label.w << ',' << label.h << ",1,1,0,0,0,0,0\r\n";
+        AppendDst(skin, "#DST_IMAGE", 0, x, y, targetWidth, targetHeight);
+    }
+
     static void AppendResultPreset(std::ostringstream& skin, int width, int height) {
         const int panelX = width * 8 / 100;
         const int panelY = height * 14 / 100;
@@ -8704,31 +10487,151 @@ namespace {
         const int panelH = height * 70 / 100;
         const int digitW = (std::max)(12, width / 55);
         const int digitH = (std::max)(18, height / 24);
+        const int labelH = (std::max)(9, height / 45);
+        const int padding = (std::max)(18, panelW / 24);
 
         skin << "$SE_OBJECT_NAME,Result Panel\r\n$SE_OBJECT_ID,preset_result_panel\r\n";
-        skin << "#SRC_IMAGE,0,0,0,72,192,32,1,1,0,0,0,0,0\r\n";
+        skin << "#SRC_IMAGE,0,0,128,168,64,56,1,1,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY, panelW, panelH);
 
-        const int leftX = panelX + panelW / 12;
-        const int rightX = panelX + panelW * 58 / 100;
+        const int leftLabelX = panelX + padding;
+        const int leftNumberX = panelX + panelW * 24 / 100;
+        const int rightLabelX = panelX + panelW * 54 / 100;
+        const int rightNumberX = panelX + panelW * 72 / 100;
         const int firstY = panelY + panelH / 8;
         const int row = digitH * 3 / 2;
-        AppendResultNumber(skin, "EX Score", "preset_result_exscore", 101, leftX, firstY, digitW, digitH, 6);
-        AppendResultNumber(skin, "Max Combo", "preset_result_maxcombo", 105, leftX, firstY + row, digitW, digitH, 5);
-        AppendResultNumber(skin, "Perfect", "preset_result_perfect", 110, rightX, firstY, digitW, digitH, 5);
-        AppendResultNumber(skin, "Great", "preset_result_great", 111, rightX, firstY + row, digitW, digitH, 5);
-        AppendResultNumber(skin, "Miss Count", "preset_result_miss", 114, rightX, firstY + row * 2, digitW, digitH, 5);
+        const int labelOffsetY = (std::max)(0, (digitH - labelH) / 2);
 
-        const int chartX = leftX;
+        AppendResultLabel(skin, 0, "EX Score", "preset_result_label_exscore",
+            leftLabelX, firstY + labelOffsetY, labelH);
+        AppendResultNumber(skin, "EX Score", "preset_result_exscore", 101,
+            leftNumberX, firstY, digitW, digitH, 6);
+        AppendResultLabel(skin, 1, "Max Combo", "preset_result_label_maxcombo",
+            leftLabelX, firstY + row + labelOffsetY, labelH);
+        AppendResultNumber(skin, "Max Combo", "preset_result_maxcombo", 105,
+            leftNumberX, firstY + row, digitW, digitH, 5);
+
+        struct ResultJudgeRow {
+            const char* name;
+            const char* id;
+            const char* labelId;
+            int numberId;
+            int labelIndex;
+        };
+        const ResultJudgeRow judgeRows[] = {
+            { "Perfect", "preset_result_perfect", "preset_result_label_perfect", 110, 2 },
+            { "Great",   "preset_result_great",   "preset_result_label_great",   111, 3 },
+            { "Good",    "preset_result_good",    "preset_result_label_good",    112, 4 },
+            { "Bad",     "preset_result_bad",     "preset_result_label_bad",     113, 5 },
+            { "Poor",    "preset_result_poor",    "preset_result_label_poor",    114, 6 },
+        };
+        for (int index = 0; index < IM_ARRAYSIZE(judgeRows); ++index) {
+            const int y = firstY + row * index;
+            AppendResultLabel(skin, judgeRows[index].labelIndex,
+                judgeRows[index].name, judgeRows[index].labelId,
+                rightLabelX, y + labelOffsetY, labelH);
+            AppendResultNumber(skin, judgeRows[index].name,
+                judgeRows[index].id, judgeRows[index].numberId,
+                rightNumberX, y, digitW, digitH, 5);
+        }
+
+        const int chartX = leftLabelX;
         const int chartY = panelY + panelH * 60 / 100;
         const int chartW = panelW * 38 / 100;
         const int chartH = panelH * 24 / 100;
+        const int chartFieldH = (std::max)(2, chartH - 2);
+        const int chartBaseY = chartY + chartFieldH;
+        const int secondChartX = panelX + panelW * 54 / 100;
+        skin << "$SE_OBJECT_NAME,Result Gauge Chart Backdrop\r\n"
+            "$SE_OBJECT_ID,preset_result_gauge_chart_backdrop\r\n";
+        skin << "#SRC_IMAGE,0,0,128,168,64,56,1,1,0,0,0,0,0\r\n";
+        AppendDst(skin, "#DST_IMAGE", 0, chartX, chartY, chartW, chartH);
+        skin << "$SE_OBJECT_NAME,Result Score Chart Backdrop\r\n"
+            "$SE_OBJECT_ID,preset_result_score_chart_backdrop\r\n";
+        skin << "#SRC_IMAGE,0,0,128,168,64,56,1,1,0,0,0,0,0\r\n";
+        AppendDst(skin, "#DST_IMAGE", 0, secondChartX, chartY, chartW, chartH);
         skin << "$SE_OBJECT_NAME,Groove Gauge Chart\r\n$SE_OBJECT_ID,preset_result_gauge_chart\r\n";
-        skin << "#SRC_GAUGECHART_1P,0,0,0,120,2,2,1,1,0,0," << chartW << ',' << chartH << ",500,2000\r\n";
-        AppendDst(skin, "#DST_GAUGECHART_1P", 0, chartX, chartY, 2, 2);
+        // LR2 switches from index 0 to index 1 at the 80% clear border.
+        // Both destinations use the bottom of the backdrop as their origin;
+        // Scene05_Result applies a negative y offset while drawing the graph.
+        skin << "#SRC_GAUGECHART_1P,0,0,16,120,2,2,1,1,0,0,"
+            << chartW << ',' << chartFieldH << ",500,2000\r\n";
+        AppendDst(skin, "#DST_GAUGECHART_1P", 0, chartX, chartBaseY, 2, 2);
+        skin << "#SRC_GAUGECHART_1P,1,0,0,120,2,2,1,1,0,0,"
+            << chartW << ',' << chartFieldH << ",500,2000\r\n";
+        AppendDst(skin, "#DST_GAUGECHART_1P", 1, chartX, chartBaseY, 2, 2);
         skin << "$SE_OBJECT_NAME,Score Chart\r\n$SE_OBJECT_ID,preset_result_score_chart\r\n";
-        skin << "#SRC_SCORECHART,0,0,0,16,2,2,1,1,0,0," << chartW << ',' << chartH << ",500,2000\r\n";
-        AppendDst(skin, "#DST_SCORECHART", 0, chartX + panelW * 46 / 100, chartY, 2, 2);
+        skin << "#SRC_SCORECHART,0,0,0,16,2,2,1,1,0,0,"
+            << chartW << ',' << chartFieldH << ",500,2000\r\n";
+        AppendDst(skin, "#DST_SCORECHART", 0, secondChartX, chartBaseY, 2, 2);
+    }
+
+    static void AppendCourseResultPreset(std::ostringstream& skin,
+        int width, int height) {
+        const int panelX = width * 8 / 100;
+        const int panelY = height * 12 / 100;
+        const int panelW = width * 84 / 100;
+        const int panelH = height * 76 / 100;
+        const int padding = (std::max)(16, panelW / 20);
+        const int fontSize = (std::max)(14, height / 32);
+        const int digitW = (std::max)(12, width / 55);
+        const int digitH = (std::max)(18, height / 24);
+
+        skin << "$SE_OBJECT_NAME,Course Result Panel\r\n"
+            "$SE_OBJECT_ID,preset_course_result_panel\r\n";
+        skin << "#SRC_IMAGE,0,0,0,72,192,32,1,1,0,0,0,0,0\r\n";
+        AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY, panelW, panelH);
+
+        skin << "#FONT," << fontSize << ",2,2,Arial\r\n";
+        const int stageColumnW = panelW * 55 / 100;
+        const int stageRowH = panelH / 7;
+        const int stageTitleX = panelX + padding;
+        const int stageTitleW = (std::max)(80,
+            stageColumnW - digitW * 4);
+        const int stageLevelX = stageTitleX + stageColumnW - digitW * 3;
+        for (int stage = 0; stage < 5; ++stage) {
+            const int stageY = panelY + padding + stage * stageRowH;
+            skin << "$SE_OBJECT_NAME,Course Stage " << (stage + 1)
+                << " Title\r\n$SE_OBJECT_ID,preset_course_title_" << stage
+                << "\r\n";
+            skin << "#SRC_TEXT,0,0," << (150 + stage) << ",0\r\n";
+            skin << "#DST_TEXT,0,0," << stageTitleX << ',' << stageY << ','
+                << stageTitleW << ',' << fontSize
+                << ",0,255,255,255,255,0,0,0,0,0,0,0,0,0\r\n";
+
+            char levelName[64];
+            char levelId[64];
+            snprintf(levelName, sizeof(levelName), "Course Stage %d Level",
+                stage + 1);
+            snprintf(levelId, sizeof(levelId), "preset_course_level_%d", stage);
+            AppendResultNumber(skin, levelName, levelId, 250 + stage,
+                stageLevelX, stageY, digitW, digitH, 2);
+        }
+
+        const int summaryX = panelX + panelW * 64 / 100;
+        const int summaryY = panelY + padding;
+        const int summaryRow = digitH * 3 / 2;
+        struct CourseSummaryNumber {
+            const char* name;
+            const char* id;
+            int numberId;
+            int digits;
+        };
+        const CourseSummaryNumber summary[] = {
+            { "Course EX Score", "preset_course_exscore", 101, 6 },
+            { "Course Max Combo", "preset_course_maxcombo", 105, 5 },
+            { "Course Perfect", "preset_course_perfect", 110, 5 },
+            { "Course Great", "preset_course_great", 111, 5 },
+            { "Course Good", "preset_course_good", 112, 5 },
+            { "Course Bad", "preset_course_bad", 113, 5 },
+            { "Course Poor", "preset_course_poor", 114, 5 },
+        };
+        for (int index = 0; index < IM_ARRAYSIZE(summary); ++index) {
+            AppendResultNumber(skin, summary[index].name, summary[index].id,
+                summary[index].numberId, summaryX,
+                summaryY + index * summaryRow, digitW, digitH,
+                summary[index].digits);
+        }
     }
 
     static bool BuildInitialPreset(int type, int width, int height, const std::string& titleUtf8,
@@ -8780,13 +10683,15 @@ namespace {
         skin << "#RESOLUTION," << width << ',' << height << "\r\n";
         skin << "#ENDOFHEADER\r\n\r\n";
         if (type == 5)
-            skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#SCENETIME,3600000\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
+            skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
         else if (type == 6)
             skin << "#STARTINPUT,500\r\n#LOADSTART,0\r\n#SCENETIME,3000\r\n#SKIP,250\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
         else if (type == 7)
-            skin << "#STARTINPUT,500,1600,500\r\n#LOADSTART,0\r\n#SCENETIME,3600000\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
+            skin << "#STARTINPUT,500,1600,500\r\n#LOADSTART,0\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
+        else if (type == 15)
+            skin << "#STARTINPUT,0,1500,500\r\n#LOADSTART,0\r\n#FADEOUT,550\r\n#CLOSE,1000\r\n";
         else
-            skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#SCENETIME,3600000\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
+            skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
         skin << "#IMAGE," << atlasScriptPath << "\r\n\r\n";
 
         skin << "$SE_OBJECT_NAME,Background\r\n$SE_OBJECT_ID,preset_background\r\n";
@@ -8798,6 +10703,11 @@ namespace {
         const int bgaH = (std::max)(120, height * 48 / 100);
         const int bgaX = twoPlayers ? (width - bgaW) / 2 : margin * 2 + fieldWidth;
         skin << "$SE_OBJECT_NAME,BGA\r\n$SE_OBJECT_ID,preset_bga\r\n";
+        // LR2 creates one BGA destination per preceding BGA source.  The
+        // source row is intentionally a zero-sized placeholder because the
+        // actual graph handle comes from the BMS #BMP channel at runtime.
+        // Emitting only #DST_BGA makes LR2 discard the destination entirely.
+        skin << "#SRC_BGA,0,0,0,0,0,0,0,0,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_BGA", 0, bgaX, fieldTop, bgaW, bgaH);
 
             int generatedLane = 0;
@@ -8810,7 +10720,8 @@ namespace {
                 // while DP/Battle uses a second bank beginning at 10.
                 const int laneIndex = player * 10 + lane + (keysPerPlayer == 9 ? 1 : 0);
                 const int laneX = fieldX + lane * laneWidth;
-                const int noteSourceY = lane % 2 ? 16 : 0;
+                const int noteSourceY = hasScratch && lane == 0
+                    ? 32 : (((lane - (hasScratch ? 1 : 0)) % 2) ? 16 : 0);
                 skin << "$SE_OBJECT_NAME,Note P" << (player + 1) << " Lane " << lane << "\r\n";
                 skin << "$SE_OBJECT_ID,preset_note_" << generatedLane << "\r\n";
                 skin << "#SRC_NOTE," << laneIndex << ",0,0," << noteSourceY << ",16,16,1,1,0,0,0,0,0\r\n";
@@ -8819,18 +10730,47 @@ namespace {
                 skin << "#SRC_LN_END," << laneIndex << ",0,16,48,16,16,1,1,0\r\n";
                 skin << "#SRC_LN_START," << laneIndex << ",0,32,48,16,16,1,1,0\r\n";
                 AppendDst(skin, "#DST_NOTE", laneIndex, laneX, judgeY, laneWidth, laneHeight);
+
+                const int bombTimer = 50 + laneIndex;
+                const int bombSize = (std::max)(24,
+                    (std::min)(laneWidth * 2, height / 12));
+                const int bombX = laneX + laneWidth / 2 - bombSize / 2;
+                const int bombY = judgeY - bombSize / 2;
+                skin << "$SE_OBJECT_NAME,Bomb P" << (player + 1)
+                    << " Lane " << lane << "\r\n";
+                skin << "$SE_OBJECT_ID,preset_bomb_" << generatedLane << "\r\n";
+                skin << "#SRC_IMAGE,0,0,0,136,192,32,6,1,280,"
+                    << bombTimer << ",0,0,0\r\n";
+                AppendTimedDstPair(skin, "#DST_IMAGE", 0, bombX, bombY,
+                    bombSize, bombSize, 280, bombTimer, 2);
             }
+
+            // LR2's PLAY note renderer uses dst_LINE[0] as the scroll origin
+            // whenever the chart contains measure events.  A PLAY skin without
+            // LINE therefore crashes in ProcI_Play instead of merely hiding the
+            // measure lines, so keep one LINE object for every player.
+            skin << "$SE_OBJECT_NAME,Measure Line P" << (player + 1) << "\r\n";
+            skin << "$SE_OBJECT_ID,preset_line_" << player << "\r\n";
+            skin << "#SRC_LINE," << player << ",0,0,64,192,8,1,1,0,0,0,0,0\r\n";
+            AppendDst(skin, "#DST_LINE", player, fieldX, judgeY, usedWidth,
+                (std::max)(1, height / 720));
 
             skin << "$SE_OBJECT_NAME,Judge Line P" << (player + 1) << "\r\n";
             skin << "$SE_OBJECT_ID,preset_judgeline_" << player << "\r\n";
             skin << "#SRC_JUDGELINE," << player << ",0,0,64,192,8,1,1,0,0,0,0,0\r\n";
             AppendDst(skin, "#DST_JUDGELINE", player, fieldX, judgeY, usedWidth, laneHeight);
 
+            AppendPlayFeedbackPreset(skin, player, fieldX, usedWidth,
+                judgeY, height);
+
             skin << "$SE_OBJECT_NAME,Groove Gauge P" << (player + 1) << "\r\n";
             skin << "$SE_OBJECT_ID,preset_gauge_" << player << "\r\n";
-            skin << "#SRC_GROOVEGAUGE," << player << ",0,0,120,192,16,48,1,0,0,4,0\r\n";
+            const int gaugeCellWidth = (std::max)(2, usedWidth / 50);
+            skin << "#SRC_GROOVEGAUGE," << player
+                << ",0,0,120,64,16,4,1,0,0," << gaugeCellWidth
+                << ",0\r\n";
             AppendDst(skin, "#DST_GROOVEGAUGE", player, fieldX, height * 90 / 100,
-                (std::max)(2, usedWidth / 50), (std::max)(10, height / 35));
+                gaugeCellWidth, (std::max)(10, height / 35));
 
             // LR2 documents FAST/SLOW counters 212/214 for 1P. Do not create
             // misleading duplicate P2 counters in DP/Battle presets.
@@ -8851,6 +10791,7 @@ namespace {
         else if (type == 5) AppendSelectPreset(skin, width, height);
         else if (type == 6) AppendDecidePreset(skin, width, height);
         else if (type == 7) AppendResultPreset(skin, width, height);
+        else if (type == 15) AppendCourseResultPreset(skin, width, height);
 
         if (!WritePresetAtlasPng(atlasPath, error)) return false;
         const std::filesystem::path tempSkinPath = skinPath.string() + ".tmp";
@@ -8874,77 +10815,578 @@ namespace {
     }
 }
 
+int RunDstColorSelfTest() {
+    if (arr_CommandHelp.count <= 0 && LoadCommandHelp(nullptr) != 0) return 1;
+
+    WORKSPACE workspace{};
+    if (workspace.ResetEditorDocumentForLoad() != 0) return 2;
+    SKINFILELINEREAD* row =
+        (SKINFILELINEREAD*)workspace.skinfileLines.Get_new();
+    if (!row) return 3;
+    row->line.assign(
+        "#DST_IMAGE,0,100,10,20,30,40,0,255,255,255,255,0,0,0,0,0,0,0,0,0");
+    row->filename.assign("dst-color-self-test.lr2skin");
+    row->isComment = false;
+    row->isSEcomment = false;
+    SplitCSV(row->line, &row->csv, ",");
+    row->csvColumnCount = CountCsvColumns(row->line);
+    CSTR originalLine(row->line);
+
+    int columns[4];
+    if (!ResolveDstArgbColumns("#DST_IMAGE", columns)) return 4;
+    const int firstColor[4] = { 128, 16, 32, 48 };
+    if (workspace.ApplyDstArgbEdit(0, firstColor) != 0 ||
+        workspace.arr_history.count != 1)
+        return 5;
+    const int continuedColor[4] = { 64, 70, 80, 90 };
+    if (workspace.ApplyDstArgbEdit(0, continuedColor) != 0 ||
+        workspace.arr_history.count != 1)
+        return 6;
+    for (int component = 0; component < 4; ++component) {
+        if (row->csv.val[columns[component]] != continuedColor[component])
+            return 7;
+    }
+    HISTORY& firstGesture = ((HISTORY*)workspace.arr_history.data)[0];
+    if (firstGesture.op != overwriteLine || firstGesture.target != 0 ||
+        strcmp(firstGesture.older.line.outstr(), originalLine.outstr()) != 0 ||
+        strcmp(firstGesture.newer.line.outstr(), row->line.outstr()) != 0)
+        return 8;
+    CSTR firstGestureLine(row->line);
+
+    workspace.EndDstArgbEdit();
+    const int clampedColor[4] = { 300, -10, 120, 260 };
+    const int expectedClampedColor[4] = { 255, 0, 120, 255 };
+    if (workspace.ApplyDstArgbEdit(0, clampedColor) != 0 ||
+        workspace.arr_history.count != 2)
+        return 9;
+    for (int component = 0; component < 4; ++component) {
+        if (row->csv.val[columns[component]] !=
+            expectedClampedColor[component])
+            return 10;
+    }
+    workspace.EndDstArgbEdit();
+
+    if (workspace.UndoLastEdit() != 0 || workspace.arr_history.count != 1 ||
+        strcmp(row->line.outstr(), firstGestureLine.outstr()) != 0)
+        return 11;
+    if (workspace.UndoLastEdit() != 0 || workspace.arr_history.count != 0 ||
+        strcmp(row->line.outstr(), originalLine.outstr()) != 0)
+        return 12;
+    return 0;
+}
+
 int RunInitialPresetSelfTest() {
-    if (!g_pd3dDevice) return 40;
+    if (!g_pd3dDevice) return 1;
 
-    char originalDirectory[MAX_PATH] = {};
-    char temporaryDirectory[MAX_PATH] = {};
-    char testRoot[MAX_PATH] = {};
-    if (!GetCurrentDirectoryA(MAX_PATH, originalDirectory)) return 41;
-    if (!GetTempPathA(MAX_PATH, temporaryDirectory)) return 42;
-    if (!GetTempFileNameA(temporaryDirectory, "SEN", 0, testRoot)) return 43;
-    DeleteFileA(testRoot);
-    if (!CreateDirectoryA(testRoot, NULL)) return 44;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path previousDirectory = fs::current_path(ec);
+    if (ec) return 1;
+    const fs::path tempRoot = fs::temp_directory_path(ec) /
+        (std::string("SkinEditor_initial_preset_") +
+            std::to_string(GetCurrentProcessId()));
+    if (ec) return 2;
+    fs::remove_all(tempRoot, ec);
+    ec.clear();
+    fs::create_directories(tempRoot, ec);
+    if (ec) return 3;
 
-    int result = 0;
-    if (!SetCurrentDirectoryA(testRoot)) {
-        result = 45;
-    } else {
+    struct PresetTestCleanup {
+        fs::path previous;
+        fs::path root;
+        ~PresetTestCleanup() {
+            std::error_code ignored;
+            fs::current_path(previous, ignored);
+            fs::remove_all(root, ignored);
+        }
+    } cleanup{ previousDirectory, tempRoot };
+
+    fs::current_path(tempRoot, ec);
+    if (ec) return 4;
+
+    auto validatePresetAtlas = [&](const std::string& atlasPath,
+        const std::string& skinContents) {
+        const fs::path pngPath(atlasPath);
+        fs::path legacyBmpPath = pngPath;
+        legacyBmpPath.replace_extension(".bmp");
+        if (pngPath.filename() != "preset.png" || fs::exists(legacyBmpPath) ||
+            skinContents.find("preset.png") == std::string::npos ||
+            skinContents.find("preset.bmp") != std::string::npos)
+            return false;
+
+        PDIRECT3DTEXTURE9 atlasTexture = NULL;
+        int atlasWidth = 0;
+        int atlasHeight = 0;
+        if (!LoadTextureFromFile(atlasPath.c_str(), &atlasTexture,
+            &atlasWidth, &atlasHeight) || atlasWidth != 256 ||
+            atlasHeight != 256) {
+            if (atlasTexture) atlasTexture->Release();
+            return false;
+        }
+        D3DCOLOR unusedPixel = 0xffffffff;
+        D3DCOLOR backgroundPixel = 0;
+        const bool isValid = ReadTexturePixel(atlasTexture, 120, 180,
+            &unusedPixel) && ReadTexturePixel(atlasTexture, 192, 255,
+            &backgroundPixel) && ((unusedPixel >> 24) & 0xff) == 0 &&
+            ((backgroundPixel >> 24) & 0xff) == 255;
+        atlasTexture->Release();
+        return isValid;
+    };
+
+    const int playTypes[] = { 0, 1, 2, 3, 4, 12, 13, 14 };
+    for (int testIndex = 0; testIndex < IM_ARRAYSIZE(playTypes); ++testIndex) {
+        const int type = playTypes[testIndex];
+        const std::string relativePath = "type_" + std::to_string(type) +
+            "\\skin.lr2skin";
         std::string skinPath;
         std::string atlasPath;
         std::string error;
-        if (!BuildInitialPreset(0, 1280, 720, "Transparent preset",
-            "SkinEditor", "TransparentPreset\\skin.lr2skin",
-            skinPath, atlasPath, error)) {
-            result = 46;
-        } else if (std::filesystem::path(atlasPath).filename() != "preset.png" ||
-            std::filesystem::exists(std::filesystem::path(atlasPath).replace_extension(".bmp"))) {
-            result = 47;
-        } else {
-            std::ifstream skinInput(skinPath, std::ios::binary);
-            std::ostringstream skinContents;
-            skinContents << skinInput.rdbuf();
-            if (!skinInput || skinContents.str().find(
-                "#IMAGE,LR2files\\Theme\\TransparentPreset\\preset.png") ==
-                std::string::npos) {
-                result = 48;
-            } else {
-                PDIRECT3DTEXTURE9 atlasTexture = NULL;
-                int atlasWidth = 0;
-                int atlasHeight = 0;
-                if (!LoadTextureFromFile(atlasPath.c_str(), &atlasTexture,
-                    &atlasWidth, &atlasHeight) || atlasWidth != 256 ||
-                    atlasHeight != 256) {
-                    if (atlasTexture) atlasTexture->Release();
-                    result = 49;
-                } else {
-                    D3DCOLOR transparentPixel = 0xffffffff;
-                    D3DCOLOR backgroundPixel = 0;
-                    const bool alphaMatches = ReadTexturePixel(atlasTexture,
-                        191, 255, &transparentPixel) &&
-                        ReadTexturePixel(atlasTexture, 192, 255, &backgroundPixel) &&
-                        ((transparentPixel >> 24) & 0xff) == 0 &&
-                        ((backgroundPixel >> 24) & 0xff) == 255;
-                    atlasTexture->Release();
-                    if (!alphaMatches) result = 50;
-                }
+        if (!BuildInitialPreset(type, 1280, 720, "Preset test", "SkinEditor",
+            relativePath, skinPath, atlasPath, error))
+            return 10 + testIndex;
+
+        std::ifstream input(skinPath, std::ios::binary);
+        if (!input || !fs::exists(atlasPath)) return 20 + testIndex;
+        const std::string contents((std::istreambuf_iterator<char>(input)),
+            std::istreambuf_iterator<char>());
+        if (!validatePresetAtlas(atlasPath, contents))
+            return 240 + testIndex;
+        if (contents.find("#SCENETIME") != std::string::npos)
+            return 100 + testIndex;
+
+        int keysPerPlayer = 7;
+        if (type == 1 || type == 3 || type == 13) keysPerPlayer = 5;
+        else if (type == 4 || type == 14) keysPerPlayer = 9;
+        const bool twoPlayers = type == 2 || type == 3 || type >= 12;
+        const bool hasScratch = keysPerPlayer != 9;
+        const int lanesPerPlayer = keysPerPlayer + (hasScratch ? 1 : 0);
+        const int playerCount = twoPlayers ? 2 : 1;
+
+        std::set<int> expectedLanes;
+        std::set<int> expectedPlayers;
+        for (int player = 0; player < playerCount; ++player) {
+            expectedPlayers.insert(player);
+            for (int lane = 0; lane < lanesPerPlayer; ++lane) {
+                expectedLanes.insert(player * 10 + lane +
+                    (keysPerPlayer == 9 ? 1 : 0));
             }
+        }
+
+        auto collectIndices = [&](const char* prefix) {
+            std::set<int> indices;
+            std::istringstream rows(contents);
+            std::string row;
+            const size_t prefixLength = strlen(prefix);
+            while (std::getline(rows, row)) {
+                if (!row.empty() && row.back() == '\r') row.pop_back();
+                if (row.compare(0, prefixLength, prefix) != 0) continue;
+                indices.insert((int)strtol(row.c_str() + prefixLength,
+                    NULL, 10));
+            }
+            return indices;
+        };
+        auto countPrefix = [&](const char* prefix) {
+            int count = 0;
+            std::istringstream rows(contents);
+            std::string row;
+            const size_t prefixLength = strlen(prefix);
+            while (std::getline(rows, row)) {
+                if (!row.empty() && row.back() == '\r') row.pop_back();
+                if (row.compare(0, prefixLength, prefix) == 0) ++count;
+            }
+            return count;
+        };
+
+        const char* noteCommands[] = {
+            "#SRC_NOTE,", "#SRC_MINE,", "#SRC_LN_BODY,",
+            "#SRC_LN_END,", "#SRC_LN_START,", "#DST_NOTE,"
+        };
+        for (const char* command : noteCommands) {
+            if (collectIndices(command) != expectedLanes)
+                return 30 + testIndex;
+        }
+        if (collectIndices("#SRC_LINE,") != expectedPlayers ||
+            collectIndices("#DST_LINE,") != expectedPlayers)
+            return 90 + testIndex;
+        for (int player = 0; player < playerCount; ++player) {
+            for (int lane = 0; lane < lanesPerPlayer; ++lane) {
+                const int laneIndex = player * 10 + lane +
+                    (keysPerPlayer == 9 ? 1 : 0);
+                const int expectedSourceY = hasScratch && lane == 0
+                    ? 32 : (((lane - (hasScratch ? 1 : 0)) % 2) ? 16 : 0);
+                const std::string notePrefix = "#SRC_NOTE," +
+                    std::to_string(laneIndex) + ",0,0," +
+                    std::to_string(expectedSourceY) + ",16,16,";
+                if (contents.find(notePrefix) == std::string::npos)
+                    return 70 + testIndex;
+            }
+        }
+        if (countPrefix("$SE_OBJECT_ID,preset_note_") !=
+                (int)expectedLanes.size() ||
+            countPrefix("$SE_OBJECT_NAME,Note P") !=
+                (int)expectedLanes.size() ||
+            countPrefix("$SE_OBJECT_ID,preset_bomb_") !=
+                (int)expectedLanes.size() ||
+            countPrefix("$SE_OBJECT_ID,preset_line_") != playerCount ||
+            countPrefix("$SE_OBJECT_ID,preset_judgeline_") != playerCount ||
+            countPrefix("$SE_OBJECT_ID,preset_nowjudge_") != playerCount ||
+            countPrefix("$SE_OBJECT_ID,preset_nowcombo_") != playerCount ||
+            countPrefix("$SE_OBJECT_ID,preset_gauge_") != playerCount ||
+            countPrefix("$SE_OBJECT_ID,preset_bga") != 1 ||
+            countPrefix("#SRC_BGA,") != 1 ||
+            countPrefix("#DST_BGA,") != 1 ||
+            countPrefix("$SE_OBJECT_ID,preset_fast") != 1 ||
+            countPrefix("$SE_OBJECT_ID,preset_slow") != 1)
+            return 40 + testIndex;
+
+        const size_t bgaSource = contents.find(
+            "#SRC_BGA,0,0,0,0,0,0,0,0,0,0,0,0,0");
+        const size_t bgaDestination = contents.find("#DST_BGA,");
+        if (bgaSource == std::string::npos ||
+            bgaDestination == std::string::npos ||
+            bgaSource > bgaDestination)
+            return 150 + testIndex;
+
+        if (countPrefix("#SRC_NOWJUDGE_1P,") != 6 ||
+            countPrefix("#DST_NOWJUDGE_1P,") != 12 ||
+            countPrefix("#SRC_NOWCOMBO_1P,") != 3 ||
+            countPrefix("#DST_NOWCOMBO_1P,") != 6 ||
+            countPrefix("#SRC_NOWJUDGE_2P,") != (twoPlayers ? 6 : 0) ||
+            countPrefix("#DST_NOWJUDGE_2P,") != (twoPlayers ? 12 : 0) ||
+            countPrefix("#SRC_NOWCOMBO_2P,") != (twoPlayers ? 3 : 0) ||
+            countPrefix("#DST_NOWCOMBO_2P,") != (twoPlayers ? 6 : 0))
+            return 50 + testIndex;
+
+        const int presetMargin = (std::max)(16, 1280 / 40);
+        const int presetGap = twoPlayers ? (std::max)(12, 1280 / 50) : 0;
+        const int presetFieldWidth = twoPlayers
+            ? (1280 - presetMargin * 2 - presetGap) / 2
+            : (std::max)(220, 1280 * 38 / 100);
+        const int presetLaneWidth = (std::max)(8,
+            presetFieldWidth / lanesPerPlayer);
+        const int expectedGaugeCellWidth = (std::max)(2,
+            presetLaneWidth * lanesPerPlayer / 50);
+        for (int player = 0; player < playerCount; ++player) {
+            const std::string gaugeSource = "#SRC_GROOVEGAUGE," +
+                std::to_string(player) + ",0,0,120,64,16,4,1,0,0," +
+                std::to_string(expectedGaugeCellWidth) + ",0";
+            if (contents.find(gaugeSource) == std::string::npos)
+                return 80 + testIndex;
         }
     }
 
-    if (!SetCurrentDirectoryA(originalDirectory)) {
-        if (result == 0) result = 51;
-        return result;
+    std::string courseSkinPath;
+    std::string courseAtlasPath;
+    std::string courseError;
+    if (!BuildInitialPreset(15, 1280, 720, "Course preset test",
+        "SkinEditor", "course_result\\skin.lr2skin", courseSkinPath,
+        courseAtlasPath, courseError))
+        return 60;
+    std::ifstream courseInput(courseSkinPath, std::ios::binary);
+    if (!courseInput || !fs::exists(courseAtlasPath)) return 61;
+    const std::string courseContents(
+        (std::istreambuf_iterator<char>(courseInput)),
+        std::istreambuf_iterator<char>());
+    if (!validatePresetAtlas(courseAtlasPath, courseContents)) return 68;
+
+    auto countCoursePrefix = [&](const char* prefix) {
+        int count = 0;
+        std::istringstream rows(courseContents);
+        std::string row;
+        const size_t prefixLength = strlen(prefix);
+        while (std::getline(rows, row)) {
+            if (!row.empty() && row.back() == '\r') row.pop_back();
+            if (row.compare(0, prefixLength, prefix) == 0) ++count;
+        }
+        return count;
+    };
+    auto collectCourseColumn = [&](const char* command, int column) {
+        std::set<int> values;
+        std::istringstream rows(courseContents);
+        std::string row;
+        const std::string prefix = std::string(command) + ',';
+        while (std::getline(rows, row)) {
+            if (!row.empty() && row.back() == '\r') row.pop_back();
+            if (row.compare(0, prefix.size(), prefix) != 0) continue;
+            int currentColumn = 0;
+            size_t fieldStart = 0;
+            while (currentColumn < column && fieldStart != std::string::npos) {
+                const size_t comma = row.find(',', fieldStart);
+                if (comma == std::string::npos) {
+                    fieldStart = std::string::npos;
+                    break;
+                }
+                fieldStart = comma + 1;
+                ++currentColumn;
+            }
+            if (fieldStart != std::string::npos)
+                values.insert((int)strtol(row.c_str() + fieldStart, NULL, 10));
+        }
+        return values;
+    };
+
+    const std::set<int> expectedCourseTitles = { 150, 151, 152, 153, 154 };
+    const std::set<int> expectedCourseNumbers = {
+        101, 105, 110, 111, 112, 113, 114,
+        250, 251, 252, 253, 254
+    };
+    if (courseContents.find("#INFORMATION,15,") == std::string::npos ||
+        courseContents.find("#STARTINPUT,0,1500,500") == std::string::npos)
+        return 62;
+    if (courseContents.find("#SCENETIME") != std::string::npos)
+        return 67;
+    if (collectCourseColumn("#SRC_TEXT", 3) != expectedCourseTitles ||
+        countCoursePrefix("#SRC_TEXT,") != 5 ||
+        countCoursePrefix("#DST_TEXT,") != 5)
+        return 63;
+    if (collectCourseColumn("#SRC_NUMBER", 11) != expectedCourseNumbers ||
+        countCoursePrefix("#SRC_NUMBER,") != 12 ||
+        countCoursePrefix("#DST_NUMBER,") != 12)
+        return 64;
+    if (countCoursePrefix("$SE_OBJECT_ID,preset_course_result_panel") != 1 ||
+        countCoursePrefix("$SE_OBJECT_ID,preset_course_title_") != 5 ||
+        countCoursePrefix("$SE_OBJECT_ID,preset_course_level_") != 5 ||
+        countCoursePrefix("$SE_OBJECT_ID,preset_course_") != 18)
+        return 65;
+    if (countCoursePrefix("#SRC_NOTE,") != 0 ||
+        countCoursePrefix("#FONT,") != 1)
+        return 66;
+
+    const int nonPlayTypes[] = { 5, 6, 7 };
+    for (int testIndex = 0; testIndex < IM_ARRAYSIZE(nonPlayTypes); ++testIndex) {
+        const int type = nonPlayTypes[testIndex];
+        std::string sceneSkinPath;
+        std::string sceneAtlasPath;
+        std::string sceneError;
+        if (!BuildInitialPreset(type, 1280, 720, "Scene preset test",
+            "SkinEditor", "scene_" + std::to_string(type) +
+            "\\skin.lr2skin", sceneSkinPath, sceneAtlasPath, sceneError))
+            return 110 + testIndex;
+        std::ifstream sceneInput(sceneSkinPath, std::ios::binary);
+        if (!sceneInput || !fs::exists(sceneAtlasPath))
+            return 120 + testIndex;
+        const std::string sceneContents(
+            (std::istreambuf_iterator<char>(sceneInput)),
+            std::istreambuf_iterator<char>());
+        if (!validatePresetAtlas(sceneAtlasPath, sceneContents))
+            return 245 + testIndex;
+        const bool hasSceneTime =
+            sceneContents.find("#SCENETIME") != std::string::npos;
+        if (hasSceneTime != (type == 6))
+            return 130 + testIndex;
+        if (type == 6) {
+            if (sceneContents.find("#SCENETIME,3000") == std::string::npos)
+                return 140 + testIndex;
+            if (sceneContents.find(
+                    "$SE_OBJECT_ID,preset_decide_song_title\r\n") ==
+                    std::string::npos ||
+                sceneContents.find("#SRC_TEXT,0,0,10,1,0,0\r\n") ==
+                    std::string::npos ||
+                sceneContents.find("#DST_TEXT,0,0,") ==
+                    std::string::npos ||
+                sceneContents.find("#FONT,40,2,2,Arial\r\n") ==
+                    std::string::npos)
+                return 235 + testIndex;
+        }
+        if (type == 5) {
+            int barSourceCount = 0;
+            std::istringstream rows(sceneContents);
+            std::string row;
+            while (std::getline(rows, row)) {
+                if (!row.empty() && row.back() == '\r') row.pop_back();
+                if (row.compare(0, strlen("#SRC_BAR_BODY,"),
+                    "#SRC_BAR_BODY,") != 0) continue;
+                ++barSourceCount;
+                if (row.find(",0,0,224,192,32,1,1,0,0") ==
+                    std::string::npos)
+                    return 215 + testIndex;
+            }
+            if (barSourceCount != 10 ||
+                sceneContents.find("#SRC_BAR_BODY,0,0,0,72,192,32") !=
+                    std::string::npos)
+                return 220 + testIndex;
+
+            PDIRECT3DTEXTURE9 atlasTexture = NULL;
+            int atlasWidth = 0;
+            int atlasHeight = 0;
+            if (!LoadTextureFromFile(sceneAtlasPath.c_str(), &atlasTexture,
+                &atlasWidth, &atlasHeight) || atlasWidth != 256 ||
+                atlasHeight != 256) {
+                if (atlasTexture) atlasTexture->Release();
+                return 225 + testIndex;
+            }
+            D3DCOLOR borderPixel = 0;
+            D3DCOLOR fillPixel = 0;
+            D3DCOLOR barTailPixel = 0;
+            const bool pixelsMatch =
+                ReadTexturePixel(atlasTexture, 0, 224, &borderPixel) &&
+                ReadTexturePixel(atlasTexture, 10, 230, &fillPixel) &&
+                ReadTexturePixel(atlasTexture, 191, 255, &barTailPixel) &&
+                ((borderPixel >> 24) & 0xff) == 255 &&
+                ((borderPixel >> 16) & 0xff) == 92 &&
+                ((borderPixel >> 8) & 0xff) == 158 &&
+                (borderPixel & 0xff) == 225 &&
+                ((fillPixel >> 24) & 0xff) == 255 &&
+                ((fillPixel >> 16) & 0xff) == 28 &&
+                ((fillPixel >> 8) & 0xff) == 45 &&
+                (fillPixel & 0xff) == 68 &&
+                ((barTailPixel >> 24) & 0xff) == 255;
+            atlasTexture->Release();
+            if (!pixelsMatch)
+                return 230 + testIndex;
+        }
+        if (type == 7) {
+            const char* requiredResultObjectIds[] = {
+                "preset_result_panel",
+                "preset_result_label_exscore",
+                "preset_result_exscore",
+                "preset_result_label_maxcombo",
+                "preset_result_maxcombo",
+                "preset_result_label_perfect",
+                "preset_result_perfect",
+                "preset_result_label_great",
+                "preset_result_great",
+                "preset_result_label_good",
+                "preset_result_good",
+                "preset_result_label_bad",
+                "preset_result_bad",
+                "preset_result_label_poor",
+                "preset_result_poor",
+                "preset_result_gauge_chart_backdrop",
+                "preset_result_score_chart_backdrop",
+                "preset_result_gauge_chart",
+                "preset_result_score_chart",
+            };
+            for (const char* id : requiredResultObjectIds) {
+                const std::string declaration =
+                    std::string("$SE_OBJECT_ID,") + id + "\r\n";
+                if (sceneContents.find(declaration) == std::string::npos)
+                    return 160 + testIndex;
+            }
+            const int requiredResultNumbers[] = {
+                101, 105, 110, 111, 112, 113, 114
+            };
+            for (int numberId : requiredResultNumbers) {
+                const std::string numberSource =
+                    "#SRC_NUMBER,0,0,0,104,160,16,10,1,0,0," +
+                    std::to_string(numberId) + ",0,";
+                if (sceneContents.find(numberSource) == std::string::npos)
+                    return 170 + testIndex;
+            }
+            if (sceneContents.find("preset_result_miss") != std::string::npos ||
+                sceneContents.find("Miss Count") != std::string::npos ||
+                sceneContents.find("#SRC_IMAGE,0,0,128,168,64,56,") ==
+                    std::string::npos)
+                return 180 + testIndex;
+
+            auto countResultPrefix = [&](const char* prefix) {
+                int count = 0;
+                std::istringstream rows(sceneContents);
+                std::string row;
+                const size_t prefixLength = strlen(prefix);
+                while (std::getline(rows, row)) {
+                    if (!row.empty() && row.back() == '\r') row.pop_back();
+                    if (row.compare(0, prefixLength, prefix) == 0) ++count;
+                }
+                return count;
+            };
+            const int testPanelX = 1280 * 8 / 100;
+            const int testPanelY = 720 * 14 / 100;
+            const int testPanelW = 1280 * 84 / 100;
+            const int testPanelH = 720 * 70 / 100;
+            const int testChartX = testPanelX +
+                (std::max)(18, testPanelW / 24);
+            const int testChartY = testPanelY + testPanelH * 60 / 100;
+            const int testChartW = testPanelW * 38 / 100;
+            const int testChartH = testPanelH * 24 / 100;
+            const int testChartFieldH = (std::max)(2, testChartH - 2);
+            const int testChartBaseY = testChartY + testChartFieldH;
+            const std::string lowGaugeSource =
+                "#SRC_GAUGECHART_1P,0,0,16,120,2,2,1,1,0,0," +
+                std::to_string(testChartW) + ',' +
+                std::to_string(testChartFieldH) + ",500,2000";
+            const std::string highGaugeSource =
+                "#SRC_GAUGECHART_1P,1,0,0,120,2,2,1,1,0,0," +
+                std::to_string(testChartW) + ',' +
+                std::to_string(testChartFieldH) + ",500,2000";
+            const std::string lowGaugeDestination =
+                "#DST_GAUGECHART_1P,0,0," +
+                std::to_string(testChartX) + ',' +
+                std::to_string(testChartBaseY) + ",2,2,";
+            const std::string highGaugeDestination =
+                "#DST_GAUGECHART_1P,1,0," +
+                std::to_string(testChartX) + ',' +
+                std::to_string(testChartBaseY) + ",2,2,";
+            if (countResultPrefix("#SRC_GAUGECHART_1P,") != 2 ||
+                countResultPrefix("#DST_GAUGECHART_1P,") != 2 ||
+                countResultPrefix("#SRC_SCORECHART,") != 1 ||
+                countResultPrefix("#DST_SCORECHART,") != 1 ||
+                sceneContents.find(lowGaugeSource) == std::string::npos ||
+                sceneContents.find(highGaugeSource) == std::string::npos ||
+                sceneContents.find(lowGaugeDestination) == std::string::npos ||
+                sceneContents.find(highGaugeDestination) == std::string::npos)
+                return 185 + testIndex;
+
+            PDIRECT3DTEXTURE9 atlasTexture = NULL;
+            int atlasWidth = 0;
+            int atlasHeight = 0;
+            if (!LoadTextureFromFile(sceneAtlasPath.c_str(), &atlasTexture,
+                &atlasWidth, &atlasHeight) || atlasWidth != 256 ||
+                atlasHeight != 256) {
+                if (atlasTexture) atlasTexture->Release();
+                return 190 + testIndex;
+            }
+            for (int digit = 0; digit < 10; ++digit) {
+                for (int row = 0; row < 7; ++row) {
+                    for (int column = 0; column < 5; ++column) {
+                        const int x = digit * 16 + 3 + column * 2;
+                        const int y = 104 + 1 + row * 2;
+                        D3DCOLOR pixel = 0;
+                        if (!ReadTexturePixel(atlasTexture, x, y, &pixel)) {
+                            atlasTexture->Release();
+                            return 195 + testIndex;
+                        }
+                        const bool bright = ((pixel >> 16) & 0xff) > 200 &&
+                            ((pixel >> 8) & 0xff) > 200 &&
+                            (pixel & 0xff) > 200;
+                        const bool expected =
+                            (kPresetDigitGlyphs[digit][row] &
+                                (1 << (4 - column))) != 0;
+                        if (bright != expected) {
+                            atlasTexture->Release();
+                            return 200 + testIndex;
+                        }
+                    }
+                }
+            }
+            D3DCOLOR redGaugePixel = 0;
+            D3DCOLOR greenGaugePixel = 0;
+            D3DCOLOR resultSurfacePixel = 0;
+            const bool resultPixelsMatch =
+                ReadTexturePixel(atlasTexture, 0, 120, &redGaugePixel) &&
+                ReadTexturePixel(atlasTexture, 16, 120, &greenGaugePixel) &&
+                ReadTexturePixel(atlasTexture, 128, 180, &resultSurfacePixel) &&
+                ((redGaugePixel >> 16) & 0xff) == 255 &&
+                ((redGaugePixel >> 8) & 0xff) == 90 &&
+                (redGaugePixel & 0xff) == 70 &&
+                ((greenGaugePixel >> 16) & 0xff) == 70 &&
+                ((greenGaugePixel >> 8) & 0xff) == 235 &&
+                (greenGaugePixel & 0xff) == 145 &&
+                ((resultSurfacePixel >> 24) & 0xff) == 255;
+            atlasTexture->Release();
+            if (!resultPixelsMatch)
+                return 210 + testIndex;
+        }
     }
-    std::error_code cleanupError;
-    std::filesystem::remove_all(testRoot, cleanupError);
-    if (result == 0 && cleanupError) result = 52;
-    return result;
+    return 0;
 }
 
 int WORKSPACE::drawNewskin() {
     char windowTitle[260];
     snprintf(windowTitle, sizeof(windowTitle), "NewSkin##%d", num);
+    // Keep the result/error line visible when the dialog first opens instead
+    // of requiring a vertical scroll after Create and open fails.
+    ImGui::SetNextWindowSize(ImVec2(620.0f, 400.0f), ImGuiCond_Appearing);
     if (ImGui::Begin(windowTitle, &wNewskin)) {
         static char skinTitle[128] = "New Skin";
         static char maker[128] = "SkinEditor";
@@ -8958,7 +11400,9 @@ int WORKSPACE::drawNewskin() {
         ImGui::InputText("Title", skinTitle, IM_ARRAYSIZE(skinTitle));
         ImGui::InputText("Maker", maker, IM_ARRAYSIZE(maker));
         if (ImGui::BeginCombo("Scene / key mode", SKINTYPESTR[selectedType])) {
-            const int presetTypes[] = { 0, 1, 2, 3, 4, 12, 13, 14, 5, 6, 7 };
+            const int presetTypes[] = {
+                0, 1, 2, 3, 4, 12, 13, 14, 5, 6, 7, 15
+            };
             for (int type : presetTypes) {
                 const bool selected = selectedType == type;
                 if (ImGui::Selectable(SKINTYPESTR[type], selected)) selectedType = type;
@@ -8999,6 +11443,21 @@ int WORKSPACE::drawNewskin() {
                 snprintf(title, 260, "%s -%s", titleCp932.c_str(), SKINTYPESTR[selectedType]);
                 loaded = LoadSkin(mainpath) == 0;
                 if (loaded) {
+                    if (IsPlayPresetType(selectedType)) {
+                        const std::vector<SEObjectInstance>& objects =
+                            objectEditorModel.Objects();
+                        for (int objectIndex = 0;
+                            objectIndex < (int)objects.size(); ++objectIndex) {
+                            if (objects[objectIndex].editorId !=
+                                "preset_note_0") continue;
+                            wObjectEditor = true;
+                            wObjectBrowser = true;
+                            wObjectInspector = true;
+                            SetObjectSelection(std::vector<int>(1, objectIndex),
+                                objectIndex, objectIndex, true);
+                            break;
+                        }
+                    }
                     newPath[0] = '\0';
                     createMessage = "Created and opened: " + createdSkin;
                     wNewskin = false;
@@ -9014,8 +11473,8 @@ int WORKSPACE::drawNewskin() {
             ImGui::TextColored(createSucceeded ? ImVec4(0.35f, 0.85f, 0.40f, 1.0f) :
                 ImVec4(1.0f, 0.30f, 0.30f, 1.0f), "%s", createMessage.c_str());
         }
-        ImGui::End();
     }
+    ImGui::End();
     return 0;
 }
 
@@ -10858,6 +13317,9 @@ int WORKSPACE::drawObjectEditor() {
     }
     // Object Browser: filters on top, condition/object list below.
     if (drawBrowser) {
+        // Image Manager is drawn before Object Browser, so it consumes the
+        // previous frame's hover and this frame refreshes or clears it.
+        SetImageManagerHoveredObject(-1, ImGui::GetFrameCount());
         const float filterPanelHeight = ImGui::GetFrameHeightWithSpacing() * 4.0f +
             ImGui::GetStyle().WindowPadding.y * 2.0f + 18.0f;
         const bool drawFilters = ImGui::BeginChild("ObjectFilters",
@@ -11102,35 +13564,52 @@ int WORKSPACE::drawObjectEditor() {
             std::vector<BranchBlock> branches;
         };
         std::vector<ConditionBlock> conditions;
+        std::map<int, int> conditionIndexByRoot;
+        std::map<std::pair<int, int>, int> branchIndexByCondition;
+
+        std::vector<std::string> conditionHeaders(
+            (std::max)(0, arr_ifunit.count));
+        std::vector<int> conditionOrders((std::max)(0, arr_ifunit.count), 0);
+        for (int group = 1; group < arr_ifunit.count; ++group)
+            conditionOrders[group] = ((IFUNIT*)arr_ifunit.data)[group].order;
+        for (int row = 0; row < skinfileLines.count; ++row) {
+            SKINFILELINEREAD& header =
+                ((SKINFILELINEREAD*)skinfileLines.data)[row];
+            if (!header.isIfGroupHead || header.ifgroup <= 0 ||
+                header.ifgroup >= arr_ifunit.count ||
+                !header.csv.str[0].body ||
+                !conditionHeaders[header.ifgroup].empty()) continue;
+            conditionHeaders[header.ifgroup] = formatConditionHeader(header);
+        }
+
+        std::vector<int> conditionRoots((std::max)(0, arr_ifunit.count), 0);
+        std::map<std::pair<int, int>, int> latestRootByParentDepth;
+        for (int group = 1; group < arr_ifunit.count; ++group) {
+            IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[group];
+            const std::pair<int, int> chainKey(unit.parentID, unit.depth);
+            if (unit.order == 0) {
+                conditionRoots[group] = group;
+                latestRootByParentDepth[chainKey] = group;
+            } else {
+                const std::map<std::pair<int, int>, int>::const_iterator root =
+                    latestRootByParentDepth.find(chainKey);
+                conditionRoots[group] = root == latestRootByParentDepth.end()
+                    ? group : root->second;
+            }
+        }
 
         auto getHeader = [&](int ifgroup, std::string& label, int& order) -> bool {
             label = "";
             order = 0;
             if (ifgroup <= 0 || ifgroup >= arr_ifunit.count) return false;
-            IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[ifgroup];
-            order = unit.order;
-            for (int rno = 0; rno < skinfileLines.count; ++rno) {
-                SKINFILELINEREAD& r = ((SKINFILELINEREAD*)skinfileLines.data)[rno];
-                if (r.ifgroup != ifgroup || !r.isIfGroupHead || !r.csv.str[0].body) continue;
-                label = formatConditionHeader(r);
-                return true;
-            }
-            return false;
+            order = conditionOrders[ifgroup];
+            label = conditionHeaders[ifgroup];
+            return !label.empty();
         };
 
         auto getRootIfgroup = [&](int ifgroup) -> int {
             if (ifgroup <= 0 || ifgroup >= arr_ifunit.count) return 0;
-            IFUNIT& u = ((IFUNIT*)arr_ifunit.data)[ifgroup];
-            if (u.order == 0) return ifgroup;
-            int root = ifgroup;
-            for (int j = ifgroup - 1; j > 0; --j) {
-                IFUNIT& c = ((IFUNIT*)arr_ifunit.data)[j];
-                if (c.depth == u.depth && c.parentID == u.parentID && c.order == 0) {
-                    root = j;
-                    break;
-                }
-            }
-            return root;
+            return conditionRoots[ifgroup];
         };
 
         // Cache the exact active branch state. A branch is active only when
@@ -11167,23 +13646,16 @@ int WORKSPACE::drawObjectEditor() {
                     branchMatches[header.ifgroup] = matches;
                 }
             }
+            std::map<int, bool> earlierBranchTaken;
             for (int group = 1; group < arr_ifunit.count; ++group) {
                 IFUNIT& unit = ((IFUNIT*)arr_ifunit.data)[group];
                 const int chainRoot = getRootIfgroup(group);
-                bool earlierTaken = false;
-                for (int sibling = 1; sibling < group; ++sibling) {
-                    IFUNIT& previous = ((IFUNIT*)arr_ifunit.data)[sibling];
-                    if (previous.parentID == unit.parentID && previous.depth == unit.depth &&
-                        previous.order < unit.order && getRootIfgroup(sibling) == chainRoot &&
-                        branchMatches[sibling]) {
-                        earlierTaken = true;
-                        break;
-                    }
-                }
+                const bool earlierTaken = earlierBranchTaken[chainRoot];
                 const bool parentActive = unit.parentID >= 0 &&
                     unit.parentID < (int)objectBranchActive.size()
                     ? objectBranchActive[unit.parentID] : false;
                 objectBranchActive[group] = parentActive && !earlierTaken && branchMatches[group];
+                if (branchMatches[group]) earlierBranchTaken[chainRoot] = true;
             }
             objectStatusCacheLineCount = skinfileLines.count;
             objectStatusCacheIfCount = arr_ifunit.count;
@@ -11259,12 +13731,15 @@ int WORKSPACE::drawObjectEditor() {
 
             if (ifgroup == 0) {
                 int ci = -1;
-                for (int i = 0; i < (int)conditions.size(); ++i)
-                    if (conditions[i].rootIfgroup == 0) { ci = i; break; }
+                const std::map<int, int>::const_iterator existingCondition =
+                    conditionIndexByRoot.find(0);
+                if (existingCondition != conditionIndexByRoot.end())
+                    ci = existingCondition->second;
                 if (ci < 0) {
                     ConditionBlock c;
                     c.rootIfgroup = 0; c.depth = 0; c.label = "ALWAYS";
                     conditions.push_back(c); ci = (int)conditions.size() - 1;
+                    conditionIndexByRoot[0] = ci;
                 }
                 if (conditions[ci].branches.empty()) {
                     BranchBlock b; b.ifgroup = 0; b.order = 0; b.label = "ALWAYS";
@@ -11276,8 +13751,10 @@ int WORKSPACE::drawObjectEditor() {
 
             int root = getRootIfgroup(ifgroup);
             int ci = -1;
-            for (int i = 0; i < (int)conditions.size(); ++i)
-                if (conditions[i].rootIfgroup == root) { ci = i; break; }
+            const std::map<int, int>::const_iterator existingCondition =
+                conditionIndexByRoot.find(root);
+            if (existingCondition != conditionIndexByRoot.end())
+                ci = existingCondition->second;
             if (ci < 0) {
                 ConditionBlock c;
                 c.rootIfgroup = root;
@@ -11286,17 +13763,22 @@ int WORKSPACE::drawObjectEditor() {
                 getHeader(root, c.label, dummyOrder);
                 if (c.label.empty()) c.label = "#IF";
                 conditions.push_back(c); ci = (int)conditions.size() - 1;
+                conditionIndexByRoot[root] = ci;
             }
 
             int bi = -1;
-            for (int i = 0; i < (int)conditions[ci].branches.size(); ++i)
-                if (conditions[ci].branches[i].ifgroup == ifgroup) { bi = i; break; }
+            const std::pair<int, int> branchKey(root, ifgroup);
+            const std::map<std::pair<int, int>, int>::const_iterator
+                existingBranch = branchIndexByCondition.find(branchKey);
+            if (existingBranch != branchIndexByCondition.end())
+                bi = existingBranch->second;
             if (bi < 0) {
                 BranchBlock b;
                 b.ifgroup = ifgroup;
                 getHeader(ifgroup, b.label, b.order);
                 if (b.label.empty()) b.label = (b.order == 0) ? "#IF" : "#ELSE";
                 conditions[ci].branches.push_back(b); bi = (int)conditions[ci].branches.size() - 1;
+                branchIndexByCondition[branchKey] = bi;
             }
             conditions[ci].branches[bi].localObjectIndices.push_back(oi);
         }
@@ -11313,13 +13795,8 @@ int WORKSPACE::drawObjectEditor() {
                 ? ((IFUNIT*)arr_ifunit.data)[visibleRoot].parentID : 0;
             while (ancestorBranch > 0 && ancestorBranch < arr_ifunit.count) {
                 const int ancestorRoot = getRootIfgroup(ancestorBranch);
-                bool alreadyPresent = false;
-                for (const ConditionBlock& condition : conditions) {
-                    if (condition.rootIfgroup == ancestorRoot) {
-                        alreadyPresent = true;
-                        break;
-                    }
-                }
+                const bool alreadyPresent = conditionIndexByRoot.find(
+                    ancestorRoot) != conditionIndexByRoot.end();
                 if (!alreadyPresent) {
                     ConditionBlock ancestor;
                     ancestor.rootIfgroup = ancestorRoot;
@@ -11336,6 +13813,8 @@ int WORKSPACE::drawObjectEditor() {
                         ancestor.branches.push_back(branch);
                     }
                     conditions.push_back(ancestor);
+                    conditionIndexByRoot[ancestorRoot] =
+                        (int)conditions.size() - 1;
                 }
                 ancestorBranch = ((IFUNIT*)arr_ifunit.data)[ancestorRoot].parentID;
             }
@@ -11407,7 +13886,21 @@ int WORKSPACE::drawObjectEditor() {
             ImGui::PushID(cond.rootIfgroup);
 
             auto drawBranchObjects = [&](BranchBlock& branch) {
-                for (int k = 0; k < (int)branch.localObjectIndices.size(); ++k) {
+                ImGuiListClipper objectClipper;
+                objectClipper.Begin((int)branch.localObjectIndices.size());
+                if (requestedObjectModel >= 0) {
+                    for (int k = 0; k < (int)branch.localObjectIndices.size(); ++k) {
+                        const int requestedOi = branch.localObjectIndices[k];
+                        if (requestedOi >= 0 && requestedOi < (int)groupObjects.size() &&
+                            groupObjects[requestedOi] == requestedObjectModel) {
+                            objectClipper.IncludeItemByIndex(k);
+                            break;
+                        }
+                    }
+                }
+                while (objectClipper.Step()) {
+                for (int k = objectClipper.DisplayStart;
+                    k < objectClipper.DisplayEnd; ++k) {
                     int oi = branch.localObjectIndices[k];
                     const SEObjectInstance& o = objectEditorModel.Objects()[groupObjects[oi]];
                     char label[256];
@@ -11499,18 +13992,17 @@ int WORKSPACE::drawObjectEditor() {
                     const bool objectEnabled = objectIsActive(o);
 
                     ImGui::PushID(oi);
+                    ImVec4 objectStatusColor(0, 0, 0, 0);
                     if (hasDst) {
                         const ImVec4 rowColor = objectEnabled
-                            ? ImVec4(0.18f, 0.48f, 0.23f, 0.62f)
-                            : ImVec4(0.55f, 0.18f, 0.18f, 0.62f);
+                            ? ImVec4(0.18f, 0.48f, 0.23f, 0.22f)
+                            : ImVec4(0.55f, 0.18f, 0.18f, 0.22f);
                         const ImVec4 hoverColor = objectEnabled
-                            ? ImVec4(0.24f, 0.62f, 0.30f, 0.78f)
-                            : ImVec4(0.68f, 0.22f, 0.22f, 0.78f);
-                        const ImVec2 rowMin = ImGui::GetCursorScreenPos();
-                        const float rowWidth = ImGui::GetContentRegionAvail().x;
-                        ImGui::GetWindowDrawList()->AddRectFilled(rowMin,
-                            ImVec2(rowMin.x + rowWidth, rowMin.y + ImGui::GetFrameHeight()),
-                            ImGui::GetColorU32(rowColor));
+                            ? ImVec4(0.24f, 0.62f, 0.30f, 0.36f)
+                            : ImVec4(0.68f, 0.22f, 0.22f, 0.36f);
+                        objectStatusColor = objectEnabled
+                            ? ImVec4(0.35f, 0.82f, 0.42f, 0.95f)
+                            : ImVec4(0.92f, 0.32f, 0.30f, 0.95f);
                         ImGui::PushStyleColor(ImGuiCol_Header, rowColor);
                         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, hoverColor);
                         ImGui::PushStyleColor(ImGuiCol_HeaderActive, hoverColor);
@@ -11519,9 +14011,27 @@ int WORKSPACE::drawObjectEditor() {
                     const bool isMultiSelected = std::find(preview_selected_object_model_indices.begin(),
                         preview_selected_object_model_indices.end(), modelIndex) !=
                         preview_selected_object_model_indices.end();
-                    const bool clicked = ImGui::Selectable(label, isMultiSelected);
+                    const float objectRowWidth = (std::min)(
+                        ImGui::GetContentRegionAvail().x,
+                        ImGui::CalcTextSize(label).x +
+                            ImGui::GetStyle().FramePadding.x * 2.0f + 8.0f);
+                    const bool clicked = ImGui::Selectable(label, isMultiSelected,
+                        ImGuiSelectableFlags_None, ImVec2(objectRowWidth, 0.0f));
+                    const bool objectRowHovered =
+                        ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone);
+                    if (objectRowHovered) {
+                        SetImageManagerHoveredObject(
+                            isMultiSelected ? -1 : modelIndex,
+                            ImGui::GetFrameCount());
+                    }
                     const ImVec2 reorderRowMin = ImGui::GetItemRectMin();
                     const ImVec2 reorderRowMax = ImGui::GetItemRectMax();
+                    if (hasDst) {
+                        ImGui::GetWindowDrawList()->AddRectFilled(
+                            reorderRowMin,
+                            ImVec2(reorderRowMin.x + 3.0f, reorderRowMax.y),
+                            ImGui::GetColorU32(objectStatusColor));
+                    }
                     if (modelIndex == requestedObjectModel)
                         ImGui::SetScrollHereY(0.5f);
                     if (hasDst) ImGui::PopStyleColor(3);
@@ -11661,6 +14171,8 @@ int WORKSPACE::drawObjectEditor() {
                     }
                     ImGui::PopID();
                 }
+                }
+                objectClipper.End();
             };
 
             if (cond.rootIfgroup == 0) {
@@ -11692,20 +14204,15 @@ int WORKSPACE::drawObjectEditor() {
                             parent < (int)objectBranchActive.size() && objectBranchActive[parent];
                     }
                     const ImVec4 branchColor = !isParentActive
-                        ? ImVec4(0.28f, 0.28f, 0.30f, 0.62f)
+                        ? ImVec4(0.28f, 0.28f, 0.30f, 0.22f)
                         : (isBranchActive
-                            ? ImVec4(0.18f, 0.48f, 0.23f, 0.62f)
-                            : ImVec4(0.55f, 0.18f, 0.18f, 0.62f));
+                            ? ImVec4(0.18f, 0.48f, 0.23f, 0.22f)
+                            : ImVec4(0.55f, 0.18f, 0.18f, 0.22f));
                     const ImVec4 branchHoverColor = !isParentActive
-                        ? ImVec4(0.38f, 0.38f, 0.41f, 0.78f)
+                        ? ImVec4(0.38f, 0.38f, 0.41f, 0.36f)
                         : (isBranchActive
-                            ? ImVec4(0.24f, 0.62f, 0.30f, 0.78f)
-                            : ImVec4(0.68f, 0.22f, 0.22f, 0.78f));
-                    const ImVec2 branchRowMin = ImGui::GetCursorScreenPos();
-                    ImGui::GetWindowDrawList()->AddRectFilled(branchRowMin,
-                        ImVec2(branchRowMin.x + ImGui::GetContentRegionAvail().x,
-                            branchRowMin.y + ImGui::GetFrameHeight()),
-                        ImGui::GetColorU32(branchColor));
+                            ? ImVec4(0.24f, 0.62f, 0.30f, 0.36f)
+                            : ImVec4(0.68f, 0.22f, 0.22f, 0.36f));
                     ImGui::PushStyleColor(ImGuiCol_Header, branchColor);
                     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, branchHoverColor);
                     ImGui::PushStyleColor(ImGuiCol_HeaderActive, branchHoverColor);
@@ -11926,20 +14433,10 @@ int WORKSPACE::drawObjectEditor() {
                 auto drawTaggedImageSelector = [&](int row, const char* command) {
                     if (!command || strncmp(command, "#SRC", 4) != 0 || arr_IMG.count <= 0) return;
                     SKINFILELINEREAD& srcLine = ((SKINFILELINEREAD*)skinfileLines.data)[row];
-                    const char* fieldNames[5] = { "gr", "x", "y", "w", "h" };
                     int columns[5] = { -1, -1, -1, -1, -1 };
-                    for (int col = 1; col < 30; ++col) {
-                        CSTR help = GetCommandHelp(command, col);
-                        help.trimWhiteSpace();
-                        const char* label = help.body ? help.outstr() : "";
-                        if (*label == '$') ++label;
-                        for (int field = 0; field < 5; ++field)
-                            if (_stricmp(label, fieldNames[field]) == 0) columns[field] = col;
-                    }
-                    for (int field = 0; field < 5; ++field) if (columns[field] < 0) return;
+                    if (!ResolveImageCropColumns(command, columns)) return;
 
-                    const int currentTag = FindIMG(srcLine.csv.val[columns[0]], srcLine.csv.val[columns[1]],
-                        srcLine.csv.val[columns[2]], srcLine.csv.val[columns[3]], srcLine.csv.val[columns[4]]);
+                    const int currentTag = FindImageAssetForRow(row);
                     char preview[260];
                     if (currentTag >= 0 && currentTag < arr_IMG.count) {
                         IMG& tag = ((IMG*)arr_IMG.data)[currentTag];
@@ -11959,19 +14456,9 @@ int WORKSPACE::drawObjectEditor() {
                             snprintf(tagLabel, sizeof(tagLabel), "%03d  G%02d  %s", tagIndex, tag.gr,
                                 tagNameUtf8.c_str());
                             if (ImGui::Selectable(tagLabel, tagIndex == currentTag)) {
-                                for (int field = 0; field < 5; ++field) {
-                                    const int values[5] = { tag.gr, tag.x, tag.y, tag.w, tag.h };
-                                    EditValue(row, columns[field], values[field]);
-                                }
-                                src_selected = tagIndex;
-                                gr_selected = -1;
-                                for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
-                                    SRCGR& source = ((SRCGR*)arr_SRCGR.data)[candidate];
-                                    if (source.grID == tag.gr && source.isIf == tag.ifGroup) {
-                                        gr_selected = candidate;
-                                        break;
-                                    }
-                                }
+                                ApplyImageAssetToObjectSource(tagIndex,
+                                    groupObjects[selected_object_editor], row,
+                                    false);
                             }
                             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNone) &&
                                 tag.gr >= 0) {
@@ -12019,6 +14506,50 @@ int WORKSPACE::drawObjectEditor() {
                     }
                 };
 
+                auto drawDstColorEditor = [&](int row, const char* command,
+                    const char* label) {
+                    if (row < 0 || row >= skinfileLines.count) return false;
+                    int columns[4];
+                    if (!ResolveDstArgbColumns(command, columns)) return false;
+
+                    SKINFILELINEREAD& line =
+                        ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    auto clampByte = [](int value) {
+                        return value < 0 ? 0 : (value > 255 ? 255 : value);
+                    };
+                    // ImGui uses RGBA floats while LR2 stores A,R,G,B integers.
+                    float color[4] = {
+                        clampByte(line.csv.val[columns[1]]) / 255.0f,
+                        clampByte(line.csv.val[columns[2]]) / 255.0f,
+                        clampByte(line.csv.val[columns[3]]) / 255.0f,
+                        clampByte(line.csv.val[columns[0]]) / 255.0f
+                    };
+                    const ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoInputs |
+                        ImGuiColorEditFlags_AlphaBar |
+                        ImGuiColorEditFlags_AlphaPreviewHalf |
+                        ImGuiColorEditFlags_InputRGB |
+                        ImGuiColorEditFlags_Uint8;
+                    const bool changed = ImGui::ColorEdit4(label, color, flags);
+                    if (ImGui::IsItemActivated()) EndDstArgbEdit();
+
+                    if (changed) {
+                        const int edited[4] = {
+                            (int)std::round(color[3] * 255.0f),
+                            (int)std::round(color[0] * 255.0f),
+                            (int)std::round(color[1] * 255.0f),
+                            (int)std::round(color[2] * 255.0f)
+                        };
+                        ApplyDstArgbEdit(row, edited);
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                        ImGui::SetTooltip("A %d  R %d  G %d  B %d",
+                            line.csv.val[columns[0]], line.csv.val[columns[1]],
+                            line.csv.val[columns[2]], line.csv.val[columns[3]]);
+                    }
+                    if (ImGui::IsItemDeactivatedAfterEdit()) EndDstArgbEdit();
+                    return true;
+                };
+
                 auto drawObjectPropertyRow = [&](int row, int compactDstIndex) {
                     if (row < 0 || row >= skinfileLines.count) return;
                     SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
@@ -12032,6 +14563,9 @@ int WORKSPACE::drawObjectEditor() {
                     if (compactDst || ImGui::CollapsingHeader(command, ImGuiTreeNodeFlags_DefaultOpen)) {
                         if (!compactDst) drawTaggedImageSelector(row, command);
                         int maxcol = 30;
+                        int dstColorColumns[4];
+                        const bool hasDstColor = ResolveDstArgbColumns(command,
+                            dstColorColumns);
                         for (int col = 1; col < maxcol; ++col) {
                             CSTR help = GetCommandHelp(command, col);
                             help.trimWhiteSpace();
@@ -12047,29 +14581,37 @@ int WORKSPACE::drawObjectEditor() {
                                 _strnicmp(label, "op2", 3) == 0 || _strnicmp(label, "$op2", 4) == 0 ||
                                 _strnicmp(label, "op3", 3) == 0 || _strnicmp(label, "$op3", 4) == 0;
                             if (compactDstIndex > 0 && isSharedDstField) continue;
+                            if (hasDstColor && col > dstColorColumns[0] &&
+                                col <= dstColorColumns[3]) continue;
                             ImGui::PushID(col);
-                            const char* widgetLabel = label;
+                            const bool isDstColor = hasDstColor &&
+                                col == dstColorColumns[0];
+                            const char* displayLabel = isDstColor ? "ARGB" : label;
+                            const char* widgetLabel = displayLabel;
                             if (compactDst) {
                                 if (compactDstIndex == 0) {
                                     ImGui::AlignTextToFramePadding();
-                                    ImGui::TextDisabled("%s", label);
+                                    ImGui::TextDisabled("%s", displayLabel);
                                     ImGui::SameLine(62.0f);
                                 }
                                 widgetLabel = "##value";
                                 ImGui::SetNextItemWidth(-FLT_MIN);
                             }
-                            const int current = line.csv.val[col];
-                            int selectedValue = current;
-                            if (DrawCommandValueCombo(widgetLabel, command,
-                                help.body ? help.outstr() : "", current, selectedValue)) {
-                                if (selectedValue != current) EditValue(row, col, selectedValue);
-                            } else {
-                                CSTR before(line.csv.str[col]);
-                                CstrInputText(widgetLabel, &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
-                                if (before.isDiff(line.csv.str[col])) {
-                                    CSTR newValue(line.csv.str[col]);
-                                    line.csv.str[col] = before;
-                                    EditValue(row, col, newValue.outstr());
+                            if (!isDstColor ||
+                                !drawDstColorEditor(row, command, widgetLabel)) {
+                                const int current = line.csv.val[col];
+                                int selectedValue = current;
+                                if (DrawCommandValueCombo(widgetLabel, command,
+                                    help.body ? help.outstr() : "", current, selectedValue)) {
+                                    if (selectedValue != current) EditValue(row, col, selectedValue);
+                                } else {
+                                    CSTR before(line.csv.str[col]);
+                                    CstrInputText(widgetLabel, &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
+                                    if (before.isDiff(line.csv.str[col])) {
+                                        CSTR newValue(line.csv.str[col]);
+                                        line.csv.str[col] = before;
+                                        EditValue(row, col, newValue.outstr());
+                                    }
                                 }
                             }
                             ImGui::PopID();
@@ -12342,6 +14884,9 @@ int WORKSPACE::drawObjectEditor() {
 
                                 SKINFILELINEREAD& firstDst = ((SKINFILELINEREAD*)skinfileLines.data)[dstRows[0]];
                                 const char* firstCommand = firstDst.csv.str[0].body ? firstDst.csv.str[0].outstr() : "";
+                                int firstColorColumns[4];
+                                const bool hasDstColor = ResolveDstArgbColumns(
+                                    firstCommand, firstColorColumns);
                                 for (int col = 1; col < 30; ++col) {
                                     CSTR firstHelp = GetCommandHelp(firstCommand, col);
                                     firstHelp.trimWhiteSpace();
@@ -12350,6 +14895,11 @@ int WORKSPACE::drawObjectEditor() {
                                     if (!firstHelp.body) continue;
                                     const char* rowLabel = firstHelp.outstr();
                                     if (!rowLabel || !*rowLabel) continue;
+                                    if (hasDstColor && col > firstColorColumns[0] &&
+                                        col <= firstColorColumns[3]) continue;
+                                    const bool isDstColor = hasDstColor &&
+                                        col == firstColorColumns[0];
+                                    if (isDstColor) rowLabel = "ARGB";
 
                                     const bool sharedField = _strnicmp(rowLabel, "loop", 4) == 0 ||
                                         _strnicmp(rowLabel, "timer", 5) == 0 || _strnicmp(rowLabel, "$timer", 6) == 0 ||
@@ -12373,25 +14923,28 @@ int WORKSPACE::drawObjectEditor() {
                                         ImGui::PushID(row);
                                         ImGui::PushID(col);
                                         ImGui::SetNextItemWidth(-FLT_MIN);
-                                        const int current = line.csv.val[col];
-                                        int selectedValue = current;
-                                        const SECommandValueKind valueKind = GetCommandValueKind(
-                                            line.csv.str[0].outstr(), help.body ? help.outstr() : "");
-                                        if (DrawCommandValueCombo("##value", line.csv.str[0].outstr(),
-                                            help.body ? help.outstr() : "", current, selectedValue)) {
-                                            if (selectedValue != current) EditValue(row, col, selectedValue);
-                                            if ((valueKind == SE_VALUE_OPTION || valueKind == SE_VALUE_TIMER) &&
-                                                ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-                                                const char* valueName = GetCommandValueName(valueKind, current);
-                                                ImGui::SetTooltip("%03d:%s", current, valueName ? valueName : "");
-                                            }
-                                        } else {
-                                            CSTR before(line.csv.str[col]);
-                                            CstrInputText("##value", &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
-                                            if (before.isDiff(line.csv.str[col])) {
-                                                CSTR newValue(line.csv.str[col]);
-                                                line.csv.str[col] = before;
-                                                EditValue(row, col, newValue.outstr());
+                                        if (!isDstColor || !drawDstColorEditor(row,
+                                            line.csv.str[0].outstr(), "##value")) {
+                                            const int current = line.csv.val[col];
+                                            int selectedValue = current;
+                                            const SECommandValueKind valueKind = GetCommandValueKind(
+                                                line.csv.str[0].outstr(), help.body ? help.outstr() : "");
+                                            if (DrawCommandValueCombo("##value", line.csv.str[0].outstr(),
+                                                help.body ? help.outstr() : "", current, selectedValue)) {
+                                                if (selectedValue != current) EditValue(row, col, selectedValue);
+                                                if ((valueKind == SE_VALUE_OPTION || valueKind == SE_VALUE_TIMER) &&
+                                                    ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                                                    const char* valueName = GetCommandValueName(valueKind, current);
+                                                    ImGui::SetTooltip("%03d:%s", current, valueName ? valueName : "");
+                                                }
+                                            } else {
+                                                CSTR before(line.csv.str[col]);
+                                                CstrInputText("##value", &line.csv.str[col], ImGuiInputTextFlags_EnterReturnsTrue);
+                                                if (before.isDiff(line.csv.str[col])) {
+                                                    CSTR newValue(line.csv.str[col]);
+                                                    line.csv.str[col] = before;
+                                                    EditValue(row, col, newValue.outstr());
+                                                }
                                             }
                                         }
                                         ImGui::PopID();

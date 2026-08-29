@@ -59,6 +59,10 @@ $tests = @(
         Argument = '--self-test-reload-lifecycle'
     },
     [pscustomobject]@{
+        Name = 'dst-color'
+        Argument = '--self-test-dst-color'
+    },
+    [pscustomobject]@{
         Name = 'asset-metadata'
         Argument = '--self-test-asset-metadata'
     },

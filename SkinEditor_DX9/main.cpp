@@ -86,6 +86,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunSimpleModeProjectionSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-reload-lifecycle"))
         return RunWorkspaceReloadLifecycleSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-dst-color"))
+        return RunDstColorSelfTest();
 
     if (cmdline && strstr(cmdline, "--self-test-asset-metadata"))
         return RunAssetMetadataSelfTest();

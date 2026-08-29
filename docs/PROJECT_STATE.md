@@ -150,16 +150,48 @@ New에서 Scene과 해상도를 선택하여 필수 Object가 포함된 시작 �
 - SELECT
 - DECIDE
 - RESULT
+- COURSERESULT
 
 New는 `LR2files\Theme` 아래에 새 `.lr2skin`과 알파 채널을 보존하는
 `preset.png`를 만든 후 그 스킨을 즉시 연다. PNG 아틀라스에서 시작 프리셋이 쓰는
 영역은 불투명하고 나머지 빈 영역은 투명하므로, 이후 이미지 편집에서도 투명도를
 유지할 수 있다. `..`, 드라이브명 같은 범위 이탈 경로는 거부하고 기존 파일은
-덮어쓰지 않는다.
+덮어쓰지 않는다. `#SCENETIME`은 DECIDE 프리셋에만 생성하며 PLAY, SELECT,
+RESULT, COURSERESULT에는 기록하지 않는다.
 
-PLAY 프리셋은 배경, BGA, 키 모드별 Note/Mine/LN, Judge Line, Groove Gauge,
-FAST/SLOW를 만든다. SELECT는 선택 바와 제목, DECIDE는 패널/강조/플래시,
-RESULT는 패널/점수 숫자/게이지 및 스코어 차트를 포함한다.
+PLAY 프리셋은 배경, BGA, 키 모드별 Note/Mine/LN과 lane별 Bomb, Measure Line, Judge Line,
+Groove Gauge, FAST/SLOW, 플레이어별 NOWJUDGE 6개 상태와 GOOD 이상에서 사용하는
+NOWCOMBO를 만든다. 1P/2P 판정 timer는 각각 46/47, Bomb timer는 lane index에
+맞춘 50~69를 사용한다. Groove Gauge는 채움/빈칸과 80% 경계의 네 atlas 상태를
+50칸으로 배치하여 실제 gauge 값에 따라 채워진다. Measure Line은 LR2의 PLAY
+노트 처리에서 스크롤 원점으로 직접 참조되므로 플레이어별 필수 Object로 생성한다.
+BGA는 BMS가 제공하는 graph handle을 사용하더라도 LR2 parser가 `#DST_BGA`를
+소유시킬 수 있도록 zero-sized `#SRC_BGA`를 먼저 생성한다.
+생성 직후에는 첫 Note Object를 Object Browser/Inspector에서
+자동 선택해 필수 lane 구성이 바로 보이게 한다. 공용 `preset.png`의 NUMBER 영역은
+LR2 frame index에 맞춰 `0~9` 순서를 유지하면서 각 16x16 cell에 읽을 수 있는 숫자
+glyph를 그린다. SELECT는 NOWJUDGE 색상 strip과 분리된 전용 dark-blue 단색/밝은 테두리
+bar sprite와 제목을 포함한다. DECIDE는 패널/강조/플래시와 중앙 정렬된 곡 제목
+TEXT를 포함한다. 곡 제목은 SELECT가 DECIDE 진입 전에 채우는 `$st 10`
+(`THISSONG_TITLE`)을 직접 사용한다.
+RESULT는 전용 dark panel과 EX SCORE/MAX COMBO/PERFECT/GREAT/GOOD/BAD/POOR label,
+해당 숫자 및 두 chart를 좌우 column으로 배치한다. Gauge chart는 LR2의 Result
+renderer 규칙대로 80% 미만용 index 0과 80% 이상용 index 1을 모두 만든다. index 0은
+초록색, index 1은 빨간색 atlas cell을 사용한다. Chart DST의 y는 음수 높이 offset의
+기준이 되는 backdrop 하단이다.
+COURSERESULT는
+1~5스테이지 제목과 레벨, 코스 누적 EX Score/Max Combo 및 판정 수를 포함한다.
+
+`initial-preset` 자가 테스트는 모든 PLAY/BATTLE key mode에서 scratch를 포함한
+lane index 집합과 각 lane의 `#SRC_NOTE`, `#SRC_MINE`, LN start/end/body,
+`#DST_NOTE`, Bomb 및 플레이어별 Measure Line/NOWJUDGE/NOWCOMBO가 모두 생성되는지와
+`#SRC_BGA`가 `#DST_BGA`보다 먼저 정확히 한 쌍 생성되는지 검사한다.
+생성한 BMP의 NUMBER cell도 0~9 bitmap 원본과 pixel 단위로 비교하며, RESULT의 label,
+101/105/110~114 number와 panel/chart Object가 모두 독립 ID로 생성되는지 검사한다.
+Gauge chart의 두 SRC/DST index, 초록/빨강 source 좌표와 하단 기준 좌표도 같은
+테스트에서 고정한다. SELECT bar의 전용 source crop과 border/fill pixel도 검사한다.
+COURSERESULT의 `$st 150~154`,
+`$num 250~254`와 누적 결과 숫자도 같은 테스트에서 검사한다.
 
 향후 프리셋 확장 시 `BuildInitialPreset()`에 Scene별 생성기를 추가하되,
 `$SE_OBJECT_NAME`과 고유한 `$SE_OBJECT_ID`를 함께 생성해야 한다.
@@ -195,6 +227,13 @@ UI는 `arr_CommandHelp`를 직접 탐색하지 않고 `GetCommandHelp(command, c
 새 symbolic 필드를 추가할 때 UI 세 곳에 분기를 복사하지 말고 공통 resolver와
 ComboBox renderer를 확장한다. 공통 ComboBox popup 상단에는 ID/이름 검색 입력이
 있으며 `Fast`, `Slow`, `900`처럼 번호나 영문 symbolic 이름으로 목록을 좁힌다.
+
+인자를 가지는 34개 `#DST_*` 명령은 모두 연속된 `a,r,g,b` 필드를 공유한다.
+Object Inspector는 이 네 숫자 입력을 `ARGB` 색상 선택기 하나로 표시하며, 단일 DST와
+다중 animation frame 표에 같은 규칙을 적용한다. 인자가 없는 `#DST_BAR_STAGEFILE`,
+`#DST_BAR_STAR`, `#DST_THUMBNAIL`은 색상 필드도 없으므로 대상에서 제외한다.
+색상 선택 중에는 Preview를 갱신하되 한 번의 picker 조작은 History 한 항목으로 묶는다.
+이 동작의 값 갱신, byte 범위 제한과 gesture별 Undo는 `dst-color` self-test가 검증한다.
 
 ### Object 스키마
 
@@ -290,6 +329,13 @@ DST View는 조건 Branch 활성 여부와 무관하게 선택한 SRC/DST의 텍
 `wObjectEditor = true`를 요청하면 Browser와 Inspector를 함께 연다.
 Browser의 Type/Group/Search/Active 필터 영역은 네 control이 모두 들어가는
 계산 높이를 사용하고 내부 scrollbar를 만들지 않는다.
+Object와 Branch의 활성 상태 배경은 label 폭 안에서만 낮은 alpha로 표시한다.
+Object 행 왼쪽의 가는 초록/빨강 stripe가 현재 OP 판정 결과를 보조하므로, 중첩된
+행끼리 넓은 배경이 겹치지 않는다.
+대형 스킨에서는 열린 Branch 안의 Object도 `ImGuiListClipper`로 화면에 보이는 행만
+제출한다. 조건 header와 sibling root는 한 번의 선형 pass로 계산하며, 매 frame마다
+각 IF마다 전체 CSV를 다시 검색하지 않는다. 선택 이동, 자동 scroll, drag reorder와
+context menu는 clip된 목록에서도 같은 model index를 사용한다.
 
 Browser 선택:
 
@@ -355,9 +401,12 @@ judge/combo 상태를 직접 만들지 않으므로 판정 시 `ApplyJudgeNote`�
 lane별 50/100/120 타이머를 key beam, note explosion, judge/combo를 포함한 실제
 스킨 Object가 LR2와 같은 방식으로 소비한다. 오디오만 의도적으로 비활성 상태다.
 시뮬레이터 실행 상태는 각 WORKSPACE가 소유하므로 여러 스킨 탭 사이에서 공유되지
-않는다. `drawPreview()`는 Preview 창의 `ImGui::Begin()`이 비활성 탭을 반환해도
-조기 종료 전에 실행 중인 `UpdatePreviewRuntime()`을 호출하므로, 다른 Workspace가
-활성 탭이어도 scene tick과 draw-buffer 소비가 계속된다.
+않는다. LR2의 song list, Object string, gameplay buffer와 critical section도
+`WORKSPACE::lr2CoreInitialized`를 기준으로 각 `game`마다 한 번 초기화하며, 같은
+Workspace의 스킨 재로드에서만 재사용한다. `drawPreview()`는 비활성 dock tab에서
+`ImGui::Begin()`이 false를 반환해도
+조기 종료 전에 실행 중인 `UpdatePreviewRuntime()`을 호출한다. 따라서 다른 Workspace가
+활성 상태여도 scene tick, timer 41과 같은 Workspace의 draw-buffer 소비가 계속된다.
 실행 중 Object 편집으로 Preview가 재구성되면 장면도 안전하게 재시작한다.
 선택한 chart가 끝나면 동일한 scene init을 거쳐 반복한다.
 
@@ -454,6 +503,31 @@ file 이름을 우선해 고르며, `gr == arr_SRCGR index`라고 가정하지 �
 Image Manager에 one-shot scroll request를 보내고, 더블클릭은 Image Manager 탭을
 활성화한다. 별도 asset 복사본을 만들지 않으므로 ImageManager의 crop 추가/삭제와
 재파싱 결과가 다음 frame에 그대로 반영된다.
+Image Manager의 왼쪽 crop 목록 역시 `ImGuiListClipper`로 보이는 행만 UTF-8 변환하고
+widget으로 제출한다. 외부 Object 선택으로 이동할 때는 대상 행을 clip 범위에 포함한
+뒤 가운데로 scroll하므로 대형 atlas 목록에서도 선택 동기화가 유지된다.
+
+각 Asset card와 Image Manager crop 목록은 Object Model의 SRC 선언 행을 역참조해
+해당 crop을 사용하는 고유 Object 수 또는 `Unused`를 표시한다. `Unused only`는
+어떤 Object SRC에서도 참조하지 않는 crop만 남긴다. Asset 우클릭의 사용처 메뉴는
+최대 32개 Object를 이름과 함께 보여주고, 선택하면 기존 shared selection 경로로
+Object Browser/Inspector를 열어 해당 Object에 이동한다. Image Manager의 texture
+후보에는 같은 논리 gr를 사용하는 고유 Object 수를 표시한다.
+
+Asset Browser에서 선택한 crop은 Delete key 또는 card 우클릭의 `Delete Asset...`로
+삭제할 수 있다. 단, Object가 사용 중인 Asset과 Object의 `#SRC`에서 직접 파생된
+Asset은 삭제를 막는다. 삭제 가능한 대상은 미사용 `$SRC_IMAGE` 또는 아직 저장되지
+않은 수동 crop이며 확인 modal을 거친다. 이 동작은 crop 선언만 제거하고 실제 texture
+파일은 삭제하지 않는다.
+
+`Use in selected Object`와 Asset 우클릭의 같은 명령은 선택 Asset을 현재 Object의
+이미지 기반 SRC에 적용한다. 적용 가능한 SRC가 하나면 즉시 바꾸고, 여러 개면
+Object의 어느 SRC를 교체할지 modal에서 원본 행과 현재 crop을 보고 선택한다. 기본은
+`gr/x/y/w/h`만 교체해 NUMBER/SLIDER/BUTTON의 command-specific 값과 기존
+`div_x/div_y/cycle/timer`를 보존한다. `Copy animation`을 켠 경우에만 네 animation
+필드도 Asset 원본 SRC에서 복사한다. 전체 SRC 행을 `EditLine()` 한 번으로 바꾸므로
+Ctrl+Z 한 번에 전부 복구된다. Object Inspector의 Tagged image ComboBox도 이 공통
+경로를 사용한다.
 
 ImageManager의 `New`로 만든 crop도 같은 `arr_IMG`에 추가되어 Asset Browser에
 즉시 나타난다. 생성 시 선택된 `SRCGR` 배열 위치가 아니라 그 선언의 논리 `grID`와
@@ -472,6 +546,8 @@ SkinEditor는 같은 원본 파일과 IF Branch의 Asset으로 다시 파싱하�
 `$SRC_IMAGE`를 생략하고 실제 SRC가 삭제되면 다시 미사용 Asset으로 출력한다.
 ImageManager에서 수동 crop을 삭제할 때는 대응하는 `$SRC_IMAGE` 행도 같이 삭제해,
 저장·재로드 뒤 삭제한 Asset이 다시 나타나지 않게 한다.
+격자 분할처럼 이름이 있는 편집기 Asset은 마지막 선택 열에 이름을 추가한다.
+기존 이름 없는 행은 계속 `manual crop`으로 읽으므로 이전 파일과 호환된다.
 
 `Animate SRC`가 켜져 있으면 `cycle > 0`이고 `div_x * div_y > 1`인 Asset은
 LR2의 전체 cycle 시간에 맞춰 분할 frame을 행 우선 순서로 재생한다. 각 `IMG`는
@@ -528,6 +604,28 @@ composite한다. 기준 texture의 alpha가 0인 영역을 위에서부터 탐�
 최종 canvas 면적이 작은 방향을 골라 자동 확장한다. 사용자가 x/y나 확장 여부를
 직접 입력하지 않는다. 두 기능 모두 기본 출력은 PNG이고 기존 파일을 덮어쓰지 않는다.
 
+`Replace`는 현재 `SRCGR`가 가리키는 `#IMAGE` 선언의 파일 경로만 교체한다. 논리
+gr, IF Branch와 모든 SRC crop 좌표는 유지한다. 새 이미지 크기가 다르면 영향받는
+crop 수와 새 경계를 벗어나는 crop 수를 modal에서 먼저 보여주며 좌표를 자동 보정하지
+않는다. 한 `EditLine()`만 사용하므로 Ctrl+Z 한 번으로 원래 `#IMAGE` 경로가 복구된다.
+저장하지 않은 Pixel paint가 있으면 외부 파일 선택과 메모리 texture가 엇갈리지 않도록
+교체를 막는다.
+`grReload`도 같은 이유로 현재 frame에서 texture를 해제하지 않고 다음 frame 시작에
+같은 disk path의 editor texture를 다시 읽는다. 미저장 Pixel paint가 있으면 reload를
+막는다. `Usage`는 아래의 Image status/사용처 영역을 펼친다.
+
+`Split grid`는 선택 Asset을 Columns/Rows로 나누고 전체 crop preview에서 클릭한
+cell만 이름이 붙은 `$SRC_IMAGE`로 등록한다. SRC에 `div_x/div_y`가 있으면 이를 초기
+격자값으로 제안하며, 나누어떨어지지 않는 크기는 정수 경계 비율로 분배해 원본 pixel을
+빠뜨리지 않는다. 같은 Branch에 좌표가 같은 Asset은 중복 등록하지 않는다. 여러 행의
+Insert/Edit History 뒤에 batch marker를 두므로 분할 전체가 Ctrl+Z 한 번으로 제거된다.
+
+Image Manager의 `Image status`는 현재 파생 모델에서 missing file, 로드 불가능한
+wildcard 후보, 이미지 경계 밖 crop, 같은 Branch의 중복 crop, 사용하지 않는 편집기
+`$SRC_IMAGE`, Object SRC에 대응 Asset이 없는 행을 검사한다. 진단 행을 선택하면 가능한
+경우 Asset/Image Manager 또는 Object Browser/Inspector의 공용 선택 경로로 이동한다.
+같은 영역에 다음 trailing gr와 LR2의 0~99 범위에서 남은 slot 수도 표시한다.
+
 `Register in this skin CSV`가 켜져 있으면 생성 파일을 root skin의 마지막 graphic
 slot에 다음 두 행으로 함께 등록한다.
 
@@ -554,7 +652,12 @@ runtime을 함께 invalidate하고, `$SE_...` metadata만 바뀌면 Object 모�
 
 1. `ParseSkinConditions()` — IF/ELSEIF/ELSE sibling 및 nested 관계
 2. `ParseSkinLegacyObjectsAndAssets()` — legacy Object와 tagged crop
-3. `ParseSkinGraphics()` — 논리 gr와 Branch별 `#IMAGE` 후보
+3. `ParseSkinGraphics()` — 논리 gr와 Branch별 `#IMAGE` 후보. LR2 와일드카드에
+   포함되는 폴더와 비이미지도 후보 목록에는 유지하되, Image Manager의 자동 기본값은
+   실제로 로드 가능한 이미지로만 결정한다. `*` 뒤에 경로가 있으면 후보명은 유지하고
+   실제 texture 경로는 `prefix + 후보명 + suffix`로 해석한다. LR2와 같이 파일
+   와일드카드 `*.png`는 확장자를 제외한 후보값을 치환해 `png.png`를 만들지 않으며,
+   폴더 와일드카드는 디렉터리만 후보로 삼는다.
 4. `ParseSkinSourcesAndDestinations()` — SRC/DST 및 animation 연결
 5. `LoadSkinGraphicMetadata()` — 이미지 크기만 lazy texture와 별도로 조사
 
@@ -585,6 +688,9 @@ ComboBox로 표시한다.
 
 Text 전용 로드 모드는 사용하지 않는다. 모든 스킨은 동일한 Workspace로 로드하며,
 TextEdit은 `Windows > Text Editor`에서 여는 일반 도킹 창이다.
+TextEdit의 Object 명령 행을 좌클릭하면 동일한 Workspace Object selection을 사용해
+Object Browser/Inspector를 열고 해당 Object로 자동 스크롤한다. Object에 속하지 않는
+IF 제어 행, 주석과 기타 행은 현재 Object 선택을 변경하지 않는다.
 
 ### 저장
 

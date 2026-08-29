@@ -50,12 +50,13 @@ const SEObjectGroupDef* FindGroup(const SEObjectEditorModel& model,
 int RunSchemaContractSelfTest() {
     // Passing no override path exercises the RCDATA used by packaged builds.
     if (LoadCommandHelp(nullptr) != 0) return 1;
-    if (arr_CommandHelp.count != 117) return 2;
+    if (arr_CommandHelp.count != 118) return 2;
 
     if (!IsSchemaField("#SRC_NUMBER", 11, "$num")) return 3;
     if (!IsSchemaField("#SRC_SLIDER", 13, "$type")) return 4;
     if (!IsSchemaField("#SRC_BUTTON", 11, "$type")) return 5;
     if (!IsSchemaField("#SRC_BARGRAPH", 11, "$type")) return 6;
+    if (!IsSchemaField("#SRC_BGA", 1, "unused")) return 21;
 
     if (GetCommandValueKind("#SRC_NUMBER", "$num") != SE_VALUE_NUMBER)
         return 7;
@@ -66,9 +67,28 @@ int RunSchemaContractSelfTest() {
     if (GetCommandValueKind("#SRC_BARGRAPH", "$type") != SE_VALUE_BARGRAPH)
         return 10;
 
+    // Keep every symbolic combo range in sync with the highest id currently
+    // declared by op.cpp. These providers are shared by CSV Table, New Object
+    // and Object Inspector, so one truncated range hides the value everywhere.
+    if (GetCommandValueItemCount(SE_VALUE_TEXT) <= 302 ||
+        std::strcmp(GetCommandValueName(SE_VALUE_TEXT, 302), "LIFT_ONOFF") != 0)
+        return 22;
+    if (GetCommandValueItemCount(SE_VALUE_NUMBER) <= 422 ||
+        std::strcmp(GetCommandValueName(SE_VALUE_NUMBER, 422), "LIFT_2P") != 0)
+        return 23;
+    if (GetCommandValueItemCount(SE_VALUE_BUTTON) <= 401 ||
+        std::strcmp(GetCommandValueName(SE_VALUE_BUTTON, 401), "stretch") != 0)
+        return 24;
+    if (GetCommandValueItemCount(SE_VALUE_SLIDER) <= 28 ||
+        std::strcmp(GetCommandValueName(SE_VALUE_SLIDER, 28), "LIFT2P") != 0)
+        return 25;
+    if (GetCommandValueItemCount(SE_VALUE_BARGRAPH) <= 59 ||
+        std::strcmp(GetCommandValueName(SE_VALUE_BARGRAPH, 59), "2P_ratio_slow") != 0)
+        return 26;
+
     SEObjectEditorModel model;
     if (!model.LoadGroups(nullptr)) return 11;
-    if (model.Groups().size() != 39) return 12;
+    if (model.Groups().size() != 40) return 12;
 
     const SEObjectGroupDef* number = FindGroup(model, "NUMBER");
     if (!number || !GroupContains(*number, "#SRC_NUMBER") ||
@@ -79,6 +99,48 @@ int RunSchemaContractSelfTest() {
     if (!note || !GroupContains(*note, "#SRC_NOTE") ||
         !GroupContains(*note, "#DST_NOTE"))
         return 14;
+
+    const SEObjectGroupDef* barTitle = FindGroup(model, "BAR_TITLE");
+    if (!barTitle || !GroupContains(*barTitle, "#SRC_BAR_TITLE") ||
+        !GroupContains(*barTitle, "#DST_BAR_TITLE"))
+        return 20;
+
+    std::vector<SEObjectInstance> rowObjects(2);
+    rowObjects[0].rows.push_back(3);
+    rowObjects[0].rows.push_back(5);
+    rowObjects[1].rows.push_back(8);
+    if (SEFindObjectForRow(rowObjects, 3) != 0) return 15;
+    if (SEFindObjectForRow(rowObjects, 8) != 1) return 16;
+    if (SEFindObjectForRow(rowObjects, 4) != -1) return 17;
+
+    int dstWithArgb = 0;
+    int dstWithoutArguments = 0;
+    for (int commandIndex = 0; commandIndex < arr_CommandHelp.count;
+        ++commandIndex) {
+        CSVbuf& schema = ((CSVbuf*)arr_CommandHelp.data)[commandIndex];
+        const char* command = schema.str[0].body ? schema.str[0].outstr() : "";
+        if (std::strncmp(command, "#DST", 4) != 0) continue;
+        if (!schema.str[1].body || !*schema.str[1].outstr()) {
+            ++dstWithoutArguments;
+            continue;
+        }
+
+        int argb[4] = { -1, -1, -1, -1 };
+        const char* names[4] = { "a", "r", "g", "b" };
+        for (int column = 1; column < 30; ++column) {
+            CSTR field(schema.str[column]);
+            field.trimWhiteSpace();
+            const char* label = field.body ? field.outstr() : "";
+            for (int component = 0; component < 4; ++component)
+                if (std::strcmp(label, names[component]) == 0)
+                    argb[component] = column;
+        }
+        if (argb[0] < 0 || argb[1] != argb[0] + 1 ||
+            argb[2] != argb[0] + 2 || argb[3] != argb[0] + 3)
+            return 18;
+        ++dstWithArgb;
+    }
+    if (dstWithArgb != 34 || dstWithoutArguments != 3) return 19;
 
     return 0;
 }

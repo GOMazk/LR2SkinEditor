@@ -17,6 +17,8 @@ struct SEObjectInstance {
     std::string editorId;     // persistent $SE_OBJECT_ID
 };
 
+int SEFindObjectForRow(const std::vector<SEObjectInstance>& objects, int row);
+
 struct SEUserObjectGroup {
     std::string name;
     std::vector<std::string> memberIds;

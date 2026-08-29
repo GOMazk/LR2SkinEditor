@@ -328,6 +328,24 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
   이미 절대 경로로 해석한 리소스를 다시 filesystem 경로로 변환하지 않아야 한다.
 - 실패 시 `Release\SkinEditor_load_crash.log`의 마지막 완료 stage를 기록한다.
 - malformed include, 존재하지 않는 내부 Theme 폴더명, 대형 CSV를 확인한다.
+- Workspace 두 개에서 각각 PLAY 스킨을 열고 `Timer Control > Restart scene`을 누른다.
+  한쪽 Preview를 비활성 dock tab으로 둔 채 5초 이상 기다린 뒤 다시 열었을 때 note와
+  chart가 진행된 위치에 있고 양쪽 timer 41이 모두 계속 증가했는지 확인한다. 비활성
+  Workspace도 scene tick 뒤 같은 frame에 draw buffer를 소비해 폭발/judge/combo가
+  누적되거나 멈추지 않아야 한다.
+
+같은 경계를 실제 스킨 두 개로 자동 검사할 때는 UI thread에서 두 Workspace를 번갈아
+4 frame 진행하는 smoke 명령을 사용한다. 환경 변수는 서로 다른 PLAY 스킨을 가리켜야
+하며, 종료 코드 0이면 두 `game`의 core 초기화, Scene 시작, draw-buffer 소비와 timer 41
+진행을 모두 통과한 것이다.
+
+```powershell
+$env:SKINEDITOR_RELOAD_FIRST = 'D:\skins\first.lr2skin'
+$env:SKINEDITOR_RELOAD_SECOND = 'D:\skins\second.lr2skin'
+$test = Start-Process .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
+  -ArgumentList '--skin-multi-workspace-smoke' -Wait -PassThru
+$test.ExitCode
+```
 
 로컬에 실제 스킨 두 개가 있을 때는 숨겨진 runtime smoke 경로로 같은 프로세스의
 연속 로드를 자동 확인할 수 있다. CI에는 사용자 스킨을 포함하지 않으므로 넣지 않는다.

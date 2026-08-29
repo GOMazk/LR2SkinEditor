@@ -107,12 +107,12 @@ int GetCommandValueItemCount(SECommandValueKind kind) {
 	switch (kind) {
 	case SE_VALUE_SKIN_TYPE: return 21;
 	case SE_VALUE_OPTION: return 1999; // 0..999 followed by NOT 1..999
-	case SE_VALUE_TEXT: return 200;
-	case SE_VALUE_NUMBER: return 300;
+	case SE_VALUE_TEXT: return 303; // 0..302
+	case SE_VALUE_NUMBER: return 423; // 0..422
 	case SE_VALUE_TIMER: return 200;
-	case SE_VALUE_BUTTON: return 270;
-	case SE_VALUE_SLIDER: return 27;
-	case SE_VALUE_BARGRAPH: return 48;
+	case SE_VALUE_BUTTON: return 402; // 0..401
+	case SE_VALUE_SLIDER: return 29; // 0..28
+	case SE_VALUE_BARGRAPH: return 60; // 0..59
 	default: return 0;
 	}
 }

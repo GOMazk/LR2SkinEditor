@@ -172,6 +172,19 @@ int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
     if (LR2SESceneInitSafe(&secondWorkspace->g, secondWorkspace->meta.type,
         LR2SE_PREVIEW_CHART_SIMPLE) != 0)
         return 9;
+    if (!firstWorkspace->lr2CoreInitialized ||
+        !secondWorkspace->lr2CoreInitialized)
+        return 8;
+
+    // Both runtimes stay on the UI thread. Alternating them here matches the
+    // normal main-loop order without introducing a second LR2/DxLib thread.
+    LR2SEResetRenderFault();
+    if (LR2SESceneInitSafe(&firstWorkspace->g, firstWorkspace->meta.type,
+        LR2SE_PREVIEW_CHART_SIMPLE) != 0)
+        return 9;
+    if (LR2SESceneInitSafe(&secondWorkspace->g, secondWorkspace->meta.type,
+        LR2SE_PREVIEW_CHART_SIMPLE) != 0)
+        return 10;
     firstWorkspace->previewSimulationPlaying = true;
     secondWorkspace->previewSimulationPlaying = true;
     firstWorkspace->previewLastRenderAt = 0;
@@ -263,9 +276,21 @@ int RunSimpleModeProjectionSelfTest() {
     if (refreshedCounts.gear != 3 ||
         workspace.simpleModeProjectionGeneration != 2) return 9;
 
+    if (!firstWorkspace->UpdatePreviewRuntime(frameNow)) return 11;
+        if (!secondWorkspace->UpdatePreviewRuntime(frameNow)) return 12;
+
+    if (!firstWorkspace->previewSimulationPlaying ||
+        !secondWorkspace->previewSimulationPlaying)
+        return 13;
+    if (GetTimeLapse(41, &firstWorkspace->g.timer1) <= firstStart)
+        return 14;
+    if (GetTimeLapse(41, &secondWorkspace->g.timer1) <= secondStart)
+        return 15;
+
     const int scopeResult = RunSimpleModeScopeRuleSelfTest();
     return scopeResult == 0 ? 0 : 20 + scopeResult;
 }
+
 
 int RunAssetMetadataSelfTest() {
     if (arr_CommandHelp.count <= 0 &&
@@ -445,11 +470,11 @@ int RunAssetMetadataSelfTest() {
     workspace.newObjectNameManuallyEdited = false;
     workspace.SynchronizeNewObjectAutoName("#SRC_NUMBER", false);
     if (!workspace.newObjectName.body ||
-        strstr(workspace.newObjectName.outstr(), "Fast_P1") == NULL) return 40;
+        strstr(workspace.newObjectName.outstr(), "fastCount") == NULL) return 40;
     workspace.nCsv.str[11].assign("214");
     workspace.SynchronizeNewObjectAutoName("#SRC_NUMBER", false);
     if (!workspace.newObjectName.body ||
-        strstr(workspace.newObjectName.outstr(), "Slow_P1") == NULL) return 41;
+        strstr(workspace.newObjectName.outstr(), "slowCount") == NULL) return 41;
     workspace.newObjectName.assign("My counter");
     workspace.newObjectNameManuallyEdited = true;
     workspace.SynchronizeNewObjectAutoName("#SRC_NUMBER", false);

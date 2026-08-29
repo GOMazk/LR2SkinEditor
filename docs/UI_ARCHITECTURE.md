@@ -397,6 +397,7 @@ state belongs to `WORKSPACE`, never to a function-local static, so two open
 skins cannot start or stop one another. A preview rebuild while running must
 reinitialize the scene before the next draw-buffer pass.
 
+
 An inactive Preview dock tab returns false from `ImGui::Begin`, but that is
 only a presentation result and must not pause its Workspace scene.
 `drawPreview()` calls `WORKSPACE::UpdatePreviewRuntime()` for a running scene
@@ -404,6 +405,20 @@ before taking the inactive-tab early return. Keep the runtime on the UI thread
 and consume each Workspace draw buffer once per tick;
 do not add a `ProcGameThread` for apparent parallelism because LR2/DxLib render
 state is process-wide and the application frame already interleaves workspaces.
+
+The LR2 preview core is also per Workspace. `WORKSPACE::lr2CoreInitialized`
+tracks whether that Workspace's `game` has initialized its song list, object
+strings, gameplay buffers and critical sections. A process-wide static flag is
+invalid because the second Workspace owns distinct, otherwise uninitialized
+`game` storage. Reloading the same Workspace reuses its initialized core.
+
+An inactive Preview dock tab returns false from `ImGui::Begin`, but that is
+only presentation state and must not pause the Workspace scene. `drawPreview()`
+calls `WORKSPACE::UpdatePreviewRuntime()` for a running scene before taking the
+inactive-tab early return. Runtime processing remains on the UI thread, and
+each Workspace draw buffer is consumed in the same tick; do not introduce a
+`ProcGameThread` because LR2/DxLib render state is process-wide.
+
 
 The editor may synthesize chart data, but it must not synthesize note screen
 coordinates, judgement state, combo values or effect timers. Those remain

@@ -749,6 +749,8 @@ int RunSimpleModeProjectionSelfTest();
 int RunSimpleModeScopeRuleSelfTest();
 int RunWorkspaceReloadLifecycleSelfTest();
 int RunDstColorSelfTest();
+int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
+    const char* secondPath);
 int RunInitialPresetSelfTest();
 int RunWorkspaceRuntimeReloadSmokeTest(const char* firstPath,
     const char* secondPath);

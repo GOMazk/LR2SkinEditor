@@ -4768,14 +4768,16 @@ bool WORKSPACE::UpdatePreviewRuntime(unsigned long long previewNow) {
 
 int WORKSPACE::drawPreview() {
     // Preview texture is owned by this workspace and recreated whenever
-    // the loaded skin resolution changes. An inactive dock tab returns false
-    // from ImGui::Begin, but a running scene must still advance and consume its
-    // draw buffer before this function takes the presentation-only early exit.
+    // the loaded skin resolution changes. ImGui::Begin returns false for an
+    // inactive dock tab, but a running scene must still tick and consume its
+    // Workspace draw buffer before the presentation-only early return.
     char title[260];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Preview, num);
     const bool previewWindowVisible = ImGui::Begin(
         title, &wPreview, ImGuiWindowFlags_HorizontalScrollbar);
-    const bool previewFrameUpdated = previewWindowVisible || previewSimulationPlaying
+
+    const bool previewFrameUpdated = previewWindowVisible ||
+        previewSimulationPlaying
         ? UpdatePreviewRuntime(GetTickCount64()) : false;
     if (!previewWindowVisible) {
         ImGui::End();

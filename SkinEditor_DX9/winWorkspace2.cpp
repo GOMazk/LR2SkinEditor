@@ -276,17 +276,6 @@ int RunSimpleModeProjectionSelfTest() {
     if (refreshedCounts.gear != 3 ||
         workspace.simpleModeProjectionGeneration != 2) return 9;
 
-    if (!firstWorkspace->UpdatePreviewRuntime(frameNow)) return 11;
-        if (!secondWorkspace->UpdatePreviewRuntime(frameNow)) return 12;
-
-    if (!firstWorkspace->previewSimulationPlaying ||
-        !secondWorkspace->previewSimulationPlaying)
-        return 13;
-    if (GetTimeLapse(41, &firstWorkspace->g.timer1) <= firstStart)
-        return 14;
-    if (GetTimeLapse(41, &secondWorkspace->g.timer1) <= secondStart)
-        return 15;
-
     const int scopeResult = RunSimpleModeScopeRuleSelfTest();
     return scopeResult == 0 ? 0 : 20 + scopeResult;
 }

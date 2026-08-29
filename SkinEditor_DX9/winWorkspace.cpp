@@ -4725,7 +4725,8 @@ int WORKSPACE::drawPreview() {
     // Slider positions can change every scene frame without editing the CSV.
     // Refresh only slider selections here so the highlight follows the knob,
     // while an active preview drag keeps its own temporary coordinates.
-    if (!preview_object_dragging && !preview_selected_object_model_indices.empty()) {
+    if (!preview_object_dragging && !preview_object_resizing &&
+        !preview_selected_object_model_indices.empty()) {
         bool sliderSelected = false;
         const std::vector<SEObjectInstance>& selectedObjects = objectEditorModel.Objects();
         for (int modelIndex : preview_selected_object_model_indices) {
@@ -4768,21 +4769,91 @@ int WORKSPACE::drawPreview() {
         const bool overSelectedObject = overPreviewImage &&
             mousePos.x >= hitMin.x && mousePos.x <= hitMax.x &&
             mousePos.y >= hitMin.y && mousePos.y <= hitMax.y;
+        const bool canResizeObject = preview_selected_object_model_indices.size() == 1;
+        const ImVec2 resizeHandle(
+            p.x + (preview_selected_obj.x + preview_selected_obj.w) * previewScale,
+            p.y + (preview_selected_obj.y + preview_selected_obj.h) * previewScale);
+        const float resizeHandleRadius = 8.0f;
+        const bool overResizeHandle = canResizeObject && overPreviewImage &&
+            fabsf(mousePos.x - resizeHandle.x) <= resizeHandleRadius &&
+            fabsf(mousePos.y - resizeHandle.y) <= resizeHandleRadius;
 
-        if (overSelectedObject || preview_object_dragging)
+        if (canResizeObject) {
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                ImVec2(resizeHandle.x - 4.0f, resizeHandle.y - 4.0f),
+                ImVec2(resizeHandle.x + 4.0f, resizeHandle.y + 4.0f),
+                IM_COL32(255, 255, 255, 245));
+            ImGui::GetWindowDrawList()->AddRect(
+                ImVec2(resizeHandle.x - 5.0f, resizeHandle.y - 5.0f),
+                ImVec2(resizeHandle.x + 5.0f, resizeHandle.y + 5.0f),
+                IM_COL32(32, 210, 255, 255));
+        }
+
+        if (overResizeHandle || preview_object_resizing)
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNWSE);
+        else if (overSelectedObject || preview_object_dragging)
             ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-        if (overSelectedObject && !preview_object_dragging)
+        if (overResizeHandle && !preview_object_dragging && !preview_object_resizing)
+            ImGui::SetTooltip("Drag to resize the first destination rectangle");
+        else if (overSelectedObject && !preview_object_dragging && !preview_object_resizing)
             ImGui::SetTooltip("Drag to move Object");
 
         // Read MouseDown directly. The preview Image may already own the
         // frame's click, so relying on IsMouseClicked can miss the drag start.
-        if (!preview_object_dragging && overSelectedObject && ImGui::GetIO().MouseDown[ImGuiMouseButton_Left]) {
+        if (!preview_object_dragging && !preview_object_resizing && overResizeHandle &&
+            ImGui::GetIO().MouseDown[ImGuiMouseButton_Left]) {
+            preview_object_resizing = true;
+            preview_drag_mouse_start = mousePos;
+            preview_resize_object_start_w = preview_selected_obj.w;
+            preview_resize_object_start_h = preview_selected_obj.h;
+        }
+        else if (!preview_object_dragging && !preview_object_resizing &&
+            overSelectedObject && ImGui::GetIO().MouseDown[ImGuiMouseButton_Left]) {
             preview_object_dragging = true;
             preview_drag_mouse_start = mousePos;
             preview_drag_object_start_x = preview_selected_obj.x;
             preview_drag_object_start_y = preview_selected_obj.y;
             preview_drag_last_start_x = preview_selected_obj_last.x;
             preview_drag_last_start_y = preview_selected_obj_last.y;
+        }
+
+        if (preview_object_resizing) {
+            const ImVec2 mouseNow = ImGui::GetIO().MousePos;
+            const float deltaX = (mouseNow.x - preview_drag_mouse_start.x) * zoom;
+            const float deltaY = (mouseNow.y - preview_drag_mouse_start.y) * zoom;
+            const float proposedWidth = preview_resize_object_start_w + deltaX;
+            const float proposedHeight = preview_resize_object_start_h + deltaY;
+            preview_selected_obj.w = preview_resize_object_start_w < 0.0f
+                ? (std::min)(-1.0f, proposedWidth) : (std::max)(1.0f, proposedWidth);
+            preview_selected_obj.h = preview_resize_object_start_h < 0.0f
+                ? (std::min)(-1.0f, proposedHeight) : (std::max)(1.0f, proposedHeight);
+            if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                const int resizedWidth = (int)std::round(preview_selected_obj.w);
+                const int resizedHeight = (int)std::round(preview_selected_obj.h);
+                const int modelIndex = preview_selected_object_model_indices.front();
+                if (modelIndex >= 0 && modelIndex < (int)objectEditorModel.Objects().size()) {
+                    const SEObjectInstance& selectedObject = objectEditorModel.Objects()[modelIndex];
+                    for (int row : selectedObject.rows) {
+                        if (row < 0 || row >= skinfileLines.count) continue;
+                        SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                        const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+                        if (strncmp(command, "#DST_", 5) != 0) continue;
+                        const int widthColumn = FindCommandFieldColumn(command, "w");
+                        int heightColumn = FindCommandFieldColumn(command, "h");
+                        if (heightColumn < 0) heightColumn = FindCommandFieldColumn(command, "size");
+                        if (widthColumn >= 0 && heightColumn >= 0) {
+                            EditValue(row, widthColumn, resizedWidth);
+                            EditValue(row, heightColumn, resizedHeight);
+                            previewReloadPending = true;
+                            previewReloadRequestedAt = GetTickCount64();
+                            break;
+                        }
+                    }
+                }
+                preview_selected_obj.w = (float)resizedWidth;
+                preview_selected_obj.h = (float)resizedHeight;
+                preview_object_resizing = false;
+            }
         }
 
         if (preview_object_dragging) {
@@ -4834,13 +4905,15 @@ int WORKSPACE::drawPreview() {
                     preview_selected_obj_last.y = preview_drag_last_start_y + moveY;
                 }
                 preview_object_dragging = false;
+                preview_object_resizing = false;
             }
         }
 
         // Fine positioning: move every selected Object by exactly one skin
         // pixel per arrow-key step. Key repeat is enabled for held keys, but
         // text/property editing keeps ownership of the arrows.
-        if (!preview_object_dragging && !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive()) {
+        if (!preview_object_dragging && !preview_object_resizing &&
+            !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive()) {
             int keyMoveX = 0;
             int keyMoveY = 0;
             if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)) --keyMoveX;
@@ -5094,6 +5167,7 @@ int WORKSPACE::drawPreview() {
                         SetObjectSelection(std::vector<int>(1, objectModelIndex),
                             objectModelIndex, objectModelIndex, true);
                         preview_object_dragging = false;
+                        preview_object_resizing = false;
 
                         RefreshPreviewSelectionBounds();
                         ImGui::CloseCurrentPopup();
@@ -7878,19 +7952,40 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
             const char* command = row.csv.str[0].body ? row.csv.str[0].outstr() : "";
             if (semantic.sourceCommand.empty() && !strncmp(command, "#SRC_", 5))
                 semantic.sourceCommand = command;
-            if (semantic.destinationCommand.empty() && !strncmp(command, "#DST_", 5)) {
-                semantic.destinationCommand = command;
-                semantic.hasDestination = true;
-                ReadCommandField(row.csv, command, "x", semantic.x);
-                ReadCommandField(row.csv, command, "y", semantic.y);
-                ReadCommandField(row.csv, command, "w", semantic.width);
-                if (!ReadCommandField(row.csv, command, "h", semantic.height))
-                    ReadCommandField(row.csv, command, "size", semantic.height);
-                ReadCommandField(row.csv, command, "timer", semantic.timer);
-                ReadCommandField(row.csv, command, "loop", semantic.loop);
-                ReadCommandField(row.csv, command, "op1", semantic.op1);
-                ReadCommandField(row.csv, command, "op2", semantic.op2);
-                ReadCommandField(row.csv, command, "op3", semantic.op3);
+            if (!strncmp(command, "#DST_", 5) &&
+                (semantic.destinationCommand.empty() || semantic.destinationCommand == command)) {
+                SEOLRSemanticObject::AnimationFrame frame;
+                frame.destinationRow = rowIndex + 1;
+                const bool hasTime = ReadCommandField(row.csv, command, "time", frame.timeMs);
+                const bool hasX = ReadCommandField(row.csv, command, "x", frame.transform.x);
+                const bool hasY = ReadCommandField(row.csv, command, "y", frame.transform.y);
+                const bool hasWidth = ReadCommandField(row.csv, command, "w", frame.transform.width);
+                bool hasHeight = ReadCommandField(row.csv, command, "h", frame.transform.height);
+                if (!hasHeight) hasHeight = ReadCommandField(row.csv, command, "size", frame.transform.height);
+                const bool hasAlpha = ReadCommandField(row.csv, command, "a", frame.alpha);
+                const bool hasRotation = ReadCommandField(row.csv, command, "angle", frame.transform.rotation);
+                const bool hasBlend = ReadCommandField(row.csv, command, "blend", frame.transform.blend);
+                // V0.7 deliberately owns only DST commands that expose the
+                // complete Layout/Timeline contract. Unsupported LR2 rows stay
+                // byte-preserved in compatibility/lr2/main.lr2skin.
+                if (hasTime && hasX && hasY && hasWidth && hasHeight && hasAlpha &&
+                    hasRotation && hasBlend) {
+                    if (semantic.destinationCommand.empty()) {
+                        semantic.destinationCommand = command;
+                        semantic.hasDestination = true;
+                        semantic.layout = frame.transform;
+                        semantic.x = frame.transform.x;
+                        semantic.y = frame.transform.y;
+                        semantic.width = frame.transform.width;
+                        semantic.height = frame.transform.height;
+                        ReadCommandField(row.csv, command, "timer", semantic.timer);
+                        ReadCommandField(row.csv, command, "loop", semantic.loop);
+                        ReadCommandField(row.csv, command, "op1", semantic.op1);
+                        ReadCommandField(row.csv, command, "op2", semantic.op2);
+                        ReadCommandField(row.csv, command, "op3", semantic.op3);
+                    }
+                    semantic.animationFrames.push_back(frame);
+                }
             }
         }
         semantic.category = OlrSemanticCategory(semantic.group,
@@ -8058,6 +8153,24 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
             return -1;
         }
         slot.sourceRow = packaged->second;
+    }
+    for (SEOLRSemanticObject& object : document.objects) {
+        for (int& sourceRow : object.sourceRows) {
+            const auto packaged = packagedRowsByExpandedRow.find(sourceRow);
+            if (packaged == packagedRowsByExpandedRow.end()) {
+                resultMessage = "A semantic Object source row was omitted from the packaged LR2 script.";
+                return -1;
+            }
+            sourceRow = packaged->second;
+        }
+        for (SEOLRSemanticObject::AnimationFrame& frame : object.animationFrames) {
+            const auto packaged = packagedRowsByExpandedRow.find(frame.destinationRow);
+            if (packaged == packagedRowsByExpandedRow.end()) {
+                resultMessage = "A semantic DST row was omitted from the packaged LR2 script.";
+                return -1;
+            }
+            frame.destinationRow = packaged->second;
+        }
     }
 
     SEOLRPackageInfo packageInfo;
@@ -9469,6 +9582,7 @@ int WORKSPACE::drawDstView() {
                         SetObjectSelection(std::vector<int>(1, objectModelIndex),
                             objectModelIndex, objectModelIndex, true);
                         preview_object_dragging = false;
+                        preview_object_resizing = false;
                         RefreshPreviewSelectionBounds();
                     }
                 }
@@ -10147,6 +10261,7 @@ int WORKSPACE::drawNewObject() {
                     SetObjectSelection(std::vector<int>(1, modelIndex),
                         modelIndex, modelIndex, true);
                     preview_object_dragging = false;
+                    preview_object_resizing = false;
                     preview_selected_obj_valid = false;
                     preview_selected_obj_last_valid = false;
                     break;
@@ -11415,6 +11530,7 @@ int WORKSPACE::drawObjectEditor() {
                         preview_selected_object_model_index = modelIndex;
                         syncDstSelectionForObject(modelIndex, true);
                         preview_object_dragging = false;
+                        preview_object_resizing = false;
                         preview_selected_obj_valid = false;
                         preview_selected_obj_last_valid = false;
 
@@ -11965,6 +12081,8 @@ int WORKSPACE::drawObjectEditor() {
 
                 std::vector<int> srcRows;
                 std::vector<int> dstRows;
+                std::vector<int> semanticDstRows;
+                std::string semanticDestinationCommand;
                 bool requestAddDstFrame = false;
                 bool requestRemoveDstFrame = false;
                 for (std::size_t ri = 0; ri < obj.rows.size(); ++ri) {
@@ -11978,6 +12096,75 @@ int WORKSPACE::drawObjectEditor() {
                         srcRows.push_back(row);
                 }
 
+                // V0.5-V0.7 intentionally own one destination command family.
+                // A later family is a variant (V0.8) and remains available in
+                // Advanced LR2 without being mixed into this timeline.
+                for (int row : dstRows) {
+                    SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+                    const bool hasHeight = FindCommandFieldColumn(command, "h") >= 0 ||
+                        FindCommandFieldColumn(command, "size") >= 0;
+                    const bool hasSemanticContract =
+                        FindCommandFieldColumn(command, "time") >= 0 &&
+                        FindCommandFieldColumn(command, "x") >= 0 &&
+                        FindCommandFieldColumn(command, "y") >= 0 &&
+                        FindCommandFieldColumn(command, "w") >= 0 && hasHeight &&
+                        FindCommandFieldColumn(command, "a") >= 0 &&
+                        FindCommandFieldColumn(command, "angle") >= 0 &&
+                        FindCommandFieldColumn(command, "blend") >= 0;
+                    if (semanticDestinationCommand.empty()) {
+                        if (!hasSemanticContract) continue;
+                        semanticDestinationCommand = command;
+                    }
+                    if (semanticDestinationCommand == command && hasSemanticContract)
+                        semanticDstRows.push_back(row);
+                }
+
+                auto drawSemanticField = [&](int row, const char* label,
+                    const char* fieldName, const char* fallbackField = nullptr) {
+                    if (row < 0 || row >= skinfileLines.count) return false;
+                    SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+                    int column = FindCommandFieldColumn(command, fieldName);
+                    if (column < 0 && fallbackField)
+                        column = FindCommandFieldColumn(command, fallbackField);
+                    if (column < 0) {
+                        ImGui::TextDisabled("%s: unsupported by %s", label, command);
+                        return false;
+                    }
+                    int value = line.csv.val[column];
+                    ImGui::SetNextItemWidth(120.0f);
+                    ImGui::PushID(row);
+                    ImGui::PushID(column);
+                    const bool changed = ImGui::InputInt(label, &value);
+                    if (changed) EditValue(row, column, value);
+                    ImGui::PopID();
+                    ImGui::PopID();
+                    return true;
+                };
+
+                auto drawTimelineCell = [&](int row, const char* fieldName,
+                    const char* fallbackField = nullptr) {
+                    if (row < 0 || row >= skinfileLines.count) return;
+                    SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                    const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+                    int column = FindCommandFieldColumn(command, fieldName);
+                    if (column < 0 && fallbackField)
+                        column = FindCommandFieldColumn(command, fallbackField);
+                    if (column < 0) {
+                        ImGui::TextDisabled("--");
+                        return;
+                    }
+                    int value = line.csv.val[column];
+                    ImGui::PushID(row);
+                    ImGui::PushID(column);
+                    ImGui::SetNextItemWidth(76.0f);
+                    if (ImGui::InputInt("##semantic", &value, 0, 0))
+                        EditValue(row, column, value);
+                    ImGui::PopID();
+                    ImGui::PopID();
+                };
+
                 if (ImGui::BeginTabBar("ObjectPropertyTabs")) {
                     if (ImGui::BeginTabItem("SRC")) {
                         ImGui::SeparatorText("basic");
@@ -11987,20 +12174,143 @@ int WORKSPACE::drawObjectEditor() {
                         ImGui::EndTabItem();
                     }
 
+                    if (ImGui::BeginTabItem("Layout")) {
+                        ImGui::TextDisabled("The first destination rectangle is the static layout authority.");
+                        if (semanticDstRows.empty()) {
+                            ImGui::TextDisabled("No DST layout is available.");
+                        } else {
+                            const int firstDestinationRow = semanticDstRows.front();
+                            if (ImGui::BeginTable("SemanticLayout", 2,
+                                ImGuiTableFlags_SizingStretchSame)) {
+                                const char* labels[] = { "X", "Y", "Width", "Height", "Rotation", "Blend" };
+                                const char* fields[] = { "x", "y", "w", "h", "angle", "blend" };
+                                for (int field = 0; field < 6; ++field) {
+                                    ImGui::TableNextColumn();
+                                    drawSemanticField(firstDestinationRow, labels[field], fields[field],
+                                        field == 3 ? "size" : nullptr);
+                                }
+                                ImGui::EndTable();
+                            }
+                            ImGui::Separator();
+                            ImGui::TextDisabled("Canvas: drag to move all frames; drag the white handle to resize frame 0.");
+                        }
+                        ImGui::EndTabItem();
+                    }
+
+                    char timelineTabLabel[64];
+                    snprintf(timelineTabLabel, sizeof(timelineTabLabel),
+                        "Timeline (%d)###ObjectTimelineTab", (int)semanticDstRows.size());
+                    if (ImGui::BeginTabItem(timelineTabLabel)) {
+                        ImGui::BeginDisabled(semanticDstRows.empty());
+                        if (ImGui::Button("+ Frame")) requestAddDstFrame = true;
+                        ImGui::EndDisabled();
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled(semanticDstRows.size() <= 1);
+                        if (ImGui::Button("- Last Frame")) requestRemoveDstFrame = true;
+                        ImGui::EndDisabled();
+                        if (semanticDstRows.empty()) {
+                            ImGui::TextDisabled("No animation frames are available.");
+                        } else if (ImGui::BeginTable("SemanticTimeline", 9,
+                            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                            ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingFixedFit)) {
+                            ImGui::TableSetupScrollFreeze(1, 1);
+                            const char* headings[] = { "Frame", "ms", "X", "Y", "W", "H", "Alpha", "Rotation", "Blend" };
+                            for (const char* heading : headings)
+                                ImGui::TableSetupColumn(heading, ImGuiTableColumnFlags_WidthFixed,
+                                    !strcmp(heading, "Frame") ? 62.0f : 92.0f);
+                            ImGui::TableHeadersRow();
+                            for (int frameIndex = 0; frameIndex < (int)semanticDstRows.size(); ++frameIndex) {
+                                ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(0);
+                                ImGui::Text("%d%s", frameIndex,
+                                    frameIndex == 0 ? " (layout)" : "");
+                                const char* fields[] = { "time", "x", "y", "w", "h", "a", "angle", "blend" };
+                                for (int field = 0; field < 8; ++field) {
+                                    ImGui::TableSetColumnIndex(field + 1);
+                                    drawTimelineCell(semanticDstRows[frameIndex], fields[field],
+                                        field == 4 ? "size" : nullptr);
+                                }
+                            }
+                            ImGui::EndTable();
+                        }
+                        ImGui::EndTabItem();
+                    }
+
+                    if (ImGui::BeginTabItem("Conditions")) {
+                        ImGui::TextDisabled("All OP terms must pass. Unknown/custom OP values remain raw.");
+                        if (semanticDstRows.empty()) {
+                            ImGui::TextDisabled("No destination condition is available.");
+                        } else {
+                            const int row = semanticDstRows.front();
+                            SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+                            const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+                            const int timerColumn = FindCommandFieldColumn(command, "timer");
+                            if (timerColumn >= 0) {
+                                const int currentTimer = line.csv.val[timerColumn];
+                                int timerValue = currentTimer;
+                                CSTR timerHelp = GetCommandHelp(command, timerColumn);
+                                timerHelp.trimWhiteSpace();
+                                ImGui::SetNextItemWidth(300.0f);
+                                if (DrawCommandValueCombo("Trigger", command,
+                                    timerHelp.body ? timerHelp.outstr() : "$timer",
+                                    currentTimer, timerValue) && timerValue != currentTimer)
+                                    EditValue(row, timerColumn, timerValue);
+                                const char* triggerName = timerName((unsigned)std::abs(timerValue));
+                                if (!triggerName[0])
+                                    ImGui::TextColored(SEUI::Colors::Warning(),
+                                        "Raw LR2 TIMER: %d", timerValue);
+                                else ImGui::TextDisabled("Timer: %s", triggerName);
+                            }
+                            drawSemanticField(row, "Loop (ms)", "loop");
+                            bool allConditionsPass = true;
+                            int conditionCount = 0;
+                            for (int conditionIndex = 0; conditionIndex < 3; ++conditionIndex) {
+                                const std::string fieldName = "op" + std::to_string(conditionIndex + 1);
+                                const int column = FindCommandFieldColumn(command, fieldName.c_str());
+                                if (column < 0) continue;
+                                const int currentOption = line.csv.val[column];
+                                int option = currentOption;
+                                CSTR optionHelp = GetCommandHelp(command, column);
+                                optionHelp.trimWhiteSpace();
+                                char label[32];
+                                snprintf(label, sizeof(label), "Condition %d", conditionIndex + 1);
+                                ImGui::SetNextItemWidth(300.0f);
+                                if (DrawCommandValueCombo(label, command,
+                                    optionHelp.body ? optionHelp.outstr() : "$op",
+                                    currentOption, option) && option != currentOption)
+                                    EditValue(row, column, option);
+                                if (option == 0) continue;
+                                ++conditionCount;
+                                const int absoluteOption = std::abs(option);
+                                const char* optionName = dstName((unsigned)absoluteOption);
+                                const bool isRaw = absoluteOption >= 900 || !optionName[0];
+                                const bool passes = GetOptionFlag_dst(&g, option);
+                                allConditionsPass = allConditionsPass && passes;
+                                if (isRaw) {
+                                    ImGui::TextColored(SEUI::Colors::Warning(),
+                                        "%s Raw LR2 OP: %d  [%s]", passes ? "PASS" : "FAIL",
+                                        option, optionName[0] ? optionName : "unknown");
+                                } else {
+                                    ImGui::TextColored(passes ? SEUI::Colors::Success() : SEUI::Colors::Danger(),
+                                        "%s  %s%s", passes ? "PASS" : "FAIL",
+                                        option < 0 ? "NOT " : "", optionName);
+                                }
+                            }
+                            ImGui::Separator();
+                            ImGui::TextColored(allConditionsPass ? SEUI::Colors::Success() : SEUI::Colors::Danger(),
+                                "Simulator: %s (%d active condition%s)",
+                                allConditionsPass ? "VISIBLE" : "HIDDEN", conditionCount,
+                                conditionCount == 1 ? "" : "s");
+                        }
+                        ImGui::EndTabItem();
+                    }
+
                     char dstTabLabel[64];
                     // Keep the tab identity stable while its visible count
                     // changes, so +DST/-DST does not switch back to SRC.
-                    snprintf(dstTabLabel, sizeof(dstTabLabel), "DST (%d)###ObjectDstTab", (int)dstRows.size());
+                    snprintf(dstTabLabel, sizeof(dstTabLabel), "Advanced LR2###ObjectDstTab");
                     if (ImGui::BeginTabItem(dstTabLabel)) {
-                        ImGui::BeginDisabled(dstRows.empty());
-                        if (ImGui::Button("+ DST")) requestAddDstFrame = true;
-                        ImGui::EndDisabled();
-                        ImGui::SameLine();
-                        ImGui::BeginDisabled(dstRows.size() <= 1);
-                        if (ImGui::Button("- DST")) requestRemoveDstFrame = true;
-                        ImGui::EndDisabled();
-                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && dstRows.size() <= 1)
-                            ImGui::SetTooltip("An Object must keep at least one DST command.");
+                        ImGui::TextDisabled("Raw LR2 fields for compatibility and unsupported commands.");
                         ImGui::SeparatorText(dstRows.size() > 1 ? "animation frames" : "basic");
                         if (dstRows.empty()) {
                             ImGui::TextDisabled("No DST properties.");
@@ -12124,8 +12434,8 @@ int WORKSPACE::drawObjectEditor() {
                             restoredModel, restoredModel, true);
                     }
                 };
-                if (requestAddDstFrame && !dstRows.empty()) {
-                    const int sourceRow = dstRows.back();
+                if (requestAddDstFrame && !semanticDstRows.empty()) {
+                    const int sourceRow = semanticDstRows.back();
                     const int insertAt = sourceRow + 1;
                     SKINFILELINEREAD& source = ((SKINFILELINEREAD*)skinfileLines.data)[sourceRow];
                     CSTR duplicatedLine(source.line);
@@ -12158,8 +12468,8 @@ int WORKSPACE::drawObjectEditor() {
                         previewReloadPending = true;
                         previewReloadRequestedAt = GetTickCount64();
                     }
-                } else if (requestRemoveDstFrame && dstRows.size() > 1) {
-                    if (DeleteLine(dstRows.back()) == 0) {
+                } else if (requestRemoveDstFrame && semanticDstRows.size() > 1) {
+                    if (DeleteLine(semanticDstRows.back()) == 0) {
                         RebuildObjectModel();
                         restoreEditedObjectSelection();
                         previewReloadPending = true;

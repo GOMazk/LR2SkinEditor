@@ -617,11 +617,14 @@ typedef struct WORKSPACE {
     std::vector<int> preview_selected_object_model_indices;
     int preview_selection_anchor_model_index = -1;
     bool preview_object_dragging = false;
+    bool preview_object_resizing = false;
     ImVec2 preview_drag_mouse_start = {};
     float preview_drag_object_start_x = 0.0f;
     float preview_drag_object_start_y = 0.0f;
     float preview_drag_last_start_x = 0.0f;
     float preview_drag_last_start_y = 0.0f;
+    float preview_resize_object_start_w = 0.0f;
+    float preview_resize_object_start_h = 0.0f;
     int selectedObjectTest;
 
     bool wHistory;

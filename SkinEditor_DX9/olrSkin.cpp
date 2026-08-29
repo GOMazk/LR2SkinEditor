@@ -1,4 +1,6 @@
 #include "olrSkin.h"
+#include "op.h"
+#include "seHelper.h"
 
 #include <Windows.h>
 
@@ -24,8 +26,9 @@ constexpr uint32_t kEndOfCentralDirectorySignature = 0x06054b50u;
 constexpr uint16_t kStoredMethod = 0;
 constexpr uint64_t kMaximumClassicZipSize = 0xFFFFFFFFull;
 constexpr size_t kCopyBufferSize = 64 * 1024;
-constexpr int kOlrFormatVersion = 4;
+constexpr int kOlrFormatVersion = 7;
 constexpr const char* kSimpleModeAuthority = "lr2-source-v0.4";
+constexpr const char* kSemanticObjectAuthority = "lr2-destination-v0.7";
 
 struct PackageEntrySource {
     std::string name;
@@ -140,6 +143,66 @@ std::string JsonEscape(const std::string& value) {
     return output.str();
 }
 
+bool IsRawLr2Option(int option) {
+    const int absolute = std::abs(option);
+    return absolute >= 900 || !dstName((unsigned)absolute)[0];
+}
+
+void DescribeLr2Option(int option, std::string& key, std::string& value) {
+    const int absolute = std::abs(option);
+    switch (absolute) {
+    case 42: key = "Gauge"; value = "1P GROOVE"; return;
+    case 43: key = "Gauge"; value = "1P RED"; return;
+    case 44: key = "Gauge"; value = "2P GROOVE"; return;
+    case 45: key = "Gauge"; value = "2P RED"; return;
+    case 118: key = "Gauge"; value = "GROOVE"; return;
+    case 119: key = "Gauge"; value = "HARD"; return;
+    case 120: key = "Gauge"; value = "EX-HARD"; return;
+    case 121: key = "Gauge"; value = "EASY"; return;
+    case 66:
+    case 105:
+    case 645: key = "FullCombo"; value = "true"; return;
+    default:
+        key = "LR2 Option";
+        value = dstName((unsigned)absolute);
+        return;
+    }
+}
+
+void WriteConditionTerm(std::ostringstream& json, int option,
+    const char* indent) {
+    const int absolute = std::abs(option);
+    if (IsRawLr2Option(option)) {
+        json << indent << "{\"kind\": \"raw\", \"lr2_op\": " << option
+            << ", \"label\": \"Raw LR2 OP " << option << "\"}";
+        return;
+    }
+    std::string key;
+    std::string value;
+    DescribeLr2Option(option, key, value);
+    json << indent << "{\"kind\": \"semantic\", \"key\": \""
+        << JsonEscape(key) << "\", \"value\": \"" << JsonEscape(value)
+        << "\", \"lr2_name\": \"" << JsonEscape(dstName((unsigned)absolute))
+        << "\", \"negated\": " << (option < 0 ? "true" : "false") << "}";
+}
+
+void WriteTransform(std::ostringstream& json,
+    const SEOLRSemanticObject::Transform& transform) {
+    json << "{\"x\": " << transform.x << ", \"y\": " << transform.y
+        << ", \"width\": " << transform.width << ", \"height\": "
+        << transform.height << ", \"rotation\": " << transform.rotation
+        << ", \"blend\": " << transform.blend << "}";
+}
+
+bool IsSemanticDestinationObject(const SEOLRSemanticObject& object) {
+    return object.hasDestination && !object.animationFrames.empty();
+}
+
+size_t SemanticDestinationObjectCount(const SEOLRSkinDocument& document) {
+    return (size_t)std::count_if(document.objects.begin(), document.objects.end(),
+        IsSemanticDestinationObject);
+}
+
 void WriteSemanticObject(std::ostringstream& json,
     const SEOLRSemanticObject& object, const char* indent) {
     json << indent << "{\n";
@@ -156,15 +219,53 @@ void WriteSemanticObject(std::ostringstream& json,
         json << object.sourceRows[index];
     }
     json << "],\n";
-    if (object.hasDestination) {
-        json << indent << "  \"destination\": {\"x\": " << object.x
-            << ", \"y\": " << object.y << ", \"width\": "
-            << object.width << ", \"height\": " << object.height
-            << ", \"timer\": " << object.timer << ", \"loop\": "
-            << object.loop << ", \"ops\": [" << object.op1 << ", "
-            << object.op2 << ", " << object.op3 << "]}\n";
+    if (!object.hasDestination || object.animationFrames.empty()) {
+        json << indent << "  \"layout\": null,\n"
+            << indent << "  \"animation\": {\"frames\": []},\n"
+            << indent << "  \"condition\": null\n";
+        json << indent << "}";
+        return;
     }
-    else json << indent << "  \"destination\": null\n";
+
+    json << indent << "  \"layout\": {\"destination_row\": "
+        << object.animationFrames.front().destinationRow << ", \"transform\": ";
+    WriteTransform(json, object.layout);
+    json << "},\n";
+    json << indent << "  \"animation\": {\"frames\": [";
+    for (size_t index = 0; index < object.animationFrames.size(); ++index) {
+        const SEOLRSemanticObject::AnimationFrame& frame = object.animationFrames[index];
+        json << (index ? ",\n" : "\n") << indent
+            << "    {\"destination_row\": " << frame.destinationRow
+            << ", \"time_ms\": " << frame.timeMs << ", \"alpha\": "
+            << frame.alpha << ", \"transform\": ";
+        WriteTransform(json, frame.transform);
+        json << "}";
+    }
+    json << "\n" << indent << "  ]},\n";
+
+    const int options[] = { object.op1, object.op2, object.op3 };
+    const int absoluteTimer = std::abs(object.timer);
+    const char* timerLabel = timerName((unsigned)absoluteTimer);
+    const bool rawTimer = object.timer < 0 || !timerLabel[0];
+    json << indent << "  \"condition\": {\"mode\": \"all\", \"timer\": ";
+    if (rawTimer) {
+        json << "{\"kind\": \"raw\", \"lr2_timer\": " << object.timer
+            << ", \"label\": \"Raw LR2 TIMER " << object.timer << "\"}";
+    }
+    else {
+        json << "{\"kind\": \"semantic\", \"lr2_name\": \""
+            << JsonEscape(timerLabel) << "\"}";
+    }
+    json << ", \"loop\": " << object.loop << ", \"all\": [";
+    bool firstCondition = true;
+    for (int option : options) {
+        if (option == 0) continue;
+        json << (firstCondition ? "\n" : ",\n");
+        WriteConditionTerm(json, option, (std::string(indent) + "    ").c_str());
+        firstCondition = false;
+    }
+    if (!firstCondition) json << "\n" << indent << "  ";
+    json << "]}\n";
     json << indent << "}";
 }
 
@@ -192,7 +293,7 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
     std::ostringstream json;
     json << "{\n";
     json << "  \"format\": \"olrskin-semantic\",\n";
-    json << "  \"version\": 3,\n";
+    json << "  \"version\": 7,\n";
     json << "  \"metadata\": {\"title\": \"" << JsonEscape(document.title)
         << "\", \"maker\": \"" << JsonEscape(document.maker)
         << "\", \"scene\": \"" << JsonEscape(document.scene) << "\"},\n";
@@ -201,6 +302,17 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
         << ", \"source\": \"" << JsonEscape(document.resolutionSource)
         << "\", \"inferred\": " << (document.resolutionInferred ? "true" : "false")
         << "},\n";
+    json << "  \"objects\": {\"authority\": \""
+        << kSemanticObjectAuthority << "\", \"items\": [";
+    bool firstObject = true;
+    for (const SEOLRSemanticObject& object : document.objects) {
+        if (!IsSemanticDestinationObject(object)) continue;
+        json << (firstObject ? "\n" : ",\n");
+        WriteSemanticObject(json, object, "    ");
+        firstObject = false;
+    }
+    if (!firstObject) json << "\n  ";
+    json << "]},\n";
     json << "  \"sections\": {\n";
     for (size_t categoryIndex = 0;
         categoryIndex < sizeof(categories) / sizeof(categories[0]);
@@ -209,9 +321,10 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
         json << "    \"" << category << "\": [";
         bool first = true;
         for (const SEOLRSemanticObject& object : document.objects) {
-            if (object.category != category) continue;
-            json << (first ? "\n" : ",\n");
-            WriteSemanticObject(json, object, "      ");
+            if (!IsSemanticDestinationObject(object) || object.category != category)
+                continue;
+            json << (first ? "\n" : ",\n") << "      \""
+                << JsonEscape(object.id) << "\"";
             first = false;
         }
         if (!first) json << "\n    ";
@@ -284,12 +397,12 @@ std::string BuildManifestJson(const SEOLRSkinDocument& document,
     json << "{\n"
         << "  \"format\": \"olrskin\",\n"
         << "  \"version\": " << kOlrFormatVersion << ",\n"
-        << "  \"profile\": \"lr2-simple-v0.4\",\n"
-        << "  \"semantic_authority\": \"simple_mode\",\n"
+        << "  \"profile\": \"lr2-semantic-v0.7\",\n"
+        << "  \"semantic_authority\": \"objects + simple_mode\",\n"
         << "  \"lr2_entry\": \"lr2/main.lr2skin\",\n"
         << "  \"skin_entry\": \"skin.json\",\n"
         << "  \"path_map_entry\": \"compatibility/path-map.json\",\n"
-        << "  \"object_count\": " << document.objects.size() << ",\n"
+        << "  \"object_count\": " << SemanticDestinationObjectCount(document) << ",\n"
         << "  \"simple_slot_count\": " << document.simpleSlots.size() << ",\n"
         << "  \"asset_count\": " << bundledAssetCount << ",\n"
         << "  \"virtual_root_count\": " << document.virtualRoots.size() << ",\n"
@@ -297,7 +410,8 @@ std::string BuildManifestJson(const SEOLRSkinDocument& document,
         << "  \"skipped_virtual_file_count\": " << skippedVirtualFileCount << ",\n"
         << "  \"unresolved_image_count\": " << document.unresolvedImageCount << ",\n"
         << "  \"unresolved_resource_count\": " << document.unresolvedResourceCount << ",\n"
-        << "  \"limitations\": [\"semantic sections outside simple_mode remain descriptive\", "
+        << "  \"limitations\": [\"SRC fields outside simple_mode remain compatibility-owned\", "
+        << "\"IF/ELSE control flow remains compatibility-owned\", "
         << "\"resources outside captured LR2 roots remain external\"]\n"
         << "}\n";
     return json.str();
@@ -731,14 +845,54 @@ struct SimpleModeCompileSlot {
     bool hasAsset = false;
 };
 
+struct SemanticCompileTransform {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    int rotation = 0;
+    int blend = 0;
+};
+
+struct SemanticCompileFrame {
+    int destinationRow = -1;
+    int timeMs = 0;
+    int alpha = 255;
+    SemanticCompileTransform transform;
+};
+
+struct SemanticCompileConditionTerm {
+    bool isRaw = false;
+    bool isNegated = false;
+    int rawOption = 0;
+    std::string lr2Name;
+};
+
+struct SemanticCompileObject {
+    std::string id;
+    std::string destinationCommand;
+    int layoutRow = -1;
+    SemanticCompileTransform layout;
+    std::vector<SemanticCompileFrame> frames;
+    bool timerIsRaw = false;
+    int rawTimer = 0;
+    std::string timerName;
+    int loop = 0;
+    std::vector<SemanticCompileConditionTerm> conditions;
+};
+
 class SimpleModeJsonReader {
 public:
     explicit SimpleModeJsonReader(const std::string& text) : text_(text) {}
 
     bool Read(std::string& authority, std::vector<SimpleModeCompileSlot>& slots,
-        std::string& errorMessage) {
+        std::string& objectAuthority, std::vector<SemanticCompileObject>& objects,
+        bool& hasObjects, std::string& errorMessage) {
         authority.clear();
         slots.clear();
+        objectAuthority.clear();
+        objects.clear();
+        hasObjects = false;
         SkipWhitespace();
         if (!Take('{')) return Fail("skin.json root must be an object.", errorMessage);
         bool foundSimpleMode = false;
@@ -753,6 +907,12 @@ public:
                         return Fail("skin.json contains duplicate simple_mode objects.", errorMessage);
                     foundSimpleMode = true;
                     if (!ReadSimpleMode(authority, slots, errorMessage)) return false;
+                }
+                else if (key == "objects") {
+                    if (hasObjects)
+                        return Fail("skin.json contains duplicate objects authorities.", errorMessage);
+                    hasObjects = true;
+                    if (!ReadSemanticObjects(objectAuthority, objects, errorMessage)) return false;
                 }
                 else if (!SkipValue(0, errorMessage)) return false;
                 SkipWhitespace();
@@ -874,6 +1034,21 @@ private:
         return true;
     }
 
+    bool ReadBoolean(bool& value, std::string& errorMessage) {
+        SkipWhitespace();
+        if (text_.compare(at_, 4, "true") == 0) {
+            at_ += 4;
+            value = true;
+            return true;
+        }
+        if (text_.compare(at_, 5, "false") == 0) {
+            at_ += 5;
+            value = false;
+            return true;
+        }
+        return Fail("skin.json expected a boolean.", errorMessage);
+    }
+
     bool SkipValue(int depth, std::string& errorMessage) {
         if (depth > 64) return Fail("skin.json nesting is too deep.", errorMessage);
         SkipWhitespace();
@@ -937,6 +1112,379 @@ private:
         }
         if (at_ > start) return true;
         return Fail("skin.json contains an invalid value.", errorMessage);
+    }
+
+    bool ReadSemanticObjects(std::string& authority,
+        std::vector<SemanticCompileObject>& objects, std::string& errorMessage) {
+        if (!Take('{'))
+            return Fail("skin.json objects authority must be an object.", errorMessage);
+        bool foundAuthority = false;
+        bool foundItems = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
+                    return false;
+                if (key == "authority") {
+                    if (foundAuthority)
+                        return Fail("objects contains duplicate authority fields.", errorMessage);
+                    foundAuthority = true;
+                    if (!ReadString(authority, errorMessage)) return false;
+                }
+                else if (key == "items") {
+                    if (foundItems)
+                        return Fail("objects contains duplicate items fields.", errorMessage);
+                    foundItems = true;
+                    if (!ReadSemanticObjectArray(objects, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundAuthority || !foundItems)
+            return Fail("objects requires authority and items.", errorMessage);
+        return true;
+    }
+
+    bool ReadSemanticObjectArray(std::vector<SemanticCompileObject>& objects,
+        std::string& errorMessage) {
+        if (!Take('[')) return Fail("objects.items must be an array.", errorMessage);
+        if (Take(']')) return true;
+        for (;;) {
+            SemanticCompileObject object;
+            if (!ReadSemanticObject(object, errorMessage)) return false;
+            objects.push_back(std::move(object));
+            if (Take(']')) return true;
+            if (!Require(',', errorMessage)) return false;
+        }
+    }
+
+    bool ReadSemanticObject(SemanticCompileObject& object,
+        std::string& errorMessage) {
+        if (!Take('{')) return Fail("Each semantic Object must be an object.", errorMessage);
+        bool foundId = false;
+        bool foundCommand = false;
+        bool foundLayout = false;
+        bool foundAnimation = false;
+        bool foundCondition = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
+                    return false;
+                if (key == "id") {
+                    if (foundId) return Fail("A semantic Object contains duplicate id fields.", errorMessage);
+                    foundId = true;
+                    if (!ReadString(object.id, errorMessage)) return false;
+                }
+                else if (key == "destination_command") {
+                    if (foundCommand)
+                        return Fail("A semantic Object contains duplicate destination_command fields.", errorMessage);
+                    foundCommand = true;
+                    if (!ReadString(object.destinationCommand, errorMessage)) return false;
+                }
+                else if (key == "layout") {
+                    if (foundLayout) return Fail("A semantic Object contains duplicate layout fields.", errorMessage);
+                    foundLayout = true;
+                    if (!ReadLayout(object, errorMessage)) return false;
+                }
+                else if (key == "animation") {
+                    if (foundAnimation)
+                        return Fail("A semantic Object contains duplicate animation fields.", errorMessage);
+                    foundAnimation = true;
+                    if (!ReadAnimation(object.frames, errorMessage)) return false;
+                }
+                else if (key == "condition") {
+                    if (foundCondition)
+                        return Fail("A semantic Object contains duplicate condition fields.", errorMessage);
+                    foundCondition = true;
+                    if (!ReadCondition(object, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundId || !foundCommand || !foundLayout || !foundAnimation ||
+            !foundCondition || object.id.empty() || object.destinationCommand.empty() ||
+            object.frames.empty())
+            return Fail("A semantic Object is missing a compiler field.", errorMessage);
+        return true;
+    }
+
+    bool ReadLayout(SemanticCompileObject& object, std::string& errorMessage) {
+        if (!Take('{')) return Fail("Object layout must be an object.", errorMessage);
+        bool foundRow = false;
+        bool foundTransform = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage)) return false;
+                if (key == "destination_row") {
+                    if (foundRow) return Fail("Object layout contains duplicate destination_row fields.", errorMessage);
+                    foundRow = true;
+                    if (!ReadInteger(object.layoutRow, errorMessage)) return false;
+                }
+                else if (key == "transform") {
+                    if (foundTransform) return Fail("Object layout contains duplicate transform fields.", errorMessage);
+                    foundTransform = true;
+                    if (!ReadTransform(object.layout, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundRow || !foundTransform)
+            return Fail("Object layout requires destination_row and transform.", errorMessage);
+        return true;
+    }
+
+    bool ReadTransform(SemanticCompileTransform& transform,
+        std::string& errorMessage) {
+        if (!Take('{')) return Fail("A semantic transform must be an object.", errorMessage);
+        bool fields[6] = {};
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage)) return false;
+                int* destination = nullptr;
+                int field = -1;
+                if (key == "x") { destination = &transform.x; field = 0; }
+                else if (key == "y") { destination = &transform.y; field = 1; }
+                else if (key == "width") { destination = &transform.width; field = 2; }
+                else if (key == "height") { destination = &transform.height; field = 3; }
+                else if (key == "rotation") { destination = &transform.rotation; field = 4; }
+                else if (key == "blend") { destination = &transform.blend; field = 5; }
+                if (destination) {
+                    if (fields[field]) return Fail("A semantic transform contains a duplicate field.", errorMessage);
+                    fields[field] = true;
+                    if (!ReadInteger(*destination, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        for (bool present : fields)
+            if (!present) return Fail("A semantic transform is missing a compiler field.", errorMessage);
+        return true;
+    }
+
+    bool ReadAnimation(std::vector<SemanticCompileFrame>& frames,
+        std::string& errorMessage) {
+        if (!Take('{')) return Fail("Object animation must be an object.", errorMessage);
+        bool foundFrames = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage)) return false;
+                if (key == "frames") {
+                    if (foundFrames) return Fail("Object animation contains duplicate frames fields.", errorMessage);
+                    foundFrames = true;
+                    if (!ReadFrameArray(frames, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundFrames) return Fail("Object animation requires frames.", errorMessage);
+        return true;
+    }
+
+    bool ReadFrameArray(std::vector<SemanticCompileFrame>& frames,
+        std::string& errorMessage) {
+        if (!Take('[')) return Fail("animation.frames must be an array.", errorMessage);
+        if (Take(']')) return true;
+        for (;;) {
+            SemanticCompileFrame frame;
+            if (!ReadFrame(frame, errorMessage)) return false;
+            frames.push_back(frame);
+            if (Take(']')) return true;
+            if (!Require(',', errorMessage)) return false;
+        }
+    }
+
+    bool ReadFrame(SemanticCompileFrame& frame, std::string& errorMessage) {
+        if (!Take('{')) return Fail("Each animation frame must be an object.", errorMessage);
+        bool foundRow = false;
+        bool foundTime = false;
+        bool foundAlpha = false;
+        bool foundTransform = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage)) return false;
+                if (key == "destination_row") {
+                    if (foundRow) return Fail("An animation frame contains duplicate destination_row fields.", errorMessage);
+                    foundRow = true;
+                    if (!ReadInteger(frame.destinationRow, errorMessage)) return false;
+                }
+                else if (key == "time_ms") {
+                    if (foundTime) return Fail("An animation frame contains duplicate time_ms fields.", errorMessage);
+                    foundTime = true;
+                    if (!ReadInteger(frame.timeMs, errorMessage)) return false;
+                }
+                else if (key == "alpha") {
+                    if (foundAlpha) return Fail("An animation frame contains duplicate alpha fields.", errorMessage);
+                    foundAlpha = true;
+                    if (!ReadInteger(frame.alpha, errorMessage)) return false;
+                }
+                else if (key == "transform") {
+                    if (foundTransform) return Fail("An animation frame contains duplicate transform fields.", errorMessage);
+                    foundTransform = true;
+                    if (!ReadTransform(frame.transform, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundRow || !foundTime || !foundAlpha || !foundTransform)
+            return Fail("An animation frame is missing a compiler field.", errorMessage);
+        return true;
+    }
+
+    bool ReadCondition(SemanticCompileObject& object, std::string& errorMessage) {
+        if (!Take('{')) return Fail("Object condition must be an object.", errorMessage);
+        bool foundMode = false;
+        bool foundTimer = false;
+        bool foundLoop = false;
+        bool foundAll = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage)) return false;
+                if (key == "mode") {
+                    if (foundMode) return Fail("Object condition contains duplicate mode fields.", errorMessage);
+                    foundMode = true;
+                    std::string mode;
+                    if (!ReadString(mode, errorMessage)) return false;
+                    if (mode != "all") return Fail("Only all-mode LR2 conditions are supported.", errorMessage);
+                }
+                else if (key == "timer") {
+                    if (foundTimer) return Fail("Object condition contains duplicate timer fields.", errorMessage);
+                    foundTimer = true;
+                    if (!ReadTimer(object, errorMessage)) return false;
+                }
+                else if (key == "loop") {
+                    if (foundLoop) return Fail("Object condition contains duplicate loop fields.", errorMessage);
+                    foundLoop = true;
+                    if (!ReadInteger(object.loop, errorMessage)) return false;
+                }
+                else if (key == "all") {
+                    if (foundAll) return Fail("Object condition contains duplicate all fields.", errorMessage);
+                    foundAll = true;
+                    if (!ReadConditionTerms(object.conditions, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundMode || !foundTimer || !foundLoop || !foundAll)
+            return Fail("Object condition requires mode, timer, loop and all.", errorMessage);
+        if (object.conditions.size() > 3)
+            return Fail("LR2 destinations support at most three OP conditions.", errorMessage);
+        return true;
+    }
+
+    bool ReadTimer(SemanticCompileObject& object, std::string& errorMessage) {
+        if (!Take('{')) return Fail("Condition timer must be an object.", errorMessage);
+        std::string kind;
+        bool foundKind = false;
+        bool foundName = false;
+        bool foundRaw = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage)) return false;
+                if (key == "kind") {
+                    if (foundKind) return Fail("Condition timer contains duplicate kind fields.", errorMessage);
+                    foundKind = true;
+                    if (!ReadString(kind, errorMessage)) return false;
+                }
+                else if (key == "lr2_name") {
+                    if (foundName) return Fail("Condition timer contains duplicate lr2_name fields.", errorMessage);
+                    foundName = true;
+                    if (!ReadString(object.timerName, errorMessage)) return false;
+                }
+                else if (key == "lr2_timer") {
+                    if (foundRaw) return Fail("Condition timer contains duplicate lr2_timer fields.", errorMessage);
+                    foundRaw = true;
+                    if (!ReadInteger(object.rawTimer, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundKind || (kind != "semantic" && kind != "raw"))
+            return Fail("Condition timer kind must be semantic or raw.", errorMessage);
+        object.timerIsRaw = kind == "raw";
+        if ((object.timerIsRaw && !foundRaw) || (!object.timerIsRaw && !foundName))
+            return Fail("Condition timer is missing its LR2 identity.", errorMessage);
+        return true;
+    }
+
+    bool ReadConditionTerms(std::vector<SemanticCompileConditionTerm>& terms,
+        std::string& errorMessage) {
+        if (!Take('[')) return Fail("condition.all must be an array.", errorMessage);
+        if (Take(']')) return true;
+        for (;;) {
+            SemanticCompileConditionTerm term;
+            if (!ReadConditionTerm(term, errorMessage)) return false;
+            terms.push_back(term);
+            if (Take(']')) return true;
+            if (!Require(',', errorMessage)) return false;
+        }
+    }
+
+    bool ReadConditionTerm(SemanticCompileConditionTerm& term,
+        std::string& errorMessage) {
+        if (!Take('{')) return Fail("Each condition term must be an object.", errorMessage);
+        std::string kind;
+        bool foundKind = false;
+        bool foundName = false;
+        bool foundRaw = false;
+        bool foundNegated = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage)) return false;
+                if (key == "kind") {
+                    if (foundKind) return Fail("A condition term contains duplicate kind fields.", errorMessage);
+                    foundKind = true;
+                    if (!ReadString(kind, errorMessage)) return false;
+                }
+                else if (key == "lr2_name") {
+                    if (foundName) return Fail("A condition term contains duplicate lr2_name fields.", errorMessage);
+                    foundName = true;
+                    if (!ReadString(term.lr2Name, errorMessage)) return false;
+                }
+                else if (key == "lr2_op") {
+                    if (foundRaw) return Fail("A condition term contains duplicate lr2_op fields.", errorMessage);
+                    foundRaw = true;
+                    if (!ReadInteger(term.rawOption, errorMessage)) return false;
+                }
+                else if (key == "negated") {
+                    if (foundNegated) return Fail("A condition term contains duplicate negated fields.", errorMessage);
+                    foundNegated = true;
+                    if (!ReadBoolean(term.isNegated, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundKind || (kind != "semantic" && kind != "raw"))
+            return Fail("Condition term kind must be semantic or raw.", errorMessage);
+        term.isRaw = kind == "raw";
+        if ((term.isRaw && !foundRaw) || (!term.isRaw && (!foundName || !foundNegated)))
+            return Fail("A condition term is missing its LR2 identity.", errorMessage);
+        return true;
     }
 
     bool ReadSimpleMode(std::string& authority,
@@ -1151,6 +1699,80 @@ bool ValidateSimpleModeAsset(const SimpleModeCompileSlot& slot,
     return true;
 }
 
+int FindCompilerFieldColumn(const std::string& command, const char* fieldName) {
+    for (int column = 1; column < 30; ++column) {
+        CSTR help = GetCommandHelp(command.c_str(), column);
+        help.trimWhiteSpace();
+        const char* label = help.body ? help.outstr() : "";
+        if (*label == '$') ++label;
+        if (_stricmp(label, fieldName) == 0) return column;
+    }
+    return -1;
+}
+
+int FindTransformFieldColumn(const std::string& command, const char* fieldName) {
+    int column = FindCompilerFieldColumn(command, fieldName);
+    if (column < 0 && _stricmp(fieldName, "h") == 0)
+        column = FindCompilerFieldColumn(command, "size");
+    return column;
+}
+
+int FindOptionByName(const std::string& name) {
+    for (int option = 0; option < 900; ++option) {
+        const char* candidate = dstName((unsigned)option);
+        if (candidate[0] && name == candidate) return option;
+    }
+    return -1;
+}
+
+int FindTimerByName(const std::string& name) {
+    for (int timer = 0; timer < 900; ++timer) {
+        const char* candidate = timerName((unsigned)timer);
+        if (candidate[0] && name == candidate) return timer;
+    }
+    return -1;
+}
+
+bool SameTransform(const SemanticCompileTransform& left,
+    const SemanticCompileTransform& right) {
+    return left.x == right.x && left.y == right.y &&
+        left.width == right.width && left.height == right.height &&
+        left.rotation == right.rotation && left.blend == right.blend;
+}
+
+bool IsSafeSemanticTransform(const SemanticCompileTransform& transform) {
+    const int values[] = { transform.x, transform.y, transform.width,
+        transform.height, transform.rotation, transform.blend };
+    for (int value : values)
+        if (value < -1000000 || value > 1000000) return false;
+    return true;
+}
+
+bool AssignCompiledField(std::vector<std::string>& fields,
+    const std::string& command, const char* fieldName, int value,
+    bool required, std::string& errorMessage) {
+    const int column = FindTransformFieldColumn(command, fieldName);
+    if (column < 0) {
+        if (!required) return true;
+        errorMessage = "The LR2 destination schema has no semantic field '" +
+            std::string(fieldName) + "' for " + command + ".";
+        return false;
+    }
+    if (column >= (int)fields.size()) fields.resize((size_t)column + 1);
+    fields[(size_t)column] = std::to_string(value);
+    return true;
+}
+
+void JoinCompiledFields(PreservedScriptLine& line,
+    const std::vector<std::string>& fields) {
+    std::ostringstream rebuilt;
+    for (size_t field = 0; field < fields.size(); ++field) {
+        if (field) rebuilt << ',';
+        rebuilt << fields[field];
+    }
+    line.content = rebuilt.str();
+}
+
 bool WriteTextFileAtomic(const std::filesystem::path& path,
     const std::string& bytes, std::string& errorMessage) {
     const std::filesystem::path temporary = path.string() + ".olr-compile.tmp";
@@ -1210,18 +1832,24 @@ bool ValidateManifest(FILE* archive,
     const bool isVersion2 = text.find("\"version\": 2") != std::string::npos;
     const bool isVersion3 = text.find("\"version\": 3") != std::string::npos;
     const bool isVersion4 = text.find("\"version\": 4") != std::string::npos;
+    const bool isVersion5 = text.find("\"version\": 5") != std::string::npos;
+    const bool isVersion6 = text.find("\"version\": 6") != std::string::npos;
+    const bool isVersion7 = text.find("\"version\": 7") != std::string::npos;
     if (text.find("\"format\": \"olrskin\"") == std::string::npos ||
-        (!isVersion1 && !isVersion2 && !isVersion3 && !isVersion4) ||
+        (!isVersion1 && !isVersion2 && !isVersion3 && !isVersion4 &&
+            !isVersion5 && !isVersion6 && !isVersion7) ||
         text.find("\"lr2_entry\": \"lr2/main.lr2skin\"") == std::string::npos) {
         errorMessage = "The OLR manifest format or version is unsupported.";
         return false;
     }
-    if ((isVersion2 || isVersion3 || isVersion4) &&
+    if ((isVersion2 || isVersion3 || isVersion4 || isVersion5 ||
+        isVersion6 || isVersion7) &&
         (!hasPathMap || !hasExportMain)) {
         errorMessage = "The OLR V0.2+ package is missing its virtual path metadata.";
         return false;
     }
-    info.formatVersion = isVersion4 ? 4 : isVersion3 ? 3 : isVersion2 ? 2 : 1;
+    info.formatVersion = isVersion7 ? 7 : isVersion6 ? 6 : isVersion5 ? 5 :
+        isVersion4 ? 4 : isVersion3 ? 3 : isVersion2 ? 2 : 1;
     const char* objectKey = "\"object_count\": ";
     const char* simpleSlotKey = "\"simple_slot_count\": ";
     const char* unresolvedKey = "\"unresolved_image_count\": ";
@@ -1284,8 +1912,12 @@ bool SECompileOLRSimpleMode(const std::string& skinJson,
 
     std::string authority;
     std::vector<SimpleModeCompileSlot> slots;
+    std::string objectAuthority;
+    std::vector<SemanticCompileObject> objects;
+    bool hasObjects = false;
     SimpleModeJsonReader reader(skinJson);
-    if (!reader.Read(authority, slots, errorMessage)) return false;
+    if (!reader.Read(authority, slots, objectAuthority, objects,
+        hasObjects, errorMessage)) return false;
     if (authority != kSimpleModeAuthority) {
         errorMessage = "skin.json simple_mode authority is not supported: " +
             authority + ".";
@@ -1338,6 +1970,172 @@ bool SECompileOLRSimpleMode(const std::string& skinJson,
         output << line.content << line.ending;
     compiledScript = output.str();
     compiledSlotCount = (int)slots.size();
+    return true;
+}
+
+bool SECompileOLRSemantics(const std::string& skinJson,
+    const std::string& lr2Script, std::string& compiledScript,
+    int& compiledSlotCount, int& compiledObjectCount,
+    int& compiledAnimationFrameCount, std::string& errorMessage) {
+    compiledScript.clear();
+    compiledSlotCount = 0;
+    compiledObjectCount = 0;
+    compiledAnimationFrameCount = 0;
+    errorMessage.clear();
+
+    std::string simpleCompiled;
+    int simpleCount = 0;
+    if (!SECompileOLRSimpleMode(skinJson, lr2Script, simpleCompiled,
+        simpleCount, errorMessage)) return false;
+
+    std::string simpleAuthority;
+    std::vector<SimpleModeCompileSlot> slots;
+    std::string objectAuthority;
+    std::vector<SemanticCompileObject> objects;
+    bool hasObjects = false;
+    SimpleModeJsonReader reader(skinJson);
+    if (!reader.Read(simpleAuthority, slots, objectAuthority, objects,
+        hasObjects, errorMessage)) return false;
+    if (!hasObjects) {
+        compiledScript = simpleCompiled;
+        compiledSlotCount = simpleCount;
+        return true;
+    }
+    if (objectAuthority != kSemanticObjectAuthority) {
+        errorMessage = "skin.json objects authority is not supported: " +
+            objectAuthority + ".";
+        return false;
+    }
+    if (arr_CommandHelp.count <= 0 && LoadCommandHelp(nullptr) != 0) {
+        errorMessage = "The embedded LR2 command schema could not be loaded.";
+        return false;
+    }
+
+    std::vector<PreservedScriptLine> lines = SplitPreservedScriptLines(simpleCompiled);
+    std::set<int> compiledRows;
+    std::set<std::string> objectIds;
+    for (const SemanticCompileObject& object : objects) {
+        if (!objectIds.insert(object.id).second) {
+            errorMessage = "Two semantic Objects use the id '" + object.id + "'.";
+            return false;
+        }
+        if (object.destinationCommand.compare(0, 5, "#DST_") != 0) {
+            errorMessage = "Semantic Object destination_command is not #DST_*: " +
+                object.destinationCommand + ".";
+            return false;
+        }
+        if (object.layoutRow != object.frames.front().destinationRow ||
+            !SameTransform(object.layout, object.frames.front().transform)) {
+            errorMessage = "Semantic Object layout must match animation frame 0: " +
+                object.id + ".";
+            return false;
+        }
+        if (!IsSafeSemanticTransform(object.layout) || object.loop < -1000000 ||
+            object.loop > 1000000000) {
+            errorMessage = "Semantic Object layout or loop is outside the safe LR2 range: " +
+                object.id + ".";
+            return false;
+        }
+
+        int timer = object.rawTimer;
+        if (!object.timerIsRaw) {
+            timer = FindTimerByName(object.timerName);
+            if (timer < 0) {
+                errorMessage = "Semantic timer name is unknown: " + object.timerName + ".";
+                return false;
+            }
+        }
+        int options[3] = {};
+        for (size_t index = 0; index < object.conditions.size(); ++index) {
+            const SemanticCompileConditionTerm& condition = object.conditions[index];
+            int option = condition.rawOption;
+            if (!condition.isRaw) {
+                option = FindOptionByName(condition.lr2Name);
+                if (option < 0) {
+                    errorMessage = "Semantic LR2 option name is unknown: " +
+                        condition.lr2Name + ".";
+                    return false;
+                }
+                if (condition.isNegated) option = -option;
+            }
+            if (option < -999 || option > 999) {
+                errorMessage = "Raw LR2 OP is outside the supported range for " +
+                    object.id + ".";
+                return false;
+            }
+            options[index] = option;
+        }
+
+        for (size_t frameIndex = 0; frameIndex < object.frames.size(); ++frameIndex) {
+            const SemanticCompileFrame& frame = object.frames[frameIndex];
+            if (frame.destinationRow <= 0 || frame.destinationRow > (int)lines.size()) {
+                errorMessage = "Semantic destination_row is outside lr2/main.lr2skin: " +
+                    std::to_string(frame.destinationRow) + ".";
+                return false;
+            }
+            if (!compiledRows.insert(frame.destinationRow).second) {
+                errorMessage = "Two semantic frames target LR2 row " +
+                    std::to_string(frame.destinationRow) + ".";
+                return false;
+            }
+            if (!IsSafeSemanticTransform(frame.transform) || frame.timeMs < 0 ||
+                frame.timeMs > 1000000000 || frame.alpha < 0 || frame.alpha > 255) {
+                errorMessage = "Semantic animation values are outside the safe LR2 range: " +
+                    object.id + ".";
+                return false;
+            }
+
+            PreservedScriptLine& line = lines[(size_t)frame.destinationRow - 1];
+            std::vector<std::string> fields = SplitSimpleCsv(line.content);
+            if (fields.empty() || _stricmp(fields[0].c_str(),
+                object.destinationCommand.c_str()) != 0) {
+                errorMessage = "Semantic row/command mismatch at LR2 row " +
+                    std::to_string(frame.destinationRow) + ": expected " +
+                    object.destinationCommand + ".";
+                return false;
+            }
+            if (!AssignCompiledField(fields, object.destinationCommand, "time",
+                frame.timeMs, true, errorMessage) ||
+                !AssignCompiledField(fields, object.destinationCommand, "x",
+                    frame.transform.x, true, errorMessage) ||
+                !AssignCompiledField(fields, object.destinationCommand, "y",
+                    frame.transform.y, true, errorMessage) ||
+                !AssignCompiledField(fields, object.destinationCommand, "w",
+                    frame.transform.width, true, errorMessage) ||
+                !AssignCompiledField(fields, object.destinationCommand, "h",
+                    frame.transform.height, true, errorMessage) ||
+                !AssignCompiledField(fields, object.destinationCommand, "a",
+                    frame.alpha, true, errorMessage) ||
+                !AssignCompiledField(fields, object.destinationCommand, "angle",
+                    frame.transform.rotation, true, errorMessage) ||
+                !AssignCompiledField(fields, object.destinationCommand, "blend",
+                    frame.transform.blend, true, errorMessage))
+                return false;
+
+            if (frameIndex == 0) {
+                if (!AssignCompiledField(fields, object.destinationCommand, "loop",
+                    object.loop, true, errorMessage) ||
+                    !AssignCompiledField(fields, object.destinationCommand, "timer",
+                        timer, true, errorMessage)) return false;
+                for (int optionIndex = 0; optionIndex < 3; ++optionIndex) {
+                    const std::string fieldName = "op" + std::to_string(optionIndex + 1);
+                    const bool required = options[optionIndex] != 0;
+                    if (!AssignCompiledField(fields, object.destinationCommand,
+                        fieldName.c_str(), options[optionIndex], required,
+                        errorMessage)) return false;
+                }
+            }
+            JoinCompiledFields(line, fields);
+            ++compiledAnimationFrameCount;
+        }
+        ++compiledObjectCount;
+    }
+
+    std::ostringstream output;
+    for (const PreservedScriptLine& line : lines)
+        output << line.content << line.ending;
+    compiledScript = output.str();
+    compiledSlotCount = simpleCount;
     return true;
 }
 
@@ -1506,14 +2304,19 @@ bool SEExtractOLRSkinPackage(const char* packagePath,
         const std::string skinJson(semanticBytes.begin(), semanticBytes.end());
         std::string compiledScript;
         int compiledSlotCount = 0;
-        if (!SECompileOLRSimpleMode(skinJson, lr2Script, compiledScript,
-            compiledSlotCount, errorMessage) ||
+        int compiledObjectCount = 0;
+        int compiledAnimationFrameCount = 0;
+        if (!SECompileOLRSemantics(skinJson, lr2Script, compiledScript,
+            compiledSlotCount, compiledObjectCount, compiledAnimationFrameCount,
+            errorMessage) ||
             !WriteTextFileAtomic(mainSkinPath, compiledScript, errorMessage)) {
             std::filesystem::remove_all(target, filesystemError);
             mainSkinPath.clear();
             return false;
         }
         packageInfo.compiledSimpleSlotCount = compiledSlotCount;
+        packageInfo.compiledSemanticObjectCount = compiledObjectCount;
+        packageInfo.compiledAnimationFrameCount = compiledAnimationFrameCount;
     }
     return true;
 }

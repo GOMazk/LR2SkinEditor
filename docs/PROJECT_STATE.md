@@ -33,8 +33,8 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - FAST/SLOW를 특별 예외가 아닌 NUMBER Object로 취급
 - `$num/$type/$timer/$op/$st` 이름을 ID 또는 이름으로 검색하는 ComboBox
 - Asset crop을 Preview에 놓은 뒤 IMAGE/NUMBER/SLIDER/BUTTON 중 Object 종류 선택
-- Preview에서 선택 Object 이동 및 키보드 미세 이동
-- DST 애니메이션 프레임 증감
+- Preview에서 선택 Object 이동, 키보드 미세 이동 및 첫 DST rectangle resize
+- Object Inspector의 Layout / Timeline / Conditions semantic 편집과 DST 프레임 증감
 - Ctrl+Z 기반 CSV/구조 편집 복구
 - `Simple Mode`에서 숫자 폰트, 판정 폰트, 기어 파트, 노트, 게이지 소스를 의미별로 모아
   같은 분류의 기존 Asset으로 교체하거나 이미지를 `simple-assets`에 가져오기.
@@ -61,8 +61,9 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - `File > Export OLR package`에서 현재 Object를 의미별로 분류하고 LR2 호환
   스크립트, 고정 이미지와 해결된 LR2 가상 root를 한 `.olrskin`
   파일로 묶기
-- `File > Import OLR package`에서 패키지를 검증한 뒤 V0.4 `simple_mode` source
-  asset 필드를 LR2 CSV로 원자적으로 compile하고, 사용자가 고른 새 폴더만 열기
+- `File > Import OLR package`에서 패키지를 검증한 뒤 V0.7 `objects`의
+  Layout/Animation/Condition과 V0.4 `simple_mode` source asset을 LR2 CSV로
+  원자적으로 compile하고, 사용자가 고른 새 폴더만 열기
 - Import한 V0.2+ workspace의 `File > Export LR2 folder`에서 `vfs/LR2files`와
   고정 `assets`를 새 출력 폴더로 풀고 현재 편집 스크립트의 경로를 복원
 
@@ -98,13 +99,14 @@ Default locations 전환을 제공하며, 파일을 복사하거나 LR2 설정�
 
 ### 시나리오 A-2: OLR 중간 포맷으로 공유
 
-`.olrskin` V0.4는 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
+`.olrskin` V0.7은 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
 찾기 쉬운 Semantic index와 원본 동작을 보존하는 Compatibility layer를 함께 담는
 ZIP 컨테이너다. 자세한 계약은 [OLR 포맷 문서](OLRSKIN_FORMAT.md)를 따른다.
 
 ```text
 loaded WORKSPACE
   +-- Object Model -> skin.json (gear/notes/judge/combo/gauge/...)
+  +-- first DST family -> skin.json.objects (Layout/Animation/Condition)
   +-- Simple Mode source IR -> skin.json (number-fonts/judgement-fonts/gear/notes/gauge)
   +-- expanded CSV -> lr2/main.lr2skin
   +-- resolved LR2 roots -> lr2/vfs/LR2files/*
@@ -113,17 +115,18 @@ loaded WORKSPACE
   `-- virtual/export map -> compatibility/path-map.json
 ```
 
-V0.4는 `skin.json.simple_mode`만 첫 compile authority로 승격한다. Import는 각 slot의
-패키지 `source_row`와 `source_command`가 일치하는지 확인한 뒤 `gr`, source crop,
-`div_x/div_y/cycle`만 바꾼다. 나머지 열과 다른 CSV 행, 조건, timer, op, comment,
-editor metadata는 `lr2/main.lr2skin`에서 그대로 보존한다. 하나라도 잘못되면 새 import
-폴더를 제거하고 부분 결과를 남기지 않는다. `sections`의 gear/notes/judge/gauge 등은
-여전히 discovery index이다. Simple Mode의 gauge source 이미지는 컴파일되지만
-gauge destination/layout 및 animation/event compiler는 영역별 왕복 테스트를 갖춘 뒤
-별도 version에서 승격한다.
+V0.7은 `skin.json.objects`를 첫 지원 `#DST_*` family의 compile authority로,
+`skin.json.simple_mode`를 지원 `#SRC_*` asset authority로 사용한다. Layout은 첫 DST
+rectangle, Animation은 같은 command의 DST frame들, Condition은 첫 frame의
+timer/loop/op1..3이다. 알려진 OP/TIMER는 symbolic name으로 컴파일하고 custom 900번대와
+이름 없는 값은 raw 숫자로 왕복한다. alternate DST family, IF/ELSE, 다른 열, comment와
+editor metadata는 `lr2/main.lr2skin`에서 보존한다. 하나라도 잘못되면 새 import 폴더를
+제거하고 부분 결과를 남기지 않는다. `sections`는 Object id discovery index이며 V0.8의
+1P/2P/DP variant linkage 전까지 값을 컴파일하지 않는다.
 
 Export 전 Workspace row는 include flattening 중 달라질 수 있으므로 Simple Mode의
-`source_row`는 `compatibility/source-map.json`을 통해 packaged LR2 row로 변환한다.
+`source_row`와 semantic `destination_row`는 `compatibility/source-map.json`을 통해
+packaged LR2 row로 변환한다.
 이 변환 없이 펼친 row를 compiler 주소로 사용하지 않는다. V0.1-V0.3은 계속 기존처럼
 compatibility script를 기준으로 Import한다.
 
@@ -280,7 +283,8 @@ DST View는 조건 Branch 활성 여부와 무관하게 선택한 SRC/DST의 텍
 
 - **Object Browser**: Type/사용자 그룹/Search/활성 Object 필터, 조건 트리,
   다중 선택, 생성·삭제 Context menu
-- **Object Inspector**: Name, Tagged image, SRC, DST와 애니메이션 프레임 속성
+- **Object Inspector**: Name, Tagged image, SRC와 semantic Layout/Timeline/Conditions
+  편집. `Advanced LR2`는 지원 범위 밖 필드의 compatibility escape hatch
 
 두 창은 보이기 상태만 독립적이며 선택 상태를 복제하지 않는다. 구형 코드가
 `wObjectEditor = true`를 요청하면 Browser와 Inspector를 함께 연다.
@@ -324,17 +328,20 @@ Browser 순서 변경:
 - `#IF` 생성은 선택 Object를 새 조건으로 감쌀 수 있고, 빈 위치에서는
   `#IF/#ENDIF` 뼈대를 만든다.
 
-### DST 프레임
+### Semantic Layout / Timeline / Conditions
 
-- `+ DST`: 마지막 DST 행을 복제하여 애니메이션 프레임을 추가한다.
-- `- DST`: 마지막 DST를 삭제하지만 최소 1개는 반드시 유지한다.
-- DST가 0개인 Object에서는 `+ DST`가 비활성이다. 먼저 유효한 DST 명령을
-  생성해야 한다.
-- 탭의 내부 ID를 고정해 개수가 바뀌어도 `DST (n)` 탭이 계속 열린다.
-- rebuild 후 `$SE_OBJECT_ID`를 우선 사용해 같은 Object 선택을 복원한다.
-- 여러 DST는 열 방향 표로 표시하며 첫 DST와 속성명은 고정한다.
-- loop/timer/op 필드는 첫 DST가 대표하며 뒤 animation frame에서는 반복 표시하지
-  않는다.
+- Layout은 첫 DST의 `x/y/w/h(or size)/angle/blend`만 표시하며 static rectangle의
+  기준이다.
+- Timeline은 DST 행을 frame 0부터 순서대로 보여주며
+  `time/x/y/w/h/alpha/rotation/blend`를 직접 편집한다.
+- `+ Frame`은 마지막 DST 행을 복제하고 `- Last Frame`은 마지막 행을 삭제하되
+  최소 1개를 유지한다. 구조 변경 후 `$SE_OBJECT_ID`로 선택을 복원하며 기존
+  History 경로로 Ctrl+Z 할 수 있다.
+- Conditions는 첫 DST의 timer/loop/op1..3를 대표값으로 사용한다. 알려진 값은
+  이름으로 표시하고 900번대 custom 또는 이름 없는 OP는 `Raw LR2 OP`로 표시한다.
+- Simulator는 현재 Workspace의 실제 `GetOptionFlag_dst()` 결과를 All 조건으로
+  계산해 VISIBLE/HIDDEN을 보여준다.
+- 모든 raw 열은 `Advanced LR2`에 남겨 semantic 범위 밖 스킨도 편집 가능하다.
 
 ## 5. Preview, Image Manager, DST View
 
@@ -378,6 +385,8 @@ Ctrl+MouseWheel로 확대/축소한다.
 - 시작 경계는 cyan, 최종 경계는 red다.
 - 선택한 Object 위에서 좌클릭 drag하면 해당 Object의 모든 선택 대상 DST 좌표를
   이동한다.
+- 한 Object를 선택하면 첫 DST 우하단에 흰 handle이 나타난다. handle drag는 첫
+  destination rectangle의 `w/h(or size)`만 바꾸며 최소 절대 크기 1을 유지한다.
 - 방향키 이동도 동일 CSV 편집/History 경로를 사용한다.
 - Ctrl+Z 후 Preview object와 점멸 사각형이 어긋나지 않도록 모델과 Preview의
   파생 데이터를 함께 invalidate/rebuild한다.
@@ -678,7 +687,7 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 | Object Editor 구조 | Browser와 Inspector를 별도 도킹 창으로 유지 |
 | Object 이름 fallback | 명시 이름, SRC symbolic 이름, op, non-zero timer 순서. 자동 이름은 저장하지 않음 |
 | AI/UI 계약 | `uiCatalog.h`와 자동 UI map을 기준으로 하고 handoff는 context pack과 검증 증거를 포함 |
-| OLR V0.4 authority | `skin.json.simple_mode`만 source asset compiler 입력; 지원 밖 행/열과 `sections`는 `lr2/main.lr2skin`이 보존하며 `vfs/LR2files`는 LR2 Export 전까지 유지 |
+| OLR V0.7 authority | `skin.json.objects`가 첫 지원 DST family의 Layout/Animation/Condition을, `simple_mode`가 지원 SRC asset을 컴파일한다. 다른 DST family, IF/ELSE와 지원 밖 행/열은 `lr2/main.lr2skin`이 보존하며 `vfs/LR2files`는 LR2 Export 전까지 유지 |
 
 ## 11. 다음 작업 전 확인
 

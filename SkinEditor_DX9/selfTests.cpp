@@ -216,7 +216,8 @@ int RunOlrPackageSelfTest() {
         "#IMAGE,vfs/LR2files/Theme/Test/note/blue.png\r\n"
         "#IMAGE,assets/simple-note.png\r\n"
         "#SRC_IMAGE,0,0,0,0,16,16,1,1,0,0\r\n"
-        "#DST_IMAGE,0,0,100,200,16,16,0,255,255,255,255,1,0,0,0,0\r\n";
+        "#DST_IMAGE,0,0,100,200,16,16,0,255,255,255,255,1,0,0,0,800,46,119,948,0\r\n"
+        "#DST_IMAGE,0,100,110,210,20,18,0,0,255,255,255,1,0,15,0,800,46,119,948,0\r\n";
     document.lr2ExportMainPath = "LR2files/Theme/Test/play.lr2skin";
     document.virtualRoots.push_back({ "LR2files/Theme/Test", virtualRoot });
     SEOLRSemanticObject semanticObject;
@@ -232,7 +233,29 @@ int RunOlrPackageSelfTest() {
     semanticObject.y = 200;
     semanticObject.width = 16;
     semanticObject.height = 16;
+    semanticObject.layout = { 100, 200, 16, 16, 0, 1 };
+    SEOLRSemanticObject::AnimationFrame firstFrame;
+    firstFrame.destinationRow = 6;
+    firstFrame.timeMs = 0;
+    firstFrame.alpha = 255;
+    firstFrame.transform = semanticObject.layout;
+    semanticObject.animationFrames.push_back(firstFrame);
+    SEOLRSemanticObject::AnimationFrame secondFrame;
+    secondFrame.destinationRow = 7;
+    secondFrame.timeMs = 100;
+    secondFrame.alpha = 0;
+    secondFrame.transform = { 110, 210, 20, 18, 15, 1 };
+    semanticObject.animationFrames.push_back(secondFrame);
+    semanticObject.timer = 46;
+    semanticObject.loop = 800;
+    semanticObject.op1 = 119;
+    semanticObject.op2 = 948;
     document.objects.push_back(semanticObject);
+    SEOLRSemanticObject compatibilityOnlyObject;
+    compatibilityOnlyObject.id = "raw_only";
+    compatibilityOnlyObject.category = "misc";
+    compatibilityOnlyObject.name = "Unsupported destination";
+    document.objects.push_back(compatibilityOnlyObject);
     SEOLRSimpleSlot simpleSlot;
     simpleSlot.id = "obj_test:#SRC_IMAGE:0";
     simpleSlot.category = "gear";
@@ -251,7 +274,7 @@ int RunOlrPackageSelfTest() {
     std::string errorMessage;
     if (result == 0 && !SEWriteOLRSkinPackage(packagePath.c_str(), document,
         packageInfo, errorMessage)) result = 7;
-    if (result == 0 && (packageInfo.formatVersion != 4 ||
+    if (result == 0 && (packageInfo.formatVersion != 7 ||
         packageInfo.entries.size() != 8 ||
         packageInfo.objectCount != 1 || packageInfo.simpleSlotCount != 1 ||
         packageInfo.assetCount != 2 ||
@@ -264,6 +287,9 @@ int RunOlrPackageSelfTest() {
         result = 9;
     if (result == 0 && packageInfo.compiledSimpleSlotCount != 1)
         result = 24;
+    if (result == 0 && (packageInfo.compiledSemanticObjectCount != 1 ||
+        packageInfo.compiledAnimationFrameCount != 2))
+        result = 29;
     if (result == 0 && extractedMain != extractedPath + "\\main.lr2skin")
         result = 10;
     if (result == 0) {
@@ -271,6 +297,65 @@ int RunOlrPackageSelfTest() {
         const std::string scriptBytes((std::istreambuf_iterator<char>(script)),
             std::istreambuf_iterator<char>());
         if (scriptBytes != document.lr2Script) result = 11;
+    }
+    if (result == 0) {
+        // The archive uses stored ZIP entries, so an unsupported Object id
+        // would be visible here if skin.json or sections leaked a dangling
+        // semantic reference. Its LR2 rows remain in the compatibility script.
+        std::ifstream package(packagePath, std::ios::binary);
+        const std::string packageBytes(
+            (std::istreambuf_iterator<char>(package)),
+            std::istreambuf_iterator<char>());
+        if (packageBytes.find("raw_only") != std::string::npos)
+            result = 35;
+    }
+
+
+    if (result == 0) {
+        const std::string semanticJson =
+            "{\"objects\":{\"authority\":\"lr2-destination-v0.7\",\"items\":[{"
+            "\"id\":\"judge\",\"destination_command\":\"#DST_IMAGE\","
+            "\"layout\":{\"destination_row\":1,\"transform\":{\"x\":300,\"y\":200,"
+            "\"width\":64,\"height\":32,\"rotation\":0,\"blend\":1}},"
+            "\"animation\":{\"frames\":["
+            "{\"destination_row\":1,\"time_ms\":0,\"alpha\":0,\"transform\":{"
+            "\"x\":300,\"y\":200,\"width\":64,\"height\":32,\"rotation\":0,\"blend\":1}},"
+            "{\"destination_row\":2,\"time_ms\":100,\"alpha\":255,\"transform\":{"
+            "\"x\":310,\"y\":205,\"width\":64,\"height\":32,\"rotation\":5,\"blend\":1}}]},"
+            "\"condition\":{\"mode\":\"all\",\"timer\":{\"kind\":\"semantic\","
+            "\"lr2_name\":\"JUDGETIMER_1P\"},\"loop\":800,\"all\":["
+            "{\"kind\":\"semantic\",\"key\":\"Gauge\",\"value\":\"HARD\","
+            "\"lr2_name\":\"CLEAROPTION_SURVIVAL\",\"negated\":false},"
+            "{\"kind\":\"raw\",\"lr2_op\":948,\"label\":\"Raw LR2 OP 948\"}]}}]},"
+            "\"simple_mode\":{\"authority\":\"lr2-source-v0.4\",\"slots\":[]}}";
+        const std::string semanticInput =
+            "#DST_IMAGE,0,0,1,2,3,4,0,255,255,255,255,0,0,0,0,0,0,0,0,0\r\n"
+            "#DST_IMAGE,0,50,5,6,7,8,0,128,255,255,255,0,0,0,0,0,0,0,0,0\n"
+            "#RAW_PASSTHROUGH,keep,exact";
+        const std::string semanticExpected =
+            "#DST_IMAGE,0,0,300,200,64,32,0,0,255,255,255,1,0,0,0,800,46,119,948,0\r\n"
+            "#DST_IMAGE,0,100,310,205,64,32,0,255,255,255,255,1,0,5,0,0,0,0,0,0\n"
+            "#RAW_PASSTHROUGH,keep,exact";
+        std::string semanticCompiled;
+        int simpleCount = 0;
+        int objectCount = 0;
+        int frameCount = 0;
+        if (!SECompileOLRSemantics(semanticJson, semanticInput, semanticCompiled,
+            simpleCount, objectCount, frameCount, errorMessage) ||
+            simpleCount != 0 || objectCount != 1 || frameCount != 2 ||
+            semanticCompiled != semanticExpected)
+            result = 30;
+
+        const std::string mismatchedLayout = semanticJson.substr(0,
+            semanticJson.find("\"x\":300")) + "\"x\":301" +
+            semanticJson.substr(semanticJson.find("\"x\":300") + 7);
+        std::string rejected;
+        simpleCount = objectCount = frameCount = 0;
+        if (result == 0 && SECompileOLRSemantics(mismatchedLayout,
+            semanticInput, rejected, simpleCount, objectCount, frameCount,
+            errorMessage)) result = 31;
+        if (result == 0 && (!rejected.empty() || simpleCount != 0 ||
+            objectCount != 0 || frameCount != 0)) result = 32;
     }
     if (result == 0) {
         std::ifstream asset(extractedPath +

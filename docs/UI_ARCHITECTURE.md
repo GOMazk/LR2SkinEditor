@@ -156,6 +156,37 @@ active sibling branch. A selection arriving from Preview clears this filter
 along with Type/Group/Search so the requested object can always be submitted
 and scrolled into view.
 
+### Semantic destination editing
+
+```text
+Object Inspector Layout / Timeline / Conditions
+  -> resolve selected SEObjectInstance rows
+  -> resolve field columns through GetCommandHelp()
+  -> EditValue / InsertLine / DeleteLine
+  -> shared CSV + History
+  -> Object model and Preview derived caches
+  -> OLR export projects the same rows into skin.json.objects
+```
+
+Layout is a view of the first supported `#DST_*` rectangle only. Timeline is an
+ordered view over matching DST rows and owns frame time, transform and alpha.
+Conditions reads timer/loop/op1..3 from frame 0 and evaluates OP terms with the
+same `GetOptionFlag_dst()` used by Preview. These tabs never retain their own
+Object, frame or condition copies; ImGui values are rebuilt from Workspace rows
+on each draw. `Advanced LR2` remains available for fields and command families
+outside the semantic contract.
+
+Preview movement translates every selected destination frame. The white
+bottom-right handle is intentionally single-selection only and changes only the
+first destination's width/height (or text size), matching V0.5 static Layout
+authority. All mutations use the existing History entry points.
+
+OLR V0.7 export translates expanded DST rows through the package source map.
+Import validates the exact command and schema before compiling. Layout and
+Timeline frame 0 must agree; unknown/custom OPs remain raw numeric terms rather
+than being guessed. Variant linkage across 1P/2P/DP or alternate DST command
+families is reserved for V0.8.
+
 ### Image asset selection
 
 ```text
@@ -378,9 +409,10 @@ because bundled assets are read from disk. Export does not mark the workspace
 saved and does not change `mainpath`.
 
 `ImportOlrSkinInteractive()` validates the complete archive before creating a
-directory. V0.4 then validates every `skin.json.simple_mode` row/command and
-atomically compiles only source atlas fields into the extracted compatibility
-script; a mismatch removes the new directory. It reparses the resulting
+directory. V0.7 then validates every `skin.json.objects` destination row,
+Layout/frame-0 invariant, semantic or raw condition, and every V0.4
+`skin.json.simple_mode` row. It atomically compiles both authorities into the
+extracted compatibility script; a mismatch removes the new directory. It reparses the resulting
 `#INFORMATION`, and enters the normal `LoadSkin()` path. It never follows owner
 labels from `compatibility/source-map.json` and never overwrites an existing
 folder. The result popup is presentation state only; the loaded document and

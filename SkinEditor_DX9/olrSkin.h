@@ -4,6 +4,22 @@
 #include <vector>
 
 struct SEOLRSemanticObject {
+    struct Transform {
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+        int rotation = 0;
+        int blend = 0;
+    };
+    struct AnimationFrame {
+        // One-based compiler address inside lr2/main.lr2skin.
+        int destinationRow = -1;
+        int timeMs = 0;
+        int alpha = 255;
+        Transform transform;
+    };
+
     std::string id;
     std::string category;
     std::string name;
@@ -21,6 +37,8 @@ struct SEOLRSemanticObject {
     int op1 = 0;
     int op2 = 0;
     int op3 = 0;
+    Transform layout;
+    std::vector<AnimationFrame> animationFrames;
 };
 
 struct SEOLRSourceMapEntry {
@@ -86,6 +104,8 @@ struct SEOLRPackageInfo {
     int objectCount = 0;
     int simpleSlotCount = 0;
     int compiledSimpleSlotCount = 0;
+    int compiledSemanticObjectCount = 0;
+    int compiledAnimationFrameCount = 0;
     int assetCount = 0;
     int virtualRootCount = 0;
     int virtualFileCount = 0;
@@ -117,6 +137,14 @@ bool SEInspectOLRSkinPackage(const char* packagePath,
 bool SECompileOLRSimpleMode(const std::string& skinJson,
     const std::string& lr2Script, std::string& compiledScript,
     int& compiledSlotCount, std::string& errorMessage);
+
+// Compiles the V0.7 semantic destination authority and the V0.4 Simple Mode
+// authority into an LR2 compatibility script in one atomic in-memory pass.
+// V0.4 documents without semantic Objects remain supported.
+bool SECompileOLRSemantics(const std::string& skinJson,
+    const std::string& lr2Script, std::string& compiledScript,
+    int& compiledSlotCount, int& compiledObjectCount,
+    int& compiledAnimationFrameCount, std::string& errorMessage);
 
 // Extracts the lr2/ subtree only. outputDirectory must not already exist.
 // The returned mainSkinPath is outputDirectory/main.lr2skin.

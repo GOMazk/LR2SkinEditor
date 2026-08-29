@@ -43,8 +43,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 - `resolution-estimator`: `#INFORMATION`/`#RESOLUTION` 우선순위, TenRiff에서 이식한
   lane/backdrop 기반 SD/HD/FHD 판정, 화면 밖 전환 panel 제외, 640x480 fallback
 - `olr-package`: stored ZIP 생성/검사/추출, manifest와 semantic object/asset count,
-  LR2·asset byte 보존, path traversal 거부, CRC 손상 탐지, CP932 가상/절대 경로의
-  반복 해석 안전성
+  Layout/Timeline/Condition compile, known OP/TIMER와 raw OP 왕복, LR2·asset byte
+  보존, path traversal 거부, CRC 손상 탐지, CP932 가상/절대 경로의 반복 해석 안전성
 - `simple-mode`: Object Editor 그룹이 없는 기존 LR2 행에서도 숫자/콤보 폰트,
   판정 폰트, 기어 라인, 일반·롱·마인·AUTO 노트를 직접 분류하는 투영 계약
 - `reload-lifecycle`: 중첩 CSTR/CSV/Object/History를 포함한 편집 문서를 두 번
@@ -274,11 +274,17 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
     note part만 바뀌는지 확인한다. 판정/콤보는 1P/2P pair를 확인하고, atlas grid와
     맞지 않는 image import가 거부되는지 확인한다. Hue/Saturation/Brightness variant가
     `simple-assets`의 새 PNG를 사용하고 Undo 시 원본 PNG가 변하지 않는지도 확인한다.
-13. V0.4 package의 `skin.json.simple_mode.slots[].asset` 하나를 바꾸어 Import하면
+13. V0.7 package의 `skin.json.simple_mode.slots[].asset` 하나를 바꾸어 Import하면
     대응 `#SRC_*`의 `gr/x/y/w/h/div_x/div_y/cycle`만 바뀌는지 비교한다. 잘못된
     `source_row` 또는 `source_command` package는 새 import folder 없이 실패해야 한다.
     `#SRC_GROOVEGAUGE`, `#SRC_SCORECHART`, `#SRC_GAUGECHART_*`도 Gauge 그룹에서
     같은 계약으로 편집되는지 확인한다.
+14. Object Inspector의 Layout에서 첫 DST rectangle을 편집하고 Preview의 흰 handle로
+    resize한다. Timeline에서 frame 0/1의 time, alpha, position, rotation, blend를 바꾼 뒤
+    `skin.json.objects`와 Import 결과의 같은 `#DST_*` 행을 비교한다. Conditions에서
+    알려진 OP와 custom OP 948을 함께 지정해 Simulator의 VISIBLE/HIDDEN과 exported
+    semantic/raw 구분을 확인한다. 잘못된 destination row/command 또는 Layout과 frame 0이
+    다른 package는 새 import folder 없이 실패해야 한다.
 
 ## 회귀 테스트
 

@@ -244,8 +244,25 @@ int RunSimpleModeProjectionSelfTest() {
     if (counts.gear != 2) return 4;
     if (counts.notes != 10) return 5;
     if (counts.gauge != 4) return 6;
+    if (workspace.simpleModeProjectionGeneration != 1) return 7;
+
+    // Reading an unchanged Workspace again must reuse the projection instead
+    // of rescanning every source row as the Simple Mode window renders.
+    const SESimpleModeCategoryCounts cachedCounts =
+        workspace.GetSimpleModeCategoryCounts();
+    if (cachedCounts.notes != counts.notes ||
+        workspace.simpleModeProjectionGeneration != 1) return 8;
+
+    ((SKINFILELINEREAD*)workspace.skinfileLines.data)[21]
+        .csv.str[0].assign("#SRC_LINE");
+    workspace.NotifyDocumentChanged(DOCUMENT_CHANGE_STRUCTURE);
+    const SESimpleModeCategoryCounts refreshedCounts =
+        workspace.GetSimpleModeCategoryCounts();
+    if (refreshedCounts.gear != 3 ||
+        workspace.simpleModeProjectionGeneration != 2) return 9;
+
     const int scopeResult = RunSimpleModeScopeRuleSelfTest();
-    return scopeResult == 0 ? 0 : 10 + scopeResult;
+    return scopeResult == 0 ? 0 : 20 + scopeResult;
 }
 
 int RunAssetMetadataSelfTest() {
@@ -773,6 +790,7 @@ void WORKSPACE::RebuildObjectModel() {
     objectEditorModel.Rebuild(*this);
     objectEditorLastLineCount = skinfileLines.count;
     objectModelRebuildPending = false;
+    InvalidateSimpleModeProjection();
     RestoreObjectSelection();
 }
 
@@ -1026,6 +1044,7 @@ int WORKSPACE::ApplyPendingObjectReorder() {
 
 void WORKSPACE::NotifyDocumentChanged(unsigned int changes) {
     ++documentRevision;
+    InvalidateSimpleModeProjection();
     const unsigned long long now = GetTickCount64();
     if (changes & (DOCUMENT_CHANGE_VALUE | DOCUMENT_CHANGE_STRUCTURE)) {
         editorDerivedRebuildPending = true;

@@ -219,6 +219,36 @@ struct SESimpleModeCategoryCounts {
     int gauge = 0;
 };
 
+enum class SESimpleModeCategory {
+    NumberFonts = 0,
+    JudgementFonts,
+    Gear,
+    Notes,
+    Gauge,
+    Unsupported
+};
+
+// A derived, semantic view of one authoritative LR2 source row. The row index
+// is valid only while the owning WORKSPACE projection remains clean.
+struct SESimpleModeSlot {
+    SESimpleModeCategory category = SESimpleModeCategory::Unsupported;
+    std::string id;
+    std::string objectId;
+    std::string label;
+    std::string command;
+    int row = -1;
+    int sourceIndex = -1;
+    int imageIndex = -1;
+    int graphicId = 0;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    int divX = 1;
+    int divY = 1;
+    int cycle = 0;
+};
+
 typedef struct WORKSPACE {
 
     char initFlag = 0;
@@ -486,6 +516,13 @@ typedef struct WORKSPACE {
     float simpleModeBrightnessPercent = 0.0f;
     std::string simpleModeStatus;
     int simpleModeStatusState = 0;
+    // Building this projection scans the complete CSV/Object/asset model, so
+    // retain it per workspace and invalidate it at document/model boundaries.
+    std::vector<SESimpleModeSlot> simpleModeProjection;
+    bool simpleModeProjectionDirty = true;
+    unsigned long long simpleModeProjectionGeneration = 0;
+    const std::vector<SESimpleModeSlot>& GetSimpleModeSlots();
+    void InvalidateSimpleModeProjection();
     int drawSimpleMode();
     int ApplySimpleModeAsset(int targetRow, int imageIndex,
         int applyScope, std::string& resultMessage);

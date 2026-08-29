@@ -550,6 +550,10 @@ runtime을 함께 invalidate하고, `$SE_...` metadata만 바뀌면 Object 모�
 5. `LoadSkinGraphicMetadata()` — 이미지 크기만 lazy texture와 별도로 조사
 
 Object 모델과 Browser UI cache는 전역이 아니라 각 `WORKSPACE`가 소유한다.
+Simple Mode의 semantic slot projection도 같은 원칙으로 각 `WORKSPACE`가 소유하며,
+변경 없는 frame에서는 재사용하고 CSV/Object 모델 변경 또는 skin reload 때만
+invalidate한다. 따라서 여러 Workspace가 projection을 공유하지 않으며 대형 skin을
+열어 둔 상태에서 전체 source row를 매 frame 다시 분류하지 않는다.
 선택의 기준은 model index가 아니라 `$SE_OBJECT_ID`이며, ID가 없는 기존 Object만
 group/첫 행을 fallback key로 사용한다. Preview, Browser, Inspector, DST View가
 필요로 하는 정수 index는 이 key에서 매번 복원되는 파생값이다. Inspector에서 Name을

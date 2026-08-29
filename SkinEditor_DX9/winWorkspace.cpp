@@ -2614,6 +2614,9 @@ static bool ResetEditorDerivedContainers(WORKSPACE& workspace) {
 }
 
 int WORKSPACE::ResetEditorDocumentForLoad() {
+    simpleModeProjection.clear();
+    InvalidateSimpleModeProjection();
+
     for (int row = 0; row < skinfileLines.count; ++row)
         DestroySkinFileLine(((SKINFILELINEREAD*)skinfileLines.data)[row]);
     const bool linesReady = ResetArrayStorage(skinfileLines,
@@ -7206,33 +7209,8 @@ std::string OlrUpperAscii(std::string value) {
     return value;
 }
 
-enum class SimpleModeCategory {
-    NumberFonts = 0,
-    JudgementFonts,
-    Gear,
-    Notes,
-    Gauge,
-    Unsupported
-};
-
-struct SimpleModeSlot {
-    SimpleModeCategory category = SimpleModeCategory::Unsupported;
-    std::string id;
-    std::string objectId;
-    std::string label;
-    std::string command;
-    int row = -1;
-    int sourceIndex = -1;
-    int imageIndex = -1;
-    int graphicId = 0;
-    int x = 0;
-    int y = 0;
-    int width = 0;
-    int height = 0;
-    int divX = 1;
-    int divY = 1;
-    int cycle = 0;
-};
+using SimpleModeCategory = SESimpleModeCategory;
+using SimpleModeSlot = SESimpleModeSlot;
 
 enum class SimpleModeLaneFamily {
     Unknown,
@@ -7473,9 +7451,10 @@ std::vector<SimpleModeSlot> BuildSimpleModeSlots(WORKSPACE& workspace) {
     return slots;
 }
 
-SESimpleModeCategoryCounts SimpleModeCategoryCountsFor(WORKSPACE& workspace) {
+SESimpleModeCategoryCounts SimpleModeCategoryCountsFor(
+    const std::vector<SimpleModeSlot>& slots) {
     SESimpleModeCategoryCounts counts;
-    for (const SimpleModeSlot& slot : BuildSimpleModeSlots(workspace)) {
+    for (const SimpleModeSlot& slot : slots) {
         switch (slot.category) {
         case SimpleModeCategory::NumberFonts: ++counts.numberFonts; break;
         case SimpleModeCategory::JudgementFonts: ++counts.judgementFonts; break;
@@ -7839,8 +7818,21 @@ int RunSimpleModeScopeRuleSelfTest() {
     return 0;
 }
 
+const std::vector<SESimpleModeSlot>& WORKSPACE::GetSimpleModeSlots() {
+    if (simpleModeProjectionDirty) {
+        simpleModeProjection = BuildSimpleModeSlots(*this);
+        simpleModeProjectionDirty = false;
+        ++simpleModeProjectionGeneration;
+    }
+    return simpleModeProjection;
+}
+
+void WORKSPACE::InvalidateSimpleModeProjection() {
+    simpleModeProjectionDirty = true;
+}
+
 SESimpleModeCategoryCounts WORKSPACE::GetSimpleModeCategoryCounts() {
-    return SimpleModeCategoryCountsFor(*this);
+    return SimpleModeCategoryCountsFor(GetSimpleModeSlots());
 }
 
 int WORKSPACE::ExportOlrSkin(const char* packagePath,
@@ -7906,7 +7898,7 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         document.objects.push_back(std::move(semantic));
     }
 
-    for (const SimpleModeSlot& slot : BuildSimpleModeSlots(*this)) {
+    for (const SimpleModeSlot& slot : GetSimpleModeSlots()) {
         SEOLRSimpleSlot semanticSlot;
         semanticSlot.id = slot.id;
         semanticSlot.category = SimpleModeCategoryKey(slot.category);
@@ -8921,7 +8913,7 @@ int WORKSPACE::ApplySimpleModeAsset(int targetRow, int imageIndex,
         resultMessage = "Choose a compatible image Asset first.";
         return -1;
     }
-    const std::vector<SimpleModeSlot> slots = BuildSimpleModeSlots(*this);
+    const std::vector<SESimpleModeSlot>& slots = GetSimpleModeSlots();
     const auto target = std::find_if(slots.begin(), slots.end(),
         [targetRow](const SimpleModeSlot& slot) { return slot.row == targetRow; });
     if (target == slots.end()) {
@@ -8981,7 +8973,7 @@ int WORKSPACE::ImportSimpleModeImage(int targetRow, const char* sourcePath,
         resultMessage = "Choose an image after loading a skin.";
         return -1;
     }
-    const std::vector<SimpleModeSlot> slots = BuildSimpleModeSlots(*this);
+    const std::vector<SESimpleModeSlot>& slots = GetSimpleModeSlots();
     const auto target = std::find_if(slots.begin(), slots.end(),
         [targetRow](const SimpleModeSlot& slot) { return slot.row == targetRow; });
     if (target == slots.end()) {
@@ -9084,7 +9076,7 @@ int WORKSPACE::GenerateSimpleModeColorVariant(int targetRow, int applyScope,
     float hueShiftDegrees, float saturationPercent,
     float brightnessPercent, std::string& resultMessage) {
     resultMessage.clear();
-    const std::vector<SimpleModeSlot> slots = BuildSimpleModeSlots(*this);
+    const std::vector<SESimpleModeSlot>& slots = GetSimpleModeSlots();
     const auto target = std::find_if(slots.begin(), slots.end(),
         [targetRow](const SimpleModeSlot& slot) { return slot.row == targetRow; });
     if (target == slots.end() || target->imageIndex < 0 ||
@@ -9189,7 +9181,7 @@ int WORKSPACE::drawSimpleMode() {
         return 0;
     }
 
-    const std::vector<SimpleModeSlot> slots = BuildSimpleModeSlots(*this);
+    const std::vector<SESimpleModeSlot>& slots = GetSimpleModeSlots();
     ImGui::TextUnformatted("Change the visible skin without editing LR2 CSV columns.");
     ImGui::TextDisabled("Pick a component, then reuse compatible art or import a new image.");
     ImGui::Separator();

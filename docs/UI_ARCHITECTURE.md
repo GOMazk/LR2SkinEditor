@@ -235,8 +235,12 @@ remain visible even when an older `skinObjGroup.txt` does not know them. Each
 card resolves back to one authoritative source row and displays compatible
 `arr_IMG` crops already used by the same group. UI selection stores the Object
 id when available, otherwise a source-row fallback, plus the source command and
-ordinal. It resolves the current row every frame instead of retaining a dynamic
-row index.
+ordinal. The semantic projection is a per-`WORKSPACE` derived cache because
+building it scans all source rows, Object ownership and graphic contexts. An
+unchanged Simple Mode frame reuses that projection; `NotifyDocumentChanged()`,
+Object-model rebuild and skin reload invalidate it. Selection still resolves
+its stable slot id against the current projection rather than retaining a row
+pointer across rebuilds.
 
 Applying art changes only the shared atlas fields (`gr`, crop rectangle,
 division grid and cycle). NUMBER ids, note lane ids, timers, ops, DST placement,

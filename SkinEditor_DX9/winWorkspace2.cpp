@@ -19,6 +19,7 @@
 #include "arr.hpp"
 #include "seHelper.h"
 
+#include <cmath>
 #include <filesystem>
 
 int CountCsvColumns(CSTR& line) {
@@ -94,7 +95,232 @@ int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
     return 0;
 }
 
+int RunObjectReorderSelfTest() {
+    char tempDirectory[MAX_PATH] = {};
+    if (!GetTempPathA(MAX_PATH, tempDirectory)) return 1;
+    char ownerPath[MAX_PATH] = {};
+    char otherOwnerPath[MAX_PATH] = {};
+    snprintf(ownerPath, sizeof(ownerPath), "%sSkinEditor_reorder_%lu.lr2skin",
+        tempDirectory, GetCurrentProcessId());
+    snprintf(otherOwnerPath, sizeof(otherOwnerPath),
+        "%sSkinEditor_reorder_other_%lu.lr2skin", tempDirectory,
+        GetCurrentProcessId());
+
+    WORKSPACE workspace;
+    workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 24);
+    workspace.arr_CustomFile.Alloc(sizeof(CSTR), 2);
+    workspace.arr_SRCGR.Alloc(sizeof(SRCGR), 2);
+    workspace.arr_IMG.Alloc(sizeof(IMG), 4);
+    workspace.arr_SRC.Alloc(sizeof(SRC), 4);
+    workspace.arr_DST.Alloc(sizeof(DST), 4);
+    workspace.arr_seobj.Alloc(sizeof(SEOBJ), 4);
+    workspace.arr_ifunit.Alloc(sizeof(IFUNIT), 4);
+    workspace.arr_history.Alloc(sizeof(HISTORY), 4);
+    strncpy_s(workspace.mainpath, ownerPath, _TRUNCATE);
+
+    auto appendLine = [&](const char* text, const char* owner) {
+        SKINFILELINEREAD* line = (SKINFILELINEREAD*)
+            workspace.skinfileLines.Get_new();
+        line->line.assign(text);
+        line->filename.assign(owner);
+        line->numTotal = workspace.skinfileLines.count - 1;
+        line->num = line->numTotal;
+        line->isComment = text[0] != '#';
+        line->isSEcomment = text[0] == '$';
+        SplitCSV(line->line, &line->csv, ",");
+        line->csvColumnCount = CountCsvColumns(line->line);
+    };
+
+    const std::string fileStart = std::string("$FILE '") + ownerPath +
+        "' start";
+    const std::string fileEnd = std::string("$FILE '") + ownerPath +
+        "' end";
+    const std::string includeStart = std::string("$FILE '") + otherOwnerPath +
+        "' start";
+    const std::string includeEnd = std::string("$FILE '") + otherOwnerPath +
+        "' end";
+    appendLine(fileStart.c_str(), ownerPath);
+    appendLine("#IF,900", ownerPath);
+    appendLine("$SE_OBJECT_ID,left-object", ownerPath);
+    appendLine("$SE_OBJECT_NAME,Left Object", ownerPath);
+    appendLine("#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0,0,0,0", ownerPath);
+    appendLine("#DST_IMAGE,0,0,1,2,1,1,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("#ELSE", ownerPath);
+    appendLine("$SE_OBJECT_ID,right-object", ownerPath);
+    appendLine("$SE_OBJECT_NAME,Right Object", ownerPath);
+    appendLine("#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0,0,0,0", ownerPath);
+    appendLine("#DST_IMAGE,0,0,3,4,1,1,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("#ENDIF", ownerPath);
+    appendLine(includeStart.c_str(), otherOwnerPath);
+    appendLine("#IF,901", otherOwnerPath);
+    appendLine("$SE_OBJECT_ID,include-object", otherOwnerPath);
+    appendLine("$SE_OBJECT_NAME,Include Object", otherOwnerPath);
+    appendLine("#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0,0,0,0", otherOwnerPath);
+    appendLine("#DST_IMAGE,0,0,5,6,1,1,0,255,255,255,255,0,0,0,0,0,0,0,0,0", otherOwnerPath);
+    appendLine("#ENDIF", otherOwnerPath);
+    appendLine(includeEnd.c_str(), otherOwnerPath);
+    appendLine(fileEnd.c_str(), ownerPath);
+
+    if (workspace.RebuildEditorDerivedState() != 0) return 2;
+    if (!workspace.objectEditorModel.LoadGroups(nullptr)) return 3;
+    workspace.RebuildObjectModel();
+
+    auto findObject = [&](const char* editorId) -> int {
+        const std::vector<SEObjectInstance>& objects =
+            workspace.objectEditorModel.Objects();
+        for (int index = 0; index < (int)objects.size(); ++index) {
+            if (objects[index].editorId == editorId) return index;
+        }
+        return -1;
+    };
+
+    int source = findObject("left-object");
+    int target = findObject("right-object");
+    if (source < 0 || target < 0) return 4;
+    const std::vector<SEObjectInstance>& initialObjects =
+        workspace.objectEditorModel.Objects();
+    if (initialObjects[source].ifgroup == initialObjects[target].ifgroup)
+        return 5;
+    if (!workspace.CanReorderObject(source, target)) return 6;
+
+    if (!workspace.QueueObjectReorder(source, target, true) ||
+        workspace.ApplyPendingObjectReorder() != 0) return 7;
+    if (workspace.arr_history.count != 1) return 8;
+    if (workspace.RebuildEditorDerivedState() != 0) return 9;
+    workspace.RebuildObjectModel();
+    source = findObject("left-object");
+    target = findObject("right-object");
+    if (source < 0 || target < 0) return 10;
+    const std::vector<SEObjectInstance>& movedObjects =
+        workspace.objectEditorModel.Objects();
+    if (movedObjects[source].ifgroup != movedObjects[target].ifgroup ||
+        movedObjects[source].branchHeaderRow !=
+            movedObjects[target].branchHeaderRow) return 11;
+
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.pendingHistorySnapshotRestore < 0) return 12;
+    const int snapshot = workspace.pendingHistorySnapshotRestore;
+    workspace.pendingHistorySnapshotRestore = -1;
+    if (snapshot >= (int)workspace.historyDocumentSnapshots.size() ||
+        workspace.RestoreDocumentSnapshot(
+            workspace.historyDocumentSnapshots[snapshot]) != 0) return 13;
+    if (workspace.RebuildEditorDerivedState() != 0) return 14;
+    workspace.RebuildObjectModel();
+    source = findObject("left-object");
+    target = findObject("right-object");
+    if (source < 0 || target < 0) return 15;
+    const std::vector<SEObjectInstance>& restoredObjects =
+        workspace.objectEditorModel.Objects();
+    if (restoredObjects[source].ifgroup == restoredObjects[target].ifgroup)
+        return 16;
+
+    target = findObject("include-object");
+    if (source < 0 || target < 0) return 17;
+    if (!workspace.CanReorderObject(source, target)) return 18;
+    if (!workspace.ObjectReorderRequiresConfirmation(source, target)) return 19;
+    const unsigned long long revisionBeforeCancel = workspace.documentRevision;
+    if (!workspace.QueueObjectReorder(source, target, true)) return 20;
+    if (!workspace.objectReorderConfirmationPending ||
+        workspace.pendingObjectReorder) return 21;
+    workspace.CancelPendingObjectReorder();
+    if (workspace.objectReorderConfirmationPending ||
+        workspace.pendingObjectReorder ||
+        workspace.documentRevision != revisionBeforeCancel) return 22;
+    if (!workspace.QueueObjectReorder(source, target, true)) return 23;
+    if (!workspace.ConfirmPendingObjectReorder() ||
+        !workspace.pendingObjectReorder) return 24;
+    if (workspace.ApplyPendingObjectReorder() != 0) return 25;
+    if (workspace.RebuildEditorDerivedState() != 0) return 26;
+    workspace.RebuildObjectModel();
+    source = findObject("left-object");
+    target = findObject("include-object");
+    if (source < 0 || target < 0) return 27;
+    const std::vector<SEObjectInstance>& crossFileObjects =
+        workspace.objectEditorModel.Objects();
+    if (crossFileObjects[source].ifgroup != crossFileObjects[target].ifgroup ||
+        crossFileObjects[source].branchHeaderRow !=
+            crossFileObjects[target].branchHeaderRow) return 28;
+    for (int row : crossFileObjects[source].rows) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (!line.filename.body ||
+            _stricmp(line.filename.body, otherOwnerPath) != 0) return 29;
+    }
+    bool movedIdOwner = false;
+    bool movedNameOwner = false;
+    for (int row = 0; row < workspace.skinfileLines.count; ++row) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        const char* text = line.line.body ? line.line.body : "";
+        if (strcmp(text, "$SE_OBJECT_ID,left-object") == 0)
+            movedIdOwner = line.filename.body &&
+                _stricmp(line.filename.body, otherOwnerPath) == 0;
+        if (strcmp(text, "$SE_OBJECT_NAME,Left Object") == 0)
+            movedNameOwner = line.filename.body &&
+                _stricmp(line.filename.body, otherOwnerPath) == 0;
+    }
+    if (!movedIdOwner || !movedNameOwner) return 30;
+
+    // A legacy arr_DST cache may accidentally contain a following Object's
+    // frame after a cross-file reorder. Preview bounds must still come only
+    // from the selected Object's CSV rows, matching Inspector's DST count.
+    DST* pollutedDestination = NULL;
+    for (int dstIndex = 0; dstIndex < workspace.arr_DST.count; ++dstIndex) {
+        DST& candidate = ((DST*)workspace.arr_DST.data)[dstIndex];
+        if (std::find(crossFileObjects[source].rows.begin(),
+                crossFileObjects[source].rows.end(), candidate.declare) !=
+            crossFileObjects[source].rows.end()) {
+            pollutedDestination = &candidate;
+            break;
+        }
+    }
+    if (!pollutedDestination) return 40;
+    DST_ANIMATION* foreignFrame =
+        (DST_ANIMATION*)pollutedDestination->arr_animation.Get_new();
+    foreignFrame->time = 1000;
+    foreignFrame->x = 900;
+    foreignFrame->y = 901;
+    foreignFrame->w = 20;
+    foreignFrame->h = 21;
+    workspace.SetObjectSelection(std::vector<int>(1, source), source, source,
+        false);
+    if (workspace.RefreshPreviewSelectionBounds() != 0) return 41;
+    if (std::abs(workspace.preview_selected_obj.x - 1.0f) >= 0.5f ||
+        std::abs(workspace.preview_selected_obj.y - 2.0f) >= 0.5f ||
+        std::abs(workspace.preview_selected_obj.w - 1.0f) >= 0.5f ||
+        std::abs(workspace.preview_selected_obj.h - 1.0f) >= 0.5f ||
+        std::abs(workspace.preview_selected_obj_last.x - 1.0f) >= 0.5f ||
+        std::abs(workspace.preview_selected_obj_last.y - 2.0f) >= 0.5f)
+        return 42;
+
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.pendingHistorySnapshotRestore < 0) return 31;
+    const int crossSnapshot = workspace.pendingHistorySnapshotRestore;
+    workspace.pendingHistorySnapshotRestore = -1;
+    if (crossSnapshot >= (int)workspace.historyDocumentSnapshots.size() ||
+        workspace.RestoreDocumentSnapshot(
+            workspace.historyDocumentSnapshots[crossSnapshot]) != 0) return 32;
+    if (workspace.RebuildEditorDerivedState() != 0) return 33;
+    workspace.RebuildObjectModel();
+    source = findObject("left-object");
+    target = findObject("include-object");
+    if (source < 0 || target < 0) return 34;
+    const std::vector<SEObjectInstance>& crossRestoredObjects =
+        workspace.objectEditorModel.Objects();
+    if (crossRestoredObjects[source].ifgroup ==
+        crossRestoredObjects[target].ifgroup) return 35;
+    for (int row : crossRestoredObjects[source].rows) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (!line.filename.body ||
+            _stricmp(line.filename.body, ownerPath) != 0) return 36;
+    }
+    return 0;
+}
+
 int RunAssetMetadataSelfTest() {
+    const int gifLayoutResult = RunGifSpriteLayoutSelfTest();
+    if (gifLayoutResult != 0) return 105 + gifLayoutResult;
     if (arr_CommandHelp.count <= 0 &&
         LoadCommandHelp("..\\skinHelper.txt") != 0) return 9;
     char tempDirectory[MAX_PATH] = {};
@@ -521,10 +747,19 @@ int RunAssetMetadataSelfTest() {
     fclose(deletedSave);
     if (deletedContents.find(editedMetadata) != std::string::npos) return 26;
 
-    // Generated images must be appended after the widest IF branch. Inserting
-    // them beside the current texture would renumber every following gr ID.
+    // Generated images must use the next slot in LR2's active image table.
+    // tricoro writes mutually exclusive 1P/2P layouts as two consecutive IF
+    // blocks; adding both blocks' image counts produces an invalid gr even
+    // though the generated #IMAGE itself is correctly appended at the root.
     std::unique_ptr<WORKSPACE> generatedWorkspace(new WORKSPACE());
     generatedWorkspace->skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 12);
+    generatedWorkspace->arr_CustomFile.Alloc(sizeof(CSTR), 2);
+    generatedWorkspace->arr_SRCGR.Alloc(sizeof(SRCGR), 8);
+    generatedWorkspace->arr_IMG.Alloc(sizeof(IMG), 8);
+    generatedWorkspace->arr_SRC.Alloc(sizeof(SRC), 8);
+    generatedWorkspace->arr_DST.Alloc(sizeof(DST), 8);
+    generatedWorkspace->arr_seobj.Alloc(sizeof(SEOBJ), 8);
+    generatedWorkspace->arr_ifunit.Alloc(sizeof(IFUNIT), 8);
     generatedWorkspace->arr_history.Alloc(sizeof(HISTORY), 8);
     strncpy(generatedWorkspace->mainpath, outputPath, MAX_PATH - 1);
     auto appendGeneratedLine = [&](const char* text) {
@@ -544,31 +779,359 @@ int RunAssetMetadataSelfTest() {
     appendGeneratedLine(fileStart.c_str());
     appendGeneratedLine("#IMAGE,base.png");
     appendGeneratedLine("#IF,900");
-    appendGeneratedLine("#IMAGE,left.png");
-    appendGeneratedLine("#ELSE");
+    appendGeneratedLine("#IMAGE,left_a.png");
+    appendGeneratedLine("#IMAGE,left_b.png");
+    appendGeneratedLine("#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0,0,0,0");
+    appendGeneratedLine("#DST_IMAGE,0,0,5,6,1,1,0,255,255,255,255,0,0,0,0,0,0,0,0,0");
+    appendGeneratedLine("#ENDIF");
+    appendGeneratedLine("#IF,901");
     appendGeneratedLine("#IMAGE,right_a.png");
     appendGeneratedLine("#IMAGE,right_b.png");
     appendGeneratedLine("#ENDIF");
     appendGeneratedLine(fileEnd.c_str());
+    generatedWorkspace->g.skstruct.op[0] = 1;
+    generatedWorkspace->g.skstruct.op[900] = 1;
+    generatedWorkspace->g.skstruct.op[901] = 0;
     char generatedImagePath[MAX_PATH] = {};
     snprintf(generatedImagePath, sizeof(generatedImagePath),
         "%sSkinEditor_generated_%lu.png", tempDirectory, GetCurrentProcessId());
+    remove(generatedImagePath);
+    FILE* generatedImageFile = fopen(generatedImagePath, "wb");
+    if (!generatedImageFile) return 90;
+    const bool wroteGeneratedImage = fwrite(onePixelBmp, 1,
+        sizeof(onePixelBmp), generatedImageFile) == sizeof(onePixelBmp);
+    fclose(generatedImageFile);
+    if (!wroteGeneratedImage) return 90;
     std::string registrationError;
-    if (generatedWorkspace->RegisterGeneratedImage(generatedImagePath, 64, 32,
+    if (generatedWorkspace->RegisterGeneratedImage(generatedImagePath, 1, 1,
         registrationError) != 3) return 33;
-    if (generatedWorkspace->skinfileLines.count != 11) return 34;
+    if (generatedWorkspace->skinfileLines.count != 15) return 34;
     SKINFILELINEREAD& generatedImage =
-        ((SKINFILELINEREAD*)generatedWorkspace->skinfileLines.data)[8];
+        ((SKINFILELINEREAD*)generatedWorkspace->skinfileLines.data)[12];
     SKINFILELINEREAD& generatedAsset =
-        ((SKINFILELINEREAD*)generatedWorkspace->skinfileLines.data)[9];
+        ((SKINFILELINEREAD*)generatedWorkspace->skinfileLines.data)[13];
     SKINFILELINEREAD& generatedEnd =
-        ((SKINFILELINEREAD*)generatedWorkspace->skinfileLines.data)[10];
+        ((SKINFILELINEREAD*)generatedWorkspace->skinfileLines.data)[14];
     if (!generatedImage.csv.str[0].isSame("#IMAGE") ||
         !generatedAsset.line.body ||
-        strstr(generatedAsset.line.outstr(), "$SRC_IMAGE,0,3,0,0,64,32") !=
+        strstr(generatedAsset.line.outstr(), "$SRC_IMAGE,0,3,0,0,1,1") !=
             generatedAsset.line.outstr() ||
         !generatedEnd.line.body || strstr(generatedEnd.line.outstr(), "$FILE ") !=
             generatedEnd.line.outstr()) return 35;
+
+    // GIF conversion must retain variable frame delays in LR2's uniform
+    // sprite animation model and must apply its indexed transparent color
+    // before WIC's BGRA conversion can make it opaque. A repeated 50/100 ms
+    // four-frame GIF therefore
+    // becomes six cells in two streamed PNG row writes with a 300 ms cycle,
+    // then registers the exact grid as an animated full-size Asset.
+    char gifInputPath[MAX_PATH] = {};
+    char gifSpritePath[MAX_PATH] = {};
+    snprintf(gifInputPath, sizeof(gifInputPath),
+        "%sSkinEditor_gif_%lu.gif", tempDirectory, GetCurrentProcessId());
+    snprintf(gifSpritePath, sizeof(gifSpritePath),
+        "%sSkinEditor_gif_%lu_sprite.png", tempDirectory,
+        GetCurrentProcessId());
+    remove(gifInputPath);
+    remove(gifSpritePath);
+    remove((std::string(gifSpritePath) + ".skineditor-gif.tmp").c_str());
+    const unsigned char variableDelayGif[] = {
+        'G', 'I', 'F', '8', '9', 'a',
+        0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0xff, 0x00, 0x00,
+        0x21, 0xf9, 0x04, 0x01, 0x05, 0x00, 0x00, 0x00,
+        0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        0x02, 0x02, 0x44, 0x01, 0x00,
+        0x21, 0xf9, 0x04, 0x00, 0x0a, 0x00, 0x00, 0x00,
+        0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        0x02, 0x02, 0x4c, 0x01, 0x00,
+        0x21, 0xf9, 0x04, 0x00, 0x05, 0x00, 0x00, 0x00,
+        0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        0x02, 0x02, 0x44, 0x01, 0x00,
+        0x21, 0xf9, 0x04, 0x00, 0x0a, 0x00, 0x00, 0x00,
+        0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        0x02, 0x02, 0x4c, 0x01, 0x00,
+        0x3b
+    };
+    FILE* gifInput = fopen(gifInputPath, "wb");
+    if (!gifInput) return 81;
+    const bool wroteGif = fwrite(variableDelayGif, 1,
+        sizeof(variableDelayGif), gifInput) == sizeof(variableDelayGif);
+    fclose(gifInput);
+    if (!wroteGif) return 81;
+    char gifError[256] = {};
+    GifSpriteInfo gifInfo;
+    if (!InspectGifSprite(gifInputPath, &gifInfo, gifError,
+        sizeof(gifError))) return 82;
+    if (gifInfo.sourceFrameCount != 4 || gifInfo.outputFrameCount != 6 ||
+        gifInfo.frameWidth != 1 || gifInfo.frameHeight != 1 ||
+        gifInfo.columns != 3 || gifInfo.rows != 2 ||
+        gifInfo.sheetWidth != 3 || gifInfo.sheetHeight != 2 ||
+        gifInfo.cycleMs != 300 || !gifInfo.timingDuplicated ||
+        gifInfo.timingApproximate) return 83;
+    if (!ConvertGifToSpriteSheetAtomic(gifInputPath, gifSpritePath,
+        &gifInfo, gifError, sizeof(gifError))) return 84;
+    int gifSheetWidth = 0;
+    int gifSheetHeight = 0;
+    if (!GetImageSizeFromFile(gifSpritePath, &gifSheetWidth,
+        &gifSheetHeight) || gifSheetWidth != 3 || gifSheetHeight != 2)
+        return 85;
+    unsigned char gifFirstAlpha = 255;
+    if (!ReadImageFilePixelAlpha(gifSpritePath, 0, 0, &gifFirstAlpha) ||
+        gifFirstAlpha != 0) return 89;
+
+    // Exercise the actual WIC scaling path without a huge test fixture. The
+    // logical GIF canvas is 5000x1 while its only changed frame is 1x1, so the
+    // LR2-compatible sheet must be reduced to 4096x1 during conversion.
+    char scaledGifPath[MAX_PATH] = {};
+    char scaledSpritePath[MAX_PATH] = {};
+    snprintf(scaledGifPath, sizeof(scaledGifPath),
+        "%sSkinEditor_gif_scaled_%lu.gif", tempDirectory,
+        GetCurrentProcessId());
+    snprintf(scaledSpritePath, sizeof(scaledSpritePath),
+        "%sSkinEditor_gif_scaled_%lu.png", tempDirectory,
+        GetCurrentProcessId());
+    remove(scaledGifPath);
+    remove(scaledSpritePath);
+    const unsigned char wideCanvasGif[] = {
+        'G', 'I', 'F', '8', '9', 'a',
+        0x88, 0x13, 0x01, 0x00, 0x80, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0xff, 0x00, 0x00,
+        0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+        0x02, 0x02, 0x44, 0x01, 0x00, 0x3b
+    };
+    FILE* scaledGif = fopen(scaledGifPath, "wb");
+    if (!scaledGif) return 107;
+    const bool wroteScaledGif = fwrite(wideCanvasGif, 1,
+        sizeof(wideCanvasGif), scaledGif) == sizeof(wideCanvasGif);
+    fclose(scaledGif);
+    if (!wroteScaledGif) return 107;
+    GifSpriteInfo scaledInfo;
+    if (!InspectGifSprite(scaledGifPath, &scaledInfo, gifError,
+        sizeof(gifError)) || scaledInfo.sourceFrameWidth != 5000 ||
+        scaledInfo.sourceFrameHeight != 1 || !scaledInfo.frameScaled ||
+        scaledInfo.frameWidth != 4096 || scaledInfo.frameHeight != 1 ||
+        scaledInfo.sheetWidth != 4096 || scaledInfo.sheetHeight != 1)
+        return 108;
+    if (!ConvertGifToSpriteSheetAtomic(scaledGifPath, scaledSpritePath,
+        &scaledInfo, gifError, sizeof(gifError))) return 109;
+    int scaledWidth = 0;
+    int scaledHeight = 0;
+    if (!GetImageSizeFromFile(scaledSpritePath, &scaledWidth,
+        &scaledHeight) || scaledWidth != 4096 || scaledHeight != 1)
+        return 110;
+    remove(scaledGifPath);
+    remove(scaledSpritePath);
+
+    registrationError.clear();
+    if (generatedWorkspace->RegisterGeneratedImage(gifSpritePath,
+        gifInfo.sheetWidth, gifInfo.sheetHeight, registrationError,
+        gifInfo.columns, gifInfo.rows, gifInfo.cycleMs,
+        gifInfo.sourceFrameWidth, gifInfo.sourceFrameHeight) != 4) return 86;
+    if (generatedWorkspace->skinfileLines.count != 17) return 87;
+    SKINFILELINEREAD& gifAsset =
+        ((SKINFILELINEREAD*)generatedWorkspace->skinfileLines.data)[15];
+    if (!gifAsset.line.body ||
+        strstr(gifAsset.line.outstr(),
+            "$SRC_IMAGE,0,4,0,0,3,2,3,2,300,0,0,0,0") !=
+            gifAsset.line.outstr()) return 88;
+
+    // Reparse exactly as Image Manager does on the following frame. Generated
+    // paths are portable (LR2files-rooted when possible, otherwise relative
+    // to the owner), and editor-only GIF Assets must keep their grid/cycle
+    // even though no real #SRC exists yet.
+    if (generatedWorkspace->RebuildEditorDerivedState() != 0) return 91;
+    int generatedGraphicIndex = -1;
+    int gifGraphicIndex = -1;
+    int gifAssetIndex = -1;
+    for (int graphicIndex = 0;
+        graphicIndex < generatedWorkspace->arr_SRCGR.count; ++graphicIndex) {
+        const SRCGR& graphic =
+            ((const SRCGR*)generatedWorkspace->arr_SRCGR.data)[graphicIndex];
+        if (graphic.grID == 3) generatedGraphicIndex = graphicIndex;
+        if (graphic.grID == 4) gifGraphicIndex = graphicIndex;
+    }
+    for (int assetIndex = 0; assetIndex < generatedWorkspace->arr_IMG.count;
+        ++assetIndex) {
+        const IMG& asset =
+            ((const IMG*)generatedWorkspace->arr_IMG.data)[assetIndex];
+        if (asset.gr == 4 && asset.editorDeclare >= 0)
+            gifAssetIndex = assetIndex;
+    }
+    if (generatedGraphicIndex < 0 || gifGraphicIndex < 0 ||
+        gifAssetIndex < 0) return 92;
+    const SRCGR& reparsedGenerated =
+        ((const SRCGR*)generatedWorkspace->arr_SRCGR.data)[generatedGraphicIndex];
+    const SRCGR& reparsedGif =
+        ((const SRCGR*)generatedWorkspace->arr_SRCGR.data)[gifGraphicIndex];
+    if (reparsedGenerated.sizeX != 1 || reparsedGenerated.sizeY != 1 ||
+        reparsedGif.sizeX != 3 || reparsedGif.sizeY != 2) return 93;
+    int reparsedDivX = 0;
+    int reparsedDivY = 0;
+    int reparsedCycle = 0;
+    int reparsedTimer = -1;
+    generatedWorkspace->ResolveIMGDivision(gifAssetIndex, reparsedDivX,
+        reparsedDivY, reparsedCycle, reparsedTimer);
+    if (reparsedDivX != 3) return 101;
+    if (reparsedDivY != 2) return 102;
+    if (reparsedCycle != 300) return 103;
+    if (reparsedTimer != 0) return 104;
+    SplitCSV("", &generatedWorkspace->nCsv, ",");
+    generatedWorkspace->nCsv.str[0].assign("#SRC_IMAGE");
+    if (!generatedWorkspace->InitializeAssetBackedObjectSource(
+        generatedWorkspace->nCsv, "#SRC_IMAGE", gifAssetIndex) ||
+        atol(generatedWorkspace->nCsv.str[7].outstr()) != 3 ||
+        atol(generatedWorkspace->nCsv.str[8].outstr()) != 2 ||
+        atol(generatedWorkspace->nCsv.str[9].outstr()) != 300) return 95;
+
+    // Even with an older IF Object selected, a generated Asset-backed Object
+    // has to be inserted after its #IMAGE declaration. Otherwise tricoro's
+    // flattened include order creates the SRC before the graphic handle.
+    if (!generatedWorkspace->objectEditorModel.LoadGroups(nullptr)) return 96;
+    generatedWorkspace->RebuildObjectModel();
+    const int olderObject = SEFindObjectForRow(
+        generatedWorkspace->objectEditorModel.Objects(), 5);
+    if (olderObject < 0) return 97;
+    generatedWorkspace->SetObjectSelection(std::vector<int>(1, olderObject),
+        olderObject, olderObject, false);
+    if (!generatedWorkspace->OpenNewObjectFromAsset(gifAssetIndex, 25, 35))
+        return 98;
+    if (generatedWorkspace->newObjectDropW != 1 ||
+        generatedWorkspace->newObjectDropH != 1) return 111;
+    const IMG& reparsedGifAsset =
+        ((const IMG*)generatedWorkspace->arr_IMG.data)[gifAssetIndex];
+    if (generatedWorkspace->newObjectInsertPosition !=
+            reparsedGifAsset.editorDeclare + 1 ||
+        generatedWorkspace->newObjectIfgroup != reparsedGifAsset.ifGroup ||
+        !generatedWorkspace->newObjectOwner.body ||
+        _stricmp(generatedWorkspace->newObjectOwner.outstr(), outputPath) != 0)
+        return 99;
+
+    CSTR relativeGenerated(std::filesystem::path(generatedImagePath)
+        .filename().string().c_str());
+    CSTR generatedDirectory(tempDirectory);
+    CSTR fallbackResolved = GetRandomFileNoError(relativeGenerated,
+        generatedDirectory);
+    if (!fallbackResolved.body || fallbackResolved.isSame("ERROR") ||
+        _stricmp(fallbackResolved.outstr(), generatedImagePath) != 0)
+        return 100;
+
+    // Stock LR2 can probe a path relative to the CSV directory but then pass
+    // the unresolved ".\\..." string to LoadGraph(). Generated files below
+    // the active LR2files tree therefore have to be serialized from LR2's
+    // working directory, not from the skin script directory.
+    const std::filesystem::path compatibilityRoot =
+        std::filesystem::path(tempDirectory) /
+        (std::string("SkinEditor_lr2_path_") +
+            std::to_string(GetCurrentProcessId()));
+    const std::filesystem::path compatibilitySkinDirectory =
+        compatibilityRoot / "LR2files" / "Theme" / "PathTest";
+    const std::filesystem::path compatibilitySkin =
+        compatibilitySkinDirectory / "skin.lr2skin";
+    const std::filesystem::path compatibilityImage =
+        compatibilitySkinDirectory / "generated.bmp";
+    std::error_code compatibilityError;
+    std::filesystem::remove_all(compatibilityRoot, compatibilityError);
+    compatibilityError.clear();
+    std::filesystem::create_directories(compatibilitySkinDirectory,
+        compatibilityError);
+    if (compatibilityError) return 112;
+    FILE* compatibilityImageFile = fopen(
+        compatibilityImage.string().c_str(), "wb");
+    if (!compatibilityImageFile) return 113;
+    const bool wroteCompatibilityImage = fwrite(onePixelBmp, 1,
+        sizeof(onePixelBmp), compatibilityImageFile) == sizeof(onePixelBmp);
+    fclose(compatibilityImageFile);
+    if (!wroteCompatibilityImage) return 113;
+
+    std::unique_ptr<WORKSPACE> compatibilityWorkspace(new WORKSPACE());
+    compatibilityWorkspace->skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 8);
+    compatibilityWorkspace->arr_CustomFile.Alloc(sizeof(CSTR), 2);
+    compatibilityWorkspace->arr_SRCGR.Alloc(sizeof(SRCGR), 4);
+    compatibilityWorkspace->arr_IMG.Alloc(sizeof(IMG), 4);
+    compatibilityWorkspace->arr_history.Alloc(sizeof(HISTORY), 8);
+    strncpy(compatibilityWorkspace->mainpath,
+        compatibilitySkin.string().c_str(), MAX_PATH - 1);
+    auto appendCompatibilityLine = [&](const char* text) {
+        SKINFILELINEREAD* line = (SKINFILELINEREAD*)
+            compatibilityWorkspace->skinfileLines.Get_new();
+        line->line.assign(text);
+        line->filename.assign(compatibilityWorkspace->mainpath);
+        line->numTotal = compatibilityWorkspace->skinfileLines.count - 1;
+        line->num = line->numTotal;
+        line->isComment = text[0] != '#';
+        line->isSEcomment = text[0] == '$';
+        SplitCSV(line->line, &line->csv, ",");
+        line->csvColumnCount = CountCsvColumns(line->line);
+    };
+    const std::string compatibilityStart = std::string("$FILE '") +
+        compatibilitySkin.string() + "' start";
+    const std::string compatibilityEnd = std::string("$FILE '") +
+        compatibilitySkin.string() + "' end";
+    appendCompatibilityLine(compatibilityStart.c_str());
+    appendCompatibilityLine("#IMAGE,LR2files\\Theme\\PathTest\\base.bmp");
+    appendCompatibilityLine(compatibilityEnd.c_str());
+    std::string compatibilityRegistrationError;
+    if (compatibilityWorkspace->RegisterGeneratedImage(
+            compatibilityImage.string().c_str(), 1, 1,
+            compatibilityRegistrationError) != 1 ||
+        compatibilityWorkspace->skinfileLines.count != 5) return 114;
+    SKINFILELINEREAD& compatibilityDeclaration =
+        ((SKINFILELINEREAD*)compatibilityWorkspace->skinfileLines.data)[2];
+    if (!compatibilityDeclaration.line.body ||
+        _stricmp(compatibilityDeclaration.line.outstr(),
+            "#IMAGE,LR2files\\Theme\\PathTest\\generated.bmp") != 0)
+        return 115;
+    std::filesystem::remove_all(compatibilityRoot, compatibilityError);
+    remove(gifInputPath);
+    remove(gifSpritePath);
+    remove(generatedImagePath);
+
+    // Reusing a logical gr must never insert another #IMAGE. The selected
+    // disk file also has to be one of that fixed/wildcard declaration's
+    // candidates, otherwise the Asset would preview a different texture.
+    std::unique_ptr<WORKSPACE> targetWorkspace(new WORKSPACE());
+    targetWorkspace->skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 8);
+    targetWorkspace->arr_CustomFile.Alloc(sizeof(CSTR), 2);
+    targetWorkspace->arr_SRCGR.Alloc(sizeof(SRCGR), 4);
+    targetWorkspace->arr_IMG.Alloc(sizeof(IMG), 4);
+    targetWorkspace->arr_ifunit.Alloc(sizeof(IFUNIT), 4);
+    targetWorkspace->arr_history.Alloc(sizeof(HISTORY), 8);
+    strncpy(targetWorkspace->mainpath, outputPath, MAX_PATH - 1);
+    auto appendTargetLine = [&](const char* text) {
+        SKINFILELINEREAD* line =
+            (SKINFILELINEREAD*)targetWorkspace->skinfileLines.Get_new();
+        line->line.assign(text);
+        line->filename.assign(outputPath);
+        line->numTotal = targetWorkspace->skinfileLines.count - 1;
+        line->num = line->numTotal;
+        line->isComment = text[0] != '#';
+        line->isSEcomment = text[0] == '$';
+        SplitCSV(line->line, &line->csv, ",");
+        line->csvColumnCount = CountCsvColumns(line->line);
+    };
+    appendTargetLine(fileStart.c_str());
+    appendTargetLine(wildcardGraphic.c_str());
+    appendTargetLine(fileEnd.c_str());
+    if (targetWorkspace->ParseSkinConditions() != 0 ||
+        targetWorkspace->ParseSkinGraphics() != 0 ||
+        targetWorkspace->arr_SRCGR.count != 2) return 77;
+    std::string targetRegistrationError;
+    if (targetWorkspace->RegisterExistingImageAsset(1, graphicImage.c_str(),
+        1, 1, targetRegistrationError) != 0 ||
+        targetWorkspace->skinfileLines.count != 4) return 78;
+    SKINFILELINEREAD& targetAsset =
+        ((SKINFILELINEREAD*)targetWorkspace->skinfileLines.data)[2];
+    if (!targetAsset.line.body ||
+        strstr(targetAsset.line.outstr(), "$SRC_IMAGE,0,0,0,0,1,1") !=
+            targetAsset.line.outstr() || targetAsset.ifgroup != 0) return 79;
+    const int targetLineCount = targetWorkspace->skinfileLines.count;
+    targetRegistrationError.clear();
+    if (targetWorkspace->RegisterExistingImageAsset(1,
+        graphicFileCandidate.c_str(), 1, 1, targetRegistrationError) >= 0 ||
+        targetWorkspace->skinfileLines.count != targetLineCount ||
+        targetRegistrationError.find("wildcard") == std::string::npos)
+        return 80;
 
     remove(outputPath);
     remove((std::string(outputPath) + ".skineditor.tmp").c_str());
@@ -1112,6 +1675,22 @@ int WORKSPACE::RestoreDocumentSnapshot(const SkinDocumentSnapshot& snapshot) {
     return 0;
 }
 
+static bool GetObjectReorderOwner(const WORKSPACE& workspace,
+    int modelIndex, std::string& owner) {
+    owner.clear();
+    const std::vector<SEObjectInstance>& objects =
+        workspace.objectEditorModel.Objects();
+    if (modelIndex < 0 || modelIndex >= (int)objects.size() ||
+        objects[modelIndex].rows.empty()) return false;
+    const int row = objects[modelIndex].rows.front();
+    if (row < 0 || row >= workspace.skinfileLines.count) return false;
+    const SKINFILELINEREAD& line =
+        ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+    owner = line.filename.body && *line.filename.body
+        ? line.filename.body : workspace.mainpath;
+    return !owner.empty();
+}
+
 bool WORKSPACE::CanReorderObject(int sourceModelIndex, int targetModelIndex) const {
     const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
     if (sourceModelIndex < 0 || targetModelIndex < 0 ||
@@ -1125,50 +1704,97 @@ bool WORKSPACE::CanReorderObject(int sourceModelIndex, int targetModelIndex) con
         return row >= 0 && row < skinfileLines.count
             ? ((const SKINFILELINEREAD*)skinfileLines.data)[row].ifgroup : 0;
     };
-    if (objectBranch(objects[sourceModelIndex]) !=
-        objectBranch(objects[targetModelIndex])) return false;
+    std::string sourceOwner;
+    std::string targetOwner;
+    if (!GetObjectReorderOwner(*this, sourceModelIndex, sourceOwner) ||
+        !GetObjectReorderOwner(*this, targetModelIndex, targetOwner))
+        return false;
 
-    auto objectOwner = [&](const SEObjectInstance& object) -> const char* {
-        if (object.rows.empty()) return "";
-        const int row = object.rows.front();
-        if (row < 0 || row >= skinfileLines.count) return "";
-        const SKINFILELINEREAD& line =
-            ((const SKINFILELINEREAD*)skinfileLines.data)[row];
-        return line.filename.body ? line.filename.body : mainpath;
-    };
-    const char* sourceOwner = objectOwner(objects[sourceModelIndex]);
-    const char* targetOwner = objectOwner(objects[targetModelIndex]);
-    if (_stricmp(sourceOwner, targetOwner) != 0) return false;
-
+    const int sourceBranch = objectBranch(objects[sourceModelIndex]);
+    const int targetBranch = objectBranch(objects[targetModelIndex]);
     for (int row : objects[sourceModelIndex].rows) {
         if (row < 0 || row >= skinfileLines.count) return false;
         const SKINFILELINEREAD& line =
             ((const SKINFILELINEREAD*)skinfileLines.data)[row];
         const char* owner = line.filename.body ? line.filename.body : mainpath;
-        if (_stricmp(owner, sourceOwner) != 0 ||
-            line.ifgroup != objectBranch(objects[sourceModelIndex])) return false;
+        if (_stricmp(owner, sourceOwner.c_str()) != 0 ||
+            line.ifgroup != sourceBranch) return false;
     }
     for (int row : objects[targetModelIndex].rows) {
         if (row < 0 || row >= skinfileLines.count) return false;
         const SKINFILELINEREAD& line =
             ((const SKINFILELINEREAD*)skinfileLines.data)[row];
         const char* owner = line.filename.body ? line.filename.body : mainpath;
-        if (_stricmp(owner, targetOwner) != 0 ||
-            line.ifgroup != objectBranch(objects[targetModelIndex])) return false;
+        if (_stricmp(owner, targetOwner.c_str()) != 0 ||
+            line.ifgroup != targetBranch) return false;
     }
     return true;
+}
+
+bool WORKSPACE::ObjectReorderRequiresConfirmation(int sourceModelIndex,
+    int targetModelIndex) const {
+    std::string sourceOwner;
+    std::string targetOwner;
+    return CanReorderObject(sourceModelIndex, targetModelIndex) &&
+        GetObjectReorderOwner(*this, sourceModelIndex, sourceOwner) &&
+        GetObjectReorderOwner(*this, targetModelIndex, targetOwner) &&
+        _stricmp(sourceOwner.c_str(), targetOwner.c_str()) != 0;
 }
 
 bool WORKSPACE::QueueObjectReorder(int sourceModelIndex, int targetModelIndex,
     bool placeAfter) {
     if (!CanReorderObject(sourceModelIndex, targetModelIndex)) return false;
+    CancelPendingObjectReorder();
     pendingObjectReorderSource = MakeObjectSelectionKey(sourceModelIndex);
     pendingObjectReorderTarget = MakeObjectSelectionKey(targetModelIndex);
     if (!pendingObjectReorderSource.IsValid() ||
-        !pendingObjectReorderTarget.IsValid()) return false;
+        !pendingObjectReorderTarget.IsValid()) {
+        CancelPendingObjectReorder();
+        return false;
+    }
+    if (!GetObjectReorderOwner(*this, sourceModelIndex,
+            pendingObjectReorderSourceOwner) ||
+        !GetObjectReorderOwner(*this, targetModelIndex,
+            pendingObjectReorderTargetOwner)) {
+        CancelPendingObjectReorder();
+        return false;
+    }
     pendingObjectReorderAfter = placeAfter;
+    if (_stricmp(pendingObjectReorderSourceOwner.c_str(),
+            pendingObjectReorderTargetOwner.c_str()) != 0) {
+        objectReorderConfirmationPending = true;
+        objectReorderConfirmDialogRequested = true;
+    } else {
+        pendingObjectReorder = true;
+    }
+    return true;
+}
+
+bool WORKSPACE::ConfirmPendingObjectReorder() {
+    if (!objectReorderConfirmationPending) return false;
+    const int sourceModelIndex =
+        ResolveObjectSelectionKey(pendingObjectReorderSource);
+    const int targetModelIndex =
+        ResolveObjectSelectionKey(pendingObjectReorderTarget);
+    if (!CanReorderObject(sourceModelIndex, targetModelIndex)) {
+        CancelPendingObjectReorder();
+        return false;
+    }
+    objectReorderConfirmationPending = false;
+    objectReorderConfirmDialogRequested = false;
     pendingObjectReorder = true;
     return true;
+}
+
+void WORKSPACE::CancelPendingObjectReorder() {
+    pendingObjectReorder = false;
+    pendingObjectReorderAfter = false;
+    pendingObjectReorderSource = SEObjectSelectionKey();
+    pendingObjectReorderTarget = SEObjectSelectionKey();
+    objectReorderConfirmationPending = false;
+    objectReorderConfirmDialogRequested = false;
+    pendingObjectReorderSourceOwner.clear();
+    pendingObjectReorderTargetOwner.clear();
 }
 
 int WORKSPACE::ApplyPendingObjectReorder() {
@@ -1179,12 +1805,28 @@ int WORKSPACE::ApplyPendingObjectReorder() {
         ResolveObjectSelectionKey(pendingObjectReorderSource);
     const int targetModelIndex =
         ResolveObjectSelectionKey(pendingObjectReorderTarget);
-    if (!CanReorderObject(sourceModelIndex, targetModelIndex)) return -1;
+    if (!CanReorderObject(sourceModelIndex, targetModelIndex)) {
+        CancelPendingObjectReorder();
+        return -1;
+    }
+
+    std::string sourceOwner;
+    std::string targetOwner;
+    if (!GetObjectReorderOwner(*this, sourceModelIndex, sourceOwner) ||
+        !GetObjectReorderOwner(*this, targetModelIndex, targetOwner)) {
+        CancelPendingObjectReorder();
+        return -1;
+    }
+    const bool changesOwner =
+        _stricmp(sourceOwner.c_str(), targetOwner.c_str()) != 0;
 
     const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
     const SEObjectInstance& sourceObject = objects[sourceModelIndex];
     const SEObjectInstance& targetObject = objects[targetModelIndex];
-    if (sourceObject.rows.empty() || targetObject.rows.empty()) return -1;
+    if (sourceObject.rows.empty() || targetObject.rows.empty()) {
+        CancelPendingObjectReorder();
+        return -1;
+    }
 
     auto collectObjectRows = [&](const SEObjectInstance& object) {
         std::vector<int> rows = object.rows;
@@ -1208,11 +1850,17 @@ int WORKSPACE::ApplyPendingObjectReorder() {
 
     const std::vector<int> sourceRows = collectObjectRows(sourceObject);
     const std::vector<int> targetRows = collectObjectRows(targetObject);
-    if (sourceRows.empty() || targetRows.empty()) return -1;
+    if (sourceRows.empty() || targetRows.empty()) {
+        CancelPendingObjectReorder();
+        return -1;
+    }
 
     std::vector<bool> moved(skinfileLines.count, false);
     for (int row : sourceRows) {
-        if (row < 0 || row >= skinfileLines.count) return -1;
+        if (row < 0 || row >= skinfileLines.count) {
+            CancelPendingObjectReorder();
+            return -1;
+        }
         moved[row] = true;
     }
     const int targetBoundary = pendingObjectReorderAfter
@@ -1230,15 +1878,23 @@ int WORKSPACE::ApplyPendingObjectReorder() {
     for (int row = 0; row < skinfileLines.count; ++row) {
         if (order[row] != row) { changed = true; break; }
     }
-    if (!changed) return 0;
+    if (!changed) {
+        CancelPendingObjectReorder();
+        return 0;
+    }
 
     SkinDocumentSnapshot before = CaptureDocumentSnapshot();
     SkinDocumentSnapshot reordered;
     reordered.lines.reserve(before.lines.size());
     std::vector<int> oldToNew(order.size(), -1);
     for (int newRow = 0; newRow < (int)order.size(); ++newRow) {
-        reordered.lines.push_back(before.lines[order[newRow]]);
-        oldToNew[order[newRow]] = newRow;
+        const int oldRow = order[newRow];
+        reordered.lines.push_back(before.lines[oldRow]);
+        if (changesOwner && moved[oldRow]) {
+            reordered.lines.back().filename = targetOwner;
+            reordered.lines.back().modified = true;
+        }
+        oldToNew[oldRow] = newRow;
     }
     reordered.selection = before.selection;
     auto remapKey = [&](SEObjectSelectionKey& key) {
@@ -1256,6 +1912,7 @@ int WORKSPACE::ApplyPendingObjectReorder() {
     HISTORY* history = (HISTORY*)arr_history.Get_new();
     history->op = moveLine;
     history->target = snapshotIndex;
+    CancelPendingObjectReorder();
     return RestoreDocumentSnapshot(reordered);
 }
 

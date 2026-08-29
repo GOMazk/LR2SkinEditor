@@ -796,9 +796,9 @@ CSTR GetRandomFileNoError(CSTR path, CSTR dir) {
 	filepath.assign(GetRandomFile(path, 0));
 	if (filepath.isDiff("ERROR")) return CSTR(filepath);
 	dir.add(&path);
-	filepath.assign(GetRandomFile(path, 0));
+	filepath.assign(GetRandomFile(dir, 0));
 	if (filepath.isDiff("ERROR")) return CSTR(filepath);
-	return CSTR(path);
+	return CSTR(filepath);
 }
 
 //443550 _ need simplification

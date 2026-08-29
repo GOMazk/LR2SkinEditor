@@ -1,9 +1,16 @@
 #include <D3dx9tex.h>
+#include <wincodec.h>
+#include <wrl/client.h>
 #pragma comment(lib, "D3dx9")
+#pragma comment(lib, "Ole32")
+#pragma comment(lib, "Windowscodecs")
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
+#include <new>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -266,6 +273,780 @@ static void SetImageSaveError(char* errorText, size_t errorTextSize,
 {
     if (!errorText || errorTextSize == 0) return;
     snprintf(errorText, errorTextSize, "%s", message ? message : "Unknown error");
+}
+
+namespace {
+
+using Microsoft::WRL::ComPtr;
+
+struct ScopedComInitialization {
+    HRESULT result = E_FAIL;
+    bool uninitialize = false;
+
+    ScopedComInitialization() {
+        result = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+        uninitialize = result == S_OK || result == S_FALSE;
+    }
+    ~ScopedComInitialization() {
+        if (uninitialize) CoUninitialize();
+    }
+    bool Ready() const {
+        return SUCCEEDED(result) || result == RPC_E_CHANGED_MODE;
+    }
+};
+
+struct GifFrameDescriptor {
+    int left = 0;
+    int top = 0;
+    int width = 0;
+    int height = 0;
+    int delayMs = 100;
+    int disposal = 0;
+    bool hasTransparency = false;
+    unsigned int transparentColorIndex = 0;
+};
+
+static bool ImagePathToWide(const char* path, std::wstring& widePath) {
+    widePath.clear();
+    if (!path || !*path) return false;
+    int length = MultiByteToWideChar(CP_ACP, 0, path, -1, NULL, 0);
+    if (length <= 0) return false;
+    std::vector<wchar_t> converted((size_t)length);
+    if (!MultiByteToWideChar(CP_ACP, 0, path, -1, converted.data(), length))
+        return false;
+    widePath.assign(converted.data());
+    return true;
+}
+
+static bool ReadWicUnsigned(IWICMetadataQueryReader* reader,
+    const wchar_t* query, unsigned int& result) {
+    if (!reader || !query) return false;
+    PROPVARIANT value;
+    PropVariantInit(&value);
+    const HRESULT readResult = reader->GetMetadataByName(query, &value);
+    if (FAILED(readResult)) {
+        PropVariantClear(&value);
+        return false;
+    }
+    bool converted = true;
+    switch (value.vt) {
+    case VT_UI1: result = value.bVal; break;
+    case VT_UI2: result = value.uiVal; break;
+    case VT_UI4: result = value.ulVal; break;
+    case VT_I1: result = (unsigned int)(std::max)(0, (int)value.cVal); break;
+    case VT_I2: result = (unsigned int)(std::max)(0, (int)value.iVal); break;
+    case VT_I4: result = (unsigned int)(std::max)(0L, value.lVal); break;
+    case VT_BOOL: result = value.boolVal == VARIANT_TRUE ? 1U : 0U; break;
+    default: converted = false; break;
+    }
+    PropVariantClear(&value);
+    return converted;
+}
+
+// Keep generated sheets inside a conservative LR2/D3D9 budget. A device may
+// advertise 16384px textures, but a 4466x8148 RGBA sheet still needs roughly
+// 145 MiB for one texture and failed in the Release Win32 process once a skin
+// was loaded. 4096px and at most 16M pixels keeps the texture below 64 MiB and
+// also remains usable on older LR2-era D3D9 hardware.
+static constexpr int kGifSpriteMaxDimension = 4096;
+static constexpr long long kGifSpriteMaxPixels = 16LL * 1024 * 1024;
+static constexpr int kGifSpriteMaxTimingFrames = 256;
+
+static bool ShouldDuplicateGifTiming(int sourceFrameCount,
+    int expandedFrameCount, bool variableDelay) {
+    return variableDelay && sourceFrameCount > 0 && expandedFrameCount > 0 &&
+        expandedFrameCount <= kGifSpriteMaxTimingFrames;
+}
+
+static bool ChooseGifSpriteGrid(int frameCount, int sourceFrameWidth,
+    int sourceFrameHeight, GifSpriteInfo& info) {
+    int bestColumns = 0;
+    int bestRows = 0;
+    int bestFrameWidth = 0;
+    int bestFrameHeight = 0;
+    double bestScale = -1.0;
+    double bestScore = 1.0e100;
+    for (int columns = 1; columns <= frameCount; ++columns) {
+        if (frameCount % columns != 0) continue;
+        const int rows = frameCount / columns;
+        double scale = 1.0;
+        scale = (std::min)(scale, kGifSpriteMaxDimension /
+            ((double)sourceFrameWidth * columns));
+        scale = (std::min)(scale, kGifSpriteMaxDimension /
+            ((double)sourceFrameHeight * rows));
+        const long long sourcePixels = (long long)sourceFrameWidth *
+            sourceFrameHeight * frameCount;
+        if (sourcePixels > kGifSpriteMaxPixels)
+            scale = (std::min)(scale,
+                sqrt((double)kGifSpriteMaxPixels / sourcePixels));
+        if (!(scale > 0.0)) continue;
+        int frameWidth = (std::max)(1,
+            (int)floor(sourceFrameWidth * scale));
+        int frameHeight = (std::max)(1,
+            (int)floor(sourceFrameHeight * scale));
+        long long width = (long long)frameWidth * columns;
+        long long height = (long long)frameHeight * rows;
+        while ((width > kGifSpriteMaxDimension ||
+            height > kGifSpriteMaxDimension ||
+            width * height > kGifSpriteMaxPixels) &&
+            (frameWidth > 1 || frameHeight > 1)) {
+            if (frameWidth > 1 && (width >= height || frameHeight <= 1))
+                --frameWidth;
+            else if (frameHeight > 1)
+                --frameHeight;
+            width = (long long)frameWidth * columns;
+            height = (long long)frameHeight * rows;
+        }
+        if (width <= 0 || height <= 0 ||
+            width > kGifSpriteMaxDimension ||
+            height > kGifSpriteMaxDimension ||
+            width * height > kGifSpriteMaxPixels) continue;
+        const double retainedScale = (std::min)(
+            frameWidth / (double)sourceFrameWidth,
+            frameHeight / (double)sourceFrameHeight);
+        const double aspect = (double)width / (double)height;
+        const double score = fabs(log(aspect));
+        if (retainedScale > bestScale + 1.0e-9 ||
+            (fabs(retainedScale - bestScale) <= 1.0e-9 &&
+                (score < bestScore - 1.0e-9 ||
+                    (fabs(score - bestScore) <= 1.0e-9 &&
+                        columns > bestColumns)))) {
+            bestScale = retainedScale;
+            bestScore = score;
+            bestColumns = columns;
+            bestRows = rows;
+            bestFrameWidth = frameWidth;
+            bestFrameHeight = frameHeight;
+        }
+    }
+    if (bestColumns <= 0 || bestRows <= 0) return false;
+    info.columns = bestColumns;
+    info.rows = bestRows;
+    info.frameWidth = bestFrameWidth;
+    info.frameHeight = bestFrameHeight;
+    info.sheetWidth = bestFrameWidth * bestColumns;
+    info.sheetHeight = bestFrameHeight * bestRows;
+    info.frameScaled = bestFrameWidth != sourceFrameWidth ||
+        bestFrameHeight != sourceFrameHeight;
+    return true;
+}
+
+static bool LoadGifMetadata(const char* gifPath,
+    IWICImagingFactory* factory, ComPtr<IWICBitmapDecoder>& decoder,
+    std::vector<GifFrameDescriptor>& frames, GifSpriteInfo& info,
+    char* errorText, size_t errorTextSize) {
+    std::wstring widePath;
+    if (!factory || !ImagePathToWide(gifPath, widePath)) {
+        SetImageSaveError(errorText, errorTextSize,
+            "The GIF path cannot be opened.");
+        return false;
+    }
+    if (FAILED(factory->CreateDecoderFromFilename(widePath.c_str(), NULL,
+        GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder))) {
+        SetImageSaveError(errorText, errorTextSize,
+            "Windows Imaging Component could not decode this file.");
+        return false;
+    }
+    GUID container = {};
+    if (FAILED(decoder->GetContainerFormat(&container)) ||
+        !IsEqualGUID(container, GUID_ContainerFormatGif)) {
+        SetImageSaveError(errorText, errorTextSize,
+            "The selected file is not a GIF image.");
+        return false;
+    }
+    UINT frameCount = 0;
+    if (FAILED(decoder->GetFrameCount(&frameCount)) || frameCount == 0 ||
+        frameCount > 4096) {
+        SetImageSaveError(errorText, errorTextSize,
+            "The GIF frame count is empty or too large.");
+        return false;
+    }
+
+    unsigned int canvasWidth = 0;
+    unsigned int canvasHeight = 0;
+    ComPtr<IWICMetadataQueryReader> decoderMetadata;
+    if (SUCCEEDED(decoder->GetMetadataQueryReader(&decoderMetadata))) {
+        ReadWicUnsigned(decoderMetadata.Get(), L"/logscrdesc/Width",
+            canvasWidth);
+        ReadWicUnsigned(decoderMetadata.Get(), L"/logscrdesc/Height",
+            canvasHeight);
+    }
+
+    frames.clear();
+    frames.reserve(frameCount);
+    int computedWidth = 0;
+    int computedHeight = 0;
+    int cycleMs = 0;
+    int commonDelay = 0;
+    bool variableDelay = false;
+    for (UINT frameIndex = 0; frameIndex < frameCount; ++frameIndex) {
+        ComPtr<IWICBitmapFrameDecode> frame;
+        UINT width = 0;
+        UINT height = 0;
+        if (FAILED(decoder->GetFrame(frameIndex, &frame)) ||
+            FAILED(frame->GetSize(&width, &height)) || width == 0 ||
+            height == 0 || width > 16384 || height > 16384) {
+            SetImageSaveError(errorText, errorTextSize,
+                "A GIF frame has invalid dimensions.");
+            return false;
+        }
+        GifFrameDescriptor descriptor;
+        descriptor.width = (int)width;
+        descriptor.height = (int)height;
+        ComPtr<IWICMetadataQueryReader> frameMetadata;
+        if (SUCCEEDED(frame->GetMetadataQueryReader(&frameMetadata))) {
+            unsigned int value = 0;
+            if (ReadWicUnsigned(frameMetadata.Get(), L"/imgdesc/Left", value))
+                descriptor.left = (int)value;
+            if (ReadWicUnsigned(frameMetadata.Get(), L"/imgdesc/Top", value))
+                descriptor.top = (int)value;
+            if (ReadWicUnsigned(frameMetadata.Get(), L"/grctlext/Delay", value))
+                descriptor.delayMs = value > 0 ? (int)value * 10 : 100;
+            if (ReadWicUnsigned(frameMetadata.Get(),
+                L"/grctlext/Disposal", value))
+                descriptor.disposal = (int)value;
+            if (ReadWicUnsigned(frameMetadata.Get(),
+                L"/grctlext/TransparencyFlag", value))
+                descriptor.hasTransparency = value != 0;
+            if (ReadWicUnsigned(frameMetadata.Get(),
+                L"/grctlext/TransparentColorIndex", value))
+                descriptor.transparentColorIndex = value;
+        }
+        computedWidth = (std::max)(computedWidth,
+            descriptor.left + descriptor.width);
+        computedHeight = (std::max)(computedHeight,
+            descriptor.top + descriptor.height);
+        cycleMs += descriptor.delayMs;
+        if (frameIndex == 0) commonDelay = descriptor.delayMs;
+        else if (descriptor.delayMs != commonDelay) variableDelay = true;
+        frames.push_back(descriptor);
+    }
+
+    info = GifSpriteInfo();
+    info.sourceFrameCount = (int)frameCount;
+    info.sourceFrameWidth = canvasWidth > 0 ? (int)canvasWidth : computedWidth;
+    info.sourceFrameHeight = canvasHeight > 0 ? (int)canvasHeight : computedHeight;
+    if (info.sourceFrameWidth < computedWidth)
+        info.sourceFrameWidth = computedWidth;
+    if (info.sourceFrameHeight < computedHeight)
+        info.sourceFrameHeight = computedHeight;
+    info.frameWidth = info.sourceFrameWidth;
+    info.frameHeight = info.sourceFrameHeight;
+    info.cycleMs = cycleMs > 0 ? cycleMs : (int)frameCount * 100;
+    if (info.sourceFrameWidth <= 0 || info.sourceFrameHeight <= 0 ||
+        info.sourceFrameWidth > 16384 || info.sourceFrameHeight > 16384) {
+        SetImageSaveError(errorText, errorTextSize,
+            "The GIF canvas dimensions are unsupported.");
+        return false;
+    }
+
+    int delayGcd = frames.front().delayMs;
+    for (const GifFrameDescriptor& frame : frames)
+        delayGcd = std::gcd(delayGcd, frame.delayMs);
+    int expandedFrames = 0;
+    if (delayGcd > 0) {
+        for (const GifFrameDescriptor& frame : frames)
+            expandedFrames += frame.delayMs / delayGcd;
+    }
+    // LR2 has only a uniform cycle for sprite animation. Duplicating cells is
+    // useful for small GIFs, but a long animation can otherwise balloon to
+    // hundreds of DerivationGraph handles (for example 147 frames expanding
+    // to 491). Approximate those with the original frames and total cycle.
+    const bool preserveVariableTiming = ShouldDuplicateGifTiming(
+        (int)frameCount, expandedFrames, variableDelay);
+    info.outputFrameCount = preserveVariableTiming
+        ? expandedFrames : (int)frameCount;
+    info.timingDuplicated = preserveVariableTiming;
+    info.timingApproximate = variableDelay && !preserveVariableTiming;
+    if (!ChooseGifSpriteGrid(info.outputFrameCount, info.sourceFrameWidth,
+        info.sourceFrameHeight, info)) {
+        if (preserveVariableTiming) {
+            info.outputFrameCount = (int)frameCount;
+            info.timingDuplicated = false;
+            info.timingApproximate = true;
+        }
+        if (!ChooseGifSpriteGrid(info.outputFrameCount,
+            info.sourceFrameWidth, info.sourceFrameHeight, info)) {
+            SetImageSaveError(errorText, errorTextSize,
+                "The GIF cannot fit in one LR2-compatible sprite texture.");
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool DecodeGifFrameBgra(IWICImagingFactory* factory,
+    IWICBitmapFrameDecode* frame, const GifFrameDescriptor& descriptor,
+    std::vector<unsigned char>& framePixels, char* errorText,
+    size_t errorTextSize) {
+    if (!factory || !frame || descriptor.width <= 0 ||
+        descriptor.height <= 0) {
+        SetImageSaveError(errorText, errorTextSize,
+            "A GIF frame could not be read.");
+        return false;
+    }
+
+    WICPixelFormatGUID pixelFormat = {};
+    if (FAILED(frame->GetPixelFormat(&pixelFormat))) {
+        SetImageSaveError(errorText, errorTextSize,
+            "A GIF frame pixel format could not be read.");
+        return false;
+    }
+
+    const size_t pixelCount = (size_t)descriptor.width * descriptor.height;
+    framePixels.assign(pixelCount * 4, 0);
+    if (IsEqualGUID(pixelFormat, GUID_WICPixelFormat8bppIndexed)) {
+        ComPtr<IWICPalette> palette;
+        UINT colorCount = 0;
+        if (FAILED(factory->CreatePalette(&palette)) ||
+            FAILED(frame->CopyPalette(palette.Get())) ||
+            FAILED(palette->GetColorCount(&colorCount)) || colorCount == 0 ||
+            colorCount > 256) {
+            SetImageSaveError(errorText, errorTextSize,
+                "A GIF frame palette could not be read.");
+            return false;
+        }
+        std::vector<WICColor> colors(colorCount);
+        UINT actualColors = 0;
+        if (FAILED(palette->GetColors(colorCount, colors.data(),
+            &actualColors)) || actualColors != colorCount) {
+            SetImageSaveError(errorText, errorTextSize,
+                "A GIF frame palette could not be decoded.");
+            return false;
+        }
+        std::vector<unsigned char> indices(pixelCount);
+        if (FAILED(frame->CopyPixels(NULL, (UINT)descriptor.width,
+            (UINT)indices.size(), indices.data()))) {
+            SetImageSaveError(errorText, errorTextSize,
+                "A GIF frame index map could not be read.");
+            return false;
+        }
+        for (size_t pixel = 0; pixel < pixelCount; ++pixel) {
+            const unsigned int index = indices[pixel];
+            if (descriptor.hasTransparency &&
+                index == descriptor.transparentColorIndex)
+                continue;
+            if (index >= actualColors) continue;
+            const WICColor color = colors[index];
+            framePixels[pixel * 4 + 0] = (unsigned char)(color & 0xff);
+            framePixels[pixel * 4 + 1] = (unsigned char)((color >> 8) & 0xff);
+            framePixels[pixel * 4 + 2] = (unsigned char)((color >> 16) & 0xff);
+            framePixels[pixel * 4 + 3] = (unsigned char)((color >> 24) & 0xff);
+        }
+        return true;
+    }
+
+    ComPtr<IWICFormatConverter> converter;
+    if (FAILED(factory->CreateFormatConverter(&converter)) ||
+        FAILED(converter->Initialize(frame, GUID_WICPixelFormat32bppBGRA,
+            WICBitmapDitherTypeNone, NULL, 0.0,
+            WICBitmapPaletteTypeCustom)) ||
+        FAILED(converter->CopyPixels(NULL, (UINT)descriptor.width * 4,
+            (UINT)framePixels.size(), framePixels.data()))) {
+        SetImageSaveError(errorText, errorTextSize,
+            "A GIF frame could not be converted to RGBA pixels.");
+        return false;
+    }
+    return true;
+}
+
+static bool ScaleGifCanvasBgra(IWICImagingFactory* factory,
+    const std::vector<unsigned char>& sourcePixels, int sourceWidth,
+    int sourceHeight, int outputWidth, int outputHeight,
+    std::vector<unsigned char>& outputPixels, char* errorText,
+    size_t errorTextSize) {
+    if (!factory || sourceWidth <= 0 || sourceHeight <= 0 ||
+        outputWidth <= 0 || outputHeight <= 0) {
+        SetImageSaveError(errorText, errorTextSize,
+            "The GIF frame scaling dimensions are invalid.");
+        return false;
+    }
+    const size_t sourceStride = (size_t)sourceWidth * 4;
+    const size_t sourceBytes = sourceStride * sourceHeight;
+    const size_t outputStride = (size_t)outputWidth * 4;
+    const size_t outputBytes = outputStride * outputHeight;
+    if (sourcePixels.size() < sourceBytes || sourceStride > UINT_MAX ||
+        sourceBytes > UINT_MAX || outputStride > UINT_MAX ||
+        outputBytes > UINT_MAX) {
+        SetImageSaveError(errorText, errorTextSize,
+            "The GIF frame is too large to scale.");
+        return false;
+    }
+    if (sourceWidth == outputWidth && sourceHeight == outputHeight) {
+        outputPixels.assign(sourcePixels.begin(),
+            sourcePixels.begin() + sourceBytes);
+        return true;
+    }
+
+    ComPtr<IWICBitmap> sourceBitmap;
+    ComPtr<IWICBitmapScaler> scaler;
+    outputPixels.assign(outputBytes, 0);
+    if (FAILED(factory->CreateBitmapFromMemory((UINT)sourceWidth,
+            (UINT)sourceHeight, GUID_WICPixelFormat32bppBGRA,
+            (UINT)sourceStride, (UINT)sourceBytes,
+            const_cast<BYTE*>(sourcePixels.data()), &sourceBitmap)) ||
+        FAILED(factory->CreateBitmapScaler(&scaler)) ||
+        FAILED(scaler->Initialize(sourceBitmap.Get(), (UINT)outputWidth,
+            (UINT)outputHeight, WICBitmapInterpolationModeFant)) ||
+        FAILED(scaler->CopyPixels(NULL, (UINT)outputStride,
+            (UINT)outputBytes, outputPixels.data()))) {
+        SetImageSaveError(errorText, errorTextSize,
+            "Windows Imaging Component could not resize the GIF frame.");
+        return false;
+    }
+    return true;
+}
+
+// Keep only one horizontal row of sprite cells in memory. Large animated GIFs
+// can otherwise require a 100-250 MiB contiguous BGRA allocation, which is
+// unsafe in the Release Win32 process after a large skin has loaded.
+class AtomicBgraPngWriter {
+public:
+    ~AtomicBgraPngWriter() {
+        CloseHandles();
+        if (!completed_ && !temporaryPath_.empty())
+            DeleteFileA(temporaryPath_.c_str());
+    }
+
+    bool Begin(const char* outputPath, IWICImagingFactory* factory,
+        int width, int height, char* errorText, size_t errorTextSize) {
+        if (!outputPath || !*outputPath || !factory || width <= 0 ||
+            height <= 0) {
+            SetImageSaveError(errorText, errorTextSize,
+                "The sprite output is invalid.");
+            return false;
+        }
+        if (GetFileAttributesA(outputPath) != INVALID_FILE_ATTRIBUTES) {
+            SetImageSaveError(errorText, errorTextSize,
+                "The output image already exists. Choose another filename.");
+            return false;
+        }
+        std::string parent = outputPath;
+        const size_t separator = parent.find_last_of("\\/");
+        if (separator != std::string::npos) {
+            parent.resize(separator);
+            const DWORD attributes = GetFileAttributesA(parent.c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES ||
+                !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                SetImageSaveError(errorText, errorTextSize,
+                    "The output folder does not exist.");
+                return false;
+            }
+        }
+
+        outputPath_ = outputPath;
+        temporaryPath_ = outputPath_ + ".skineditor-gif.tmp";
+        DeleteFileA(temporaryPath_.c_str());
+        std::wstring wideTemporaryPath;
+        if (!ImagePathToWide(temporaryPath_.c_str(), wideTemporaryPath)) {
+            SetImageSaveError(errorText, errorTextSize,
+                "The sprite output path cannot be encoded.");
+            return false;
+        }
+
+        bool initialized = SUCCEEDED(factory->CreateStream(&stream_)) &&
+            SUCCEEDED(stream_->InitializeFromFilename(
+                wideTemporaryPath.c_str(), GENERIC_WRITE)) &&
+            SUCCEEDED(factory->CreateEncoder(GUID_ContainerFormatPng, NULL,
+                &encoder_)) &&
+            SUCCEEDED(encoder_->Initialize(stream_.Get(),
+                WICBitmapEncoderNoCache)) &&
+            SUCCEEDED(encoder_->CreateNewFrame(&frame_, &options_)) &&
+            SUCCEEDED(frame_->Initialize(options_.Get())) &&
+            SUCCEEDED(frame_->SetSize((UINT)width, (UINT)height));
+        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+        if (initialized) initialized =
+            SUCCEEDED(frame_->SetPixelFormat(&format)) &&
+            IsEqualGUID(format, GUID_WICPixelFormat32bppBGRA);
+        if (!initialized) {
+            SetImageSaveError(errorText, errorTextSize,
+                "Windows Imaging Component could not start the sprite PNG.");
+            return false;
+        }
+        width_ = width;
+        height_ = height;
+        return true;
+    }
+
+    bool WriteRows(const unsigned char* pixels, int rowCount,
+        char* errorText, size_t errorTextSize) {
+        if (!frame_ || !pixels || rowCount <= 0 || width_ <= 0 ||
+            rowsWritten_ > height_ - rowCount) {
+            SetImageSaveError(errorText, errorTextSize,
+                "The streamed sprite rows are invalid.");
+            return false;
+        }
+        const size_t stride = (size_t)width_ * 4;
+        const size_t byteCount = stride * rowCount;
+        if (stride > UINT_MAX || byteCount > UINT_MAX ||
+            FAILED(frame_->WritePixels((UINT)rowCount, (UINT)stride,
+                (UINT)byteCount, const_cast<BYTE*>(pixels)))) {
+            SetImageSaveError(errorText, errorTextSize,
+                "Windows Imaging Component could not write the sprite PNG.");
+            return false;
+        }
+        rowsWritten_ += rowCount;
+        return true;
+    }
+
+    bool Commit(char* errorText, size_t errorTextSize) {
+        if (!frame_ || rowsWritten_ != height_ ||
+            FAILED(frame_->Commit()) || FAILED(encoder_->Commit())) {
+            SetImageSaveError(errorText, errorTextSize,
+                "Windows Imaging Component could not finish the sprite PNG.");
+            return false;
+        }
+        CloseHandles();
+        if (!MoveFileExA(temporaryPath_.c_str(), outputPath_.c_str(),
+            MOVEFILE_WRITE_THROUGH)) {
+            SetImageSaveError(errorText, errorTextSize,
+                "Could not create the sprite PNG file.");
+            return false;
+        }
+        completed_ = true;
+        return true;
+    }
+
+private:
+    void CloseHandles() {
+        frame_.Reset();
+        options_.Reset();
+        encoder_.Reset();
+        stream_.Reset();
+    }
+
+    std::string outputPath_;
+    std::string temporaryPath_;
+    ComPtr<IWICStream> stream_;
+    ComPtr<IWICBitmapEncoder> encoder_;
+    ComPtr<IWICBitmapFrameEncode> frame_;
+    ComPtr<IPropertyBag2> options_;
+    int width_ = 0;
+    int height_ = 0;
+    int rowsWritten_ = 0;
+    bool completed_ = false;
+};
+
+} // namespace
+
+bool ReadImageFilePixelAlpha(const char* filename, int x, int y,
+    unsigned char* alpha) {
+    if (!filename || !*filename || !alpha || x < 0 || y < 0) return false;
+    ScopedComInitialization com;
+    if (!com.Ready()) return false;
+    ComPtr<IWICImagingFactory> factory;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, NULL,
+        CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) return false;
+    std::wstring widePath;
+    if (!ImagePathToWide(filename, widePath)) return false;
+    ComPtr<IWICBitmapDecoder> decoder;
+    ComPtr<IWICBitmapFrameDecode> frame;
+    ComPtr<IWICFormatConverter> converter;
+    UINT width = 0;
+    UINT height = 0;
+    if (FAILED(factory->CreateDecoderFromFilename(widePath.c_str(), NULL,
+        GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder)) ||
+        FAILED(decoder->GetFrame(0, &frame)) ||
+        FAILED(frame->GetSize(&width, &height)) || x >= (int)width ||
+        y >= (int)height ||
+        FAILED(factory->CreateFormatConverter(&converter)) ||
+        FAILED(converter->Initialize(frame.Get(),
+            GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, NULL, 0.0,
+            WICBitmapPaletteTypeCustom))) return false;
+    BYTE pixel[4] = {};
+    WICRect pixelRect = { x, y, 1, 1 };
+    if (FAILED(converter->CopyPixels(&pixelRect, 4, sizeof(pixel), pixel)))
+        return false;
+    *alpha = pixel[3];
+    return true;
+}
+
+bool InspectGifSprite(const char* gifPath, GifSpriteInfo* info,
+    char* errorText, size_t errorTextSize) {
+    if (errorText && errorTextSize) errorText[0] = '\0';
+    if (!info) {
+        SetImageSaveError(errorText, errorTextSize,
+            "No GIF sprite information target was provided.");
+        return false;
+    }
+    try {
+        ScopedComInitialization com;
+        if (!com.Ready()) {
+            SetImageSaveError(errorText, errorTextSize,
+                "COM could not be initialized for GIF decoding.");
+            return false;
+        }
+        ComPtr<IWICImagingFactory> factory;
+        if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, NULL,
+            CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) {
+            SetImageSaveError(errorText, errorTextSize,
+                "Windows Imaging Component is unavailable.");
+            return false;
+        }
+        ComPtr<IWICBitmapDecoder> decoder;
+        std::vector<GifFrameDescriptor> frames;
+        return LoadGifMetadata(gifPath, factory.Get(), decoder, frames, *info,
+            errorText, errorTextSize);
+    } catch (const std::bad_alloc&) {
+        SetImageSaveError(errorText, errorTextSize,
+            "Not enough memory to inspect this GIF.");
+    } catch (const std::exception&) {
+        SetImageSaveError(errorText, errorTextSize,
+            "An unexpected error occurred while inspecting this GIF.");
+    } catch (...) {
+        SetImageSaveError(errorText, errorTextSize,
+            "An unknown error occurred while inspecting this GIF.");
+    }
+    return false;
+}
+
+bool ConvertGifToSpriteSheetAtomic(const char* gifPath, const char* outputPath,
+    GifSpriteInfo* info, char* errorText, size_t errorTextSize) {
+    if (errorText && errorTextSize) errorText[0] = '\0';
+    if (!info) {
+        SetImageSaveError(errorText, errorTextSize,
+            "No GIF sprite information target was provided.");
+        return false;
+    }
+    try {
+        ScopedComInitialization com;
+        if (!com.Ready()) {
+            SetImageSaveError(errorText, errorTextSize,
+                "COM could not be initialized for GIF decoding.");
+            return false;
+        }
+        ComPtr<IWICImagingFactory> factory;
+        if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, NULL,
+            CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) {
+            SetImageSaveError(errorText, errorTextSize,
+                "Windows Imaging Component is unavailable.");
+            return false;
+        }
+        ComPtr<IWICBitmapDecoder> decoder;
+        std::vector<GifFrameDescriptor> frames;
+        GifSpriteInfo convertedInfo;
+        if (!LoadGifMetadata(gifPath, factory.Get(), decoder, frames,
+            convertedInfo, errorText, errorTextSize))
+            return false;
+
+        const size_t canvasBytes = (size_t)convertedInfo.sourceFrameWidth *
+            convertedInfo.sourceFrameHeight * 4;
+        const size_t spriteRowBytes = (size_t)convertedInfo.sheetWidth *
+            convertedInfo.frameHeight * 4;
+        std::vector<unsigned char> canvas(canvasBytes, 0);
+        std::vector<unsigned char> scaledCanvas;
+        std::vector<unsigned char> spriteRow(spriteRowBytes, 0);
+        AtomicBgraPngWriter writer;
+        if (!writer.Begin(outputPath, factory.Get(), convertedInfo.sheetWidth,
+            convertedInfo.sheetHeight, errorText, errorTextSize))
+            return false;
+
+        int outputFrame = 0;
+        int delayGcd = frames.front().delayMs;
+        for (const GifFrameDescriptor& descriptor : frames)
+            delayGcd = std::gcd(delayGcd, descriptor.delayMs);
+
+        for (int frameIndex = 0; frameIndex < (int)frames.size();
+            ++frameIndex) {
+            const GifFrameDescriptor& descriptor = frames[frameIndex];
+            ComPtr<IWICBitmapFrameDecode> frame;
+            if (FAILED(decoder->GetFrame((UINT)frameIndex, &frame))) {
+                SetImageSaveError(errorText, errorTextSize,
+                    "A GIF frame could not be opened.");
+                return false;
+            }
+            std::vector<unsigned char> framePixels;
+            if (!DecodeGifFrameBgra(factory.Get(), frame.Get(), descriptor,
+                framePixels, errorText, errorTextSize))
+                return false;
+
+            std::vector<unsigned char> previousCanvas;
+            if (descriptor.disposal == 3) previousCanvas = canvas;
+            for (int sourceY = 0; sourceY < descriptor.height; ++sourceY) {
+                const int destinationY = descriptor.top + sourceY;
+                if (destinationY < 0 ||
+                    destinationY >= convertedInfo.sourceFrameHeight) continue;
+                for (int sourceX = 0; sourceX < descriptor.width;
+                    ++sourceX) {
+                    const int destinationX = descriptor.left + sourceX;
+                    if (destinationX < 0 ||
+                        destinationX >= convertedInfo.sourceFrameWidth) continue;
+                    const size_t source = ((size_t)sourceY *
+                        descriptor.width + sourceX) * 4;
+                    if (framePixels[source + 3] == 0) continue;
+                    const size_t destination = ((size_t)destinationY *
+                        convertedInfo.sourceFrameWidth + destinationX) * 4;
+                    memcpy(canvas.data() + destination,
+                        framePixels.data() + source, 4);
+                }
+            }
+
+            if (!ScaleGifCanvasBgra(factory.Get(), canvas,
+                convertedInfo.sourceFrameWidth,
+                convertedInfo.sourceFrameHeight, convertedInfo.frameWidth,
+                convertedInfo.frameHeight, scaledCanvas, errorText,
+                errorTextSize)) return false;
+
+            int repeat = 1;
+            if (convertedInfo.timingDuplicated && delayGcd > 0)
+                repeat = (std::max)(1, descriptor.delayMs / delayGcd);
+            for (int copy = 0; copy < repeat; ++copy) {
+                if (outputFrame >= convertedInfo.outputFrameCount) break;
+                const int cellX = outputFrame % convertedInfo.columns;
+                for (int y = 0; y < convertedInfo.frameHeight; ++y) {
+                    const size_t source = (size_t)y *
+                        convertedInfo.frameWidth * 4;
+                    const size_t destination = ((size_t)y *
+                        convertedInfo.sheetWidth +
+                        cellX * convertedInfo.frameWidth) * 4;
+                    memcpy(spriteRow.data() + destination,
+                        scaledCanvas.data() + source,
+                        (size_t)convertedInfo.frameWidth * 4);
+                }
+                ++outputFrame;
+                if (outputFrame % convertedInfo.columns == 0 &&
+                    !writer.WriteRows(spriteRow.data(),
+                        convertedInfo.frameHeight, errorText, errorTextSize))
+                    return false;
+            }
+
+            if (descriptor.disposal == 2) {
+                for (int clearY = 0; clearY < descriptor.height; ++clearY) {
+                    const int destinationY = descriptor.top + clearY;
+                    if (destinationY < 0 ||
+                        destinationY >= convertedInfo.sourceFrameHeight) continue;
+                    const int left = (std::max)(0, descriptor.left);
+                    const int right = (std::min)(convertedInfo.sourceFrameWidth,
+                        descriptor.left + descriptor.width);
+                    if (right <= left) continue;
+                    memset(canvas.data() + ((size_t)destinationY *
+                        convertedInfo.sourceFrameWidth + left) * 4, 0,
+                        (size_t)(right - left) * 4);
+                }
+            } else if (descriptor.disposal == 3 &&
+                !previousCanvas.empty()) {
+                canvas.swap(previousCanvas);
+            }
+        }
+        if (outputFrame != convertedInfo.outputFrameCount) {
+            SetImageSaveError(errorText, errorTextSize,
+                "The GIF timing expansion produced an inconsistent frame count.");
+            return false;
+        }
+        if (!writer.Commit(errorText, errorTextSize)) return false;
+        *info = convertedInfo;
+        return true;
+    } catch (const std::bad_alloc&) {
+        SetImageSaveError(errorText, errorTextSize,
+            "Not enough memory to convert this GIF. Close other skins and retry.");
+    } catch (const std::exception&) {
+        SetImageSaveError(errorText, errorTextSize,
+            "An unexpected error occurred while converting this GIF.");
+    } catch (...) {
+        SetImageSaveError(errorText, errorTextSize,
+            "An unknown error occurred while converting this GIF.");
+    }
+    return false;
 }
 
 static bool SaveNewTextureToImageFileAtomic(const char* filename,
@@ -636,6 +1417,37 @@ bool SaveTextureToImageFileAtomic(const char* filename, PDIRECT3DTEXTURE9 textur
         return false;
     }
     return true;
+}
+
+int RunGifSpriteLayoutSelfTest()
+{
+    if (!ShouldDuplicateGifTiming(4, 6, true) ||
+        ShouldDuplicateGifTiming(147, 491, true) ||
+        ShouldDuplicateGifTiming(4, 6, false)) return 1;
+    GifSpriteInfo smallLayout;
+    smallLayout.sourceFrameWidth = 1;
+    smallLayout.sourceFrameHeight = 1;
+    if (!ChooseGifSpriteGrid(6, 1, 1, smallLayout) ||
+        smallLayout.columns != 3 || smallLayout.rows != 2 ||
+        smallLayout.frameWidth != 1 || smallLayout.frameHeight != 1 ||
+        smallLayout.sheetWidth != 3 || smallLayout.sheetHeight != 2 ||
+        smallLayout.frameScaled) return 2;
+
+    // dancing-dance-move.gif: the old 7x21 layout was 4466x8148 and its
+    // 145 MiB RGBA texture produced an LR2 handle of -1 in Release Win32.
+    GifSpriteInfo largeLayout;
+    largeLayout.sourceFrameWidth = 638;
+    largeLayout.sourceFrameHeight = 388;
+    if (!ChooseGifSpriteGrid(147, 638, 388, largeLayout) ||
+        largeLayout.columns * largeLayout.rows != 147 ||
+        !largeLayout.frameScaled ||
+        largeLayout.sheetWidth > kGifSpriteMaxDimension ||
+        largeLayout.sheetHeight > kGifSpriteMaxDimension ||
+        (long long)largeLayout.sheetWidth * largeLayout.sheetHeight >
+            kGifSpriteMaxPixels ||
+        largeLayout.frameWidth >= 638 ||
+        largeLayout.frameHeight >= 388) return 3;
+    return 0;
 }
 
 int RunPixelPaintSelfTest()

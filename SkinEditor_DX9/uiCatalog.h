@@ -41,7 +41,7 @@ inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
     { SEUIWindowId::Preview, "preview", "Preview", "Render and directly manipulate the loaded skin canvas.", "WORKSPACE::drawPreview", "Workspace", "center-tabs", true },
     { SEUIWindowId::TimerControl, "timer-control", "Timer Control", "Restart the scene runtime and inspect or override LR2 timers.", "WORKSPACE::drawTimerControl", "Workspace", "right-lower", true },
     { SEUIWindowId::Customize, "customize", "Customize", "Choose skin-defined customization options.", "WORKSPACE::drawCustomize", "Data", "right-lower", true },
-    { SEUIWindowId::ImageManager, "image-manager", "Image Manager", "Inspect source atlases and edit or generate image files.", "WORKSPACE::drawImgManager", "Assets", "center-tabs", true },
+    { SEUIWindowId::ImageManager, "image-manager", "Image Manager", "Inspect source atlases and register, edit or generate image files.", "WORKSPACE::drawImgManager", "Assets", "center-tabs", true },
     { SEUIWindowId::AssetBrowser, "asset-browser", "Asset Browser", "Search, preview and drag tagged image crops.", "WORKSPACE::drawAssetBrowser", "Assets", "center-bottom", true },
     { SEUIWindowId::TextEditor, "text-editor", "Text Editor", "Edit the authoritative LR2 skin text while preserving encoding.", "WORKSPACE::drawTextEdit", "Data", "center-tabs", false },
     { SEUIWindowId::FileManager, "file-manager", "File Manager", "Inspect scripts and images referenced by the workspace.", "WORKSPACE::drawFileManager", "Data", "center-bottom", false },
@@ -87,6 +87,7 @@ enum class SEUISurfaceId {
     OlrImport,
     NewSkin,
     NewObject,
+    ObjectMoveConfirmation,
     Help,
     Count
 };
@@ -109,6 +110,7 @@ inline constexpr SEUISurfaceSpec kSEUISurfaceSpecs[] = {
     { SEUISurfaceId::OlrImport, "olr-import", "Import OLR", "Validate and extract an .olrskin package to a new LR2 folder, then load it.", "WORKSPACE::ImportOlrSkinInteractive", "flow" },
     { SEUISurfaceId::NewSkin, "new-skin", "New Skin", "Create a protected initial skin preset for a scene and resolution.", "WORKSPACE::drawNewskin", "dialog" },
     { SEUISurfaceId::NewObject, "new-object", "New Object", "Create an Object or raw command in the selected file and branch.", "WORKSPACE::drawNewObject", "dialog" },
+    { SEUISurfaceId::ObjectMoveConfirmation, "object-move-confirmation", "Move Object to another file?", "Confirm moving an Object and its editor metadata between include files.", "WORKSPACE::draw", "dialog" },
     { SEUISurfaceId::Help, "help", "Help", "Explain the editor workflow and the role of each primary workspace panel.", "DrawHelpWindow", "dialog" }
 };
 

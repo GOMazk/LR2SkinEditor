@@ -100,7 +100,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)imgui;$(ProjectDir)zep;$(ProjectDir)..\lib;$(ProjectDir)SDL3\include;$(D3DXPackageRoot)\build\native\include;%(AdditionalIncludeDirectories);$(DXSDK_DIR)include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)imgui;$(ProjectDir)zep;$(ProjectDir)..\lib;$(ProjectDir)SDL3\include;$(WindowsSDK_IncludePath);$(D3DXPackageRoot)\build\native\include;%(AdditionalIncludeDirectories);$(DXSDK_DIR)include</AdditionalIncludeDirectories>
       <AdditionalOptions>/execution-charset:shift-JIS %(AdditionalOptions)</AdditionalOptions>
       <LanguageStandard>stdcpp23</LanguageStandard>
       <LanguageStandard_C>stdc17</LanguageStandard_C>

@@ -137,6 +137,10 @@ Preview / right-click / DST View / Text Editor Object row
   -> Preview highlight reads the same selected object
 ```
 
+Clicking an Object Browser row keeps the matching DST index synchronized for
+DST View, but it focuses the Preview dock tab so the user immediately sees the
+selected Object highlight. DST View must not steal focus from a Browser click.
+
 Object Browser and Object Inspector are independent dockable windows, but only
 their visibility is independent. They must not acquire separate selection
 variables. The legacy `wObjectEditor` flag is a compatibility request that
@@ -274,14 +278,34 @@ the packer compares right and bottom growth and chooses the smaller final canvas
 There are no manual placement coordinates or expansion toggle. The image file is
 written atomically and never replaces an existing path.
 
+`GIF to sprite` is another Image Manager modal, but decoding and PNG output stay
+in the image service (`InspectGifSprite()` and
+`ConvertGifToSpriteSheetAtomic()`). WIC returns frame pixels and metadata; the
+service reads indexed GIF pixels and applies the Graphic Control Extension's
+transparent color index explicitly, then composites offsets and disposal onto the logical canvas,
+chooses an exact factor grid, and duplicates cells when needed to map variable GIF
+delays onto LR2's uniform sprite timing. `AtomicBgraPngWriter` receives one
+horizontal sprite-cell row at a time, so a large sheet does not require one
+contiguous BGRA allocation in the Win32 process. Its destructor removes an
+incomplete temporary file, and the public inspect/convert boundary translates
+allocation and standard exceptions into modal errors. The modal owns only the
+source/output path and preview metadata. CSV mutation still goes through
+`RegisterGeneratedImage()` with the sheet `div_x/div_y/cycle`, so selection,
+History invalidation and the trailing-gr rule are not duplicated in image code.
+
 CSV registration is intentionally separate from bitmap creation. On success,
 `RegisterGeneratedImage()` appends `#IMAGE` and one full-size `$SRC_IMAGE`
 editor Asset immediately before the root owner's `$FILE ... end`. It computes
-the next logical gr using the same sibling-branch maximum rule as
-`ParseSkinGraphics()`; inserting next to the current declaration is forbidden
-because it would shift later gr IDs. A pending gr request survives the derived
-cache rebuild, resolves to the new IMG index, and synchronizes Image Manager and
-Asset Browser selection on the next frame.
+the next logical gr from the rows enabled by the current runtime option mask,
+matching LR2's implicit image table. This distinction matters when mutually
+exclusive layouts are separate consecutive `#IF` blocks: summing both blocks
+would point the generated SRC beyond the loaded table. The adjacent editor
+Asset also links the logical crop back to that exact `#IMAGE` declaration so
+duplicate gr values in inactive branches cannot steal its thumbnail. Inserting
+next to the current declaration remains forbidden because it would shift later
+gr IDs. A pending gr request survives the derived cache rebuild, resolves to the
+new IMG index, and synchronizes Image Manager and Asset Browser selection on the
+next frame.
 
 `ReplaceImageDeclarationPath()` changes only the declaring `#IMAGE` row through
 one `EditLine()` call. The confirmation modal compares old/new dimensions and
@@ -385,7 +409,22 @@ instead of a chain of line moves. The drag payload carries a model index only
 for the current ImGui frame; the queued operation stores stable selection keys,
 then resolves and applies at the next frame boundary. Reorder and snapshot
 Undo must complete before any texture-backed window submits draw commands.
-Cross-file and cross-Branch drops are rejected.
+A cross-Branch drop places the Object rows immediately above or below the target
+Object; the existing condition directives are not moved, so
+`ParseSkinConditions()` assigns the Object to the target IF/ELSEIF/ELSE branch
+during the derived-state rebuild. If source and target belong to different
+include files, `QueueObjectReorder()` keeps stable selection keys and opens the
+catalogued Object move confirmation instead of mutating the document. Approval
+changes the `filename` owner of SRC/DST and adjacent `$SE_OBJECT_ID/NAME`
+metadata to the target owner as part of the same document snapshot. Cancel does
+nothing, and one Ctrl+Z restores both file ownership and row order.
+
+Preview selection bounds are derived from the selected Object model's own
+`#DST_*` CSV rows, not from the legacy sequential `arr_DST` animation cache.
+The cache may absorb a neighboring Object's destination after an include-file
+reorder, while Inspector still correctly reports one DST row. Cyan shows the
+first Object-owned frame; red is drawn only when the Object has a distinct final
+frame.
 
 ### Files
 

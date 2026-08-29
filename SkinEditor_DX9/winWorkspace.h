@@ -326,7 +326,11 @@ typedef struct WORKSPACE {
     SkinDocumentSnapshot CaptureDocumentSnapshot() const;
     int RestoreDocumentSnapshot(const SkinDocumentSnapshot& snapshot);
     bool CanReorderObject(int sourceModelIndex, int targetModelIndex) const;
+    bool ObjectReorderRequiresConfirmation(int sourceModelIndex,
+        int targetModelIndex) const;
     bool QueueObjectReorder(int sourceModelIndex, int targetModelIndex, bool placeAfter);
+    bool ConfirmPendingObjectReorder();
+    void CancelPendingObjectReorder();
     int ApplyPendingObjectReorder();
 
     //mainwindow
@@ -433,6 +437,14 @@ typedef struct WORKSPACE {
     std::map<std::string, bool> imagePixelPaintDirtyPaths;
     std::string imagePixelPaintStatus;
     std::string imageManagerReloadPathRequest;
+    bool imageAddDialogRequested = false;
+    std::string imageAddDiskPath;
+    int imageAddWidth = 0;
+    int imageAddHeight = 0;
+    int imageAddTargetDeclarationRow = -1;
+    bool imageGifDialogRequested = false;
+    std::string imageGifSourcePath;
+    GifSpriteInfo imageGifInfo;
     bool imageNewDialogRequested = false;
     bool imageMergeDialogRequested = false;
     bool imageReplaceDialogRequested = false;
@@ -510,7 +522,11 @@ typedef struct WORKSPACE {
     bool SelectIMGAsset(int imageIndex, bool requestImageManagerScroll = false);
     bool OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY);
     int RegisterGeneratedImage(const char* diskPath, int width, int height,
-        std::string& errorText);
+        std::string& errorText, int divX = 1, int divY = 1,
+        int cycle = 0, int displayFrameWidth = 0,
+        int displayFrameHeight = 0);
+    int RegisterExistingImageAsset(int declarationRow, const char* diskPath,
+        int width, int height, std::string& errorText);
     bool ReplaceImageDeclarationPath(int graphicIndex, const char* diskPath,
         std::string& errorText);
     bool RegisterImageAssetGrid(int imageIndex, int columns, int rows,
@@ -605,6 +621,10 @@ typedef struct WORKSPACE {
     bool pendingObjectReorderAfter = false;
     SEObjectSelectionKey pendingObjectReorderSource;
     SEObjectSelectionKey pendingObjectReorderTarget;
+    bool objectReorderConfirmationPending = false;
+    bool objectReorderConfirmDialogRequested = false;
+    std::string pendingObjectReorderSourceOwner;
+    std::string pendingObjectReorderTargetOwner;
     bool objectDeleteDialogRequested = false;
     SEObjectSelectionKey pendingObjectDelete;
     int drawObjectEditor();
@@ -674,6 +694,7 @@ int AutoSRCObjectPos(SRCGR* gr, int* x, int* y, int* w, int* h);
 int CsvToCSTR(CSVbuf& csv, CSTR& line);
 int CountCsvColumns(CSTR& line);
 int RunAssetMetadataSelfTest();
+int RunObjectReorderSelfTest();
 int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
     const char* secondPath);
 int RunInitialPresetSelfTest();

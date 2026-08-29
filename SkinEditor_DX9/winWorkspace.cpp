@@ -35,6 +35,7 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <new>
 #include <set>
 #include <sstream>
 #include <shellapi.h>
@@ -556,11 +557,21 @@ static int FindOwnerFileEndRow(ARR& skinfileLines, const char* owner) {
     return skinfileLines.count;
 }
 
-static int CalculateTrailingGraphicId(ARR& skinfileLines) {
+struct SEImageDeclarationChoice {
+    int row = -1;
+    int graphicId = -1;
+    int ifGroup = 0;
+    bool wildcard = false;
+    std::string path;
+};
+
+static void CollectImageDeclarationChoices(ARR& skinfileLines,
+    ARR& customFiles, std::vector<SEImageDeclarationChoice>& choices) {
     struct GraphicConditionFrame {
         int beforeBlock;
         int maximumBranchEnd;
     };
+    choices.clear();
     std::vector<GraphicConditionFrame> stack;
     int graphicId = 0;
     for (int row = 0; row < skinfileLines.count; ++row) {
@@ -585,10 +596,28 @@ static int CalculateTrailingGraphicId(ARR& skinfileLines) {
                 graphicId = frame.maximumBranchEnd;
             }
         } else if (line.csv.str[0].isSame("#IMAGE")) {
+            SEImageDeclarationChoice choice;
+            choice.row = row;
+            choice.graphicId = graphicId;
+            choice.ifGroup = line.ifgroup;
+            choice.path = line.csv.str[1].body
+                ? line.csv.str[1].outstr() : "";
+            choice.wildcard = choice.path.find('*') != std::string::npos;
+            if (!choice.wildcard) {
+                for (int customIndex = 0; customIndex < customFiles.count;
+                    ++customIndex) {
+                    CSTR& customPath = ((CSTR*)customFiles.data)[customIndex];
+                    if (customPath.body &&
+                        _stricmp(choice.path.c_str(), customPath.outstr()) == 0) {
+                        choice.wildcard = true;
+                        break;
+                    }
+                }
+            }
+            choices.push_back(choice);
             ++graphicId;
         }
     }
-    return graphicId;
 }
 
 static std::string ResolveGeneratedImageDiskPath(const char* enteredPath,
@@ -617,6 +646,44 @@ static std::string MakePortableGeneratedImagePath(const char* diskPath,
     std::filesystem::path output = std::filesystem::absolute(
         std::filesystem::path(diskPath), error);
     if (error) return diskPath;
+
+    // Stock LR2 does not reliably pass a path resolved relative to the skin
+    // script directory on to LoadGraph(). When both files live below the same
+    // LR2files tree, persist the path from LR2's working directory instead.
+    // This keeps the declaration portable while avoiding a -1 graph handle
+    // followed by DerivationGraph() during skin loading.
+    auto splitAtLR2files = [](const std::filesystem::path& absolute,
+        std::filesystem::path& rootParent,
+        std::filesystem::path& lr2Relative) {
+        rootParent.clear();
+        lr2Relative.clear();
+        bool found = false;
+        for (const std::filesystem::path& component : absolute) {
+            if (!found && _stricmp(component.string().c_str(),
+                    "LR2files") == 0) {
+                found = true;
+                lr2Relative /= component;
+            } else if (found) {
+                lr2Relative /= component;
+            } else {
+                rootParent /= component;
+            }
+        }
+        return found && !lr2Relative.empty();
+    };
+    std::filesystem::path skinRootParent;
+    std::filesystem::path skinRelative;
+    std::filesystem::path outputRootParent;
+    std::filesystem::path outputRelative;
+    const std::filesystem::path absoluteSkin = std::filesystem::absolute(
+        std::filesystem::path(mainSkinPath), error);
+    if (!error && splitAtLR2files(absoluteSkin, skinRootParent,
+            skinRelative) &&
+        splitAtLR2files(output, outputRootParent, outputRelative) &&
+        _stricmp(skinRootParent.lexically_normal().string().c_str(),
+            outputRootParent.lexically_normal().string().c_str()) == 0) {
+        return outputRelative.lexically_normal().string();
+    }
     std::filesystem::path relative = std::filesystem::relative(output, root,
         error);
     if (error || relative.empty()) return diskPath;
@@ -624,6 +691,40 @@ static std::string MakePortableGeneratedImagePath(const char* diskPath,
     if (relativeText == ".." || relativeText.rfind("..\\", 0) == 0 ||
         relativeText.rfind("../", 0) == 0) return diskPath;
     return std::string(".\\") + relativeText;
+}
+
+static bool SkinImagePatternExists(const std::filesystem::path& candidate) {
+    const std::string text = candidate.string();
+    if (text.empty()) return false;
+    WIN32_FIND_DATAA findData = {};
+    HANDLE find = FindFirstFileA(text.c_str(), &findData);
+    if (find == INVALID_HANDLE_VALUE) return false;
+    FindClose(find);
+    return true;
+}
+
+// LR2 first resolves image declarations from the process working directory,
+// then from the directory containing the skin script. The editor's flattened
+// include model retains the owning filename per row, so use it for the same
+// fallback. This is especially important for generated ".\\new_image.png"
+// files: the PNG lives beside the root skin, not beside SkinEditor.exe.
+static std::string ResolveSkinImageDeclarationPath(const char* declaredPath,
+    const char* ownerPath, const char* mainSkinPath) {
+    if (!declaredPath || !*declaredPath) return std::string();
+    const std::filesystem::path declared(declaredPath);
+    if (declared.is_absolute() || SkinImagePatternExists(declared))
+        return declared.string();
+
+    const char* bases[2] = { ownerPath, mainSkinPath };
+    for (const char* baseText : bases) {
+        if (!baseText || !*baseText) continue;
+        std::filesystem::path base(baseText);
+        if (base.has_filename()) base = base.parent_path();
+        const std::filesystem::path candidate =
+            (base / declared).lexically_normal();
+        if (SkinImagePatternExists(candidate)) return candidate.string();
+    }
+    return declared.string();
 }
 
 static std::string MakeUniqueGeneratedImagePath(const char* selectedImagePath,
@@ -735,6 +836,14 @@ int WORKSPACE::init() {
     imagePixelPaintDirtyPaths.clear();
     imagePixelPaintStatus.clear();
     imageManagerReloadPathRequest.clear();
+    imageAddDialogRequested = false;
+    imageAddDiskPath.clear();
+    imageAddWidth = 0;
+    imageAddHeight = 0;
+    imageAddTargetDeclarationRow = -1;
+    imageGifDialogRequested = false;
+    imageGifSourcePath.clear();
+    imageGifInfo = GifSpriteInfo();
     imageNewDialogRequested = false;
     imageMergeDialogRequested = false;
     imageReplaceDialogRequested = false;
@@ -769,6 +878,7 @@ int WORKSPACE::init() {
     newObjectAutoName.clear();
     objectDeleteDialogRequested = false;
     pendingObjectDelete = SEObjectSelectionKey();
+    CancelPendingObjectReorder();
 
     initFlag = 1;
     return 0;
@@ -1065,6 +1175,84 @@ int WORKSPACE::draw() {
                 ImGui::CloseCurrentPopup();
             } else if (cancelDelete) {
                 pendingObjectDelete = SEObjectSelectionKey();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
+
+    const SEUISurfaceSpec& objectMoveSurface =
+        SEUISurfaceSpecFor(SEUISurfaceId::ObjectMoveConfirmation);
+    char objectMovePopupTitle[128];
+    snprintf(objectMovePopupTitle, sizeof(objectMovePopupTitle), "%s##%s-%d",
+        objectMoveSurface.title, objectMoveSurface.key, num);
+    if (objectReorderConfirmDialogRequested) {
+        if (objectReorderConfirmationPending)
+            ImGui::OpenPopup(objectMovePopupTitle);
+        objectReorderConfirmDialogRequested = false;
+    }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
+        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(620.0f, 0.0f), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal(objectMovePopupTitle, NULL,
+        ImGuiWindowFlags_AlwaysAutoResize)) {
+        const int movingModel =
+            ResolveObjectSelectionKey(pendingObjectReorderSource);
+        const int targetModel =
+            ResolveObjectSelectionKey(pendingObjectReorderTarget);
+        const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+        if (!objectReorderConfirmationPending || movingModel < 0 ||
+            targetModel < 0 || movingModel >= (int)objects.size() ||
+            targetModel >= (int)objects.size()) {
+            CancelPendingObjectReorder();
+            ImGui::CloseCurrentPopup();
+        } else {
+            const SEObjectInstance& moving = objects[movingModel];
+            const SEObjectGroupDef* group = objectEditorModel.Group(moving.group);
+            const std::string nameUtf8 = moving.name.empty()
+                ? std::string("(unnamed)") : Cp932ToUtf8(moving.name.c_str());
+            const std::string sourceOwnerUtf8 =
+                Cp932ToUtf8(pendingObjectReorderSourceOwner.c_str());
+            const std::string targetOwnerUtf8 =
+                Cp932ToUtf8(pendingObjectReorderTargetOwner.c_str());
+
+            ImGui::TextUnformatted("Move this Object to another include file?");
+            ImGui::Spacing();
+            ImGui::TextDisabled("Object");
+            ImGui::SameLine(110.0f);
+            ImGui::Text("%s  %s", group ? group->name.c_str() : "OBJECT",
+                nameUtf8.c_str());
+            ImGui::TextDisabled("From");
+            ImGui::Indent(18.0f);
+            ImGui::TextWrapped("%s", sourceOwnerUtf8.c_str());
+            ImGui::Unindent(18.0f);
+            ImGui::TextDisabled("To");
+            ImGui::Indent(18.0f);
+            ImGui::TextWrapped("%s", targetOwnerUtf8.c_str());
+            ImGui::Unindent(18.0f);
+            ImGui::Spacing();
+            ImGui::TextColored(SEUI::Colors::Warning(),
+                "SRC/DST and $SE_OBJECT_ID/NAME will be removed from the source file and written to the destination file.");
+            ImGui::TextDisabled("The target IF/ELSEIF/ELSE branch is kept. Ctrl+Z restores both files.");
+            ImGui::Spacing();
+
+            ImGui::PushStyleColor(ImGuiCol_Button, SEUI::Colors::Warning());
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                ImVec4(0.88f, 0.54f, 0.16f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                ImVec4(0.72f, 0.38f, 0.08f, 1.0f));
+            const bool confirmMove =
+                ImGui::Button("Move Object", ImVec2(120.0f, 0.0f));
+            ImGui::PopStyleColor(3);
+            ImGui::SameLine();
+            const bool cancelMove =
+                ImGui::Button("Cancel", ImVec2(100.0f, 0.0f)) ||
+                ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+            if (confirmMove) {
+                ConfirmPendingObjectReorder();
+                ImGui::CloseCurrentPopup();
+            } else if (cancelMove) {
+                CancelPendingObjectReorder();
                 ImGui::CloseCurrentPopup();
             }
         }
@@ -1822,9 +2010,23 @@ int WORKSPACE::ParseSkinLegacyObjectsAndAssets() {
 
         CSVbuf assetCsv;
         SplitCSV(read.line, &assetCsv, ",");
-        if (FindIMG(assetCsv.val[2], assetCsv.val[3], assetCsv.val[4],
-            assetCsv.val[5], assetCsv.val[6], read.ifgroup) != arr_IMG.count)
+        const int existingImage = FindIMG(assetCsv.val[2], assetCsv.val[3],
+            assetCsv.val[4], assetCsv.val[5], assetCsv.val[6], read.ifgroup);
+        if (existingImage != arr_IMG.count) {
+            // Once an Object is created from a generated Asset, the real SRC
+            // pass finds the same crop first. Preserve the metadata row as the
+            // link back to the exact preceding #IMAGE declaration; gr alone
+            // is ambiguous in branch-heavy skins.
+            IMG& existing = ((IMG*)arr_IMG.data)[existingImage];
+            if (existing.editorDeclare < 0 && i > 0) {
+                SKINFILELINEREAD& declaration =
+                    ((SKINFILELINEREAD*)skinfileLines.data)[i - 1];
+                if (declaration.csv.str[0].body &&
+                    declaration.csv.str[0].isSame("#IMAGE"))
+                    existing.editorDeclare = i;
+            }
             continue;
+        }
 
         IMG* img = (IMG*)arr_IMG.Get_new();
         const char* savedName = assetCsv.str[14].body
@@ -1957,6 +2159,27 @@ int WORKSPACE::ParseSkinGraphics() {
             
             CSTR line(read.csv.str[1]);
 
+            // Generated images carry an editor-only full-image Asset directly
+            // after their #IMAGE row. Its gr value is the active LR2 slot,
+            // which can differ from grCount when earlier mutually exclusive
+            // layouts are expressed as consecutive #IF blocks (tricoro).
+            // Keep the structural counter for ordinary declarations, but bind
+            // this declaration to the explicit runtime-compatible slot.
+            int logicalGraphicId = grCount;
+            if (i + 1 < skinfileLines.count) {
+                SKINFILELINEREAD& metadata =
+                    ((SKINFILELINEREAD*)skinfileLines.data)[i + 1];
+                const char* metadataText = metadata.line.body
+                    ? metadata.line.outstr() : "";
+                if (metadata.isSEcomment &&
+                    strncmp(metadataText, "$SRC_IMAGE,", 11) == 0 &&
+                    (!read.filename.body || !metadata.filename.body ||
+                        IsSameOwnerPath(read.filename.outstr(),
+                            metadata.filename.outstr()))) {
+                    logicalGraphicId = metadata.csv.val[2];
+                }
+            }
+
             bool isWild = false;
 
             for (int wc = 0; wc < arr_CustomFile.count; wc++) {
@@ -1967,15 +2190,23 @@ int WORKSPACE::ParseSkinGraphics() {
             }
             if (strrchr(line.outstr(), '*')) isWild = true;
 
+            const std::string resolvedDeclaration =
+                ResolveSkinImageDeclarationPath(line.outstr(),
+                    read.filename.body ? read.filename.outstr() : mainpath,
+                    mainpath);
+            if (!resolvedDeclaration.empty())
+                line.assign(resolvedDeclaration.c_str());
+
             if (!isWild) {
                 SRCGR* tmp = (SRCGR*)(arr_SRCGR.Get_new());
                 tmp->path.assign(line);
                 
                 char* cur = strrchr(read.csv.str[1].outstr(), '/');
                 if (cur == NULL) cur = strrchr(read.csv.str[1].outstr(), '\\');
-                if (cur)         tmp->filename.assign(cur + 1);
+                if (cur) tmp->filename.assign(cur + 1);
+                else if (line.body) tmp->filename.assign(line.outstr());
 
-                tmp->grID = grCount;
+                tmp->grID = logicalGraphicId;
                 tmp->isIf = read.ifgroup;
                 tmp->declare = i;
                 tmp->wildcard = false;
@@ -2026,7 +2257,7 @@ int WORKSPACE::ParseSkinGraphics() {
                             tmp2->filename.assign(wildcardValue.c_str());
 
                             tmp2->fromWildcard = true;
-                            tmp2->grID = grCount;
+                            tmp2->grID = logicalGraphicId;
                             tmp2->isIf = read.ifgroup;
                             tmp2->declare = i;
                         }
@@ -2674,9 +2905,7 @@ int WORKSPACE::LoadSkin(char* path) {
     arr_history.Alloc(sizeof(HISTORY), 1);
     historyDocumentSnapshots.clear();
     pendingHistorySnapshotRestore = -1;
-    pendingObjectReorder = false;
-    pendingObjectReorderSource = SEObjectSelectionKey();
-    pendingObjectReorderTarget = SEObjectSelectionKey();
+    CancelPendingObjectReorder();
     objectDeleteDialogRequested = false;
     pendingObjectDelete = SEObjectSelectionKey();
     assetBrowserFocusRequest = -1;
@@ -2830,6 +3059,14 @@ int WORKSPACE::LoadSkin(char* path) {
     imagePixelPaintDirtyPaths.clear();
     imagePixelPaintStatus.clear();
     imageManagerReloadPathRequest.clear();
+    imageAddDialogRequested = false;
+    imageAddDiskPath.clear();
+    imageAddWidth = 0;
+    imageAddHeight = 0;
+    imageAddTargetDeclarationRow = -1;
+    imageGifDialogRequested = false;
+    imageGifSourcePath.clear();
+    imageGifInfo = GifSpriteInfo();
     imageNewDialogRequested = false;
     imageMergeDialogRequested = false;
     imageReplaceDialogRequested = false;
@@ -3220,6 +3457,28 @@ static std::vector<unsigned char> BuildPreviewRuntimeMask(ARR& skinfileLines, sk
     return enabled;
 }
 
+// LR2 graphic numbers are assigned only by #IMAGE rows that survive the
+// current #IF/#INCLUDE evaluation. Counting every branch is incorrect for
+// skins such as tricoro, where the mutually exclusive 1P and 2P layouts are
+// written as two consecutive #IF blocks instead of one #IF/#ELSE chain.
+// A generated root-level image must use the slot that LR2 will actually give
+// it for the current customization state.
+static int CalculateActiveTrailingGraphicId(ARR& skinfileLines, skstruct* sk) {
+    if (!sk) return -1;
+    const std::vector<unsigned char> enabled =
+        BuildPreviewRuntimeMask(skinfileLines, sk);
+    int graphicId = 0;
+    for (int row = 0; row < skinfileLines.count; ++row) {
+        if (!enabled[(size_t)row]) continue;
+        SKINFILELINEREAD& line =
+            ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        if (!line.csv.str[0].body || !line.csv.str[0].isSame("#IMAGE"))
+            continue;
+        ++graphicId;
+    }
+    return graphicId;
+}
+
 int WORKSPACE::ReadSkinSE() {
     
     CSTR dir(mainpath);
@@ -3382,6 +3641,14 @@ int WORKSPACE::ReadSkinSE() {
                                     break;
                                 }
                             }
+                            const std::string resolvedDeclaration =
+                                ResolveSkinImageDeclarationPath(
+                                    csv.str[1].outstr(),
+                                    read.filename.body
+                                        ? read.filename.outstr() : mainpath,
+                                    mainpath);
+                            if (!resolvedDeclaration.empty())
+                                csv.str[1].assign(resolvedDeclaration.c_str());
                             char siblingImage[MAX_PATH] = {};
                             if (ResolveSiblingPlayPath(csv.str[1].outstr(), mainpath,
                                 siblingImage, sizeof(siblingImage)))
@@ -4336,11 +4603,36 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
     for (int modelIndex : preview_selected_object_model_indices) {
         if (modelIndex < 0 || modelIndex >= (int)objects.size()) continue;
         const SEObjectInstance& object = objects[modelIndex];
+
+        // The Object model is the authoritative boundary for editor
+        // selection. arr_DST is a legacy sequential parser cache and can
+        // absorb a following Object's DST rows when include-file reordering
+        // places an unsupported/special SRC between them. Building the bounds
+        // from the selected Object's own CSV rows keeps Inspector and Preview
+        // synchronized even in that case.
+        std::vector<DST_ANIMATION> editorFrames;
+        for (int objectRow : object.rows) {
+            if (objectRow < 0 || objectRow >= skinfileLines.count) continue;
+            SKINFILELINEREAD& destinationLine =
+                ((SKINFILELINEREAD*)skinfileLines.data)[objectRow];
+            if (!destinationLine.csv.str[0].body ||
+                strncmp(destinationLine.csv.str[0].outstr(), "#DST", 4) != 0)
+                continue;
+            DST_ANIMATION frame = {};
+            frame.time = destinationLine.csv.val[2];
+            frame.x = destinationLine.csv.val[3];
+            frame.y = destinationLine.csv.val[4];
+            frame.w = destinationLine.csv.val[5];
+            frame.h = destinationLine.csv.val[6];
+            editorFrames.push_back(frame);
+        }
+        if (editorFrames.empty()) continue;
+
         DST* selectedDst = NULL;
         for (int dstIndex = 0; dstIndex < arr_DST.count; ++dstIndex) {
             DST& candidate = ((DST*)arr_DST.data)[dstIndex];
-            if (candidate.arr_animation.count <= 0 ||
-                std::find(object.rows.begin(), object.rows.end(), candidate.declare) == object.rows.end())
+            if (std::find(object.rows.begin(), object.rows.end(),
+                    candidate.declare) == object.rows.end())
                 continue;
             if (!selectedDst) selectedDst = &candidate;
             if (GetOptionFlag_dst(&g, candidate.op1) && GetOptionFlag_dst(&g, candidate.op2) &&
@@ -4349,8 +4641,6 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
                 break;
             }
         }
-        if (!selectedDst) continue;
-        DST_ANIMATION* frames = (DST_ANIMATION*)selectedDst->arr_animation.data;
 
         int textAlign = 0;
         int numberAlign = 0;
@@ -4392,12 +4682,12 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
         // SRCstruct::sx/sy. Highlight that current rectangle, not the raw
         // animation endpoints stored in the CSV.
         bool includedRuntimeSlider = false;
-        if (editorSlider) {
+        if (editorSlider && selectedDst) {
             SkinObject& runtimeSliders = g.skstruct.otherObject[2];
             for (int runtimeIndex = 0; runtimeIndex < runtimeSliders.srcSize; ++runtimeIndex) {
                 SRCstruct& runtimeSrc = runtimeSliders.src[runtimeIndex];
                 DSTstruct& runtimeDst = runtimeSliders.dst[runtimeIndex];
-                if (runtimeDst.dstCount != selectedDst->arr_animation.count ||
+                if (runtimeDst.dstCount != (int)editorFrames.size() ||
                     runtimeDst.dstCount <= 0 || !runtimeDst.draw ||
                     runtimeSrc.op1 != editorSlider->muki ||
                     runtimeSrc.op2 != editorSlider->range ||
@@ -4408,8 +4698,8 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
                     runtimeDst.op1 != selectedDst->op1 ||
                     runtimeDst.op2 != selectedDst->op2 ||
                     runtimeDst.op3 != selectedDst->op3 ||
-                    !sameFrame(frames[0], runtimeDst.draw[0]) ||
-                    !sameFrame(frames[selectedDst->arr_animation.count - 1],
+                    !sameFrame(editorFrames.front(), runtimeDst.draw[0]) ||
+                    !sameFrame(editorFrames.back(),
                         runtimeDst.draw[runtimeDst.dstCount - 1]))
                     continue;
 
@@ -4425,9 +4715,10 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
         }
         if (includedRuntimeSlider) continue;
 
-        includeBounds(alignedX(frames[0].x, frames[0].w), frames[0].y,
-            frames[0].w, frames[0].h, firstBounds, minX, minY, maxX, maxY);
-        DST_ANIMATION& lastFrame = frames[selectedDst->arr_animation.count - 1];
+        const DST_ANIMATION& firstFrame = editorFrames.front();
+        includeBounds(alignedX(firstFrame.x, firstFrame.w), firstFrame.y,
+            firstFrame.w, firstFrame.h, firstBounds, minX, minY, maxX, maxY);
+        const DST_ANIMATION& lastFrame = editorFrames.back();
         includeBounds(alignedX(lastFrame.x, lastFrame.w), lastFrame.y,
             lastFrame.w, lastFrame.h, lastBounds,
             lastMinX, lastMinY, lastMaxX, lastMaxY);
@@ -4845,9 +5136,15 @@ int WORKSPACE::drawPreview() {
                 ImVec2(dstBottomRight.x - 2, dstBottomRight.y - 2),
                 IM_COL32(255, 255, 255, 210), 0.0f, ImDrawFlags_Closed, 1.0f);
         };
-        // Cyan marks the starting DST frame; red marks the final destination.
+        // Cyan marks the starting DST frame; red marks a distinct final
+        // destination. A one-frame Object intentionally shows only cyan.
         drawDstBounds(preview_selected_obj, IM_COL32(32, 210, 255, 255));
-        if (preview_selected_obj_last_valid)
+        const bool distinctLastBounds = preview_selected_obj_last_valid &&
+            (std::abs(preview_selected_obj.x - preview_selected_obj_last.x) >= 0.5f ||
+                std::abs(preview_selected_obj.y - preview_selected_obj_last.y) >= 0.5f ||
+                std::abs(preview_selected_obj.w - preview_selected_obj_last.w) >= 0.5f ||
+                std::abs(preview_selected_obj.h - preview_selected_obj_last.h) >= 0.5f);
+        if (distinctLastBounds)
             drawDstBounds(preview_selected_obj_last, IM_COL32(255, 48, 48, 255));
     }
 
@@ -4908,8 +5205,13 @@ int WORKSPACE::drawPreview() {
                 return true;
             };
 
+            ImGui::TextDisabled("Front-most Object first");
+            ImGui::Separator();
             std::vector<int> listedObjectModels;
-            for (int i = 0; i < arr_DST.count; i++) {
+            // LR2 sorts draw commands by the source CSV order: later DST rows
+            // are drawn over earlier ones. Walk the editor DST cache backwards
+            // so the context menu presents the visible/front-most Object first.
+            for (int i = arr_DST.count - 1; i >= 0; --i) {
                 DST& dst = ((DST*)arr_DST.data)[i];
                 if (dst.arr_animation.count <= 0 ||
                     !GetOptionFlag_dst(&g, dst.op1) ||
@@ -5575,11 +5877,22 @@ void WORKSPACE::CollectIMGTextureCandidates(int imageIndex,
     // the declaration in the crop's IF branch, then the active custom-file
     // filename. This is the same ordering used by object thumbnails and keeps
     // an atlas crop from silently resolving to another branch's texture.
+    int preferredDeclaration = -1;
+    if (tag.editorDeclare > 0 && tag.editorDeclare < skinfileLines.count) {
+        SKINFILELINEREAD& declaration =
+            ((SKINFILELINEREAD*)skinfileLines.data)[tag.editorDeclare - 1];
+        if (declaration.csv.str[0].body &&
+            declaration.csv.str[0].isSame("#IMAGE"))
+            preferredDeclaration = tag.editorDeclare - 1;
+    }
     for (int candidate = 0; candidate < arr_SRCGR.count; ++candidate) {
         SRCGR& source = ((SRCGR*)arr_SRCGR.data)[candidate];
-        if (source.grID != tag.gr) continue;
+        const bool exactDeclaration = preferredDeclaration >= 0 &&
+            source.declare == preferredDeclaration;
+        if (source.grID != tag.gr && !exactDeclaration) continue;
 
         int score = source.isIf == tag.ifGroup ? 100 : 0;
+        if (exactDeclaration) score += 1000;
         for (int custom = 0; custom < g.skstruct.customfile_count; ++custom) {
             const char* selected = g.skstruct.customfile[custom].body
                 ? g.skstruct.customfile[custom].outstr() : "";
@@ -5655,12 +5968,33 @@ void WORKSPACE::ResolveIMGDivision(int imageIndex, int& divX, int& divY,
     cycle = 0;
     timer = 0;
     const int sourceIndex = ResolveIMGSourceIndex(imageIndex);
-    if (sourceIndex < 0 || sourceIndex >= arr_SRC.count) return;
-    const SRC& source = ((const SRC*)arr_SRC.data)[sourceIndex];
-    divX = (std::max)(1, source.div_x);
-    divY = (std::max)(1, source.div_y);
-    cycle = (std::max)(0, source.cycle);
-    timer = source.timer;
+    if (sourceIndex >= 0 && sourceIndex < arr_SRC.count) {
+        const SRC& source = ((const SRC*)arr_SRC.data)[sourceIndex];
+        divX = (std::max)(1, source.div_x);
+        divY = (std::max)(1, source.div_y);
+        cycle = (std::max)(0, source.cycle);
+        timer = source.timer;
+        return;
+    }
+
+    // An editor-only Asset has no runtime SRC row yet. Its $SRC_IMAGE row is
+    // nevertheless the authoritative animation metadata used when the card is
+    // dragged into Preview. Without this fallback, converted GIFs were written
+    // correctly but the New Object form silently reverted them to 1x1/cycle 0.
+    if (imageIndex < 0 || imageIndex >= arr_IMG.count) return;
+    const IMG& asset = ((const IMG*)arr_IMG.data)[imageIndex];
+    if (asset.editorDeclare < 0 || asset.editorDeclare >= skinfileLines.count)
+        return;
+    const SKINFILELINEREAD& metadata =
+        ((const SKINFILELINEREAD*)skinfileLines.data)[asset.editorDeclare];
+    const char* metadataText = metadata.line.body ? metadata.line.body : "";
+    if (strncmp(metadataText, "$SRC_IMAGE,", 11) != 0) return;
+    CSVbuf metadataCsv;
+    SplitCSV(metadata.line, &metadataCsv, ",");
+    divX = (std::max)(1, metadataCsv.val[7]);
+    divY = (std::max)(1, metadataCsv.val[8]);
+    cycle = (std::max)(0, metadataCsv.val[9]);
+    timer = metadataCsv.val[10];
 }
 
 static bool BrowseImageOpenPath(const char* initialPath, char* selectedPath,
@@ -5677,6 +6011,26 @@ static bool BrowseImageOpenPath(const char* initialPath, char* selectedPath,
         "Image files (*.png;*.bmp;*.jpg;*.jpeg;*.gif;*.tga)\0"
         "*.png;*.bmp;*.jpg;*.jpeg;*.gif;*.tga\0"
         "All files (*.*)\0*.*\0\0";
+    dialog.lpstrFile = path;
+    dialog.nMaxFile = MAX_PATH;
+    dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
+        OFN_NOCHANGEDIR;
+    if (!GetOpenFileNameA(&dialog)) return false;
+    strncpy_s(selectedPath, selectedPathSize, path, _TRUNCATE);
+    return true;
+}
+
+static bool BrowseGifOpenPath(const char* initialPath, char* selectedPath,
+    size_t selectedPathSize) {
+    if (!selectedPath || selectedPathSize == 0) return false;
+    char path[MAX_PATH] = {};
+    if (initialPath && *initialPath)
+        strncpy_s(path, initialPath, _TRUNCATE);
+
+    OPENFILENAMEA dialog{};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = GetActiveWindow();
+    dialog.lpstrFilter = "Animated GIF (*.gif)\0*.gif\0\0";
     dialog.lpstrFile = path;
     dialog.nMaxFile = MAX_PATH;
     dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
@@ -5842,14 +6196,18 @@ bool WORKSPACE::SelectIMGAsset(int imageIndex, bool requestImageManagerScroll) {
 }
 
 int WORKSPACE::RegisterGeneratedImage(const char* diskPath, int width, int height,
-    std::string& errorText) {
+    std::string& errorText, int divX, int divY, int cycle,
+    int displayFrameWidth, int displayFrameHeight) {
     errorText.clear();
-    if (!diskPath || !*diskPath || width <= 0 || height <= 0) {
+    if (!diskPath || !*diskPath || width <= 0 || height <= 0 || divX <= 0 ||
+        divY <= 0 || divX > width || divY > height || cycle < 0 ||
+        ((displayFrameWidth > 0) != (displayFrameHeight > 0))) {
         errorText = "The generated image metadata is invalid.";
         return -1;
     }
 
-    const int newGraphicId = CalculateTrailingGraphicId(skinfileLines);
+    const int newGraphicId = CalculateActiveTrailingGraphicId(
+        skinfileLines, &g.skstruct);
     if (newGraphicId < 0 || newGraphicId >= 100) {
         errorText = "LR2 supports graphic IDs 0-99; no free trailing slot remains.";
         return -1;
@@ -5882,9 +6240,20 @@ int WORKSPACE::RegisterGeneratedImage(const char* diskPath, int width, int heigh
     }
 
     char assetLine[256] = {};
-    snprintf(assetLine, sizeof(assetLine),
-        "$SRC_IMAGE,0,%d,0,0,%d,%d,1,1,0,0,0,0,0",
-        newGraphicId, width, height);
+    if (displayFrameWidth > 0 && displayFrameHeight > 0) {
+        // Column 14 is the optional Asset name. Keep it empty and store the
+        // logical display size in editor-only extension columns 15/16. This
+        // lets a memory-safe downscaled GIF texture still default its DST to
+        // the original GIF canvas size after save/reload.
+        snprintf(assetLine, sizeof(assetLine),
+            "$SRC_IMAGE,0,%d,0,0,%d,%d,%d,%d,%d,0,0,0,0,,%d,%d",
+            newGraphicId, width, height, divX, divY, cycle,
+            displayFrameWidth, displayFrameHeight);
+    } else {
+        snprintf(assetLine, sizeof(assetLine),
+            "$SRC_IMAGE,0,%d,0,0,%d,%d,%d,%d,%d,0,0,0,0",
+            newGraphicId, width, height, divX, divY, cycle);
+    }
     ++insertAt;
     if (InsertLine(insertAt) != 0) {
         errorText = "The #IMAGE was added, but its Asset metadata could not be inserted.";
@@ -5899,12 +6268,138 @@ int WORKSPACE::RegisterGeneratedImage(const char* diskPath, int width, int heigh
         errorText = "The #IMAGE was added, but its Asset metadata could not be written.";
         return -1;
     }
+    // EditLine intentionally treats '$' rows as comments, so populate the
+    // editor Asset schema explicitly. The next frame and a saved/reloaded skin
+    // both need to observe the same div_x/div_y/cycle values.
+    SplitCSV(assetDeclaration.line, &assetDeclaration.csv, ",");
+    assetDeclaration.csvColumnCount = CountCsvColumns(assetDeclaration.line);
 
     imageManagerGeneratedGrFocusRequest = newGraphicId;
     assetSearch[0] = '\0';
     wImgManager = true;
     wAssetBrowser = true;
     return newGraphicId;
+}
+
+int WORKSPACE::RegisterExistingImageAsset(int declarationRow,
+    const char* diskPath, int width, int height, std::string& errorText) {
+    errorText.clear();
+    if (declarationRow < 0 || declarationRow >= skinfileLines.count ||
+        !diskPath || !*diskPath || width <= 0 || height <= 0) {
+        errorText = "The selected image target is invalid.";
+        return -1;
+    }
+
+    SKINFILELINEREAD& declaration =
+        ((SKINFILELINEREAD*)skinfileLines.data)[declarationRow];
+    if (!declaration.csv.str[0].isSame("#IMAGE")) {
+        errorText = "The selected row is no longer an #IMAGE declaration.";
+        return -1;
+    }
+
+    std::vector<SEImageDeclarationChoice> choices;
+    CollectImageDeclarationChoices(skinfileLines, arr_CustomFile, choices);
+    const SEImageDeclarationChoice* target = NULL;
+    for (const SEImageDeclarationChoice& choice : choices) {
+        if (choice.row == declarationRow) {
+            target = &choice;
+            break;
+        }
+    }
+    if (!target) {
+        errorText = "The selected #IMAGE target could not be resolved.";
+        return -1;
+    }
+
+    bool selectedFileBelongsToTarget = false;
+    for (int graphicIndex = 0; graphicIndex < arr_SRCGR.count;
+        ++graphicIndex) {
+        SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
+        if (graphic.declare != declarationRow || !graphic.path.body) continue;
+        if (IsSameOwnerPath(graphic.path.outstr(), diskPath)) {
+            selectedFileBelongsToTarget = true;
+            break;
+        }
+    }
+    if (!selectedFileBelongsToTarget && !target->wildcard) {
+        const char* ownerPath = declaration.filename.body &&
+            *declaration.filename.outstr()
+            ? declaration.filename.outstr() : mainpath;
+        const std::string ownerRelativePath = ResolveGeneratedImageDiskPath(
+            target->path.c_str(), ownerPath);
+        selectedFileBelongsToTarget =
+            IsSameOwnerPath(target->path.c_str(), diskPath) ||
+            (!ownerRelativePath.empty() &&
+                IsSameOwnerPath(ownerRelativePath.c_str(), diskPath));
+    }
+    if (!selectedFileBelongsToTarget) {
+        errorText = target->wildcard
+            ? "The selected file is not a current candidate of this wildcard #IMAGE. Reload the skin if the file was added externally."
+            : "The selected file is different from this fixed #IMAGE. Choose the new gr target or use Replace.";
+        return -1;
+    }
+
+    const int existingImage = FindIMG(target->graphicId, 0, 0, width, height,
+        target->ifGroup);
+    if (existingImage >= 0 && existingImage < arr_IMG.count) {
+        SelectIMGAsset(existingImage, true);
+        assetBrowserFocusRequest = existingImage;
+        wAssetBrowser = true;
+        errorText = "A matching full-size Asset already exists for this gr.";
+        return -1;
+    }
+
+    CSTR owner(mainpath);
+    if (declaration.filename.body && *declaration.filename.outstr())
+        owner.assign(declaration.filename);
+    int insertAt = declarationRow + 1;
+    while (insertAt < skinfileLines.count) {
+        SKINFILELINEREAD& following =
+            ((SKINFILELINEREAD*)skinfileLines.data)[insertAt];
+        const char* text = following.line.body ? following.line.outstr() : "";
+        if (strncmp(text, "$SRC_IMAGE,", 11) != 0) break;
+        ++insertAt;
+    }
+
+    char assetLine[256] = {};
+    snprintf(assetLine, sizeof(assetLine),
+        "$SRC_IMAGE,0,%d,0,0,%d,%d,1,1,0,0,0,0,0",
+        target->graphicId, width, height);
+    const int historyStart = arr_history.count;
+    if (InsertLine(insertAt) != 0) {
+        errorText = "The full-size Asset row could not be inserted.";
+        return -1;
+    }
+    for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
+        IMG& shifted = ((IMG*)arr_IMG.data)[imageIndex];
+        if (shifted.sourceDeclare >= insertAt) ++shifted.sourceDeclare;
+        if (shifted.editorDeclare >= insertAt) ++shifted.editorDeclare;
+    }
+    SKINFILELINEREAD& metadata =
+        ((SKINFILELINEREAD*)skinfileLines.data)[insertAt];
+    metadata.filename.assign(owner);
+    metadata.ifgroup = target->ifGroup;
+    CSTR placeholder(metadata.line);
+    if (EditLine(insertAt, placeholder, CSTR(assetLine)) != 0) {
+        errorText = "The full-size Asset row could not be written.";
+        return -1;
+    }
+    SplitCSV(metadata.line, &metadata.csv, ",");
+    metadata.csvColumnCount = CountCsvColumns(metadata.line);
+
+    const int historyCount = arr_history.count - historyStart;
+    if (historyCount > 1) {
+        HISTORY* grouped = (HISTORY*)arr_history.Get_new();
+        grouped->op = group;
+        grouped->target = historyCount;
+    }
+    imageManagerGraphicDeclarationFocusRequest = declarationRow;
+    imageManagerAssetDeclarationFocusRequest = insertAt;
+    assetSearch[0] = '\0';
+    wImgManager = true;
+    wAssetBrowser = true;
+    ++imageAssetUsageGeneration;
+    return target->graphicId;
 }
 
 bool WORKSPACE::ReplaceImageDeclarationPath(int graphicIndex,
@@ -6303,28 +6798,49 @@ bool WORKSPACE::OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY) {
     newObjectDropW = (std::max)(1, newObjectDropW / assetDivX);
     newObjectDropH = (std::max)(1, newObjectDropH / assetDivY);
 
-    // The selected Object is the user's current branch and owner-file context.
-    // With no selection, create an unconditional Object inside the root file.
+    // The selected Object is normally the user's current branch and owner-file
+    // context. An editor-only Asset is different: its #IMAGE was just declared
+    // immediately before its $SRC_IMAGE metadata. A SRC inserted into an older
+    // include/IF row would be parsed before that graphic exists (tricoro does
+    // this heavily), leaving a valid DST rectangle with no drawable content.
+    // Keep generated/manual Asset Objects after their declaration instead.
     AssignRootFileOwner(skinfileLines, mainpath, newObjectOwner);
     newObjectInsertPosition = FindOwnerFileEndRow(skinfileLines,
         newObjectOwner.body ? newObjectOwner.outstr() : mainpath);
     newObjectIfgroup = 0;
-    int contextModel = preview_selected_object_model_index;
-    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
-    if ((contextModel < 0 || contextModel >= (int)objects.size()) &&
-        preview_selected_object_model_indices.size() == 1)
-        contextModel = preview_selected_object_model_indices.front();
-    if (contextModel >= 0 && contextModel < (int)objects.size()) {
-        const SEObjectInstance& contextObject = objects[contextModel];
-        newObjectIfgroup = contextObject.ifgroup;
-        if (!contextObject.rows.empty()) {
-            newObjectInsertPosition = contextObject.rows.back() + 1;
-            const int ownerRow = contextObject.rows.front();
-            if (ownerRow >= 0 && ownerRow < skinfileLines.count) {
-                SKINFILELINEREAD& source =
-                    ((SKINFILELINEREAD*)skinfileLines.data)[ownerRow];
-                if (source.filename.body && *source.filename.outstr())
-                    newObjectOwner.assign(source.filename.outstr());
+    const bool editorOnlyAsset = asset.sourceDeclare == -2 &&
+        asset.editorDeclare >= 0 && asset.editorDeclare < skinfileLines.count;
+    if (editorOnlyAsset) {
+        SKINFILELINEREAD& metadata =
+            ((SKINFILELINEREAD*)skinfileLines.data)[asset.editorDeclare];
+        CSVbuf metadataCsv;
+        SplitCSV(metadata.line, &metadataCsv, ",");
+        if (metadataCsv.val[15] > 0 && metadataCsv.val[16] > 0) {
+            newObjectDropW = metadataCsv.val[15];
+            newObjectDropH = metadataCsv.val[16];
+        }
+        newObjectIfgroup = metadata.ifgroup;
+        newObjectInsertPosition = asset.editorDeclare + 1;
+        if (metadata.filename.body && *metadata.filename.outstr())
+            newObjectOwner.assign(metadata.filename.outstr());
+    } else {
+        int contextModel = preview_selected_object_model_index;
+        const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+        if ((contextModel < 0 || contextModel >= (int)objects.size()) &&
+            preview_selected_object_model_indices.size() == 1)
+            contextModel = preview_selected_object_model_indices.front();
+        if (contextModel >= 0 && contextModel < (int)objects.size()) {
+            const SEObjectInstance& contextObject = objects[contextModel];
+            newObjectIfgroup = contextObject.ifgroup;
+            if (!contextObject.rows.empty()) {
+                newObjectInsertPosition = contextObject.rows.back() + 1;
+                const int ownerRow = contextObject.rows.front();
+                if (ownerRow >= 0 && ownerRow < skinfileLines.count) {
+                    SKINFILELINEREAD& source =
+                        ((SKINFILELINEREAD*)skinfileLines.data)[ownerRow];
+                    if (source.filename.body && *source.filename.outstr())
+                        newObjectOwner.assign(source.filename.outstr());
+                }
             }
         }
     }
@@ -6957,9 +7473,399 @@ int WORKSPACE::drawImgManager() {
         return 0;
     }
 
+    char addImagePopup[96] = {};
+    snprintf(addImagePopup, sizeof(addImagePopup),
+        "Add image##addImage%d", num);
+
+    auto requestExistingImage = [&](const char* initialPath) {
+        char selectedPath[MAX_PATH] = {};
+        if (!BrowseImageOpenPath(initialPath, selectedPath,
+            sizeof(selectedPath))) return;
+
+        int imageWidth = 0;
+        int imageHeight = 0;
+        imageToolStatus.clear();
+        if (!GetImageSizeFromFile(selectedPath, &imageWidth, &imageHeight) ||
+            imageWidth <= 0 || imageHeight <= 0) {
+            imageToolStatus = "The selected file cannot be loaded as an image.";
+            return;
+        }
+
+        imageAddDiskPath = selectedPath;
+        imageAddWidth = imageWidth;
+        imageAddHeight = imageHeight;
+        imageAddTargetDeclarationRow = -1;
+        imageAddDialogRequested = true;
+    };
+
+    auto drawImageAddDialog = [&]() {
+        if (imageAddDialogRequested) {
+            ImGui::OpenPopup(addImagePopup);
+            imageAddDialogRequested = false;
+        }
+
+        ImGui::SetNextWindowSize(ImVec2(680.0f, 0.0f), ImGuiCond_Appearing);
+        if (!ImGui::BeginPopupModal(addImagePopup, NULL,
+            ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+        ImGui::TextUnformatted("Register an image file");
+        ImGui::TextDisabled("Choose a logical gr after checking whether its #IMAGE is fixed or wildcard.");
+        ImGui::Separator();
+        ImGui::Text("Size: %d x %d", imageAddWidth, imageAddHeight);
+        ImGui::TextWrapped("File: %s",
+            Cp932ToUtf8(imageAddDiskPath.c_str()).c_str());
+
+        std::vector<SEImageDeclarationChoice> choices;
+        CollectImageDeclarationChoices(skinfileLines, arr_CustomFile, choices);
+        const int trailingGraphicId = CalculateActiveTrailingGraphicId(
+            skinfileLines, &g.skstruct);
+        const SEImageDeclarationChoice* selectedChoice = NULL;
+        for (const SEImageDeclarationChoice& choice : choices) {
+            if (choice.row == imageAddTargetDeclarationRow) {
+                selectedChoice = &choice;
+                break;
+            }
+        }
+        if (imageAddTargetDeclarationRow >= 0 && !selectedChoice)
+            imageAddTargetDeclarationRow = -1;
+
+        char targetPreview[768] = {};
+        if (selectedChoice) {
+            snprintf(targetPreview, sizeof(targetPreview),
+                "gr %02d  |  %s  |  %s%s%d",
+                selectedChoice->graphicId,
+                selectedChoice->wildcard ? "Wildcard" : "Fixed",
+                Cp932ToUtf8(selectedChoice->path.c_str()).c_str(),
+                selectedChoice->ifGroup > 0 ? "  |  IF group " : "",
+                selectedChoice->ifGroup > 0 ? selectedChoice->ifGroup : 0);
+            if (selectedChoice->ifGroup <= 0) {
+                snprintf(targetPreview, sizeof(targetPreview),
+                    "gr %02d  |  %s  |  %s",
+                    selectedChoice->graphicId,
+                    selectedChoice->wildcard ? "Wildcard" : "Fixed",
+                    Cp932ToUtf8(selectedChoice->path.c_str()).c_str());
+            }
+        } else {
+            snprintf(targetPreview, sizeof(targetPreview),
+                "gr %02d  |  New fixed #IMAGE", trailingGraphicId);
+        }
+
+        ImGui::SetNextItemWidth(630.0f);
+        if (ImGui::BeginCombo("Target image number", targetPreview)) {
+            char newTargetLabel[128] = {};
+            snprintf(newTargetLabel, sizeof(newTargetLabel),
+                "gr %02d  |  New fixed #IMAGE", trailingGraphicId);
+            if (ImGui::Selectable(newTargetLabel,
+                imageAddTargetDeclarationRow < 0))
+                imageAddTargetDeclarationRow = -1;
+            for (const SEImageDeclarationChoice& choice : choices) {
+                char choiceLabel[768] = {};
+                if (choice.ifGroup > 0) {
+                    snprintf(choiceLabel, sizeof(choiceLabel),
+                        "gr %02d  |  %s  |  IF group %d  |  %s",
+                        choice.graphicId,
+                        choice.wildcard ? "Wildcard" : "Fixed",
+                        choice.ifGroup,
+                        Cp932ToUtf8(choice.path.c_str()).c_str());
+                } else {
+                    snprintf(choiceLabel, sizeof(choiceLabel),
+                        "gr %02d  |  %s  |  %s", choice.graphicId,
+                        choice.wildcard ? "Wildcard" : "Fixed",
+                        Cp932ToUtf8(choice.path.c_str()).c_str());
+                }
+                ImGui::PushID(choice.row);
+                if (ImGui::Selectable(choiceLabel,
+                    choice.row == imageAddTargetDeclarationRow))
+                    imageAddTargetDeclarationRow = choice.row;
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+
+        selectedChoice = NULL;
+        for (const SEImageDeclarationChoice& choice : choices) {
+            if (choice.row == imageAddTargetDeclarationRow) {
+                selectedChoice = &choice;
+                break;
+            }
+        }
+        bool selectedFileBelongsToTarget = selectedChoice == NULL;
+        int candidateCount = 0;
+        if (selectedChoice) {
+            for (int graphicIndex = 0; graphicIndex < arr_SRCGR.count;
+                ++graphicIndex) {
+                SRCGR& candidate = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
+                if (candidate.declare != selectedChoice->row) continue;
+                ++candidateCount;
+                if (candidate.path.body && IsSameOwnerPath(
+                    candidate.path.outstr(), imageAddDiskPath.c_str()))
+                    selectedFileBelongsToTarget = true;
+            }
+            if (!selectedFileBelongsToTarget && !selectedChoice->wildcard) {
+                SKINFILELINEREAD& declaration =
+                    ((SKINFILELINEREAD*)skinfileLines.data)[selectedChoice->row];
+                const char* ownerPath = declaration.filename.body &&
+                    *declaration.filename.outstr()
+                    ? declaration.filename.outstr() : mainpath;
+                const std::string ownerRelativePath =
+                    ResolveGeneratedImageDiskPath(selectedChoice->path.c_str(),
+                        ownerPath);
+                selectedFileBelongsToTarget =
+                    IsSameOwnerPath(selectedChoice->path.c_str(),
+                        imageAddDiskPath.c_str()) ||
+                    (!ownerRelativePath.empty() && IsSameOwnerPath(
+                        ownerRelativePath.c_str(), imageAddDiskPath.c_str()));
+            }
+        }
+
+        bool canRegister = imageAddWidth > 0 && imageAddHeight > 0 &&
+            !imageAddDiskPath.empty();
+        if (!selectedChoice) {
+            canRegister = canRegister && trailingGraphicId >= 0 &&
+                trailingGraphicId < 100 &&
+                MakePortableGeneratedImagePath(imageAddDiskPath.c_str(),
+                    mainpath).find(',') == std::string::npos;
+            ImGui::TextWrapped("A new fixed #IMAGE will be appended at gr %d. Existing gr IDs will not be renumbered.",
+                trailingGraphicId);
+        } else if (selectedChoice->wildcard) {
+            canRegister = canRegister && selectedFileBelongsToTarget;
+            ImGui::TextWrapped("Wildcard target: %d candidate file%s currently match this declaration.",
+                candidateCount, candidateCount == 1 ? "" : "s");
+            if (!selectedFileBelongsToTarget)
+                ImGui::TextColored(SEUI::Colors::Danger(),
+                    "This file is not a current candidate of the selected wildcard.");
+        } else {
+            canRegister = canRegister && selectedFileBelongsToTarget;
+            ImGui::TextWrapped("Fixed target: this reuses the selected #IMAGE and adds only a full-size Asset row.");
+            if (!selectedFileBelongsToTarget)
+                ImGui::TextColored(SEUI::Colors::Danger(),
+                    "This is a different file. Choose the new gr target or use Replace.");
+        }
+        if (!imageToolStatus.empty())
+            ImGui::TextColored(SEUI::Colors::Danger(), "%s",
+                imageToolStatus.c_str());
+
+        ImGui::Separator();
+        ImGui::BeginDisabled(!canRegister);
+        if (ImGui::Button("Register", ImVec2(110.0f, 0.0f))) {
+            const bool newDeclaration = selectedChoice == NULL;
+            const int registeredGr = newDeclaration
+                ? RegisterGeneratedImage(imageAddDiskPath.c_str(),
+                    imageAddWidth, imageAddHeight, imageToolStatus)
+                : RegisterExistingImageAsset(selectedChoice->row,
+                    imageAddDiskPath.c_str(), imageAddWidth, imageAddHeight,
+                    imageToolStatus);
+            if (registeredGr >= 0) {
+                imageToolStatus = newDeclaration
+                    ? "Registered image as new fixed gr " +
+                        std::to_string(registeredGr) + "."
+                    : "Added a full-size Asset to " +
+                        std::string(selectedChoice->wildcard
+                            ? "wildcard gr " : "fixed gr ") +
+                        std::to_string(registeredGr) + ".";
+                imageAddDiskPath.clear();
+                imageAddTargetDeclarationRow = -1;
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(110.0f, 0.0f))) {
+            imageToolStatus.clear();
+            imageAddDiskPath.clear();
+            imageAddTargetDeclarationRow = -1;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    };
+
+    char gifSpritePopup[96] = {};
+    snprintf(gifSpritePopup, sizeof(gifSpritePopup),
+        "GIF to sprite##gifSprite%d", num);
+    auto requestGifSprite = [&](const char* initialPath) {
+        char selectedPath[MAX_PATH] = {};
+        if (!BrowseGifOpenPath(initialPath, selectedPath,
+            sizeof(selectedPath))) return;
+        imageToolStatus.clear();
+        try {
+            char inspectError[256] = {};
+            GifSpriteInfo inspected;
+            if (!InspectGifSprite(selectedPath, &inspected, inspectError,
+                sizeof(inspectError))) {
+                imageToolStatus = inspectError;
+                return;
+            }
+            imageGifSourcePath = selectedPath;
+            imageGifInfo = inspected;
+            std::string outputStem = std::filesystem::path(selectedPath)
+                .stem().string();
+            if (outputStem.empty()) outputStem = "gif";
+            outputStem += "_sprite";
+            const std::string outputPath = MakeUniqueGeneratedImagePath(
+                selectedPath, mainpath, outputStem.c_str());
+            const std::string outputUtf8 = Cp932ToUtf8(outputPath.c_str());
+            strncpy_s(imageToolOutputPathUtf8,
+                sizeof(imageToolOutputPathUtf8), outputUtf8.c_str(),
+                _TRUNCATE);
+            imageToolRegisterInCsv = true;
+            imageGifDialogRequested = true;
+        } catch (const std::bad_alloc&) {
+            imageToolStatus = "Not enough memory to inspect this GIF.";
+        } catch (const std::exception&) {
+            imageToolStatus =
+                "The GIF or output folder path could not be prepared.";
+        } catch (...) {
+            imageToolStatus =
+                "An unknown error occurred while preparing this GIF.";
+        }
+    };
+    auto drawGifSpriteDialog = [&]() {
+        if (imageGifDialogRequested) {
+            ImGui::OpenPopup(gifSpritePopup);
+            imageGifDialogRequested = false;
+        }
+        ImGui::SetNextWindowSize(ImVec2(620.0f, 0.0f), ImGuiCond_Appearing);
+        if (!ImGui::BeginPopupModal(gifSpritePopup, NULL,
+            ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+        ImGui::TextUnformatted("Convert animated GIF to an LR2 sprite sheet");
+        ImGui::TextWrapped("Source: %s",
+            Cp932ToUtf8(imageGifSourcePath.c_str()).c_str());
+        ImGui::Separator();
+        ImGui::Text("GIF frames: %d  |  source frame: %d x %d",
+            imageGifInfo.sourceFrameCount, imageGifInfo.sourceFrameWidth,
+            imageGifInfo.sourceFrameHeight);
+        ImGui::Text("Sprite cells: %d  |  grid: %d x %d",
+            imageGifInfo.outputFrameCount, imageGifInfo.columns,
+            imageGifInfo.rows);
+        ImGui::Text("Sheet: %d x %d  |  cycle: %d ms",
+            imageGifInfo.sheetWidth, imageGifInfo.sheetHeight,
+            imageGifInfo.cycleMs);
+        if (imageGifInfo.frameScaled) {
+            ImGui::TextColored(SEUI::Colors::Warning(),
+                "Frames will be resized to %d x %d so LR2 can load the texture.",
+                imageGifInfo.frameWidth, imageGifInfo.frameHeight);
+        }
+        if (imageGifInfo.timingDuplicated) {
+            ImGui::TextColored(SEUI::Colors::Success(),
+                "Variable GIF delays will be preserved by duplicating sprite cells.");
+        } else if (imageGifInfo.timingApproximate) {
+            ImGui::TextColored(SEUI::Colors::Warning(),
+                "Variable delays are too large to expand safely; LR2 will use even frame timing.");
+        } else {
+            ImGui::TextDisabled("Every GIF frame uses the same delay.");
+        }
+        ImGui::SetNextItemWidth(470.0f);
+        ImGui::InputText("Output PNG", imageToolOutputPathUtf8,
+            sizeof(imageToolOutputPathUtf8));
+        ImGui::Checkbox("Register in this skin CSV", &imageToolRegisterInCsv);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Adds a trailing #IMAGE and an animated full-size Asset using this grid and cycle.");
+        if (!imageToolStatus.empty())
+            ImGui::TextColored(SEUI::Colors::Danger(), "%s",
+                imageToolStatus.c_str());
+
+        ImGui::Separator();
+        if (ImGui::Button("Convert", ImVec2(110.0f, 0.0f))) {
+            imageToolStatus.clear();
+            try {
+                const std::string enteredCp932 = Utf8ToCp932(
+                    imageToolOutputPathUtf8);
+                const std::string diskPath = ResolveGeneratedImageDiskPath(
+                    enteredCp932.c_str(), mainpath);
+                std::string extension = std::filesystem::path(diskPath)
+                    .extension().string();
+                std::transform(extension.begin(), extension.end(),
+                    extension.begin(), [](unsigned char value) {
+                        return (char)std::tolower(value);
+                    });
+                if (diskPath.empty() || extension != ".png") {
+                    imageToolStatus = "The output path must be a PNG file.";
+                } else if (imageToolRegisterInCsv &&
+                    (CalculateActiveTrailingGraphicId(
+                        skinfileLines, &g.skstruct) >= 100 ||
+                        MakePortableGeneratedImagePath(diskPath.c_str(),
+                            mainpath).find(',') != std::string::npos)) {
+                    imageToolStatus =
+                        "No free gr slot remains, or the CSV path contains a comma.";
+                } else {
+                    GifSpriteInfo converted;
+                    char convertError[256] = {};
+                    if (!ConvertGifToSpriteSheetAtomic(
+                        imageGifSourcePath.c_str(), diskPath.c_str(),
+                        &converted, convertError, sizeof(convertError))) {
+                        imageToolStatus = convertError;
+                    } else {
+                        int registeredGr = -1;
+                        if (imageToolRegisterInCsv) {
+                            registeredGr = RegisterGeneratedImage(
+                                diskPath.c_str(), converted.sheetWidth,
+                                converted.sheetHeight, imageToolStatus,
+                                converted.columns, converted.rows,
+                                converted.cycleMs,
+                                converted.sourceFrameWidth,
+                                converted.sourceFrameHeight);
+                        }
+                        if (!imageToolRegisterInCsv || registeredGr >= 0) {
+                            imageGifInfo = converted;
+                            imageToolStatus = "Converted " +
+                                std::to_string(converted.sourceFrameCount) +
+                                " GIF frame(s) into " +
+                                std::to_string(converted.outputFrameCount) +
+                                " sprite cell(s)";
+                            if (imageToolRegisterInCsv)
+                                imageToolStatus += "; registered as gr " +
+                                    std::to_string(registeredGr);
+                            imageToolStatus += ".";
+                            imageGifSourcePath.clear();
+                            ImGui::CloseCurrentPopup();
+                        } else {
+                            imageToolStatus =
+                                "The sprite PNG was created, but CSV registration failed: " +
+                                imageToolStatus;
+                        }
+                    }
+                }
+            } catch (const std::bad_alloc&) {
+                imageToolStatus =
+                    "Not enough memory to prepare this GIF conversion.";
+            } catch (const std::exception&) {
+                imageToolStatus =
+                    "The GIF or output folder path could not be processed.";
+            } catch (...) {
+                imageToolStatus =
+                    "An unknown error occurred during GIF conversion.";
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(110.0f, 0.0f))) {
+            imageToolStatus.clear();
+            imageGifSourcePath.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    };
+
     if (arr_IMG.count <= 0 || arr_SRCGR.count <= 0) {
         SEUI::EmptyState("No image data",
-            "Load a skin containing #IMAGE and #SRC declarations.");
+            "Load a skin containing #IMAGE and #SRC declarations, or register an image file.");
+        if (ImGui::Button("Add image...##imageManagerAddEmpty"))
+            requestExistingImage(mainpath);
+        ImGui::SameLine();
+        if (ImGui::Button("GIF to sprite...##imageManagerGifEmpty"))
+            requestGifSprite(mainpath);
+        if (!imageToolStatus.empty()) {
+            ImGui::SameLine();
+            const bool registrationSucceeded =
+                imageToolStatus.find("Registered") == 0 ||
+                imageToolStatus.find("Added") == 0 ||
+                imageToolStatus.find("Converted") == 0;
+            ImGui::TextColored(registrationSucceeded
+                ? SEUI::Colors::Success() : SEUI::Colors::Danger(), "%s",
+                imageToolStatus.c_str());
+        }
+        drawImageAddDialog();
+        drawGifSpriteDialog();
         ImGui::End();
         return 0;
     }
@@ -7304,6 +8210,16 @@ int WORKSPACE::drawImgManager() {
         imageToolRegisterInCsv = true;
     };
 
+    if (ImGui::Button("Add image...##imageToolAdd"))
+        requestExistingImage(img.path.body ? img.path.outstr() : mainpath);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("Choose a new or existing logical gr after checking its fixed/wildcard declaration.");
+    ImGui::SameLine();
+    if (ImGui::Button("GIF to sprite...##imageToolGif"))
+        requestGifSprite(img.path.body ? img.path.outstr() : mainpath);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("Convert GIF frames into an automatically packed LR2 animation atlas.");
+    ImGui::SameLine();
     if (ImGui::Button("New image##imageToolNew")) {
         imageNewWidth = img.sizeX > 0 ? img.sizeX : (std::max)(1, skinSizeX);
         imageNewHeight = img.sizeY > 0 ? img.sizeY : (std::max)(1, skinSizeY);
@@ -7351,7 +8267,9 @@ int WORKSPACE::drawImgManager() {
         imageGridDialogRequested = true;
     }
     ImGui::SameLine();
-    ImGui::TextDisabled("New files use the final gr slot; grid cells reuse this gr.");
+    ImGui::TextDisabled("Add image can append a new gr or reuse a matching fixed/wildcard gr; grid cells reuse this gr.");
+    drawImageAddDialog();
+    drawGifSpriteDialog();
 
     char newImagePopup[96] = {};
     char mergeImagePopup[96] = {};
@@ -7415,7 +8333,8 @@ int WORKSPACE::drawImgManager() {
             if (diskPath.empty()) {
                 imageToolStatus = "The output path is invalid.";
             } else if (imageToolRegisterInCsv &&
-                (CalculateTrailingGraphicId(skinfileLines) >= 100 ||
+                (CalculateActiveTrailingGraphicId(
+                    skinfileLines, &g.skstruct) >= 100 ||
                     MakePortableGeneratedImagePath(diskPath.c_str(), mainpath)
                         .find(',') != std::string::npos)) {
                 imageToolStatus = "No free gr slot remains, or the CSV path contains a comma.";
@@ -7515,7 +8434,8 @@ int WORKSPACE::drawImgManager() {
                 if (diskPath.empty()) {
                     imageToolStatus = "The output path is invalid.";
                 } else if (imageToolRegisterInCsv &&
-                    (CalculateTrailingGraphicId(skinfileLines) >= 100 ||
+                    (CalculateActiveTrailingGraphicId(
+                        skinfileLines, &g.skstruct) >= 100 ||
                         MakePortableGeneratedImagePath(diskPath.c_str(), mainpath)
                             .find(',') != std::string::npos)) {
                     imageToolStatus = "No free gr slot remains, or the CSV path contains a comma.";
@@ -7789,7 +8709,8 @@ int WORKSPACE::drawImgManager() {
         int counts[6] = {};
         for (const SEImageDiagnostic& diagnostic : diagnostics)
             ++counts[(int)diagnostic.kind];
-        const int nextGraphicId = CalculateTrailingGraphicId(skinfileLines);
+        const int nextGraphicId = CalculateActiveTrailingGraphicId(
+            skinfileLines, &g.skstruct);
         ImGui::Text("gr slots: next %d  |  remaining %d", nextGraphicId,
             (std::max)(0, 100 - nextGraphicId));
         ImGui::TextDisabled(
@@ -7846,9 +8767,11 @@ int WORKSPACE::drawImgManager() {
 
     if (!imageToolStatus.empty()) {
         const bool success = imageToolStatus.find("Created") == 0 ||
+            imageToolStatus.find("Converted") == 0 ||
             imageToolStatus.find("Merged") == 0 ||
             imageToolStatus.find("Replaced") == 0 ||
             imageToolStatus.find("Registered") == 0 ||
+            imageToolStatus.find("Added") == 0 ||
             imageToolStatus.find("Reloaded") == 0 ||
             imageToolStatus.find("Texture reload queued") == 0;
         ImGui::TextColored(success
@@ -11911,7 +12834,7 @@ int WORKSPACE::drawObjectEditor() {
         for (int i = 0; i < (int)allObjects.size(); ++i) groupObjects.push_back(i);
     }
 
-    auto syncDstSelectionForObject = [&](int objectModelIndex, bool focusDstView) {
+    auto syncDstSelectionForObject = [&](int objectModelIndex, bool focusPreview) {
         const std::vector<SEObjectInstance>& allObjects = objectEditorModel.Objects();
         if (objectModelIndex < 0 || objectModelIndex >= (int)allObjects.size()) return;
         const SEObjectInstance& object = allObjects[objectModelIndex];
@@ -11939,11 +12862,12 @@ int WORKSPACE::drawObjectEditor() {
         } else {
             dst_view_scroll_request = selected_dst;
         }
-        if (focusDstView && wDstView) {
-            char dstWindowTitle[64];
-            FormatSEUIWindowTitle(dstWindowTitle, sizeof(dstWindowTitle),
-                SEUIWindowId::DstView, num);
-            ImGui::SetWindowFocus(dstWindowTitle);
+        if (focusPreview) {
+            wPreview = true;
+            char previewWindowTitle[64];
+            FormatSEUIWindowTitle(previewWindowTitle,
+                sizeof(previewWindowTitle), SEUIWindowId::Preview, num);
+            ImGui::SetWindowFocus(previewWindowTitle);
         }
     };
 
@@ -12534,7 +13458,9 @@ int WORKSPACE::drawObjectEditor() {
                         ImGui::TextUnformatted("Move Object");
                         ImGui::TextDisabled("%s", label);
                         ImGui::Separator();
-                        ImGui::TextDisabled("Drop above or below an Object in the same IF branch and file.");
+                        ImGui::TextDisabled("Drop above or below another Object.");
+                        ImGui::TextDisabled("A different IF branch becomes the new branch.");
+                        ImGui::TextDisabled("Moving to another include file asks for confirmation.");
                         ImGui::EndDragDropSource();
                     }
                     if (ImGui::BeginDragDropTarget()) {
@@ -12547,13 +13473,18 @@ int WORKSPACE::drawObjectEditor() {
                                 (reorderRowMin.y + reorderRowMax.y) * 0.5f;
                             const bool validTarget =
                                 CanReorderObject(sourceModelIndex, modelIndex);
+                            const bool confirmTarget = validTarget &&
+                                ObjectReorderRequiresConfirmation(
+                                    sourceModelIndex, modelIndex);
                             const float markerY = placeAfter
                                 ? reorderRowMax.y : reorderRowMin.y;
                             ImGui::GetWindowDrawList()->AddLine(
                                 ImVec2(reorderRowMin.x, markerY),
                                 ImVec2(reorderRowMax.x, markerY),
                                 ImGui::GetColorU32(validTarget
-                                    ? ImVec4(0.30f, 0.78f, 1.0f, 1.0f)
+                                    ? (confirmTarget
+                                        ? ImVec4(0.95f, 0.62f, 0.20f, 1.0f)
+                                        : ImVec4(0.30f, 0.78f, 1.0f, 1.0f))
                                     : ImVec4(0.95f, 0.32f, 0.32f, 1.0f)),
                                 2.0f);
                             if (payload->IsDelivery() && validTarget)

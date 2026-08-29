@@ -51,6 +51,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제, graphic ID 배정과 선택
   Object SRC에 대한 원자적 Asset 적용/Undo, `#IMAGE` 경로 교체/Undo, 이미지 상태
   진단, named grid Asset 일괄 등록/단일 Undo
+- `object-reorder`: 같은 파일 안의 IF/ELSEIF/ELSE 간 Object 이동과 확인 후 서로
+  다른 include 파일 간 소유권 이전, metadata/선택 보존 및 단일 Undo
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
 
 결과는 `.build\test-results\skineditor-self-tests.xml` JUnit 파일로 남는다. 테스트
@@ -354,16 +356,19 @@ $test.ExitCode
 - Undo 후 Preview object와 점멸 사각형 좌표가 일치하는지
 - PLAY의 `NOWJUDGE_1P/2P`, `NOWCOMBO_1P/2P`를 선택했을 때도 점멸
   사각형이 표시되고 DST 프레임 위치를 따라가는지
-- Object Browser에서 같은 파일·같은 Branch의 Object를 위/아래로 drag하면
-  SRC/DST와 `$SE_OBJECT_NAME/$SE_OBJECT_ID`가 함께 이동하는지
-- 다른 include 파일 또는 다른 IF/ELSEIF/ELSE Branch에 drop할 때 빨간 삽입선이
-  표시되고 문서가 바뀌지 않는지
+- Object Browser에서 같은 파일의 Object를 같은 Branch 또는 다른
+  IF/ELSEIF/ELSE Branch의 Object 위/아래로 drag하면 SRC/DST와
+  `$SE_OBJECT_NAME/$SE_OBJECT_ID`가 함께 이동하는지
+- 다른 include 파일의 Object에 drop할 때 주황색 삽입선과 확인창이 표시되는지.
+  Cancel하면 문서가 바뀌지 않고, 승인하면 SRC/DST와 `$SE_OBJECT_ID/NAME`의 파일
+  소유권이 대상 include로 바뀌는지
 - 재정렬 직후 선택/Inspector/Preview가 같은 Object를 유지하고 Ctrl+Z 한 번으로
   원래 CSV 순서가 복구되는지
 
 ### E. 선택 동기화
 
-- Object Browser 선택이 Inspector, DST View, Preview에 반영되는지
+- Object Browser 선택이 Inspector, DST View, Preview에 반영되면서 Preview 탭이
+  활성화되고 DST View가 포커스를 빼앗지 않는지
 - Object Browser, Preview, DST View 또는 Text Editor에서 Object를 선택하면
   Image Manager가 그 Object의 SRC crop으로 이동하고 atlas 위에 주황색 점멸
   사각형을 표시하는지
@@ -392,6 +397,7 @@ $test.ExitCode
 ### F. Preview 우클릭과 이미지 매핑
 
 - 서로 겹친 Object만 우클릭 목록에 나타나는지
+- 겹친 Object 목록이 LR2 draw order의 역순, 즉 화면 앞쪽 Object부터 표시되는지
 - 현재 op와 IF Branch가 성립하지 않는 Object는 제외되는지
 - 각 목록 thumbnail이 해당 Object의 SRC command/index와 일치하는지
 - hover한 항목의 얇은 노란 사각형이 실제 Object 위치인지
@@ -417,6 +423,13 @@ $test.ExitCode
 - `Image status`가 missing/unloadable 파일, bounds 밖 crop, 중복 crop, 미사용
   `$SRC_IMAGE`, Asset 없는 Object SRC와 다음/남은 gr slot을 표시하는지. 진단 행을
   누르면 대응 Asset 또는 Object 선택으로 이동하는지
+- `Add image...`에서 기존 이미지 파일을 선택하면 modal의 대상 목록에 gr 번호,
+  Fixed/Wildcard, IF group과 선언 경로가 표시되는지. `New fixed #IMAGE`는 마지막 gr에
+  새 선언과 전체 크기 `$SRC_IMAGE`를 등록하고 ImageManager/Asset Browser가 새 Asset을
+  선택해야 한다. 기존 fixed/wildcard gr는 선택 파일이 그 선언의 실제 후보일 때만
+  전체 크기 Asset을 추가하고 `#IMAGE` 수와 뒤쪽 gr 번호를 바꾸지 않아야 한다. 다른
+  fixed 파일이나 wildcard 비후보는 등록 버튼이 비활성화되어야 하며, 이미지가 없는
+  스킨에서도 새 trailing gr 흐름이 가능해야 한다.
 - Asset Browser가 `#SRC` crop을 썸네일 카드로 표시하고 검색/크기 조절이 되는지
 - Asset Browser card와 Image Manager crop 목록에 실제 사용 중인 고유 Object 수
   또는 `Unused`가 표시되는지. 한 Object의 중복 SRC를 두 번 세지 않는지
@@ -424,6 +437,15 @@ $test.ExitCode
   바뀌지 않는지
 - Object Browser의 활성/비활성 배경이 label 폭까지만 표시되고, 왼쪽 상태 stripe와
   중첩 IF Branch 행이 서로 겹치지 않아 이름을 읽을 수 있는지
+- Object Browser에서 같은 파일의 다른 IF/ELSEIF/ELSE Branch Object 위·아래로
+  drag하면 원본 Object 행과 `$SE_OBJECT_ID/NAME`이 대상 Branch 내부로 함께 이동하고,
+  조건 directive 자체는 유지되며 Ctrl+Z 한 번에 원래 Branch/순서로 돌아오는지
+- 서로 다른 include 파일 사이로 drop하면 확인 modal이 source/destination 파일을
+  보여주는지. Cancel은 무변경이어야 하며, 승인 후 Save하면 원본 파일에서 Object가
+  빠지고 대상 파일의 선택 Branch에 기록되며 Ctrl+Z 한 번으로 양쪽이 복원되는지
+- 파일 간 이동 후 Inspector가 `DST (1)`인 Object는 Preview에서 선택 Object의 실제
+  좌표에 파란 사각형 하나만 표시되는지. 인접 Object의 마지막 DST를 빨간 사각형으로
+  잘못 표시하지 않는지
 - OVER ACTiVE DX+ 7keys처럼 SRC가 1만 개 이상인 스킨에서 Object Browser와 Image
   Manager를 열고 scroll해도 화면 밖 행을 전부 제출할 때의 심한 입력 지연이 없는지.
   Object 선택 자동 scroll, hover, 우클릭, drag reorder도 그대로 동작하는지
@@ -477,11 +499,38 @@ $test.ExitCode
   덮어쓰지 않고 오류를 표시하는지
 - 생성 등록 후 root CSV의 `$FILE ... end` 직전에 `#IMAGE`와 full-size
   `$SRC_IMAGE`가 함께 들어가며 ImageManager/Asset Browser가 새 Asset을 선택하는지
-- 기존 IF/ELSEIF/ELSE 안의 gr 번호가 생성 전후 동일하고, 새 gr가 가장 긴 형제
-  branch 뒤의 마지막 번호로 배정되는지
+- 기존 IF/ELSEIF/ELSE 안의 gr 번호가 생성 전후 동일하고, 새 gr가 현재 OP에서
+  LR2가 실제 활성화한 `#IMAGE` 수로 배정되는지. tricoro처럼 1P/2P가 서로 배타적인
+  연속 `#IF` 블록이면 두 블록의 수를 합산하지 않고, 생성 Asset/썸네일은 바로 앞의
+  새 `#IMAGE` 선언을 가리키는지
 - `Merge image`가 선택 Asset crop 전체가 들어가는 첫 alpha=0 빈 영역을 자동으로
   찾아 합성하고, 빈 영역이 없으면 오른쪽/아래 확장 중 작은 canvas를 선택하는지
-- skin 폴더 안의 출력 파일은 CSV에 상대 경로, 바깥 파일은 절대 경로로 저장되는지
+- `GIF to sprite...`에서 동일 delay GIF와 서로 다른 delay GIF를 각각 변환하고,
+  부분 frame offset·투명도·disposal이 있는 GIF가 full canvas frame으로 올바르게
+  합성되는지. 기존 PNG 경로는 덮어쓰지 않아야 한다.
+- transparent color index가 있는 indexed GIF를 변환했을 때 해당 palette pixel이
+  WIC의 BGRA 변환 결과와 무관하게 출력 PNG에서 alpha 0으로 남는지
+- 서로 다른 delay가 안전하게 펼쳐지는 GIF는 modal의 cell 수가 delay 최대공약수에
+  따른 복제 수와 같고, 등록된 `$SRC_IMAGE`의 `div_x/div_y/cycle`이 표시된
+  grid/전체 시간과 일치하는지. 256 cell을 넘는 사례는 원본 frame 수와 timing 근사
+  경고를 사용해야 한다.
+- GIF를 CSV에 등록한 직후 Asset Browser에서 그 Asset을 Preview에 drop하면 New
+  Object의 `#SRC_IMAGE`에 같은 `div_x/div_y/cycle`이 자동 입력되는지
+- 이미지가 하나도 없는 스킨에서도 GIF 변환 modal을 열 수 있고, CSV 등록을 끄면
+  PNG만 생성되며 켜면 trailing gr의 `#IMAGE`와 animated full-size Asset이 함께
+  생기는지
+- 638x388·147 frame처럼 완성 BGRA sheet가 100MiB를 넘는 GIF도 대형 스킨을 연
+  Release Win32에서 4096x4096/16M pixel 안으로 자동 축소되어 변환되고, 등록 후 LR2
+  graphic handle이 유효한지. modal에는 원본 frame과 축소된 출력 frame 크기가 함께
+  보여야 하며 Asset을 Preview에 drop한 기본 DST는 원본 frame 크기를 유지해야 한다.
+  변환 실패 시 프로세스가 종료되는 대신 modal에 메모리/경로 오류가
+  표시되고 `.skineditor-gif.tmp`가 남지 않아야 한다.
+- 현재 스킨과 같은 LR2 설치의 `LR2files` 아래 출력 파일은 CSV에
+  `LR2files\...`로 저장되고 stock LR2에서도 유효한 graphic handle로 로드되는지.
+  LR2files 바깥이지만 skin 폴더 안인 파일의 fallback 상대 경로도 ImageManager와
+  Preview texture에서 올바르게 해석되는지
+- tricoro처럼 include Object를 선택한 상태에서 새 editor-only Asset을 drop해도
+  새 Object가 해당 Asset 선언 뒤에 배치되고 저장 전 Preview에 실제 texture가 보이는지
 - Asset Drop으로 연 New Object가 이전 도킹 위치가 아닌 화면 중앙 modal로 뜨고,
   내용이 길 때 내부 스크롤과 Cancel/닫기가 동작하는지
 - New Object가 DST를 자동 생성할 때 SRC의 `w=320, h=160, div_x=4, div_y=2`라면

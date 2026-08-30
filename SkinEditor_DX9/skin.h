@@ -43,6 +43,7 @@ struct LR2SEPreviewTimelineEvent {
 int LR2SEBuildPreviewChart(int type, LR2SEPreviewChartMode mode,
 	LR2SEPreviewChartNote* notes, int capacity);
 int LR2SEBuildPreviewTimeline(LR2SEPreviewTimelineEvent* events, int capacity);
+bool LR2SEShouldDrawStaticNormalSample(int sampleIndex, bool longNoteVisible);
 
 int LR2SESceneInitSafe(game* g, int type, LR2SEPreviewChartMode mode);
 int LR2SESceneProcSafe(game* g, int type, LR2SEPreviewChartMode mode);

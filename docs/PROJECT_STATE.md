@@ -411,6 +411,8 @@ measure event와 종료 sentinel을 넣는다. `Full`에서는 Rhythm timer 140�
 기록된 BPM과 measure event를 그대로 따른다. `flag_gameinput`은 legacy Draw loop가 drawing
 buffer마다 `ProcGame`을 중복 호출하지 않도록 꺼진 상태를 유지한다.
 PLAY Preview의 기본 HI-SPEED는 200이며 LR2 기본 허용 범위 10~900 안에서 동작한다.
+Start 전 정적 PLAY 배치에서는 LN 몸체 구간 안에 들어가 완전히 가려지는 단노트
+샘플을 생성하지 않는다. LN이 없거나 가로형 lane인 경우에는 기존 단노트 3개를 유지한다.
 
 Preview 우클릭은 해당 좌표와 겹치는 Object 중 현재 op와 IF Branch가 성립하는
 Object만 목록에 표시한다. 각 항목은 Object 모델의 대응 SRC 명령과 index를 찾아

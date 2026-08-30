@@ -574,6 +574,8 @@ $test.ExitCode
 - 로드 후 toolbar 해상도 modal에서도 같은 즉시 저장 정책이 적용되고 정상적으로
   재로드되는지
 - PLAY 무음 내장 chart note가 정상적으로 내려오는지
+- Start 전 PLAY 정적 Preview에서 LN 몸체 뒤에 가려지는 가운데 단노트가 표시되지
+  않고, LN이 없는 lane의 단노트 샘플은 그대로 유지되는지
 
 ### H. New 프리셋
 

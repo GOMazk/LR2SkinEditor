@@ -577,5 +577,14 @@ int RunPreviewSimulatorSelfTest() {
         GetTimeLapse(140, &rhythmTimer) != -1.0)
         return 24;
 
+    if (!LR2SEShouldDrawStaticNormalSample(0, true) ||
+        LR2SEShouldDrawStaticNormalSample(1, true) ||
+        !LR2SEShouldDrawStaticNormalSample(2, true))
+        return 25;
+    if (!LR2SEShouldDrawStaticNormalSample(1, false) ||
+        LR2SEShouldDrawStaticNormalSample(-1, false) ||
+        LR2SEShouldDrawStaticNormalSample(3, false))
+        return 26;
+
     return 0;
 }

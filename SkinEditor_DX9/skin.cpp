@@ -384,6 +384,23 @@ static constexpr double LR2SEPreviewBpm = 150.0;
 static constexpr unsigned int LR2SEPreviewChartDurationMs = 34000U;
 static constexpr unsigned int LR2SEPreviewMeasureIntervalMs =
 	(unsigned int)(60000.0 * 4.0 / LR2SEPreviewBpm);
+static constexpr float LR2SEStaticNormalSampleFractions[] = {
+	0.20f, 0.47f, 0.74f
+};
+static constexpr float LR2SEStaticLongNoteNearFraction = 0.42f;
+static constexpr float LR2SEStaticLongNoteFarFraction = 0.68f;
+
+bool LR2SEShouldDrawStaticNormalSample(int sampleIndex,
+	bool longNoteVisible) {
+	if (sampleIndex < 0 || sampleIndex >=
+		(int)(sizeof(LR2SEStaticNormalSampleFractions) /
+			sizeof(LR2SEStaticNormalSampleFractions[0])))
+		return false;
+	if (!longNoteVisible) return true;
+	const float fraction = LR2SEStaticNormalSampleFractions[sampleIndex];
+	return fraction < LR2SEStaticLongNoteNearFraction ||
+		fraction > LR2SEStaticLongNoteFarFraction;
+}
 
 int LR2SEBuildPreviewTimeline(LR2SEPreviewTimelineEvent* events, int capacity) {
 	if (!events || capacity <= 0) return 0;
@@ -1120,8 +1137,22 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 			const float screenAxis = (float)(g->skstruct.horizontal ? sizeX : sizeY);
 			const float laneTravel = laneAnchor > screenAxis * 0.35f
 				? laneAnchor : screenAxis * 0.75f;
-			for (int sample = 0; sample < 3; ++sample) {
-				const float shift = -laneTravel * (0.20f + sample * 0.27f);
+			SRCstruct* lnStart = g->skstruct.src_LN_START[i].graphcount > 0
+				? &g->skstruct.src_LN_START[i] : &g->skstruct.src_AUTO_LN_START[i];
+			SRCstruct* lnEnd = g->skstruct.src_LN_END[i].graphcount > 0
+				? &g->skstruct.src_LN_END[i] : &g->skstruct.src_AUTO_LN_END[i];
+			SRCstruct* lnBody = g->skstruct.src_LN_BODY[i].graphcount > 0
+				? &g->skstruct.src_LN_BODY[i] : &g->skstruct.src_AUTO_LN_BODY[i];
+			const bool longNoteVisible = !g->skstruct.horizontal &&
+				lnStart->graphcount > 0 && lnEnd->graphcount > 0 &&
+				lnBody->graphcount > 0;
+			for (int sample = 0; sample <
+				(int)(sizeof(LR2SEStaticNormalSampleFractions) /
+					sizeof(LR2SEStaticNormalSampleFractions[0])); ++sample) {
+				if (!LR2SEShouldDrawStaticNormalSample(sample, longNoteVisible))
+					continue;
+				const float shift = -laneTravel *
+					LR2SEStaticNormalSampleFractions[sample];
 				AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, laneSample,
 					&g->skstruct.dst_NOTE[i], &g->timer1,
 					g->skstruct.horizontal ? shift : 0.0f,
@@ -1138,18 +1169,11 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 					g->skstruct.horizontal ? 0.0f : shift, 255, 0, 0, 1);
 			}
 
-			if (!g->skstruct.horizontal) {
-				SRCstruct* lnStart = g->skstruct.src_LN_START[i].graphcount > 0
-					? &g->skstruct.src_LN_START[i] : &g->skstruct.src_AUTO_LN_START[i];
-				SRCstruct* lnEnd = g->skstruct.src_LN_END[i].graphcount > 0
-					? &g->skstruct.src_LN_END[i] : &g->skstruct.src_AUTO_LN_END[i];
-				SRCstruct* lnBody = g->skstruct.src_LN_BODY[i].graphcount > 0
-					? &g->skstruct.src_LN_BODY[i] : &g->skstruct.src_AUTO_LN_BODY[i];
-				if (lnStart->graphcount > 0 && lnEnd->graphcount > 0 && lnBody->graphcount > 0)
-					AddDrawingBuffer_LN(&g->skstruct.drBuf, lnStart, lnEnd, lnBody,
-						&g->skstruct.dst_NOTE[i], &g->timer1, 0.0f,
-						-laneTravel * 0.42f, -laneTravel * 0.68f, 210, 0, 0);
-			}
+			if (longNoteVisible)
+				AddDrawingBuffer_LN(&g->skstruct.drBuf, lnStart, lnEnd, lnBody,
+					&g->skstruct.dst_NOTE[i], &g->timer1, 0.0f,
+					-laneTravel * LR2SEStaticLongNoteNearFraction,
+					-laneTravel * LR2SEStaticLongNoteFarFraction, 210, 0, 0);
 		}
 
 		g_previewRenderStage = "SELECT_STATIC";

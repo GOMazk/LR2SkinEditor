@@ -2424,7 +2424,8 @@ int WORKSPACE::ParseSkinGraphics() {
                                 FindClose(hFindFile);
                                 return -1;
                             }
-                            if (str2.body) resolvedPath.add(str2.outstr());
+
+                            //if (str2.body) resolvedPath.add(str2.outstr()); //FIXME
                             SRCGR* tmp2 = (SRCGR*)(arr_SRCGR.Get_new());
                             tmp2->path.assign(resolvedPath.outstr());
                             tmp2->filename.assign(wildcardValue.c_str());

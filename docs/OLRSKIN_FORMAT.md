@@ -379,9 +379,12 @@ so repeated Import and Save OLRskin operations do not accumulate markers.
 When flattening, a file-local `#ELSE`, `#ELSEIF` or `#ENDIF` with no matching
 file-local `#IF` is preserved as a non-executable `$OLR_IGNORED_CONTROL`
 comment. Any file-local `#IF` still open at the end marker is closed with a
-synthetic `#ENDIF`. This makes the flat script preserve the same condition
-scope when it is materialized for LR2, where `$OLR_FILE` comments themselves
-have no execution semantics.
+synthetic `#ENDIF`. This keeps the editor's flat Preview stack file-local.
+When a compatibility fallback is materialized for LR2, the marker bodies are
+instead written as generated sibling CSVs and replaced by `#INCLUDE` rows.
+This physical boundary is required because LR2 checks only its innermost nested
+IF switch; comments alone cannot stop an active child `#IF` from reactivating
+rows inside an inactive parent branch.
 
 The same compatibility main also normalizes resolution without removing a
 physical row. The first `#INFORMATION` receives the OLR canvas in fields 6 and

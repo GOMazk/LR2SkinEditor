@@ -31,6 +31,12 @@ Entry points:
   ineligible workspace writes the flattened compatibility script. Both paths
   remove case/slash variants of `vfs/LR2files`, root LR2 process-relative
   header/custom/help paths, and reject computer-local absolute declarations.
+  Before writing a compatibility fallback, the materializer turns every
+  `$OLR_FILE start/end` boundary back into a generated CSV `#INCLUDE`. LR2 then
+  evaluates the child with its own IF stack, so an inactive/right parent cannot
+  be reactivated by a child `#IF` and overwrite the selected lane-0
+  `#DST_NOTE`. This also preserves orphan or unclosed child controls exactly as
+  LR2 handled them in the original file graph.
 - `SEResolveSkinResourcePath()` maps LR2-rooted declarations to either a real
   LR2 tree, a standalone theme folder or an imported `vfs/` workspace without
   mutating source rows.
@@ -115,7 +121,9 @@ Tests: run `--self-test-olr-package`, normally through `scripts/test.ps1`. The
 package fixture round-trips an explicitly constructed two-part document and its
 manifest counts, preserves an empty numeric zero token, and proves that an
 unchanged original main plus include file survives LR2 materialization while an
-edited compatibility script forces the safe fallback. It also feeds an active
+edited compatibility script forces the safe fallback. The fallback fixture
+also proves that generated child CSVs isolate an orphan `#ELSE` and an open
+child `#IF` from the parent Scratch side branches. It also feeds an active
 width/height `#RESOLUTION` row through package and original-main materialization
 and verifies that only the `#INFORMATION` canvas remains executable. Mixed-case
 virtual paths are removed from the main/include graph, and LR2's own

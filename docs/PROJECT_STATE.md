@@ -77,7 +77,10 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
   main은 LR2가 실제 검색하는 `LR2files/Theme|Sound` 아래 `.lr2skin|.lr2ss`만 허용하며
   설치 위치를 적은 `INSTALL.txt`를 함께 만든다. V0.9 무편집 왕복이면 복사된 모든
   main/include script에도 같은 경로 규칙을 적용하고, 편집 또는 고정 asset 재배치가
-  있으면 compatibility main으로 안전하게 전환
+  있으면 compatibility main으로 안전하게 전환한다. 이 fallback은 V0.8 등 기존
+  workspace의 `$OLR_FILE start/end`를 생성 CSV `#INCLUDE`로 복원한다. LR2가 child를
+  별도 IF stack으로 다시 읽으므로 비활성 Right 분기 안의 child `#IF`가 살아나 lane 0
+  `#DST_NOTE`를 덮지 않고, 고아/미종료 child 조건도 원래 파일 경계를 넘지 않는다.
 
 주의할 항목:
 
@@ -192,8 +195,10 @@ authority로 처리한다. legacy flat Object를 V0.9 part로 재해석하지 �
 평탄화된 include 본문은 경로가 없는 `$OLR_FILE start/end`로 감싸 원래 파일별
 IF/ELSE stack을 유지한다. 따라서 include 안의 짝 없는 `#ELSE`가 main의 1P/2P
 wrapper 조건을 소비하거나 반대편 Object를 활성화하지 않는다. LR2 폴더로 내보낸
-평탄 script에서도 같은 의미가 유지되도록 짝 없는 child control row는 비실행
-`$OLR_IGNORED_CONTROL` comment로 바꾸고, 파일 끝에 남은 child `#IF`는 닫는다.
+compatibility fallback은 marker 본문을 sibling CSV로 쓰고 main에는 실제 `#INCLUDE`를
+복원한다. LR2 parser는 중첩 조건에서 가장 안쪽 IF만 검사하므로, 평탄 script를 그대로
+주면 비활성 2P/Right 분기의 child `#IF`가 다시 활성화되어 뒤쪽 lane 0을 덮을 수 있다.
+생성 include의 독립 IF stack은 이 누출을 원본과 같은 방식으로 차단한다.
 다만 무편집 V0.9 package는 평탄 script를 LR2 main에 덮어쓰지 않는다. package의
 baseline과 Import 후 compatibility script가 byte-identical이고, 기록된 main이
 `vfs`에 있으며 고정 `assets` 재배치가 필요 없을 때 원본 include-based main을 설치한다.

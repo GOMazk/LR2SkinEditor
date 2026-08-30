@@ -2361,6 +2361,74 @@ std::string TrimAsciiWhitespace(const std::string& value) {
     return value.substr(begin, end - begin);
 }
 
+struct PreparedOlrIncludeScope {
+    std::string fileName;
+    std::string script;
+};
+
+struct OlrIncludeScopeFrame {
+    int scopeIndex = -1;
+    std::string script;
+};
+
+bool RestoreOlrIncludeScopesForLr2(const std::string& script,
+    std::string& preparedMain,
+    std::vector<PreparedOlrIncludeScope>& preparedIncludes,
+    std::string& errorMessage) {
+    preparedMain.clear();
+    preparedIncludes.clear();
+    errorMessage.clear();
+
+    // LR2 evaluates every #INCLUDE with a fresh IF stack, and its nested IF
+    // reader checks only the innermost switch. A flattened child #IF can
+    // therefore reactivate rows inside an inactive parent side branch. Restore
+    // real include files so LR2 gates the include call before opening the child
+    // and lane 0 cannot be overwritten by the later/right-side branch.
+    std::vector<OlrIncludeScopeFrame> frames(1);
+    const std::vector<PreservedScriptLine> lines =
+        SplitPreservedScriptLines(script);
+    for (const PreservedScriptLine& sourceLine : lines) {
+        const std::string trimmed = TrimAsciiWhitespace(sourceLine.content);
+        if (!_stricmp(trimmed.c_str(), "$OLR_FILE start")) {
+            char generatedName[64];
+            snprintf(generatedName, sizeof(generatedName),
+                "_olr_include_%04u.csv",
+                static_cast<unsigned int>(preparedIncludes.size() + 1));
+            PreparedOlrIncludeScope includeScope;
+            includeScope.fileName = generatedName;
+            preparedIncludes.push_back(std::move(includeScope));
+
+            frames.back().script += "#INCLUDE,";
+            frames.back().script += generatedName;
+            frames.back().script += sourceLine.ending.empty()
+                ? std::string("\r\n") : sourceLine.ending;
+            OlrIncludeScopeFrame child;
+            child.scopeIndex = static_cast<int>(preparedIncludes.size() - 1);
+            frames.push_back(std::move(child));
+            continue;
+        }
+        if (!_stricmp(trimmed.c_str(), "$OLR_FILE end")) {
+            if (frames.size() <= 1) {
+                errorMessage = "The OLR compatibility script has an unmatched file-scope end marker.";
+                return false;
+            }
+            OlrIncludeScopeFrame completed = std::move(frames.back());
+            frames.pop_back();
+            preparedIncludes[static_cast<size_t>(completed.scopeIndex)].script =
+                std::move(completed.script);
+            continue;
+        }
+        frames.back().script += sourceLine.content;
+        frames.back().script += sourceLine.ending;
+    }
+    if (frames.size() != 1) {
+        errorMessage = "The OLR compatibility script has an unterminated file-scope marker.";
+        return false;
+    }
+    preparedMain = std::move(frames.front().script);
+    return true;
+}
+
 bool IsSafeRelativeLr2Path(const std::string& value) {
     if (value.empty() || value.front() == '/' || value.find(':') !=
         std::string::npos)
@@ -3537,12 +3605,34 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
     if (!SEPrepareLr2ExportResolution(script, exportResolution.width,
         exportResolution.height, compiledScript, errorMessage))
         return false;
+    std::vector<PreparedOlrIncludeScope> preparedIncludes;
+    std::string includeRestoredMain;
+    if (!RestoreOlrIncludeScopesForLr2(compiledScript, includeRestoredMain,
+        preparedIncludes, errorMessage))
+        return false;
+    compiledScript = std::move(includeRestoredMain);
     std::string portableCompiledScript;
     int compiledRewriteCount = 0;
     if (!PreparePortableLr2Script(compiledScript, exportMain,
         portableCompiledScript, compiledRewriteCount, errorMessage))
         return false;
     compiledScript = std::move(portableCompiledScript);
+    const size_t exportMainSlash = exportMain.find_last_of('/');
+    const std::string exportMainDirectory = exportMainSlash ==
+        std::string::npos ? std::string() :
+        exportMain.substr(0, exportMainSlash);
+    for (PreparedOlrIncludeScope& includeScope : preparedIncludes) {
+        const std::string logicalIncludePath = exportMainDirectory + "/" +
+            includeScope.fileName;
+        std::string portableInclude;
+        int includeRewriteCount = 0;
+        if (!PreparePortableLr2Script(includeScope.script,
+            logicalIncludePath, portableInclude, includeRewriteCount,
+            errorMessage))
+            return false;
+        includeScope.script = std::move(portableInclude);
+        compiledRewriteCount += includeRewriteCount;
+    }
 
     const std::filesystem::path compatibilityBaselinePath = workspace /
         std::filesystem::path(kCompatibilityBaselineEntry).filename();
@@ -3670,17 +3760,43 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
             }
             if (!exportInfo.preservedOriginalMain) {
                 std::filesystem::create_directories(compiledMain.parent_path(), filesystemError);
-                FILE* output = filesystemError ? nullptr : OpenFile(compiledMain.string().c_str(), "wb");
-                bool writeOk = output != nullptr;
-                if (writeOk && fwrite(compiledScript.data(), 1, compiledScript.size(), output) !=
-                    compiledScript.size())
-                    writeOk = false;
-                if (output && fclose(output) != 0) writeOk = false;
-                if (!writeOk) {
+                if (filesystemError) {
                     errorMessage = "The compiled LR2 main skin could not be written.";
                     ok = false;
                 }
-                else exportInfo.mainSkinPath = compiledMain.string();
+                for (const PreparedOlrIncludeScope& includeScope :
+                    preparedIncludes) {
+                    if (!ok) break;
+                    const std::filesystem::path includePath =
+                        compiledMain.parent_path() / includeScope.fileName;
+                    std::error_code includeError;
+                    if (std::filesystem::exists(includePath, includeError) ||
+                        includeError) {
+                        errorMessage = "A generated LR2 include would replace an existing skin file: " +
+                            includeScope.fileName;
+                        ok = false;
+                        break;
+                    }
+                }
+                for (const PreparedOlrIncludeScope& includeScope :
+                    preparedIncludes) {
+                    if (!ok) break;
+                    const std::filesystem::path includePath =
+                        compiledMain.parent_path() / includeScope.fileName;
+                    if (!WriteTextFileAtomic(includePath, includeScope.script,
+                        errorMessage)) {
+                        errorMessage = "A generated LR2 include could not be written: " +
+                            includeScope.fileName + ". " + errorMessage;
+                        ok = false;
+                    }
+                }
+                if (ok && !WriteTextFileAtomic(compiledMain, compiledScript,
+                    errorMessage)) {
+                    errorMessage = "The compiled LR2 main skin could not be written. " +
+                        errorMessage;
+                    ok = false;
+                }
+                if (ok) exportInfo.mainSkinPath = compiledMain.string();
             }
         }
     }

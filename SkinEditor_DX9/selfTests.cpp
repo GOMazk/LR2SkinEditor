@@ -1186,6 +1186,91 @@ int RunOlrPackageSelfTest() {
                 editedBytes == originalMain)
                 result = 93;
         }
+
+        if (result == 0) {
+            // V0.8 workspaces retain flattened file-scope markers.
+            // Materialization must recreate real LR2 includes and their fresh
+            // IF stacks so a child orphan #ELSE cannot consume the
+            // parent Scratch Left/Right customization branch. In LR2 the
+            // orphan child #ELSE is ignored because each #INCLUDE starts with
+            // a fresh IF stack; after flattening it must not hide P1 lane 0.
+            const std::string scopeScript =
+                "#INFORMATION,0,Scope test,SkinEditor,,,1280,720\r\n"
+                "#CUSTOMOPTION,Scratch,901,Left,Right\r\n"
+                "#ENDOFHEADER\r\n"
+                "#IF,901\r\n"
+                "$OLR_FILE start\r\n"
+                "#ELSE\r\n"
+                "#DST_NOTE,0,0,96,640,112,24,0,255\r\n"
+                "$OLR_FILE end\r\n"
+                "#ENDIF\r\n"
+                "#IF,902\r\n"
+                "$OLR_FILE start\r\n"
+                "#DST_NOTE,0,0,1072,640,112,24,0,255\r\n"
+                "#IF,100\r\n"
+                "#IMAGE,dummy\r\n"
+                "$OLR_FILE end\r\n"
+                "#ENDIF\r\n";
+            std::ofstream scopeWorkspaceMain(preservationMain,
+                std::ios::binary | std::ios::trunc);
+            scopeWorkspaceMain.write(scopeScript.data(), scopeScript.size());
+            if (!scopeWorkspaceMain) result = 103;
+            scopeWorkspaceMain.close();
+
+            const std::string scopeMaterializedPath =
+                root + "\\scope-materialized";
+            SEOLRLr2ExportInfo scopeExportInfo;
+            if (result == 0 && !SEExportOLRWorkspaceToLR2(
+                preservationMain.c_str(), scopeMaterializedPath.c_str(),
+                scopeExportInfo, errorMessage))
+                result = 104;
+            if (result == 0) {
+                std::ifstream scopeMain(scopeExportInfo.mainSkinPath,
+                    std::ios::binary);
+                const std::string scopeBytes(
+                    (std::istreambuf_iterator<char>(scopeMain)),
+                    std::istreambuf_iterator<char>());
+                const std::filesystem::path scopeMainDirectory =
+                    std::filesystem::path(scopeExportInfo.mainSkinPath).
+                        parent_path();
+                std::ifstream leftInclude(scopeMainDirectory /
+                    "_olr_include_0001.csv", std::ios::binary);
+                const std::string leftIncludeBytes(
+                    (std::istreambuf_iterator<char>(leftInclude)),
+                    std::istreambuf_iterator<char>());
+                std::ifstream rightInclude(scopeMainDirectory /
+                    "_olr_include_0002.csv", std::ios::binary);
+                const std::string rightIncludeBytes(
+                    (std::istreambuf_iterator<char>(rightInclude)),
+                    std::istreambuf_iterator<char>());
+                const size_t leftBranch = scopeBytes.find("#IF,901");
+                const size_t rightBranch = scopeBytes.find("#IF,902");
+                if (!scopeMain || leftBranch == std::string::npos ||
+                    rightBranch == std::string::npos ||
+                    leftBranch >= rightBranch ||
+                    scopeBytes.find(
+                        "#INCLUDE,_olr_include_0001.csv\r\n") ==
+                            std::string::npos ||
+                    scopeBytes.find(
+                        "#INCLUDE,_olr_include_0002.csv\r\n") ==
+                            std::string::npos ||
+                    scopeBytes.find("$OLR_FILE") != std::string::npos ||
+                    scopeBytes.find("#DST_NOTE,0") != std::string::npos ||
+                    !leftInclude || !rightInclude ||
+                    leftIncludeBytes.find("#ELSE\r\n") ==
+                            std::string::npos ||
+                    leftIncludeBytes.find(
+                        "#DST_NOTE,0,0,96,640,112,24,0,255\r\n") ==
+                            std::string::npos ||
+                    rightIncludeBytes.find(
+                        "#DST_NOTE,0,0,1072,640,112,24,0,255\r\n") ==
+                            std::string::npos ||
+                    rightIncludeBytes.find("#IF,100\r\n") ==
+                        std::string::npos ||
+                    rightIncludeBytes.find("#ENDIF") != std::string::npos)
+                    result = 105;
+            }
+        }
     }
 
     if (result == 0) {
@@ -1320,6 +1405,16 @@ int RunOlrPackageSelfTest() {
             externalImportPath.c_str(), externalMain, externalInfo,
             errorMessage) || externalMain.empty())
             result = 43;
+        bool externalHadFileScopes = false;
+        if (result == 0) {
+            std::ifstream externalSource(externalMain, std::ios::binary);
+            const std::string externalSourceBytes(
+                (std::istreambuf_iterator<char>(externalSource)),
+                std::istreambuf_iterator<char>());
+            if (!externalSource) result = 106;
+            else externalHadFileScopes = externalSourceBytes.find(
+                "$OLR_FILE start") != std::string::npos;
+        }
         SEOLRLr2ExportInfo externalExportInfo;
         if (result == 0 && externalInfo.formatVersion >= 2 &&
             !SEExportOLRWorkspaceToLR2(externalMain.c_str(),
@@ -1343,6 +1438,20 @@ int RunOlrPackageSelfTest() {
                 lowerExportedBytes.find("vfs/lr2files/") != std::string::npos ||
                 lowerExportedBytes.find("vfs\\lr2files\\") != std::string::npos)
                 result = 69;
+            if (result == 0 && externalHadFileScopes &&
+                !externalExportInfo.preservedOriginalMain) {
+                const std::filesystem::path generatedInclude =
+                    std::filesystem::path(externalExportInfo.mainSkinPath).
+                        parent_path() / "_olr_include_0001.csv";
+                std::error_code includeError;
+                if (exportedBytes.find("$OLR_FILE") != std::string::npos ||
+                    exportedBytes.find(
+                        "#INCLUDE,_olr_include_0001.csv") ==
+                            std::string::npos ||
+                    !std::filesystem::is_regular_file(generatedInclude,
+                        includeError) || includeError)
+                    result = 107;
+            }
         }
     }
 

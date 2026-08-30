@@ -2250,7 +2250,7 @@ int WORKSPACE::ParseSkinGraphics() {
 
     auto appendGraphic = [&](const CSTR& path, const char* filename,
         const SKINFILELINEREAD& declaration, int declarationRow,
-        bool fromWildcard) -> bool {
+        int graphicId, bool fromWildcard) -> bool {
         SRCGR* graphic = (SRCGR*)arr_SRCGR.Get_new();
         if (!graphic) {
             WriteSkinLoadLog("ParseSkin graphic allocation failed");
@@ -2260,7 +2260,7 @@ int WORKSPACE::ParseSkinGraphics() {
         if (filename && *filename) graphic->filename.assign(filename);
         graphic->fromWildcard = fromWildcard;
         graphic->wildcard = fromWildcard;
-        graphic->grID = grCount;
+        graphic->grID = graphicId;
         graphic->isIf = declaration.ifgroup;
         graphic->declare = declarationRow;
         return true;
@@ -2314,13 +2314,6 @@ int WORKSPACE::ParseSkinGraphics() {
                 mainpath, resolvedPath))
                 line.assign(resolvedPath.c_str());
 
-            const int wildcardPosition = line.findStrPos("*");
-            if (wildcardPosition < 0) {
-                char* cur = strrchr(read.csv.str[1].outstr(), '/');
-                if (cur == NULL) cur = strrchr(read.csv.str[1].outstr(), '\\');
-                const char* filename = cur ? cur + 1 : read.csv.str[1].outstr();
-                if (!appendGraphic(line, filename, read, i, false)) return -1;
-            }
             // Generated images carry an editor-only full-image Asset directly
             // after their #IMAGE row. Its gr value is the active LR2 slot,
             // which can differ from grCount when earlier mutually exclusive
@@ -2342,38 +2335,14 @@ int WORKSPACE::ParseSkinGraphics() {
                 }
             }
 
-            bool isWild = false;
-
-            for (int wc = 0; wc < arr_CustomFile.count; wc++) {
-                if (line.isSame(((CSTR*)arr_CustomFile.data)[wc].outstr())) {
-                    isWild = true;
-                    break;
-                }
-            }
-            if (strrchr(line.outstr(), '*')) isWild = true;
-
-            const std::string resolvedDeclaration =
-                ResolveSkinImageDeclarationPath(line.outstr(),
-                    read.filename.body ? read.filename.outstr() : mainpath,
-                    mainpath);
-            if (!resolvedDeclaration.empty())
-                line.assign(resolvedDeclaration.c_str());
-
-            if (!isWild) {
-                SRCGR* tmp = (SRCGR*)(arr_SRCGR.Get_new());
-                tmp->path.assign(line);
-                
+            const int wildcardPosition = line.findStrPos("*");
+            if (wildcardPosition < 0) {
                 char* cur = strrchr(read.csv.str[1].outstr(), '/');
                 if (cur == NULL) cur = strrchr(read.csv.str[1].outstr(), '\\');
-                if (cur) tmp->filename.assign(cur + 1);
-                else if (line.body) tmp->filename.assign(line.outstr());
-
-                tmp->grID = logicalGraphicId;
-                tmp->isIf = read.ifgroup;
-                tmp->declare = i;
-                tmp->wildcard = false;
+                const char* filename = cur ? cur + 1 : read.csv.str[1].outstr();
+                if (!appendGraphic(line, filename, read, i,
+                    logicalGraphicId, false)) return -1;
             }
-
             else {
                 WIN32_FIND_DATA FindFileData;
                 HANDLE hFindFile;
@@ -2420,20 +2389,11 @@ int WORKSPACE::ParseSkinGraphics() {
                             if (wildcardSuffix.body)
                                 resolvedPath.add(wildcardSuffix.outstr());
                             if (!appendGraphic(resolvedPath,
-                                wildcardValue.c_str(), read, i, true)) {
+                                wildcardValue.c_str(), read, i,
+                                logicalGraphicId, true)) {
                                 FindClose(hFindFile);
                                 return -1;
                             }
-
-                            //if (str2.body) resolvedPath.add(str2.outstr()); //FIXME
-                            SRCGR* tmp2 = (SRCGR*)(arr_SRCGR.Get_new());
-                            tmp2->path.assign(resolvedPath.outstr());
-                            tmp2->filename.assign(wildcardValue.c_str());
-
-                            tmp2->fromWildcard = true;
-                            tmp2->grID = logicalGraphicId;
-                            tmp2->isIf = read.ifgroup;
-                            tmp2->declare = i;
                         }
                     } while (FindNextFileA(hFindFile, (LPWIN32_FIND_DATAA)&FindFileData));
                     FindClose(hFindFile);

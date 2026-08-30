@@ -561,13 +561,15 @@ static bool LR2SEPreviewFileExists(const char* path) {
 
 int LR2SEGetSamplePreviewScratchSide(int type, int scratchSide1,
 	int scratchSide2) {
-	// Match LR2's Skin Select PlayPreviewSample path. Exact 5-key battle is the
-	// only bundled sample preview that inherits the skin's scratch-side flags;
-	// the native 14-key sample is parsed with zero even when the skin declares
-	// its 2P scratch on the right.
-	if (type == SKINTYPE_5KEYSBATTLE)
-		return scratchSide1 + scratchSide2 * 2;
-	return 0;
+	// Among the matching sample charts used by Preview, ProcS_Play only asks
+	// the BMS loader to rotate key lanes for a 5-key battle skin. In
+	// particular, a native
+	// 7-key chart keeps lanes 1..7 unchanged even when lane 0 (scratch) is
+	// drawn on the right. Passing #SCRATCHSIDE for every Preview type rotated
+	// only the notes while key-beam timers 101..107 retained their LR2 lane
+	// identity, so right-scratch 7-key skins displayed mismatched beams.
+	if (type != SKINTYPE_5KEYSBATTLE) return 0;
+	return scratchSide1 + scratchSide2 * 2;
 }
 
 static int LR2SEPopulateSamplePreviewChart(game* g, int type) {

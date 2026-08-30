@@ -5,16 +5,30 @@ container without losing commands that do not yet have a semantic model.
 
 Entry points:
 
-- `SEWriteOLRSkinPackage()` writes the V0.7 manifest, semantic/Object index,
-  Layout/Animation/Condition data, Simple Mode slots, source/path maps, merged
-  LR2 script, captured virtual roots and fixed external images.
-- `SEInspectOLRSkinPackage()` validates and lists a package without writing.
+- `SEWriteOLRSkinPackage()` writes the V0.9 manifest, nested Object/part/
+  destination index, Layout/Animation/Condition data, Simple Mode slots,
+  source/path maps, merged LR2 script, captured virtual roots and fixed external
+  images. When safe, it also records the unchanged compatibility baseline and
+  original-main preservation marker. The package boundary writes the canvas to
+  `#INFORMATION` fields 6/7 and neutralizes active `#RESOLUTION` rows without
+  changing compiler row addresses.
+- `SEInspectOLRSkinPackage()` validates and lists a package without writing. For
+  V0.8+ it cross-checks semantic/Simple Mode counts with `skin.json`, asset/file
+  counts with the archive, and the matching versioned document authorities.
 - `SECompileOLRSimpleMode()` validates V0.4 Simple Mode rows and compiles only
   source atlas fields while preserving every unsupported LR2 row and column.
-- `SEExtractOLRSkinPackage()` extracts the `lr2/` subtree, compiles V0.4 Simple
-  Mode in memory, then atomically replaces the new `main.lr2skin`.
+- `SECompileOLRSemantics()` dispatches the declared Objects authority. V0.8 and
+  V0.9 validate nested source-bound parts; V0.9 changes only fields whose LR2
+  integer value differs, so empty zero tokens and legacy spellings survive a
+  no-edit round trip. V0.1-V0.7 keep their existing parser/authority behavior.
+- `SEExtractOLRSkinPackage()` extracts the `lr2/` subtree, compiles the declared
+  Simple Mode/Object authorities in memory, then atomically replaces the new
+  `main.lr2skin`.
 - `SEExportOLRWorkspaceToLR2()` materializes an imported workspace into a new
-  install-ready `LR2files/` tree and restores virtual CSV path fields.
+  install-ready `LR2files/` tree. An unchanged V0.9 workspace keeps the copied
+  original include-based main after applying the same safe resolution-header
+  rule; an edited or ineligible workspace writes the flattened compatibility
+  script with restored virtual CSV path fields.
 - `SEResolveSkinResourcePath()` maps LR2-rooted declarations to either a real
   LR2 tree, a standalone theme folder or an imported `vfs/` workspace without
   mutating source rows.
@@ -32,10 +46,36 @@ Entry points:
 Important invariants:
 
 - `skinfileLines` and `SEObjectEditorModel` remain authoritative while editing.
-- V0.7 `skin.json.objects` owns the first supported destination family Layout,
-  Animation and Condition fields. V0.4 `skin.json.simple_mode` owns only `gr`,
-  crop, division and cycle fields of validated source rows. Alternate families,
-  unsupported rows and control flow remain compatibility-owned.
+- OLR's unresolved canvas default is HD 1280x720. Explicit or TenRiff-inferred
+  SD/HD/FHD remains unchanged. Both package and install-ready LR2 output use
+  `#INFORMATION` fields 6/7 as the active resolution authority; separate
+  `#RESOLUTION` rows are retained only as inert
+  `$OLR_IGNORED_RESOLUTION` compatibility rows because affected LR2 skin-list
+  parsers can corrupt the next slot when they encounter the active command.
+- V0.9 `skin.json.objects` uses authority
+  `lr2-destination-parts-v0.9`. Each item owns ordered `parts`; each part records
+  exact source rows and independently compiled consecutive destination-command
+  runs. V0.4
+  `skin.json.simple_mode` still owns only `gr`, crop, division and cycle fields
+  of validated source rows. Unsupported rows and control flow remain
+  compatibility-owned.
+- part boundaries follow packaged row order: consecutive sources before the
+  first destination stay together, while a source after a destination starts a
+  new part. This keeps NOTE multi-source declarations together and splits the
+  real kamh BUTTON `SRC/DST/SRC/DST` sequence into two parts. It does not infer
+  variants or link IF/ELSE branches. A supported destination before any source
+  may create a source-less part; parts without a supported destination stay raw
+  and are not serialized as empty semantic items.
+- condition `timer` and `loop` are compatibility-preserved when null. Every
+  owned OP term names one unique slot 1..3, and an omitted slot is preserved.
+- semantic and Simple Mode compilers compare parsed LR2 integer values before
+  writing. An empty numeric token is an unchanged zero, not a request to
+  normalize the source row to textual `0`.
+- original-main preservation is capability-based: both hidden baseline/marker
+  files must exist, the current compatibility script must match the baseline,
+  the recorded main must exist in `vfs/`, and no fixed `assets/` relocation may
+  be required. Otherwise export deliberately falls back to the compatibility
+  script so an edit is never discarded.
 - legacy source crops with non-positive dimensions are compatibility-owned:
   new exports omit them from `simple_mode`, and import of an older package
   leaves their original LR2 row raw instead of failing the whole document.
@@ -51,15 +91,34 @@ Important invariants:
 - destination schemas are compiler contracts. In particular,
   `#DST_BARGRAPH` keeps `(NULL),time,...,loop,timer,op1,op2,op3`; changing that
   order breaks M.H-style player visibility conditions.
+- V0.1-V0.8 imports keep their version-specific parser and authority; legacy
+  flat Objects are never guessed into V0.9 parts.
+- the current package writer serializes supported fields and does not preserve
+  unknown manifest or `skin.json` extensions on `Save OLRskin`. Extension
+  namespacing and passthrough are a future format-policy decision.
 - import never overwrites an existing directory and never uses original owner
   paths from the source map.
 - the source package association is local Workspace state. It is set only after
   successful import/save, cleared at the next document load and never embedded
   into the package or LR2 export.
 - LR2 export accepts only an imported V0.2+ workspace and a non-existing target;
-  it copies both virtual roots and fixed `assets/` beside the compiled main skin,
-  and never writes directly into a user's LR2 installation.
+  it copies virtual roots and any fixed `assets/`, selects the safe original or
+  compatibility main as described above, and never writes directly into a
+  user's LR2 installation.
 - archive writes use a temporary file followed by atomic replacement.
 
-Tests: run `--self-test-olr-package`, normally through `scripts/test.ps1`.
+Tests: run `--self-test-olr-package`, normally through `scripts/test.ps1`. The
+package fixture round-trips an explicitly constructed two-part document and its
+manifest counts, preserves an empty numeric zero token, and proves that an
+unchanged original main plus include file survives LR2 materialization while an
+edited compatibility script forces the safe fallback. It also feeds an active
+width/height `#RESOLUTION` row through package and original-main materialization
+and verifies that only the `#INFORMATION` canvas remains executable. Direct
+compiler fixtures cover explicit multi-source and
+two-part addresses, partial condition ownership and the retained V0.7 flat
+authority. They do not call `WORKSPACE::ExportOlrSkin()`, so real kamh BUTTON
+and NOTE row-to-part derivation remains a manual regression. Set
+`SKINEDITOR_TEST_OLR_PACKAGE` to an actual saved kamh package for the optional
+production-import regression; the test extracts only to its temporary folder
+and does not assert the skin-specific part layout.
 Format and limitations: `../docs/OLRSKIN_FORMAT.md`.

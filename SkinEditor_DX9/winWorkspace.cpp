@@ -134,6 +134,21 @@ static bool ResolveSiblingPlayPath(const char* requested, const char* mainSkinPa
 
 static bool SaveResolutionToSkinFile(const char* path, int width, int height);
 
+// OLR compatibility scripts flatten include contents into main.lr2skin. These
+// path-free markers retain the original per-file conditional scope without
+// reopening local include paths when the package is imported elsewhere.
+static const char* const OLR_FILE_SCOPE_START = "$OLR_FILE start";
+static const char* const OLR_FILE_SCOPE_END = "$OLR_FILE end";
+static const char* const OLR_IGNORED_CONTROL = "$OLR_IGNORED_CONTROL ";
+
+static bool IsOlrFileScopeStart(const char* text) {
+    return text && !strcmp(text, OLR_FILE_SCOPE_START);
+}
+
+static bool IsOlrFileScopeEnd(const char* text) {
+    return text && !strcmp(text, OLR_FILE_SCOPE_END);
+}
+
 static bool BrowseSkinSavePath(const char* initialPath, char* selectedPath,
     size_t selectedPathSize) {
     if (!selectedPath || selectedPathSize == 0) return false;
@@ -426,6 +441,24 @@ static bool ReadCommandField(CSVbuf& values, const char* command,
     return false;
 }
 
+static bool ReadNonEmptyCommandField(CSVbuf& values, const char* command,
+    const char* fieldName, int& value) {
+    if (!command || !fieldName) return false;
+    for (int column = 1; column < 30; ++column) {
+        CSTR help = GetCommandHelp(command, column);
+        help.trimWhiteSpace();
+        const char* label = help.body ? help.outstr() : "";
+        if (*label == '$') ++label;
+        if (_stricmp(label, fieldName) != 0) continue;
+        const char* field = values.str[column].body
+            ? values.str[column].outstr() : "";
+        if (!*field) return false;
+        value = atol(field);
+        return true;
+    }
+    return false;
+}
+
 static bool ResolveDstArgbColumns(const char* command, int columns[4]) {
     if (!command || strncmp(command, "#DST", 4) != 0 || !columns) return false;
     columns[0] = columns[1] = columns[2] = columns[3] = -1;
@@ -610,6 +643,61 @@ static bool IsSameOwnerPath(const char* left, const char* right) {
     if (GetFullPathNameA(left, MAX_PATH, fullLeft, NULL)) compareLeft = fullLeft;
     if (GetFullPathNameA(right, MAX_PATH, fullRight, NULL)) compareRight = fullRight;
     return _stricmp(compareLeft, compareRight) == 0;
+}
+
+static bool AppendOlrFileScopeMarker(SKINFILELINEREAD& row,
+    const char* mainSkinPath, std::ostringstream& script, int& packagedRow) {
+    if (!row.isSEcomment || !row.line.body) return false;
+    const char* text = row.line.outstr();
+
+    bool isStart = IsOlrFileScopeStart(text);
+    bool isEnd = IsOlrFileScopeEnd(text);
+    if (!isStart && !isEnd && !strncmp(text, "$FILE ", 6)) {
+        // LoadSkinScript always adds a physical wrapper for main.lr2skin. Do
+        // not serialize that root wrapper or it would grow on every re-save.
+        if (row.filename.body && mainSkinPath &&
+            IsSameOwnerPath(row.filename.outstr(), mainSkinPath))
+            return true;
+        isStart = strstr(text, " start") != NULL;
+        isEnd = strstr(text, " end") != NULL;
+    }
+    if (!isStart && !isEnd) return false;
+
+    script << (isStart ? OLR_FILE_SCOPE_START : OLR_FILE_SCOPE_END)
+        << "\r\n";
+    ++packagedRow;
+    return true;
+}
+
+// LR2 evaluates an included file with its own conditional stack, but an OLR
+// compatibility script is deliberately flat. Preserve that behavior for LR2
+// folder export as well as Preview: an unmatched child control command must
+// not consume the parent file's #IF, and an unterminated child #IF must not
+// leak past the child boundary.
+static bool ShouldNeutralizeOlrControl(SKINFILELINEREAD& row,
+    int& conditionalDepth) {
+    if (row.isComment || !row.csv.str[0].body) return false;
+    const char* command = row.csv.str[0].outstr();
+    if (!_stricmp(command, "#IF")) {
+        ++conditionalDepth;
+        return false;
+    }
+    if (!_stricmp(command, "#ELSEIF") || !_stricmp(command, "#ELSE"))
+        return conditionalDepth <= 0;
+    if (!_stricmp(command, "#ENDIF")) {
+        if (conditionalDepth <= 0) return true;
+        --conditionalDepth;
+    }
+    return false;
+}
+
+static void AppendOlrConditionalClosures(int& conditionalDepth,
+    std::ostringstream& script, int& packagedRow) {
+    while (conditionalDepth > 0) {
+        script << "#ENDIF\r\n";
+        --conditionalDepth;
+        ++packagedRow;
+    }
 }
 
 static void AssignRootFileOwner(ARR& skinfileLines, const char* fallback,
@@ -1082,7 +1170,7 @@ int WORKSPACE::draw() {
                     olrPackageState = 0;
                     wSaveOlrSkin = true;
                 }
-                if (ImGui::MenuItem("Export LR2 folder...", NULL, false,
+                if (ImGui::MenuItem("Export install-ready LR2 folder...", NULL, false,
                     SEIsOLRVirtualWorkspace(mainpath)))
                     ExportLr2SkinInteractive();
             }
@@ -1139,6 +1227,7 @@ int WORKSPACE::draw() {
 
     char olrImportPopup[64];
     snprintf(olrImportPopup, sizeof(olrImportPopup), "OLR import result##%d", num);
+    bool exportImportedOlrNow = false;
     if (olrImportResultPopupRequested) {
         ImGui::OpenPopup(olrImportPopup);
         olrImportResultPopupRequested = false;
@@ -1153,9 +1242,21 @@ int WORKSPACE::draw() {
                 : (olrResultKind == 1 ? "LR2 export failed" : "OLR import failed"));
         ImGui::TextDisabled("%s", operation);
         ImGui::TextWrapped("%s", olrPackageMessage.c_str());
+        if (olrPackageState > 0 && olrResultKind == 0 &&
+            SEIsOLRVirtualWorkspace(mainpath)) {
+            ImGui::Spacing();
+            ImGui::TextColored(SEUI::Colors::Warning(),
+                "This is an edit/Preview workspace, not an LR2 install folder.");
+            if (ImGui::Button("EXPORT INSTALL-READY LR2 FOLDER")) {
+                exportImportedOlrNow = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+        }
         if (ImGui::Button("OK")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+    if (exportImportedOlrNow) ExportLr2SkinInteractive();
 
     // The toolbar exposes common actions without removing their menu entries.
     // It only emits intent; existing WORKSPACE methods remain the single source
@@ -1976,8 +2077,15 @@ int WORKSPACE::LoadSkinScript(char* path) {
             const char* includeText = read->csv.str[1].body ? read->csv.str[1].outstr() : "";
             char includePath[MAX_PATH] = {};
             std::string resolvedInclude;
-            const bool includeResolved = SEResolveSkinResourcePath(includeText,
-                canonicalPath, mainpath, resolvedInclude);
+            const SESkinResourcePathResult includeResolution =
+                SEResolveSkinResourcePath(includeText, canonicalPath, mainpath,
+                    resolvedInclude);
+            const bool includeResolved = includeResolution ==
+                SESkinResourcePathResult::Resolved;
+            if (includeResolution == SESkinResourcePathResult::Rejected) {
+                WriteSkinLoadLog("Rejected unsafe OLR include", includeText);
+                continue;
+            }
             if (includeResolved)
                 strncpy_s(includePath, resolvedInclude.c_str(), _TRUNCATE);
             else {
@@ -2300,20 +2408,28 @@ int WORKSPACE::ParseSkinGraphics() {
                 return -1;
             }
             std::string resolvedPath;
-            if (SEResolveSkinResourcePath(read.csv.str[2].outstr(),
+            const SESkinResourcePathResult resourceResolution =
+                SEResolveSkinResourcePath(read.csv.str[2].outstr(),
                 read.filename.body ? read.filename.outstr() : mainpath,
-                mainpath, resolvedPath))
+                mainpath, resolvedPath);
+            if (resourceResolution == SESkinResourcePathResult::Resolved)
                 tmpstr->assign(resolvedPath.c_str());
+            else if (resourceResolution == SESkinResourcePathResult::Rejected)
+                tmpstr->assign("ERROR");
             else tmpstr->assign(read.csv.str[2]);
         }
 
         else if (read.csv.str[0].isSame("#IMAGE")) {
             CSTR line(read.csv.str[1]);
             std::string resolvedPath;
-            if (SEResolveSkinResourcePath(line.outstr(),
+            const SESkinResourcePathResult resourceResolution =
+                SEResolveSkinResourcePath(line.outstr(),
                 read.filename.body ? read.filename.outstr() : mainpath,
-                mainpath, resolvedPath))
+                mainpath, resolvedPath);
+            if (resourceResolution == SESkinResourcePathResult::Resolved)
                 line.assign(resolvedPath.c_str());
+            else if (resourceResolution == SESkinResourcePathResult::Rejected)
+                line.assign("ERROR");
 
             // Generated images carry an editor-only full-image Asset directly
             // after their #IMAGE row. Its gr value is the active LR2 slot,
@@ -2869,10 +2985,15 @@ int WORKSPACE::LoadSkinGraphicMetadata() {
             if (declaration.filename.body) owner = declaration.filename.outstr();
         }
         std::string resolvedPath;
-        const bool resourceResolved = SEResolveSkinResourcePath(path.outstr(),
-            owner, mainpath, resolvedPath);
+        const SESkinResourcePathResult resourceResolution =
+            SEResolveSkinResourcePath(path.outstr(), owner, mainpath,
+                resolvedPath);
+        const bool resourceResolved = resourceResolution ==
+            SESkinResourcePathResult::Resolved;
         if (resourceResolved)
             path.assign(resolvedPath.c_str());
+        else if (resourceResolution == SESkinResourcePathResult::Rejected)
+            path.assign("ERROR");
 
         char siblingAsset[MAX_PATH] = {};
         if (!resourceResolved && ResolveSiblingPlayPath(path.outstr(), mainpath,
@@ -3546,9 +3667,10 @@ int WORKSPACE::LoadSceneSE() {
 }
 
 // Persist the resolution from the skin picker without requiring the skin to
-// be loaded first. LR2 stores the target width and height in fields 6 and 7 of
-// #INFORMATION. The final replace is atomic so a failed write leaves the
-// original skin untouched.
+// be loaded first. #INFORMATION is the LR2-safe authority; active
+// #RESOLUTION rows are neutralized because several LR2 builds write them into
+// the next skin-list slot. The final replace is atomic so a failed write
+// leaves the original skin untouched.
 static bool SaveResolutionToSkinFile(const char* path, int width, int height) {
     if (!path || !*path || width <= 0 || height <= 0) return false;
     FILE* input = fopen(path, "rb");
@@ -3563,61 +3685,18 @@ static bool SaveResolutionToSkinFile(const char* path, int width, int height) {
     }
     fclose(input);
 
-    size_t informationStart = std::string::npos;
-    size_t informationEnd = std::string::npos;
-
-    for (size_t lineStart = 0; lineStart <= contents.size();) {
-        size_t lineBreak = contents.find('\n', lineStart);
-        const size_t fullEnd = lineBreak == std::string::npos ? contents.size() : lineBreak + 1;
-        size_t contentEnd = lineBreak == std::string::npos ? contents.size() : lineBreak;
-        if (contentEnd > lineStart && contents[contentEnd - 1] == '\r') --contentEnd;
-        size_t commandStart = lineStart;
-        if (commandStart == 0 && contents.size() >= 3 &&
-            (unsigned char)contents[0] == 0xEF && (unsigned char)contents[1] == 0xBB &&
-            (unsigned char)contents[2] == 0xBF) commandStart = 3;
-        while (commandStart < contentEnd &&
-            (contents[commandStart] == ' ' || contents[commandStart] == '\t')) ++commandStart;
-        const size_t commandLength = contentEnd - commandStart;
-        if (commandLength >= 12 &&
-            _strnicmp(contents.c_str() + commandStart, "#INFORMATION", 12) == 0 &&
-            (commandLength == 12 || contents[commandStart + 12] == ',' ||
-                contents[commandStart + 12] == ' ' || contents[commandStart + 12] == '\t')) {
-            informationStart = commandStart;
-            informationEnd = contentEnd;
-            break;
-        }
-        if (lineBreak == std::string::npos) break;
-        lineStart = fullEnd;
-    }
-
-    if (informationStart == std::string::npos) return false;
-
-    std::string information = contents.substr(informationStart, informationEnd - informationStart);
-    std::vector<std::string> fields;
-    size_t fieldStart = 0;
-    for (;;) {
-        const size_t comma = information.find(',', fieldStart);
-        fields.push_back(information.substr(fieldStart,
-            comma == std::string::npos ? std::string::npos : comma - fieldStart));
-        if (comma == std::string::npos) break;
-        fieldStart = comma + 1;
-    }
-    while (fields.size() < 8) fields.push_back("");
-    fields[6] = std::to_string(width);
-    fields[7] = std::to_string(height);
-
-    std::string updatedInformation;
-    for (size_t i = 0; i < fields.size(); ++i) {
-        if (i) updatedInformation += ',';
-        updatedInformation += fields[i];
-    }
-    contents.replace(informationStart, informationEnd - informationStart, updatedInformation);
+    std::string preparedContents;
+    std::string resolutionError;
+    if (!SEPrepareLr2ExportResolution(contents, width, height,
+        preparedContents, resolutionError))
+        return false;
 
     const std::string tempPath = std::string(path) + ".resolution.tmp";
     FILE* output = fopen(tempPath.c_str(), "wb");
     if (!output) return false;
-    const bool writeOk = contents.empty() ||
-        fwrite(contents.data(), 1, contents.size(), output) == contents.size();
+    const bool writeOk = preparedContents.empty() ||
+        fwrite(preparedContents.data(), 1, preparedContents.size(), output) ==
+            preparedContents.size();
     const bool closeOk = fclose(output) == 0;
     if (!writeOk || !closeOk) {
         remove(tempPath.c_str());
@@ -3664,6 +3743,18 @@ static std::vector<unsigned char> BuildPreviewRuntimeMask(ARR& skinfileLines, sk
         SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
         const char* text = row.line.body ? row.line.outstr() : "";
 
+        if (row.isSEcomment &&
+            (IsOlrFileScopeStart(text) || IsOlrFileScopeEnd(text))) {
+            if (IsOlrFileScopeStart(text)) {
+                FileState state;
+                state.enabled = files.empty() ? true : currentActive();
+                files.push_back(state);
+            }
+            else if (!files.empty()) {
+                files.pop_back();
+            }
+            continue;
+        }
         if (row.isSEcomment && !strncmp(text, "$FILE ", 6)) {
             const bool isStart = strstr(text, " start") != NULL;
             const bool isEnd = strstr(text, " end") != NULL;
@@ -3751,6 +3842,119 @@ static int CalculateActiveTrailingGraphicId(ARR& skinfileLines, skstruct* sk) {
         ++graphicId;
     }
     return graphicId;
+}
+int RunOlrFileScopeSelfTest() {
+    WORKSPACE workspace{};
+    workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 20);
+    const char* mainPath = "C:\\olr-scope-test\\main.lr2skin";
+
+    const auto appendLine = [&](const char* text, const char* owner) {
+        SKINFILELINEREAD* row =
+            (SKINFILELINEREAD*)workspace.skinfileLines.Get_new();
+        if (!row) return false;
+        row->line.assign(text);
+        row->filename.assign(owner);
+        row->num = workspace.skinfileLines.count - 1;
+        row->numTotal = row->num;
+        row->isComment = text[0] != '#';
+        row->isSEcomment = text[0] == '$';
+        if (!row->isComment) {
+            SplitCSV(row->line, &row->csv, ",");
+            row->csvColumnCount = CountCsvColumns(row->line);
+        }
+        return true;
+    };
+
+    const char* rows[] = {
+        "$FILE 'C:\\olr-scope-test\\main.lr2skin' start",
+        "#IF,900",
+        "$OLR_FILE start",
+        "#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0",
+        "#ELSE",
+        "#SRC_IMAGE,0,0,1,0,1,1,1,1,0,0",
+        "$OLR_FILE end",
+        "#ENDIF",
+        "#IF,901",
+        "$OLR_FILE start",
+        "#SRC_IMAGE,0,0,2,0,1,1,1,1,0,0",
+        "#ELSE",
+        "#SRC_IMAGE,0,0,3,0,1,1,1,1,0,0",
+        "$OLR_FILE end",
+        "#ENDIF",
+        "$FILE 'C:\\olr-scope-test\\main.lr2skin' end"
+    };
+    for (const char* row : rows)
+        if (!appendLine(row, mainPath)) return 1;
+
+    skstruct skin{};
+    skin.op[0] = 1;
+    skin.op[900] = 1;
+    skin.op[901] = 0;
+    std::vector<unsigned char> enabled =
+        BuildPreviewRuntimeMask(workspace.skinfileLines, &skin);
+    if (enabled.size() != 16 || !enabled[3] || !enabled[5] ||
+        enabled[10] || enabled[12])
+        return 2;
+
+    skin.op[900] = 0;
+    skin.op[901] = 1;
+    enabled = BuildPreviewRuntimeMask(workspace.skinfileLines, &skin);
+    if (enabled[3] || enabled[5] || !enabled[10] || !enabled[12])
+        return 3;
+
+    SKINFILELINEREAD childStart{};
+    childStart.line.assign("$FILE 'C:\\olr-scope-test\\play.csv' start");
+    childStart.filename.assign("C:\\olr-scope-test\\play.csv");
+    childStart.isComment = true;
+    childStart.isSEcomment = true;
+    SKINFILELINEREAD childEnd{};
+    childEnd.line.assign("$FILE 'C:\\olr-scope-test\\play.csv' end");
+    childEnd.filename.assign("C:\\olr-scope-test\\play.csv");
+    childEnd.isComment = true;
+    childEnd.isSEcomment = true;
+
+    std::ostringstream serialized;
+    int packagedRow = 0;
+    SKINFILELINEREAD& rootStart =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[0];
+    if (!AppendOlrFileScopeMarker(rootStart, mainPath, serialized, packagedRow) ||
+        !serialized.str().empty() || packagedRow != 0)
+        return 4;
+    if (!AppendOlrFileScopeMarker(childStart, mainPath, serialized, packagedRow) ||
+        !AppendOlrFileScopeMarker(childEnd, mainPath, serialized, packagedRow) ||
+        serialized.str() != "$OLR_FILE start\r\n$OLR_FILE end\r\n" ||
+        packagedRow != 2)
+        return 5;
+
+    std::ostringstream resaved;
+    int resavedRow = 0;
+    SKINFILELINEREAD& explicitStart =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[2];
+    if (!AppendOlrFileScopeMarker(explicitStart, mainPath, resaved, resavedRow) ||
+        resaved.str() != "$OLR_FILE start\r\n" || resavedRow != 1)
+        return 6;
+
+    SKINFILELINEREAD orphanElse{};
+    orphanElse.line.assign("#ELSE");
+    SplitCSV(orphanElse.line, &orphanElse.csv, ",");
+    int conditionalDepth = 0;
+    if (!ShouldNeutralizeOlrControl(orphanElse, conditionalDepth)) return 7;
+
+    SKINFILELINEREAD localIf{};
+    localIf.line.assign("#IF,100");
+    SplitCSV(localIf.line, &localIf.csv, ",");
+    if (ShouldNeutralizeOlrControl(localIf, conditionalDepth) ||
+        conditionalDepth != 1 ||
+        ShouldNeutralizeOlrControl(orphanElse, conditionalDepth))
+        return 8;
+
+    std::ostringstream closed;
+    int closedRow = 0;
+    AppendOlrConditionalClosures(conditionalDepth, closed, closedRow);
+    if (closed.str() != "#ENDIF\r\n" || conditionalDepth != 0 ||
+        closedRow != 1)
+        return 9;
+    return 0;
 }
 
 int WORKSPACE::ReadSkinSE() {
@@ -3916,10 +4120,12 @@ int WORKSPACE::ReadSkinSE() {
                                 }
                             }
                             std::string resolvedImage;
-                            const bool imageResolved = SEResolveSkinResourcePath(
-                                csv.str[1].outstr(),
+                            const SESkinResourcePathResult imageResolution =
+                                SEResolveSkinResourcePath(csv.str[1].outstr(),
                                 read.filename.body ? read.filename.outstr() : mainpath,
                                 mainpath, resolvedImage);
+                            const bool imageResolved = imageResolution ==
+                                SESkinResourcePathResult::Resolved;
                             if (imageResolved)
                                 csv.str[1].assign(resolvedImage.c_str());
                             const std::string resolvedDeclaration =
@@ -3930,6 +4136,9 @@ int WORKSPACE::ReadSkinSE() {
                                     mainpath);
                             if (!resolvedDeclaration.empty())
                                 csv.str[1].assign(resolvedDeclaration.c_str());
+                            else if (imageResolution ==
+                                SESkinResourcePathResult::Rejected)
+                                csv.str[1].assign("ERROR");
                             char siblingImage[MAX_PATH] = {};
                             if (!imageResolved && ResolveSiblingPlayPath(
                                 csv.str[1].outstr(), mainpath,
@@ -4541,11 +4750,17 @@ int WORKSPACE::ReadSkinSE() {
                             }
                         }
                         std::string resolvedFont;
-                        if (SEResolveSkinResourcePath(csv.str[1].outstr(),
+                        const SESkinResourcePathResult fontResolution =
+                            SEResolveSkinResourcePath(csv.str[1].outstr(),
                             read.filename.body ? read.filename.outstr() : mainpath,
-                            mainpath, resolvedFont))
+                            mainpath, resolvedFont);
+                        if (fontResolution == SESkinResourcePathResult::Resolved)
                             csv.str[1].assign(resolvedFont.c_str());
-                        ReadImageFont(GetRandomFileNoError(csv.str[1], dir), &sk->ImageFonts[sk->num_of_ImageFont]);
+                        else if (fontResolution ==
+                            SESkinResourcePathResult::Rejected)
+                            csv.str[1].assign("ERROR");
+                        ReadImageFont(GetRandomFileNoError(csv.str[1], dir),
+                            &sk->ImageFonts[sk->num_of_ImageFont]);
                     }
                     sk->num_of_ImageFont++;
                 }
@@ -4558,10 +4773,15 @@ int WORKSPACE::ReadSkinSE() {
                 SplitCSV(fBuf, &csv, ",");
                 if (sk->helpfileCount < 10) {
                     std::string resolvedHelp;
-                    if (SEResolveSkinResourcePath(csv.str[1].outstr(),
+                    const SESkinResourcePathResult helpResolution =
+                        SEResolveSkinResourcePath(csv.str[1].outstr(),
                         read.filename.body ? read.filename.outstr() : mainpath,
-                        mainpath, resolvedHelp))
+                        mainpath, resolvedHelp);
+                    if (helpResolution == SESkinResourcePathResult::Resolved)
                         csv.str[1].assign(resolvedHelp.c_str());
+                    else if (helpResolution ==
+                        SESkinResourcePathResult::Rejected)
+                        csv.str[1].assign("ERROR");
                     sk->helpfilePath[sk->helpfileCount].assign(&csv.str[1]);
                     sk->helpfileCount = sk->helpfileCount + 1;
                 }
@@ -4612,12 +4832,17 @@ int WORKSPACE::ReadSkinSE() {
             else if (fBuf.left(11).isSame("#CUSTOMFILE")) {
                 SplitCSV(fBuf, &csv, ",");
                 std::string resolvedCustom;
-                const bool customResolved = SEResolveSkinResourcePath(
+                const SESkinResourcePathResult customResolution =
+                    SEResolveSkinResourcePath(
                     csv.str[2].outstr(),
                     read.filename.body ? read.filename.outstr() : mainpath,
                     mainpath, resolvedCustom);
+                const bool customResolved = customResolution ==
+                    SESkinResourcePathResult::Resolved;
                 if (customResolved)
                     csv.str[2].assign(resolvedCustom.c_str());
+                else if (customResolution == SESkinResourcePathResult::Rejected)
+                    csv.str[2].assign("ERROR");
                 char siblingCustom[MAX_PATH] = {};
                 if (!customResolved && ResolveSiblingPlayPath(
                     csv.str[2].outstr(), mainpath,
@@ -4633,10 +4858,15 @@ int WORKSPACE::ReadSkinSE() {
             else if (fBuf.left(13).isSame("#CUSTOMFOLDER")) {
                 SplitCSV(fBuf, &csv, ",");
                 std::string resolvedFolder;
-                if (SEResolveSkinResourcePath(csv.str[2].outstr(),
+                const SESkinResourcePathResult folderResolution =
+                    SEResolveSkinResourcePath(csv.str[2].outstr(),
                     read.filename.body ? read.filename.outstr() : mainpath,
-                    mainpath, resolvedFolder))
+                    mainpath, resolvedFolder);
+                if (folderResolution == SESkinResourcePathResult::Resolved)
                     csv.str[2].assign(resolvedFolder.c_str());
+                else if (folderResolution ==
+                    SESkinResourcePathResult::Rejected)
+                    csv.str[2].assign("ERROR");
                 sk->customfileRANDOM[sk->customfile_count].assign(&csv.str[2]);
                 sk->customfile[sk->customfile_count].assign("RANDOM");
                 sk->customfile_count++;
@@ -10239,7 +10469,12 @@ bool OlrResolveAssetPath(const char* assetPath, const char* ownerPath,
         return false;
     std::error_code error;
     std::filesystem::path candidate;
-    if (SEResolveSkinResourcePath(assetPath, ownerPath, mainSkinPath, resolvedPath)) {
+    const SESkinResourcePathResult resourceResolution =
+        SEResolveSkinResourcePath(assetPath, ownerPath, mainSkinPath,
+            resolvedPath);
+    if (resourceResolution == SESkinResourcePathResult::Rejected)
+        return false;
+    if (resourceResolution == SESkinResourcePathResult::Resolved) {
         candidate = std::filesystem::path(resolvedPath);
         if (std::filesystem::is_regular_file(candidate, error) && !error) return true;
         resolvedPath.clear();
@@ -10496,9 +10731,12 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
     document.maker = Cp932ToUtf8(meta.maker.body ? meta.maker.outstr() : "");
     document.scene = meta.type >= 0 && meta.type < 21
         ? SKINTYPESTR[meta.type] : "UNKNOWN";
-    document.canvasWidth = skinSizeX;
-    document.canvasHeight = skinSizeY;
-    document.resolutionSource = SESkinResolutionSourceText(skinResolutionSource);
+    const bool usesOlrHdDefault =
+        skinResolutionSource == SESkinResolutionSource::Default640x480;
+    document.canvasWidth = usesOlrHdDefault ? 1280 : skinSizeX;
+    document.canvasHeight = usesOlrHdDefault ? 720 : skinSizeY;
+    document.resolutionSource = usesOlrHdDefault
+        ? "OLR HD default" : SESkinResolutionSourceText(skinResolutionSource);
     document.resolutionInferred = SEIsInferredSkinResolution(skinResolutionSource);
 
     const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
@@ -10511,51 +10749,95 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         const SEObjectGroupDef* group = objectEditorModel.Group(object.group);
         semantic.group = group ? Cp932ToUtf8(group->name.c_str()) : "Unknown";
 
+        std::string categorySourceCommand;
+        SEOLRSemanticObject::Part* part = nullptr;
+        SEOLRSemanticObject::Destination* destination = nullptr;
+        std::string lastDestinationCommand;
+        bool partHasSeenDestination = false;
+        const auto beginPart = [&]() {
+            SEOLRSemanticObject::Part nextPart;
+            nextPart.id = "part_" + std::to_string(semantic.parts.size() + 1);
+            semantic.parts.push_back(std::move(nextPart));
+            part = &semantic.parts.back();
+            destination = nullptr;
+            lastDestinationCommand.clear();
+            partHasSeenDestination = false;
+        };
+
         for (int rowIndex : object.rows) {
             if (rowIndex < 0 || rowIndex >= skinfileLines.count) continue;
             SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
-            semantic.sourceRows.push_back(rowIndex + 1);
             const char* command = row.csv.str[0].body ? row.csv.str[0].outstr() : "";
-            if (semantic.sourceCommand.empty() && !strncmp(command, "#SRC_", 5))
-                semantic.sourceCommand = command;
-            if (!strncmp(command, "#DST_", 5) &&
-                (semantic.destinationCommand.empty() || semantic.destinationCommand == command)) {
-                SEOLRSemanticObject::AnimationFrame frame;
-                frame.destinationRow = rowIndex + 1;
-                const bool hasTime = ReadCommandField(row.csv, command, "time", frame.timeMs);
-                const bool hasX = ReadCommandField(row.csv, command, "x", frame.transform.x);
-                const bool hasY = ReadCommandField(row.csv, command, "y", frame.transform.y);
-                const bool hasWidth = ReadCommandField(row.csv, command, "w", frame.transform.width);
-                bool hasHeight = ReadCommandField(row.csv, command, "h", frame.transform.height);
-                if (!hasHeight) hasHeight = ReadCommandField(row.csv, command, "size", frame.transform.height);
-                const bool hasAlpha = ReadCommandField(row.csv, command, "a", frame.alpha);
-                const bool hasRotation = ReadCommandField(row.csv, command, "angle", frame.transform.rotation);
-                const bool hasBlend = ReadCommandField(row.csv, command, "blend", frame.transform.blend);
-                // V0.7 deliberately owns only DST commands that expose the
-                // complete Layout/Timeline contract. Unsupported LR2 rows stay
-                // byte-preserved in compatibility/lr2/main.lr2skin.
-                if (hasTime && hasX && hasY && hasWidth && hasHeight && hasAlpha &&
-                    hasRotation && hasBlend) {
-                    if (semantic.destinationCommand.empty()) {
-                        semantic.destinationCommand = command;
-                        semantic.hasDestination = true;
-                        semantic.layout = frame.transform;
-                        semantic.x = frame.transform.x;
-                        semantic.y = frame.transform.y;
-                        semantic.width = frame.transform.width;
-                        semantic.height = frame.transform.height;
-                        ReadCommandField(row.csv, command, "timer", semantic.timer);
-                        ReadCommandField(row.csv, command, "loop", semantic.loop);
-                        ReadCommandField(row.csv, command, "op1", semantic.op1);
-                        ReadCommandField(row.csv, command, "op2", semantic.op2);
-                        ReadCommandField(row.csv, command, "op3", semantic.op3);
-                    }
-                    semantic.animationFrames.push_back(frame);
-                }
+            if (!strncmp(command, "#SRC_", 5)) {
+                if (!part || partHasSeenDestination) beginPart();
+                SEOLRSemanticObject::SourceBinding source;
+                source.sourceRow = rowIndex + 1;
+                source.sourceCommand = command;
+                part->sources.push_back(std::move(source));
+                if (categorySourceCommand.empty()) categorySourceCommand = command;
+                continue;
             }
+
+            if (strncmp(command, "#DST_", 5) != 0) continue;
+            if (part) partHasSeenDestination = true;
+
+            SEOLRSemanticObject::AnimationFrame frame;
+            frame.destinationRow = rowIndex + 1;
+            const bool hasTime = ReadCommandField(row.csv, command, "time", frame.timeMs);
+            const bool hasX = ReadCommandField(row.csv, command, "x", frame.transform.x);
+            const bool hasY = ReadCommandField(row.csv, command, "y", frame.transform.y);
+            const bool hasWidth = ReadCommandField(row.csv, command, "w", frame.transform.width);
+            bool hasHeight = ReadCommandField(row.csv, command, "h", frame.transform.height);
+            if (!hasHeight) hasHeight = ReadCommandField(row.csv, command, "size", frame.transform.height);
+            const bool hasAlpha = ReadCommandField(row.csv, command, "a", frame.alpha);
+            const bool hasRotation = ReadCommandField(row.csv, command, "angle", frame.transform.rotation);
+            const bool hasBlend = ReadCommandField(row.csv, command, "blend", frame.transform.blend);
+            const bool hasCompleteContract = hasTime && hasX && hasY && hasWidth &&
+                hasHeight && hasAlpha && hasRotation && hasBlend;
+
+            const bool commandChanged = lastDestinationCommand != command;
+            if (commandChanged) destination = nullptr;
+            lastDestinationCommand = command;
+            // V0.9 owns only DST commands that expose the complete
+            // Layout/Timeline contract. Unsupported rows remain byte-preserved
+            // by the LR2 compatibility script and still delimit SRC cohorts.
+            if (!hasCompleteContract) {
+                destination = nullptr;
+                continue;
+            }
+
+            if (!part) {
+                beginPart();
+                partHasSeenDestination = true;
+                lastDestinationCommand = command;
+                destination = nullptr;
+            }
+            if (!destination) {
+                SEOLRSemanticObject::Destination nextDestination;
+                nextDestination.id = "destination_" +
+                    std::to_string(part->destinations.size() + 1);
+                nextDestination.destinationCommand = command;
+                nextDestination.layout = frame.transform;
+                nextDestination.timer = 0;
+                nextDestination.loop = 0;
+                nextDestination.hasTimer = ReadNonEmptyCommandField(row.csv,
+                    command, "timer", nextDestination.timer);
+                nextDestination.hasLoop = ReadNonEmptyCommandField(row.csv,
+                    command, "loop", nextDestination.loop);
+                const char* optionFields[3] = { "op1", "op2", "op3" };
+                for (int option = 0; option < 3; ++option) {
+                    nextDestination.options[option] = 0;
+                    nextDestination.hasOptions[option] = ReadNonEmptyCommandField(
+                        row.csv, command, optionFields[option],
+                        nextDestination.options[option]);
+                }
+                part->destinations.push_back(std::move(nextDestination));
+                destination = &part->destinations.back();
+            }
+            destination->animationFrames.push_back(frame);
         }
         semantic.category = OlrSemanticCategory(semantic.group,
-            semantic.sourceCommand);
+            categorySourceCommand);
         document.objects.push_back(std::move(semantic));
     }
 
@@ -10576,7 +10858,35 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         semanticSlot.divX = slot.divX;
         semanticSlot.divY = slot.divY;
         semanticSlot.cycle = slot.cycle;
-        if (!SEIsOLRSimpleSlotCompilable(semanticSlot)) {
+        // Simple Mode uses effective 1x1 divisions for Preview, but the OLR
+        // compiler address must be projected from the raw CSV values. Without
+        // this boundary, a legacy div_y=0 row becomes div_y=1 merely by
+        // importing an untouched package.
+        bool hasRawAsset = slot.row >= 0 && slot.row < skinfileLines.count;
+        if (hasRawAsset) {
+            SKINFILELINEREAD& sourceRow =
+                ((SKINFILELINEREAD*)skinfileLines.data)[slot.row];
+            const char* sourceCommand = sourceRow.csv.str[0].body
+                ? sourceRow.csv.str[0].outstr() : slot.command.c_str();
+            hasRawAsset =
+                ReadCommandField(sourceRow.csv, sourceCommand, "gr",
+                    semanticSlot.graphicId) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "x",
+                    semanticSlot.x) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "y",
+                    semanticSlot.y) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "w",
+                    semanticSlot.width) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "h",
+                    semanticSlot.height) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "div_x",
+                    semanticSlot.divX) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "div_y",
+                    semanticSlot.divY) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "cycle",
+                    semanticSlot.cycle);
+        }
+        if (!hasRawAsset || !SEIsOLRSimpleSlotCompilable(semanticSlot)) {
             ++rawCompatibilitySimpleSlotCount;
             continue;
         }
@@ -10683,17 +10993,40 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
 
     int packagedRow = 0;
     std::ostringstream lr2;
+    std::vector<int> fileConditionalDepth;
     for (int rowIndex = 0; rowIndex < skinfileLines.count; ++rowIndex) {
         SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
         const char* original = row.line.body ? row.line.outstr() : "";
-        if (row.isSEcomment && !strncmp(original, "$FILE ", 6)) continue;
+        const bool scopeStart = row.isSEcomment &&
+            (IsOlrFileScopeStart(original) ||
+                (!strncmp(original, "$FILE ", 6) &&
+                    strstr(original, " start") != NULL));
+        const bool scopeEnd = row.isSEcomment &&
+            (IsOlrFileScopeEnd(original) ||
+                (!strncmp(original, "$FILE ", 6) &&
+                    strstr(original, " end") != NULL));
+        if (scopeStart) fileConditionalDepth.push_back(0);
+        if (scopeEnd && !fileConditionalDepth.empty())
+            AppendOlrConditionalClosures(fileConditionalDepth.back(), lr2,
+                packagedRow);
+        if (AppendOlrFileScopeMarker(row, mainpath, lr2, packagedRow)) {
+            if (scopeEnd && !fileConditionalDepth.empty())
+                fileConditionalDepth.pop_back();
+            continue;
+        }
         if (!row.isComment && row.csv.str[0].body &&
             row.csv.str[0].isSame("#INCLUDE"))
             continue;
 
+        if (fileConditionalDepth.empty()) fileConditionalDepth.push_back(0);
+        const bool neutralizeControl = ShouldNeutralizeOlrControl(row,
+            fileConditionalDepth.back());
+
         const auto virtualPath = virtualPathRows.find(rowIndex);
         const auto image = packagedImageRows.find(rowIndex);
-        if (virtualPath != virtualPathRows.end())
+        if (neutralizeControl)
+            lr2 << OLR_IGNORED_CONTROL << OlrWithoutLineEnding(original);
+        else if (virtualPath != virtualPathRows.end())
             lr2 << OlrReplaceCsvField(OlrWithoutLineEnding(original),
                 OlrPathFieldIndex(row.csv.str[0].outstr()), virtualPath->second);
         else if (image != packagedImageRows.end())
@@ -10711,6 +11044,60 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
     }
     document.lr2Script = lr2.str();
 
+    // V0.9 keeps the exact include-based LR2 main as the install authority
+    // while the generated compatibility script is unchanged. The original
+    // file must already belong to a captured virtual root; otherwise there is
+    // no complete include/resource graph that can safely replace the flat
+    // compatibility script during materialization.
+    std::filesystem::path capturedOriginalMain;
+    for (const SEOLRVirtualRootInput& root : document.virtualRoots) {
+        std::string logicalRoot = root.logicalRoot;
+        std::replace(logicalRoot.begin(), logicalRoot.end(), '\\', '/');
+        std::string exportMain = document.lr2ExportMainPath;
+        std::replace(exportMain.begin(), exportMain.end(), '\\', '/');
+        if (exportMain != logicalRoot &&
+            (exportMain.size() <= logicalRoot.size() ||
+                exportMain.compare(0, logicalRoot.size(), logicalRoot) != 0 ||
+                exportMain[logicalRoot.size()] != '/'))
+            continue;
+        std::filesystem::path relative = exportMain == logicalRoot
+            ? std::filesystem::path()
+            : std::filesystem::path(exportMain.substr(logicalRoot.size() + 1));
+        std::error_code originalError;
+        const std::filesystem::path candidate =
+            std::filesystem::path(root.sourceDirectory) / relative;
+        if (std::filesystem::is_regular_file(candidate, originalError) &&
+            !originalError) {
+            capturedOriginalMain = candidate;
+            break;
+        }
+    }
+    if (!capturedOriginalMain.empty() && document.assets.empty()) {
+        if (SEIsOLRVirtualWorkspace(mainpath)) {
+            const std::filesystem::path workspace =
+                std::filesystem::path(mainpath).parent_path();
+            std::error_code markerError;
+            const bool hasPreservationMarker = std::filesystem::is_regular_file(
+                workspace / ".olr-preserve-original-main", markerError) &&
+                !markerError;
+            std::ifstream baselineFile(
+                workspace / ".olr-compatibility-baseline.lr2skin",
+                std::ios::binary);
+            const std::string baseline(
+                (std::istreambuf_iterator<char>(baselineFile)),
+                std::istreambuf_iterator<char>());
+            if (hasPreservationMarker && baselineFile &&
+                baseline == document.lr2Script) {
+                document.preserveOriginalMainWhenUnchanged = true;
+                document.lr2CompatibilityBaseline = baseline;
+            }
+        }
+        else {
+            document.preserveOriginalMainWhenUnchanged = true;
+            document.lr2CompatibilityBaseline = document.lr2Script;
+        }
+    }
+
     // Simple Mode source_row is a compiler address inside the packaged script,
     // not the expanded Workspace row. Includes and $FILE markers above may have
     // been omitted, so translate through the authoritative source map now.
@@ -10726,21 +11113,27 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         slot.sourceRow = packaged->second;
     }
     for (SEOLRSemanticObject& object : document.objects) {
-        for (int& sourceRow : object.sourceRows) {
-            const auto packaged = packagedRowsByExpandedRow.find(sourceRow);
-            if (packaged == packagedRowsByExpandedRow.end()) {
-                resultMessage = "A semantic Object source row was omitted from the packaged LR2 script.";
-                return -1;
+        for (SEOLRSemanticObject::Part& part : object.parts) {
+            for (SEOLRSemanticObject::SourceBinding& source : part.sources) {
+                const auto packaged = packagedRowsByExpandedRow.find(source.sourceRow);
+                if (packaged == packagedRowsByExpandedRow.end()) {
+                    resultMessage = "A semantic Object source row was omitted from the packaged LR2 script.";
+                    return -1;
+                }
+                source.sourceRow = packaged->second;
             }
-            sourceRow = packaged->second;
-        }
-        for (SEOLRSemanticObject::AnimationFrame& frame : object.animationFrames) {
-            const auto packaged = packagedRowsByExpandedRow.find(frame.destinationRow);
-            if (packaged == packagedRowsByExpandedRow.end()) {
-                resultMessage = "A semantic DST row was omitted from the packaged LR2 script.";
-                return -1;
+            for (SEOLRSemanticObject::Destination& destination : part.destinations) {
+                for (SEOLRSemanticObject::AnimationFrame& frame :
+                    destination.animationFrames) {
+                    const auto packaged = packagedRowsByExpandedRow.find(
+                        frame.destinationRow);
+                    if (packaged == packagedRowsByExpandedRow.end()) {
+                        resultMessage = "A semantic DST row was omitted from the packaged LR2 script.";
+                        return -1;
+                    }
+                    frame.destinationRow = packaged->second;
+                }
             }
-            frame.destinationRow = packaged->second;
         }
     }
 
@@ -10751,7 +11144,9 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         return -1;
     }
     std::ostringstream summary;
-    summary << "Exported " << packageInfo.objectCount << " semantic objects, "
+    summary << "Exported " << packageInfo.objectCount << " semantic objects with "
+        << packageInfo.semanticPartCount << " source-bound parts and "
+        << packageInfo.destinationCount << " destination tracks, "
         << packageInfo.simpleSlotCount << " Simple Mode slots, "
         << packageInfo.virtualRootCount << " virtual LR2 roots and "
         << packageInfo.virtualFileCount << " virtual files.";
@@ -10851,12 +11246,12 @@ int WORKSPACE::ImportOlrSkinInteractive() {
     std::string stem = package.stem().string();
     if (stem.empty()) stem = "imported-skin";
     std::filesystem::path target = std::filesystem::path(parentFolder) /
-        (stem + "-lr2");
+        (stem + "-olr-workspace");
     std::error_code filesystemError;
     for (int suffix = 2; std::filesystem::exists(target, filesystemError); ++suffix) {
         if (filesystemError) break;
         target = std::filesystem::path(parentFolder) /
-            (stem + "-lr2-" + std::to_string(suffix));
+            (stem + "-olr-workspace-" + std::to_string(suffix));
     }
     if (filesystemError) {
         olrPackageState = -1;
@@ -10914,8 +11309,12 @@ int WORKSPACE::ImportOlrSkinInteractive() {
 
     olrPackageState = 1;
     std::ostringstream result;
-    result << "Imported " << packageInfo.objectCount << " semantic objects, "
-        << packageInfo.simpleSlotCount << " Simple Mode slots and "
+    result << "Imported " << packageInfo.objectCount << " semantic objects";
+    if (packageInfo.formatVersion >= 8)
+        result << " with " << packageInfo.semanticPartCount
+            << " source-bound parts and " << packageInfo.destinationCount
+            << " destination tracks";
+    result << ", " << packageInfo.simpleSlotCount << " Simple Mode slots and "
         << packageInfo.assetCount << " assets from " << packageInfo.virtualRootCount
         << " virtual LR2 roots to " << extractedMainPath;
     if (packageInfo.formatVersion >= 4)
@@ -10932,6 +11331,11 @@ int WORKSPACE::ImportOlrSkinInteractive() {
     if (packageInfo.unresolvedResourceCount > 0)
         result << ". " << packageInfo.unresolvedResourceCount
             << " LR2-rooted resource declarations still require an external installation";
+    if (packageInfo.formatVersion >= 2 &&
+        SEIsOLRVirtualWorkspace(mainpath))
+        result << ". This folder is the editable OLR Preview workspace, not an "
+            "install-ready LR2 tree. Choose Export install-ready LR2 folder now "
+            "or use the File menu later";
     olrPackageMessage = result.str();
     lastSaveState = 0;
     lastSaveMessage = olrPackageMessage;
@@ -11007,6 +11411,10 @@ int WORKSPACE::ExportLr2SkinInteractive() {
     result << "Created an install-ready LR2 tree with "
         << exportInfo.copiedFileCount << " resource files. Main skin: "
         << exportInfo.mainSkinPath;
+    if (exportInfo.preservedOriginalMain)
+        result << " The original include-based LR2 main was preserved.";
+    else
+        result << " The compatibility script was materialized because the original-main preservation contract was unavailable or changed.";
     olrPackageMessage = result.str();
     lastSaveState = 1;
     lastSaveMessage = "LR2 export created";
@@ -11036,9 +11444,9 @@ int WORKSPACE::drawSaveOlrSkin() {
         }
 
         ImGui::TextWrapped("Save the loaded skin as one portable .olrskin package.");
-        ImGui::TextDisabled("V0.7 writes semantic Layout, Timeline, Conditions, Simple Mode assets and LR2 compatibility data.");
+        ImGui::TextDisabled("V0.9 preserves unchanged LR2 tokens and the original include-based main, while retaining source-bound Object parts, Simple Mode assets and compatibility data.");
         if (SEIsOLRVirtualWorkspace(mainpath)) {
-            ImGui::TextWrapped("This imported OLR workspace will save its current LR2 script first, so Export LR2 folder can use the same edits immediately.");
+            ImGui::TextWrapped("This imported OLR workspace will save its current LR2 script first, so Export install-ready LR2 folder can use the same edits immediately.");
         } else {
             ImGui::TextWrapped("The loaded LR2 source files are not modified by this command.");
         }
@@ -11057,8 +11465,8 @@ int WORKSPACE::drawSaveOlrSkin() {
         ImGui::BulletText("Resolved LR2files roots are bundled below vfs/LR2files with wildcard choices intact.");
         ImGui::BulletText("LR2 commands, comments, timers, conditions and editor metadata are preserved.");
         ImGui::BulletText("Resources outside a resolved LR2 root remain external and are reported.");
-        ImGui::BulletText("After import and Save OLRskin, File > Export LR2 folder materializes an install-ready tree.");
-        ImGui::BulletText("V0.7 semantic fields compile into lr2/main.lr2skin; unsupported rows remain raw.");
+        ImGui::BulletText("After import and Save OLRskin, File > Export install-ready LR2 folder materializes an install-ready tree.");
+        ImGui::BulletText("V0.9 patches only changed semantic fields; an untouched port installs the original include-based LR2 main.");
 
         const bool hasUnsavedImageEdits = !imagePixelPaintDirtyPaths.empty();
         if (hasUnsavedImageEdits) {
@@ -12059,7 +12467,6 @@ namespace {
         skin << "// Generated by SkinEditor initial preset\r\n";
         skin << "#INFORMATION," << type << ',' << title << ',' << maker << ',' << atlasScriptPath
             << ",," << width << ',' << height << "\r\n";
-        skin << "#RESOLUTION," << width << ',' << height << "\r\n";
         skin << "#ENDOFHEADER\r\n\r\n";
         if (type == 5)
             skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
@@ -12409,6 +12816,9 @@ int RunInitialPresetSelfTest() {
             std::istreambuf_iterator<char>());
         if (!validatePresetAtlas(atlasPath, contents))
             return 240 + testIndex;
+        if (contents.find(",,1280,720\r\n") == std::string::npos ||
+            contents.find("\r\n#RESOLUTION,") != std::string::npos)
+            return 260 + testIndex;
         if (contents.find("#SCENETIME") != std::string::npos)
             return 100 + testIndex;
         if (!ValidatePresetNativeSpriteSizes(contents))
@@ -16175,7 +16585,7 @@ int WORKSPACE::drawObjectEditor() {
                 }
 
                 // V0.5-V0.7 intentionally own one destination command family.
-                // A later family is a variant (V0.8) and remains available in
+                // A later family is a variant (V0.9) and remains available in
                 // Advanced LR2 without being mixed into this timeline.
                 for (int row : dstRows) {
                     SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];

@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <sstream>
 #include <unordered_map>
 
 namespace {
@@ -44,6 +45,40 @@ bool IsValidResolution(int width, int height) {
 
 bool IsCommand(CSVbuf& csv, const char* command) {
     return csv.str[0].body && _stricmp(csv.str[0].outstr(), command) == 0;
+}
+
+bool IsScriptCommand(const std::string& script, size_t commandStart,
+    size_t contentEnd, const char* command) {
+    const size_t commandLength = strlen(command);
+    if (contentEnd - commandStart < commandLength ||
+        _strnicmp(script.c_str() + commandStart, command, commandLength) != 0)
+        return false;
+    if (contentEnd - commandStart == commandLength) return true;
+    const char delimiter = script[commandStart + commandLength];
+    return delimiter == ',' || delimiter == ' ' || delimiter == '\t';
+}
+
+std::string ReplaceInformationResolution(const std::string& information,
+    int width, int height) {
+    std::vector<std::string> fields;
+    size_t fieldStart = 0;
+    for (;;) {
+        const size_t comma = information.find(',', fieldStart);
+        fields.push_back(information.substr(fieldStart,
+            comma == std::string::npos ? std::string::npos : comma - fieldStart));
+        if (comma == std::string::npos) break;
+        fieldStart = comma + 1;
+    }
+    while (fields.size() < 8) fields.push_back("");
+    fields[6] = std::to_string(width);
+    fields[7] = std::to_string(height);
+
+    std::ostringstream updated;
+    for (size_t index = 0; index < fields.size(); ++index) {
+        if (index) updated << ',';
+        updated << fields[index];
+    }
+    return updated.str();
 }
 
 bool TryReadInformationResolution(CSVbuf& csv, int& width, int& height) {
@@ -232,6 +267,73 @@ bool SEResolveSkinResolutionFile(const char* path,
     fclose(file);
 
     decision = SEResolveSkinResolution(csvLines);
+    return true;
+}
+
+bool SEPrepareLr2ExportResolution(const std::string& script,
+    int width, int height, std::string& preparedScript,
+    std::string& errorMessage) {
+    preparedScript.clear();
+    errorMessage.clear();
+    if (!IsValidResolution(width, height)) {
+        errorMessage = "The LR2 export canvas is outside the supported range.";
+        return false;
+    }
+
+    std::ostringstream output;
+    bool informationUpdated = false;
+    for (size_t lineStart = 0; lineStart <= script.size();) {
+        const size_t lineBreak = script.find('\n', lineStart);
+        const size_t fullEnd = lineBreak == std::string::npos
+            ? script.size() : lineBreak + 1;
+        size_t contentEnd = lineBreak == std::string::npos
+            ? script.size() : lineBreak;
+        if (contentEnd > lineStart && script[contentEnd - 1] == '\r')
+            --contentEnd;
+
+        size_t commandStart = lineStart;
+        if (commandStart == 0 && script.size() >= 3 &&
+            (unsigned char)script[0] == 0xEF &&
+            (unsigned char)script[1] == 0xBB &&
+            (unsigned char)script[2] == 0xBF)
+            commandStart = 3;
+        while (commandStart < contentEnd &&
+            (script[commandStart] == ' ' || script[commandStart] == '\t'))
+            ++commandStart;
+
+        output.write(script.data() + lineStart,
+            static_cast<std::streamsize>(commandStart - lineStart));
+        if (!informationUpdated && IsScriptCommand(script, commandStart,
+            contentEnd, "#INFORMATION")) {
+            const std::string information = script.substr(commandStart,
+                contentEnd - commandStart);
+            output << ReplaceInformationResolution(information, width, height);
+            informationUpdated = true;
+        }
+        else if (IsScriptCommand(script, commandStart, contentEnd,
+            "#RESOLUTION")) {
+            // Preserve one physical row so semantic/source compiler addresses
+            // remain stable while preventing the LR2 skin-list parser bug.
+            output << "$OLR_IGNORED_RESOLUTION,";
+            output.write(script.data() + commandStart,
+                static_cast<std::streamsize>(contentEnd - commandStart));
+        }
+        else {
+            output.write(script.data() + commandStart,
+                static_cast<std::streamsize>(contentEnd - commandStart));
+        }
+        output.write(script.data() + contentEnd,
+            static_cast<std::streamsize>(fullEnd - contentEnd));
+
+        if (lineBreak == std::string::npos) break;
+        lineStart = fullEnd;
+    }
+
+    if (!informationUpdated) {
+        errorMessage = "The LR2 export script has no #INFORMATION row for its canvas.";
+        return false;
+    }
+    preparedScript = output.str();
     return true;
 }
 

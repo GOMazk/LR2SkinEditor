@@ -132,6 +132,21 @@ static bool ResolveSiblingPlayPath(const char* requested, const char* mainSkinPa
 
 static bool SaveResolutionToSkinFile(const char* path, int width, int height);
 
+// OLR compatibility scripts flatten include contents into main.lr2skin. These
+// path-free markers retain the original per-file conditional scope without
+// reopening local include paths when the package is imported elsewhere.
+static const char* const OLR_FILE_SCOPE_START = "$OLR_FILE start";
+static const char* const OLR_FILE_SCOPE_END = "$OLR_FILE end";
+static const char* const OLR_IGNORED_CONTROL = "$OLR_IGNORED_CONTROL ";
+
+static bool IsOlrFileScopeStart(const char* text) {
+    return text && !strcmp(text, OLR_FILE_SCOPE_START);
+}
+
+static bool IsOlrFileScopeEnd(const char* text) {
+    return text && !strcmp(text, OLR_FILE_SCOPE_END);
+}
+
 static bool BrowseSkinSavePath(const char* initialPath, char* selectedPath,
     size_t selectedPathSize) {
     if (!selectedPath || selectedPathSize == 0) return false;
@@ -626,6 +641,61 @@ static bool IsSameOwnerPath(const char* left, const char* right) {
     if (GetFullPathNameA(left, MAX_PATH, fullLeft, NULL)) compareLeft = fullLeft;
     if (GetFullPathNameA(right, MAX_PATH, fullRight, NULL)) compareRight = fullRight;
     return _stricmp(compareLeft, compareRight) == 0;
+}
+
+static bool AppendOlrFileScopeMarker(SKINFILELINEREAD& row,
+    const char* mainSkinPath, std::ostringstream& script, int& packagedRow) {
+    if (!row.isSEcomment || !row.line.body) return false;
+    const char* text = row.line.outstr();
+
+    bool isStart = IsOlrFileScopeStart(text);
+    bool isEnd = IsOlrFileScopeEnd(text);
+    if (!isStart && !isEnd && !strncmp(text, "$FILE ", 6)) {
+        // LoadSkinScript always adds a physical wrapper for main.lr2skin. Do
+        // not serialize that root wrapper or it would grow on every re-save.
+        if (row.filename.body && mainSkinPath &&
+            IsSameOwnerPath(row.filename.outstr(), mainSkinPath))
+            return true;
+        isStart = strstr(text, " start") != NULL;
+        isEnd = strstr(text, " end") != NULL;
+    }
+    if (!isStart && !isEnd) return false;
+
+    script << (isStart ? OLR_FILE_SCOPE_START : OLR_FILE_SCOPE_END)
+        << "\r\n";
+    ++packagedRow;
+    return true;
+}
+
+// LR2 evaluates an included file with its own conditional stack, but an OLR
+// compatibility script is deliberately flat. Preserve that behavior for LR2
+// folder export as well as Preview: an unmatched child control command must
+// not consume the parent file's #IF, and an unterminated child #IF must not
+// leak past the child boundary.
+static bool ShouldNeutralizeOlrControl(SKINFILELINEREAD& row,
+    int& conditionalDepth) {
+    if (row.isComment || !row.csv.str[0].body) return false;
+    const char* command = row.csv.str[0].outstr();
+    if (!_stricmp(command, "#IF")) {
+        ++conditionalDepth;
+        return false;
+    }
+    if (!_stricmp(command, "#ELSEIF") || !_stricmp(command, "#ELSE"))
+        return conditionalDepth <= 0;
+    if (!_stricmp(command, "#ENDIF")) {
+        if (conditionalDepth <= 0) return true;
+        --conditionalDepth;
+    }
+    return false;
+}
+
+static void AppendOlrConditionalClosures(int& conditionalDepth,
+    std::ostringstream& script, int& packagedRow) {
+    while (conditionalDepth > 0) {
+        script << "#ENDIF\r\n";
+        --conditionalDepth;
+        ++packagedRow;
+    }
 }
 
 static void AssignRootFileOwner(ARR& skinfileLines, const char* fallback,
@@ -3418,6 +3488,18 @@ static std::vector<unsigned char> BuildPreviewRuntimeMask(ARR& skinfileLines, sk
         SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
         const char* text = row.line.body ? row.line.outstr() : "";
 
+        if (row.isSEcomment &&
+            (IsOlrFileScopeStart(text) || IsOlrFileScopeEnd(text))) {
+            if (IsOlrFileScopeStart(text)) {
+                FileState state;
+                state.enabled = files.empty() ? true : currentActive();
+                files.push_back(state);
+            }
+            else if (!files.empty()) {
+                files.pop_back();
+            }
+            continue;
+        }
         if (row.isSEcomment && !strncmp(text, "$FILE ", 6)) {
             const bool isStart = strstr(text, " start") != NULL;
             const bool isEnd = strstr(text, " end") != NULL;
@@ -3483,6 +3565,120 @@ static std::vector<unsigned char> BuildPreviewRuntimeMask(ARR& skinfileLines, sk
         }
     }
     return enabled;
+}
+
+int RunOlrFileScopeSelfTest() {
+    WORKSPACE workspace{};
+    workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 20);
+    const char* mainPath = "C:\\olr-scope-test\\main.lr2skin";
+
+    const auto appendLine = [&](const char* text, const char* owner) {
+        SKINFILELINEREAD* row =
+            (SKINFILELINEREAD*)workspace.skinfileLines.Get_new();
+        if (!row) return false;
+        row->line.assign(text);
+        row->filename.assign(owner);
+        row->num = workspace.skinfileLines.count - 1;
+        row->numTotal = row->num;
+        row->isComment = text[0] != '#';
+        row->isSEcomment = text[0] == '$';
+        if (!row->isComment) {
+            SplitCSV(row->line, &row->csv, ",");
+            row->csvColumnCount = CountCsvColumns(row->line);
+        }
+        return true;
+    };
+
+    const char* rows[] = {
+        "$FILE 'C:\\olr-scope-test\\main.lr2skin' start",
+        "#IF,900",
+        "$OLR_FILE start",
+        "#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0",
+        "#ELSE",
+        "#SRC_IMAGE,0,0,1,0,1,1,1,1,0,0",
+        "$OLR_FILE end",
+        "#ENDIF",
+        "#IF,901",
+        "$OLR_FILE start",
+        "#SRC_IMAGE,0,0,2,0,1,1,1,1,0,0",
+        "#ELSE",
+        "#SRC_IMAGE,0,0,3,0,1,1,1,1,0,0",
+        "$OLR_FILE end",
+        "#ENDIF",
+        "$FILE 'C:\\olr-scope-test\\main.lr2skin' end"
+    };
+    for (const char* row : rows)
+        if (!appendLine(row, mainPath)) return 1;
+
+    skstruct skin{};
+    skin.op[0] = 1;
+    skin.op[900] = 1;
+    skin.op[901] = 0;
+    std::vector<unsigned char> enabled =
+        BuildPreviewRuntimeMask(workspace.skinfileLines, &skin);
+    if (enabled.size() != 16 || !enabled[3] || !enabled[5] ||
+        enabled[10] || enabled[12])
+        return 2;
+
+    skin.op[900] = 0;
+    skin.op[901] = 1;
+    enabled = BuildPreviewRuntimeMask(workspace.skinfileLines, &skin);
+    if (enabled[3] || enabled[5] || !enabled[10] || !enabled[12])
+        return 3;
+
+    SKINFILELINEREAD childStart{};
+    childStart.line.assign("$FILE 'C:\\olr-scope-test\\play.csv' start");
+    childStart.filename.assign("C:\\olr-scope-test\\play.csv");
+    childStart.isComment = true;
+    childStart.isSEcomment = true;
+    SKINFILELINEREAD childEnd{};
+    childEnd.line.assign("$FILE 'C:\\olr-scope-test\\play.csv' end");
+    childEnd.filename.assign("C:\\olr-scope-test\\play.csv");
+    childEnd.isComment = true;
+    childEnd.isSEcomment = true;
+
+    std::ostringstream serialized;
+    int packagedRow = 0;
+    SKINFILELINEREAD& rootStart =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[0];
+    if (!AppendOlrFileScopeMarker(rootStart, mainPath, serialized, packagedRow) ||
+        !serialized.str().empty() || packagedRow != 0)
+        return 4;
+    if (!AppendOlrFileScopeMarker(childStart, mainPath, serialized, packagedRow) ||
+        !AppendOlrFileScopeMarker(childEnd, mainPath, serialized, packagedRow) ||
+        serialized.str() != "$OLR_FILE start\r\n$OLR_FILE end\r\n" ||
+        packagedRow != 2)
+        return 5;
+
+    std::ostringstream resaved;
+    int resavedRow = 0;
+    SKINFILELINEREAD& explicitStart =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[2];
+    if (!AppendOlrFileScopeMarker(explicitStart, mainPath, resaved, resavedRow) ||
+        resaved.str() != "$OLR_FILE start\r\n" || resavedRow != 1)
+        return 6;
+
+    SKINFILELINEREAD orphanElse{};
+    orphanElse.line.assign("#ELSE");
+    SplitCSV(orphanElse.line, &orphanElse.csv, ",");
+    int conditionalDepth = 0;
+    if (!ShouldNeutralizeOlrControl(orphanElse, conditionalDepth)) return 7;
+
+    SKINFILELINEREAD localIf{};
+    localIf.line.assign("#IF,100");
+    SplitCSV(localIf.line, &localIf.csv, ",");
+    if (ShouldNeutralizeOlrControl(localIf, conditionalDepth) ||
+        conditionalDepth != 1 ||
+        ShouldNeutralizeOlrControl(orphanElse, conditionalDepth))
+        return 8;
+
+    std::ostringstream closed;
+    int closedRow = 0;
+    AppendOlrConditionalClosures(conditionalDepth, closed, closedRow);
+    if (closed.str() != "#ENDIF\r\n" || conditionalDepth != 0 ||
+        closedRow != 1)
+        return 9;
+    return 0;
 }
 
 int WORKSPACE::ReadSkinSE() {
@@ -9743,17 +9939,40 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
 
     int packagedRow = 0;
     std::ostringstream lr2;
+    std::vector<int> fileConditionalDepth;
     for (int rowIndex = 0; rowIndex < skinfileLines.count; ++rowIndex) {
         SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
         const char* original = row.line.body ? row.line.outstr() : "";
-        if (row.isSEcomment && !strncmp(original, "$FILE ", 6)) continue;
+        const bool scopeStart = row.isSEcomment &&
+            (IsOlrFileScopeStart(original) ||
+                (!strncmp(original, "$FILE ", 6) &&
+                    strstr(original, " start") != NULL));
+        const bool scopeEnd = row.isSEcomment &&
+            (IsOlrFileScopeEnd(original) ||
+                (!strncmp(original, "$FILE ", 6) &&
+                    strstr(original, " end") != NULL));
+        if (scopeStart) fileConditionalDepth.push_back(0);
+        if (scopeEnd && !fileConditionalDepth.empty())
+            AppendOlrConditionalClosures(fileConditionalDepth.back(), lr2,
+                packagedRow);
+        if (AppendOlrFileScopeMarker(row, mainpath, lr2, packagedRow)) {
+            if (scopeEnd && !fileConditionalDepth.empty())
+                fileConditionalDepth.pop_back();
+            continue;
+        }
         if (!row.isComment && row.csv.str[0].body &&
             row.csv.str[0].isSame("#INCLUDE"))
             continue;
 
+        if (fileConditionalDepth.empty()) fileConditionalDepth.push_back(0);
+        const bool neutralizeControl = ShouldNeutralizeOlrControl(row,
+            fileConditionalDepth.back());
+
         const auto virtualPath = virtualPathRows.find(rowIndex);
         const auto image = packagedImageRows.find(rowIndex);
-        if (virtualPath != virtualPathRows.end())
+        if (neutralizeControl)
+            lr2 << OLR_IGNORED_CONTROL << OlrWithoutLineEnding(original);
+        else if (virtualPath != virtualPathRows.end())
             lr2 << OlrReplaceCsvField(OlrWithoutLineEnding(original),
                 OlrPathFieldIndex(row.csv.str[0].outstr()), virtualPath->second);
         else if (image != packagedImageRows.end())

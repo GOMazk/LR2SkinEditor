@@ -46,6 +46,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   document의 stored ZIP 생성/검사/추출, manifest와 `skin.json`/archive의 구조·asset
   count 일치, nested
   part별 Layout/Timeline/Condition compile, null timer/loop와 누락 OP slot 보존,
+  M.H형 1P/2P wrapper와 include 내부 고아 `#ELSE` 사이의 `$OLR_FILE` scope 분리,
+  고아 control row 무력화와 열린 child `#IF` 자동 종료, 재저장 시 scope marker 비증식,
   known OP/TIMER와 raw OP 왕복, V0.7 flat authority 호환, LR2·asset byte 보존,
   path traversal 거부, CRC 손상 탐지, CP932 가상/절대 경로의 반복 해석 안전성.
   별도 compiler fixture는 한 part의 multi-source binding과 명시적으로 구성한 두

@@ -160,6 +160,11 @@ packaged LR2 row로 변환한다.
 이 변환 없이 펼친 row를 compiler 주소로 사용하지 않는다. V0.1-V0.3은 계속 기존처럼
 compatibility script를 기준으로 Import하며 V0.1-V0.7은 각 버전의 기존 parser와
 authority로 처리한다. legacy flat Object를 V0.8 part로 재해석하지 않는다.
+평탄화된 include 본문은 경로가 없는 `$OLR_FILE start/end`로 감싸 원래 파일별
+IF/ELSE stack을 유지한다. 따라서 include 안의 짝 없는 `#ELSE`가 main의 1P/2P
+wrapper 조건을 소비하거나 반대편 Object를 활성화하지 않는다. LR2 폴더로 내보낸
+평탄 script에서도 같은 의미가 유지되도록 짝 없는 child control row는 비실행
+`$OLR_IGNORED_CONTROL` comment로 바꾸고, 파일 끝에 남은 child `#IF`는 닫는다.
 
 패키지에는 로컬 절대 owner 경로를 기록하지 않는다. main 폴더 내부 include는
 상대 경로, 외부 include는 `<external>/<filename>` label만 source map에 남긴다.
@@ -174,7 +179,8 @@ V0.1 패키지는 계속 Import할 수 있지만 path map이 없으므로 LR2 fo
 향후 extension namespace와 passthrough 또는 명시적 rewrite 경계를 별도 정책으로
 정의하기 전까지 이를 V0.8의 알려진 제한으로 둔다.
 자동 `olr-package` fixture는 이미 part가 구성된 document/JSON의 package 및 compiler
-왕복을 검증하지만 `WORKSPACE::ExportOlrSkin()`의 행 경계 투영 자체는 호출하지 않는다.
+왕복과 M.H 형태의 1P/2P file-scope marker 조건 분리를 검증하지만,
+`WORKSPACE::ExportOlrSkin()`의 전체 행 경계 투영 자체는 호출하지 않는다.
 실제 kamh BUTTON과 NOTE의 part 도출은 `BUILD_AND_TEST.md`의 수동 OLR 절차로 확인한다.
 
 ### 시나리오 B: 새 스킨 생성

@@ -244,6 +244,9 @@ int RunResolutionEstimatorSelfTest() {
 }
 
 int RunOlrPackageSelfTest() {
+    const int fileScopeResult = RunOlrFileScopeSelfTest();
+    if (fileScopeResult != 0) return 100 + fileScopeResult;
+
     char temporaryRoot[MAX_PATH] = {};
     char testRoot[MAX_PATH] = {};
     if (!GetTempPathA(MAX_PATH, temporaryRoot)) return 1;

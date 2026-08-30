@@ -11,7 +11,9 @@ first-destination-family Object projection with source-bound nested Object
 parts:
 
 - save the currently loaded, fully expanded LR2 document as one ZIP package
-  through `File > Save OLRskin`;
+  through `File > Save OLRskin`, retaining path-free `$OLR_FILE start/end`
+  markers around flattened include bodies so each file keeps its own IF/ELSE
+  scope;
 - classify editor Objects into semantic categories in `skin.json`;
 - list number-font, judgement-font, gear, note and gauge source slots with their
   packaged LR2 row, command, graphic crop and animation grid in
@@ -324,6 +326,20 @@ are relative. An external include is recorded only as
 `<external>/<filename>`. Absolute local paths are never packaged or reopened
 from this map.
 
+`lr2/main.lr2skin` omits executable `#INCLUDE` rows because the include bodies
+are already flattened. It places `$OLR_FILE start` and `$OLR_FILE end` around
+each included body instead. These path-free SkinEditor comments are ignored as
+ordinary non-LR2 commands by compatibility readers, while the Preview runtime
+uses them to reset the conditional stack at the same file boundaries as the
+source document. The physical wrapper for `main.lr2skin` is never serialized,
+so repeated Import and Save OLRskin operations do not accumulate markers.
+When flattening, a file-local `#ELSE`, `#ELSEIF` or `#ENDIF` with no matching
+file-local `#IF` is preserved as a non-executable `$OLR_IGNORED_CONTROL`
+comment. Any file-local `#IF` still open at the end marker is closed with a
+synthetic `#ENDIF`. This makes the flat script preserve the same condition
+scope when it is materialized for LR2, where `$OLR_FILE` comments themselves
+have no execution semantics.
+
 `compatibility/path-map.json` records:
 
 - the workspace prefix, currently `vfs/`;
@@ -372,8 +388,9 @@ do not expose LR2 folder export because they have no path map or export marker.
 V0.8 adds source-bound nested parts and slot-preserving conditions, but does not
 claim perfect lossless coverage for every skin:
 
-- includes are flattened into the authoritative compatibility script; their
-  original files are also present when they belonged to a captured root;
+- includes are flattened into the authoritative compatibility script with
+  path-free file-scope markers; their original files are also present when they
+  belonged to a captured root;
 - unresolved `LR2files/...` roots remain external and are counted;
 - paths longer than the safe package-entry limit are skipped and counted;
 - nested `.olrskin` containers are skipped and counted instead of recursively
@@ -407,10 +424,13 @@ claim perfect lossless coverage for every skin:
 
 ## Verification
 
-The `olr-package` self-test creates a synthetic virtual theme and an
-`SEOLRSkinDocument` whose two parts are already explicit. It writes and inspects
-that V0.8 package with one Simple Mode slot and two destinations, extracts and
-compiles it,
+The `olr-package` self-test first checks an M.H-shaped 1P/2P wrapper whose two
+flattened include bodies contain file-local orphan `#ELSE` rows. It verifies
+that `$OLR_FILE` boundaries keep only the selected side active and remain
+stable when a package is saved again. It then creates a synthetic virtual theme
+and an `SEOLRSkinDocument` whose two parts are already explicit. It writes and
+inspects that V0.8 package with one Simple Mode slot and two destinations,
+extracts and compiles it,
 verifies virtual and fixed asset bytes, materializes a new LR2 tree, checks
 restored script paths, rejects unsafe roots and CRC tampering, and tests
 standalone LR2-root resolution. Its compiler fixture changes all eight supported

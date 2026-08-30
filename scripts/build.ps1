@@ -3,7 +3,7 @@ param(
     [ValidateSet('Release')]
     [string]$Configuration = 'Release',
 
-    [ValidateSet('Win32')]
+    [ValidateSet('Win32', 'x64')]
     [string]$Platform = 'Win32',
 
     [string]$BuildRoot
@@ -20,7 +20,9 @@ $BuildRoot = [System.IO.Path]::GetFullPath($BuildRoot)
 
 $projectPath = Join-Path $repositoryRoot 'SkinEditor_DX9\SkinEditor_DX9.vcxproj'
 $variant = "$Configuration-$Platform"
-$outputDirectory = Join-Path $repositoryRoot 'SkinEditor_DX9\Release'
+$outputFolder = if ($Platform -eq 'x64') { 'Release-x64' } else { 'Release' }
+$runtimeArchitecture = if ($Platform -eq 'x64') { 'x64' } else { 'x86' }
+$outputDirectory = Join-Path $repositoryRoot "SkinEditor_DX9\$outputFolder"
 $intermediateDirectory = Join-Path $BuildRoot "obj\$variant"
 $logDirectory = Join-Path $BuildRoot 'logs'
 $packageRoot = Join-Path $BuildRoot `
@@ -128,7 +130,7 @@ if (-not (Test-Path -LiteralPath $executablePath)) {
 }
 
 $d3dxRuntime = Join-Path $packageRoot `
-    'build\native\release\bin\x86\D3DX9_43.dll'
+    "build\native\release\bin\$runtimeArchitecture\D3DX9_43.dll"
 if (-not (Test-Path -LiteralPath $d3dxRuntime)) {
     throw "D3DX runtime was not found: $d3dxRuntime"
 }

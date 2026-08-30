@@ -384,6 +384,23 @@ static constexpr double LR2SEPreviewBpm = 150.0;
 static constexpr unsigned int LR2SEPreviewChartDurationMs = 34000U;
 static constexpr unsigned int LR2SEPreviewMeasureIntervalMs =
 	(unsigned int)(60000.0 * 4.0 / LR2SEPreviewBpm);
+static constexpr float LR2SEStaticNormalSampleFractions[] = {
+	0.20f, 0.47f, 0.74f
+};
+static constexpr float LR2SEStaticLongNoteNearFraction = 0.42f;
+static constexpr float LR2SEStaticLongNoteFarFraction = 0.68f;
+
+bool LR2SEShouldDrawStaticNormalSample(int sampleIndex,
+	bool longNoteVisible) {
+	if (sampleIndex < 0 || sampleIndex >=
+		(int)(sizeof(LR2SEStaticNormalSampleFractions) /
+			sizeof(LR2SEStaticNormalSampleFractions[0])))
+		return false;
+	if (!longNoteVisible) return true;
+	const float fraction = LR2SEStaticNormalSampleFractions[sampleIndex];
+	return fraction < LR2SEStaticLongNoteNearFraction ||
+		fraction > LR2SEStaticLongNoteFarFraction;
+}
 
 int LR2SEBuildPreviewTimeline(LR2SEPreviewTimelineEvent* events, int capacity) {
 	if (!events || capacity <= 0) return 0;
@@ -542,6 +559,17 @@ static bool LR2SEPreviewFileExists(const char* path) {
 	return true;
 }
 
+int LR2SEGetSamplePreviewScratchSide(int type, int scratchSide1,
+	int scratchSide2) {
+	// Match LR2's Skin Select PlayPreviewSample path. Exact 5-key battle is the
+	// only bundled sample preview that inherits the skin's scratch-side flags;
+	// the native 14-key sample is parsed with zero even when the skin declares
+	// its 2P scratch on the right.
+	if (type == SKINTYPE_5KEYSBATTLE)
+		return scratchSide1 + scratchSide2 * 2;
+	return 0;
+}
+
 static int LR2SEPopulateSamplePreviewChart(game* g, int type) {
 	if (!g) return -1;
 	const LR2SEPlayModeInfo playMode = LR2SEGetPlayModeInfo(type);
@@ -562,8 +590,8 @@ static int LR2SEPopulateSamplePreviewChart(game* g, int type) {
 
 	InitGameplay(&g->gameplay, &sampleConfig.play);
 	g->gameplay.isAutoplay = 1;
-	const int scratchSide = g->skstruct.scratchside_1 +
-		g->skstruct.scratchside_2 * 2;
+	const int scratchSide = LR2SEGetSamplePreviewScratchSide(type,
+		g->skstruct.scratchside_1, g->skstruct.scratchside_2);
 	if (ParseBmsFile(&g->gameplay, playMode.samplePath, &g->audio,
 		&sampleConfig, &g->sSelect.metaSelected, 1, scratchSide) < 0)
 		return -1;
@@ -575,8 +603,25 @@ static int LR2SEPopulateSamplePreviewChart(game* g, int type) {
 	return 0;
 }
 
+void LR2SEResetPreviewCourseState(gameplay* preview) {
+	if (!preview) return;
+	preview->isCourse = 0;
+	preview->courseType = -1;
+	preview->courseStageCount = 1;
+	preview->courseStageNow = 0;
+	for (int stage = 0; stage < 5; ++stage)
+		preview->courseFilepath[stage].fillzero();
+	for (int connection = 0; connection < 10; ++connection)
+		preview->courseConnection[connection] = 0;
+}
+
 static void LR2SEInitPlayPreviewState(game* g, int type) {
 	const LR2SEPlayModeInfo mode = LR2SEGetPlayModeInfo(type);
+	// InitGameplay intentionally preserves course progress for real LR2 courses.
+	// A workspace preview can switch from COURSERESULT directly to PLAY, so
+	// clear that inherited state before ParseBmsFile sees the bundled sample.
+	// Otherwise it replaces sample_*.bme with an empty courseFilepath entry.
+	LR2SEResetPreviewCourseState(&g->gameplay);
 	// A PLAY skin normally inherits this information from SELECT.  Populate it
 	// explicitly because the editor can open every PLAY skin in isolation.
 	LR2SEInitSelectPreviewState(g);
@@ -1120,8 +1165,22 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 			const float screenAxis = (float)(g->skstruct.horizontal ? sizeX : sizeY);
 			const float laneTravel = laneAnchor > screenAxis * 0.35f
 				? laneAnchor : screenAxis * 0.75f;
-			for (int sample = 0; sample < 3; ++sample) {
-				const float shift = -laneTravel * (0.20f + sample * 0.27f);
+			SRCstruct* lnStart = g->skstruct.src_LN_START[i].graphcount > 0
+				? &g->skstruct.src_LN_START[i] : &g->skstruct.src_AUTO_LN_START[i];
+			SRCstruct* lnEnd = g->skstruct.src_LN_END[i].graphcount > 0
+				? &g->skstruct.src_LN_END[i] : &g->skstruct.src_AUTO_LN_END[i];
+			SRCstruct* lnBody = g->skstruct.src_LN_BODY[i].graphcount > 0
+				? &g->skstruct.src_LN_BODY[i] : &g->skstruct.src_AUTO_LN_BODY[i];
+			const bool longNoteVisible = !g->skstruct.horizontal &&
+				lnStart->graphcount > 0 && lnEnd->graphcount > 0 &&
+				lnBody->graphcount > 0;
+			for (int sample = 0; sample <
+				(int)(sizeof(LR2SEStaticNormalSampleFractions) /
+					sizeof(LR2SEStaticNormalSampleFractions[0])); ++sample) {
+				if (!LR2SEShouldDrawStaticNormalSample(sample, longNoteVisible))
+					continue;
+				const float shift = -laneTravel *
+					LR2SEStaticNormalSampleFractions[sample];
 				AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, laneSample,
 					&g->skstruct.dst_NOTE[i], &g->timer1,
 					g->skstruct.horizontal ? shift : 0.0f,
@@ -1138,18 +1197,11 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 					g->skstruct.horizontal ? 0.0f : shift, 255, 0, 0, 1);
 			}
 
-			if (!g->skstruct.horizontal) {
-				SRCstruct* lnStart = g->skstruct.src_LN_START[i].graphcount > 0
-					? &g->skstruct.src_LN_START[i] : &g->skstruct.src_AUTO_LN_START[i];
-				SRCstruct* lnEnd = g->skstruct.src_LN_END[i].graphcount > 0
-					? &g->skstruct.src_LN_END[i] : &g->skstruct.src_AUTO_LN_END[i];
-				SRCstruct* lnBody = g->skstruct.src_LN_BODY[i].graphcount > 0
-					? &g->skstruct.src_LN_BODY[i] : &g->skstruct.src_AUTO_LN_BODY[i];
-				if (lnStart->graphcount > 0 && lnEnd->graphcount > 0 && lnBody->graphcount > 0)
-					AddDrawingBuffer_LN(&g->skstruct.drBuf, lnStart, lnEnd, lnBody,
-						&g->skstruct.dst_NOTE[i], &g->timer1, 0.0f,
-						-laneTravel * 0.42f, -laneTravel * 0.68f, 210, 0, 0);
-			}
+			if (longNoteVisible)
+				AddDrawingBuffer_LN(&g->skstruct.drBuf, lnStart, lnEnd, lnBody,
+					&g->skstruct.dst_NOTE[i], &g->timer1, 0.0f,
+					-laneTravel * LR2SEStaticLongNoteNearFraction,
+					-laneTravel * LR2SEStaticLongNoteFarFraction, 210, 0, 0);
 		}
 
 		g_previewRenderStage = "SELECT_STATIC";

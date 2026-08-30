@@ -469,7 +469,8 @@ void WriteSoundFile(AUDIO *aud, CSTR filename, uint size) {
 		fclose(_File);
 	}
 	if (aud->buffer) {
-		delete(aud->buffer);
+		free(aud->buffer);
+		aud->buffer = NULL;
 	}
 	ErrorLogFmtAdd("データを保存しました。\n");
 }
@@ -547,18 +548,20 @@ int RecordSound(AUDIO *aud, SOUNDDATA *sound, double time, double len) {
 				memset(newbuffer, 0, aud->size * 4);
 				memcpy(newbuffer, aud->buffer, aud->size * 2);
 				if (aud->buffer != NULL) {
-					delete(aud->buffer);
+					free(aud->buffer);
 					aud->buffer = NULL;
 				}
 				aud->buffer = newbuffer;
 				aud->size = aud->size * 2;
 			}
 
-			int newval = *(short*)((int)aud->buffer + (paramlen + i) * 2) + (float)(*(short*)(sound->raw.data + i * 2)) * aud->volume * fade;
+			short& destination = aud->buffer[paramlen + i];
+			const short source = reinterpret_cast<const short*>(sound->raw.data)[i];
+			int newval = destination + (float)source * aud->volume * fade;
 
-			if (newval >= 0x7fff) *(short*)((int)aud->buffer + (paramlen + i) * 2) = 0x7fff;
-			else if (newval < -0x7fff) *(short*)((int)aud->buffer + (paramlen + i) * 2) = -0x8000;
-			else *(short*)((int)aud->buffer + (paramlen + i) * 2) = (short)newval;
+			if (newval >= 0x7fff) destination = 0x7fff;
+			else if (newval < -0x7fff) destination = -0x8000;
+			else destination = (short)newval;
 		}
 		return 1;
 	}

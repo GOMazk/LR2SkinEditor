@@ -575,7 +575,7 @@ int LoadFolderDataFromDB(CSTR query, SONGDATA *song, sqlite3 *sql, int difficult
 			int newsize = nowsize + sizeof(SONGDATA) * 1000;
 			slist = (SONGDATA*)realloc(slist, newsize);
 			if (maxsize - 1000 < maxsize) {
-				memset((void*)((int)slist + nowsize), 0, sizeof(SONGDATA) * 1000);
+				memset(reinterpret_cast<unsigned char*>(slist) + nowsize, 0, sizeof(SONGDATA) * 1000);
 			}
 			maxsize += 1000;
 			keymode_A = keymode_B;

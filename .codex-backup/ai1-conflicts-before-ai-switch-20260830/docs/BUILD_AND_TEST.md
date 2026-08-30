@@ -10,8 +10,7 @@
 - Direct3D 9 / DxLib
 - `Microsoft.DXSDK.D3DX` NuGet package `9.29.952.8`
 
-프로젝트는 Release Win32와 Release x64를 모두 빌드할 수 있다. 현재 배포와 전체
-반복 검증 기준은 계속 x86이며, x64는 별도 산출물로 빌드·링크를 검증한다.
+프로젝트에는 Win32와 x64 구성이 모두 있지만 현재 배포와 반복 검증 기준은 x86다.
 새 PC에서는 Visual Studio Installer에서 **Desktop development with C++**와
 Windows 10/11 SDK를 설치한다.
 
@@ -29,35 +28,22 @@ powershell -ExecutionPolicy Bypass -File .\scripts\ai-context.ps1 -Check
 
 `build.ps1`은 Visual Studio 2022 C++ Build Tools를 `vswhere`로 찾는다. 구형
 DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버전과 SHA-512로
-검증하여 준비한 다음 기본값으로 `Release | Win32`를 빌드한다. 기존 개발·배포
-실행 경로와 동일한 `SkinEditor_DX9\Release`에 x86 실행 파일과 런타임을 출력한다.
-`-Platform x64`를 지정하면 x64 DxLib/FMOD/D3DX 라이브러리를 선택하고 x64 D3DX
-런타임과 실행 파일을 `SkinEditor_DX9\Release-x64`에 분리한다. 중간 생성물은
-`.build\obj`, 텍스트/binlog는 `.build\logs`에 둔다.
+검증하여 준비한 다음 `Release | Win32`를 빌드한다. 기존
+개발·배포 실행 경로와 동일한 `SkinEditor_DX9\Release`에 실행 파일과 런타임을
+출력한다. 중간 생성물은 `.build\obj`, 텍스트/binlog는 `.build\logs`에 둔다.
 
 `test.ps1`은 다음 계약 테스트를 각각 별도 프로세스로 실행한다.
 
 - `schema-contract`: 실행 파일에 포함된 command/object 스키마와 symbolic field
 - `ui-contract`: 창 카탈로그의 고유 key/title, owner, dock, workspace별 ImGui ID
 - `skin-browser`: 외부 폴더의 대소문자 확장자, 하위 폴더 탐색, 비스킨 파일 제외,
-  잘못된 위치 거부, 100개를 넘는 등록 스킨 목록의 구조체 크기 기반 안전 확장
+  잘못된 위치 거부
 - `preview-simulator`: PLAY 키 모드별 메모리 chart의 시간순 lane 배치, 동시치기,
-  LN/mine, 2P lane, Simple sample의 LR2 호환 scratch-side 선택,
-  COURSERESULT에서 PLAY로 전환할 때 course 상태 제거, measure event/sentinel 및
-  Rhythm 140 시작·리셋 계약
-- `resolution-estimator`: `#INFORMATION`/`#RESOLUTION` 우선순위, TenRiff에서 이식한
-  lane/backdrop 기반 SD/HD/FHD 판정, 화면 밖 전환 panel 제외, 640x480 fallback
+  LN/mine, 2P lane, measure event/sentinel 및 Rhythm 140 시작·리셋 계약
+- `resolution-estimator`: `#INFORMATION`/`#RESOLUTION` 우선순위, include가 펼쳐진
+  DST 경계 기반 720p/1080p 추정, 화면 밖 전환 frame 내성, 640x480 fallback
 - `olr-package`: stored ZIP 생성/검사/추출, manifest와 semantic object/asset count,
-  Layout/Timeline/Condition compile, known OP/TIMER와 raw OP 왕복, LR2·asset byte
-  보존, path traversal 거부, CRC 손상 탐지, CP932 가상/절대 경로의 반복 해석 안전성
-- `simple-mode`: Object Editor 그룹이 없는 기존 LR2 행에서도 숫자/콤보 폰트,
-  판정 폰트, 기어 라인, 일반·롱·마인·AUTO 노트를 직접 분류하는 투영 계약
-- `reload-lifecycle`: 중첩 CSTR/CSV/Object/History를 포함한 편집 문서를 두 번
-  초기화해 이전 스킨의 소유 메모리와 파생 배열이 남거나 이중 해제되지 않는지,
-  OLR source package 연결이 다음 문서로 새지 않는지, 미로드 Save OLRskin이 명확히
-  실패하는지 확인
-- `dst-color`: ARGB 네 필드를 한 picker gesture/History 항목으로 갱신하고 0~255로
-  제한하며, 다음 gesture와 Ctrl+Z 두 번이 각 단계의 전체 색상을 복원하는지 확인
+  LR2·asset byte 보존, path traversal 거부 및 CRC 손상 탐지
 - `initial-preset`: 공용 atlas의 읽을 수 있는 0~9 NUMBER glyph, PLAY/BATTLE 키 모드별 lane index와 각 lane의
   Normal/Mine/LN/DST_NOTE/Bomb, Measure Line, Judge Line, Gauge, FAST/SLOW,
   플레이어별 NOWJUDGE/NOWCOMBO, RESULT의 label/판정 숫자/chart 및 COURSERESULT의
@@ -92,8 +78,7 @@ source 위치만 포함한 focus pack이 생성된다.
 검사하고 `.build\docs-check\docs-check.json`을 남긴다.
 
 `.github\workflows\ci.yml`은 push, pull request와 수동 실행에서 UI 지도 검증,
-Release x86 빌드·자체 테스트, Release x64 빌드와 AI context 생성을 Windows Server
-2022에서 실행한다. 로그,
+빌드, 자체 테스트와 AI context 생성을 Windows Server 2022에서 실행한다. 로그,
 JUnit, UI 지도, 문서 검사와 AI 인계 자료는 실패 여부와 관계없이 CI
 artifact로 보존한다. 러너는 현재 프로젝트의 Visual Studio 2022/`v143`
 기준을 지키기 위해 `windows-2022`로 고정하고, checkout과 artifact action은 현행
@@ -110,8 +95,6 @@ D:\Github\SkinEditor\
   |     +-- Release\
   |           +-- SkinEditor_DX9.exe
   |           +-- LR2files\
-  |     +-- Release-x64\
-  |           +-- SkinEditor_DX9.exe
   +-- LR2\
   +-- lib\
         +-- DxLib\
@@ -159,26 +142,6 @@ $env:Path = $skinEditorBuildPath
 현재 프로젝트에는 기존 warning이 남아 있을 수 있으므로 총 warning 수만 보고
 성공으로 판단하지 말고 변경 전후 차이를 확인한다.
 
-## Release x64 빌드
-
-저장소 루트의 권장 명령은 다음과 같다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Platform x64
-```
-
-Visual Studio 2022 Developer PowerShell에서 직접 빌드할 수도 있다.
-
-```powershell
-cd D:\Github\SkinEditor
-msbuild SkinEditor_DX9\SkinEditor_DX9.vcxproj /t:Build /p:Configuration=Release /p:Platform=x64 /m
-```
-
-성공하면 `SkinEditor_DX9\Release-x64\SkinEditor_DX9.exe`와 x64
-`D3DX9_43.dll`이 생성된다. x86과 x64는 서로 다른 출력·중간 폴더를 사용하므로
-연속으로 빌드해도 산출물을 덮어쓰지 않는다. 전체 GUI/LR2 호환 회귀 기준은 아직
-x86이며, x64 실행 파일은 자동 self-test와 별도 smoke test로 확인한다.
-
 Asset 메타데이터 저장/재파싱 자동 점검:
 
 ```powershell
@@ -198,18 +161,6 @@ History 한 건과 Ctrl+Z 한 번으로 원본 행이 복구되는지도 검사�
 교체한 뒤 Undo 복원, 2x2 named `$SRC_IMAGE` 분할의 재파싱 및 일괄 Ctrl+Z를 확인한
 뒤 임시 파일을 삭제한다.
 
-DST ARGB 색상 편집과 History 자동 점검:
-
-```powershell
-$test = Start-Process `
-  .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
-  -ArgumentList '--self-test-dst-color' -Wait -PassThru
-$test.ExitCode # 0이면 성공
-```
-
-한 picker gesture 안의 여러 ARGB 갱신이 History 한 건으로 합쳐지고, byte 범위 제한과
-gesture별 Ctrl+Z 복원이 모두 동작하는지 검사한다.
-
 도트 그리기 texture와 파일 저장 경로:
 
 ```powershell
@@ -222,21 +173,6 @@ $test.ExitCode # 0이면 성공
 4x4 Direct3D texture에 RGBA pixel을 그리고 PNG로 atomic 저장한 뒤 다시 읽어 pixel
 값과 `.skineditor-pixel.bak` 생성을 검사한다. 이어서 새 solid PNG 생성과 Asset
 region alpha 병합/확장 canvas를 저장·재로드해 크기와 대표 pixel도 확인한다.
-
-New 시작 프리셋 PNG 자동 점검:
-
-```powershell
-$test = Start-Process `
-  .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
-  -ArgumentList '--self-test-initial-preset' -Wait -PassThru
-$test.ExitCode # 0이면 성공
-```
-
-임시 작업 폴더에서 New와 같은 경로로 시작 프리셋을 생성해 스크립트가
-`preset.png`만 참조하는지 확인한다. 생성된 모든 PLAY/BATTLE/SELECT/DECIDE/RESULT/
-COURSERESULT 256x256 PNG를 다시 읽어 빈 아틀라스 영역의 alpha가 0이고 실제 source
-영역의 alpha가 255인지 검사한다. SELECT bar 색상, RESULT 숫자 glyph와 gauge/chart
-색상도 pixel 단위로 확인한 뒤 임시 파일을 삭제한다.
 
 ## 실행과 배포 파일
 
@@ -267,11 +203,6 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    하위 폴더의 `.lr2skin`/`.lr2ss`가 목록에 나타나고, Refresh와 Default locations가
    정상 동작해야 한다.
    스킨 목록에는 별도의 `LOAD(TEXT)` 버튼이 없어야 한다.
-   실제 LR2 설치 밖의 M.H/IIDX 형태 폴더를 열어 `LR2files\Theme\IIDX`
-   include와 wildcard image/custom file, LR2FONT가 원본 CSV 수정 없이 해결되고
-   Preview에서 note/폭발/judge/combo/gauge가 표시되는지 확인한다.
-   New로 스킨을 만들면 `preset.png`가 생성되고 빈 아틀라스 영역이 투명한지,
-   생성 직후 해당 스킨이 정상적으로 열리는지도 확인한다.
    New Skin 창은 열릴 때 `620 x 400` 크기로 표시되고, 생성 실패 메시지가 세로
    스크롤 없이 하단에 보여야 한다.
    Image Manager의 같은 gr 콤보에는 LR2 와일드카드에 잡힌 폴더와 비이미지 파일도
@@ -326,49 +257,14 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    차단되는지도 확인한다.
 10. `Layout > Show all windows`에서 16개 창이 여섯 dock tab group 안에 정돈되고,
     `Balanced workspace`가 기본 표시 상태와 4열 배치를 복원하는지 확인한다.
-11. 실제 M.H/IIDX 형태 스킨에서 `File > Save OLRskin`을 실행하고
-    일반 ZIP viewer로 `manifest.json`, `skin.json`,
-    `compatibility/source-map.json`, `compatibility/path-map.json`,
-    `lr2/main.lr2skin`, `lr2/.olr-export-main.txt`,
-    `lr2/vfs/LR2files/Theme/<skin>/*`를 확인한다. map에 드라이브명이나
-    로컬 절대 경로가 없어야 한다. 일반 LR2 workspace의 원본 script는 이 명령만으로
-    바뀌지 않아야 한다. 같은 패키지를 `File > Import OLR package`로
-    빈 parent 폴더에 가져오면 새 `<name>-lr2` 폴더가 생기고 추출한
-    `main.lr2skin`이 열려야 한다. 정상/LN/mine, 폭발, judge/combo, gauge와
-    font를 원본과 같은 LR2 Preview flow로 다시 확인한다. Import한 workspace를
-    열었을 때 M.H의 1P/2P 레이아웃이 모두 유지되고 오른쪽 scratch만 남는 현상이
-    없어야 한다. 특히 원본과 Import 결과의 `#DST_BARGRAPH`에서
-    `loop,timer,op1,op2,op3` 열을 비교한다.
-    Import한 workspace를
-    편집한 뒤 `Save OLRskin`을 다시 실행하면 원래 package 경로가 제안되고, 재Import한
-    script에 편집이 남아 있어야 하며, 이전 `.olrskin` 파일이 새 package 내부
-    `lr2/vfs/`에 재귀 포함되지 않아야 한다. 이 workspace에서
-    `File > Export LR2 folder`를
-    새 대상으로 실행하면
-    `<target>/LR2files/...`가 생기고 main CSV에 `vfs/`가 남지 않아야 한다.
-    기존 대상 폴더를 덮어쓰지 않고, 해결불가/과도하게 긴 경로는 Export 결과의
-    외부 의존성/누락 경고와 manifest 개수에 나타나야 한다.
-12. Simple Mode의 Notes에서 흰 건반/검은 건반/scratch scope를 각각 적용해 같은
-    note part만 바뀌는지 확인한다. 판정/콤보는 1P/2P pair를 확인하고, atlas grid와
-    맞지 않는 image import가 거부되는지 확인한다. Hue/Saturation/Brightness variant가
-    `simple-assets`의 새 PNG를 사용하고 Undo 시 원본 PNG가 변하지 않는지도 확인한다.
-13. V0.7 package의 `skin.json.simple_mode.slots[].asset` 하나를 바꾸어 Import하면
-    대응 `#SRC_*`의 `gr/x/y/w/h/div_x/div_y/cycle`만 바뀌는지 비교한다. 잘못된
-    `source_row` 또는 `source_command` package는 새 import folder 없이 실패해야 한다.
-    KCOOL처럼 `#SRC_IMAGE`에 `w/h=-1` 또는 음수 width를 쓰는 legacy crop은
-    `simple_mode.slots`에서 제외되거나 Import 시 raw LR2 행으로 유지되어야 하며,
-    이 때문에 전체 package Import가 실패해서는 안 된다.
-    실제 package core 검증은 `SKINEDITOR_TEST_OLR_PACKAGE`에 읽을 `.olrskin` 경로를
-    지정한 뒤 `--self-test-olr-package`를 실행한다. 테스트는 임시 폴더에 추출하고
-    원본 package를 수정하지 않는다.
-    `#SRC_GROOVEGAUGE`, `#SRC_SCORECHART`, `#SRC_GAUGECHART_*`도 Gauge 그룹에서
-    같은 계약으로 편집되는지 확인한다.
-14. Object Inspector의 Layout에서 첫 DST rectangle을 편집하고 Preview의 흰 handle로
-    resize한다. Timeline에서 frame 0/1의 time, alpha, position, rotation, blend를 바꾼 뒤
-    `skin.json.objects`와 Import 결과의 같은 `#DST_*` 행을 비교한다. Conditions에서
-    알려진 OP와 custom OP 948을 함께 지정해 Simulator의 VISIBLE/HIDDEN과 exported
-    semantic/raw 구분을 확인한다. 잘못된 destination row/command 또는 Layout과 frame 0이
-    다른 package는 새 import folder 없이 실패해야 한다.
+11. 실제 스킨에서 `File > Export OLR package`를 실행하고 일반 ZIP viewer로
+    `manifest.json`, `skin.json`, `compatibility/source-map.json`,
+    `lr2/main.lr2skin`, `lr2/assets/*`를 확인한다. source map에 드라이브명이나 로컬
+    절대 경로가 없어야 한다. 같은 패키지를 `File > Import OLR package`로 빈 parent
+    폴더에 가져오면 새 `<name>-lr2` 폴더가 생기고 추출한 스킨이 열려야 한다.
+    정상/LN/mine, 폭발, judge/combo, gauge가 원본과 같은 LR2 Preview flow로
+    표시되는지 확인한다. wildcard/font/video/sound가 있는 스킨은 Export 결과의
+    외부 의존성 경고도 확인한다.
 
 ## 회귀 테스트
 
@@ -377,8 +273,6 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 - tricoro `20th tricoro for HD - 7KEYS`를 단독으로 연다.
 - tricoro 로딩 성공 후 bluewhite를 이어서 연다.
 - 다시 tricoro를 열어 세 번째 load에서도 이전 배열/texture가 남지 않는지 본다.
-- CP932 이름과 대형 include tree가 있는 스킨은 일반 스킨 전후 양방향으로 연다.
-  이미 절대 경로로 해석한 리소스를 다시 filesystem 경로로 변환하지 않아야 한다.
 - 실패 시 `Release\SkinEditor_load_crash.log`의 마지막 완료 stage를 기록한다.
 - malformed include, 존재하지 않는 내부 Theme 폴더명, 대형 CSV를 확인한다.
 - Workspace 두 개에서 각각 PLAY 스킨을 열고 `Timer Control > Restart scene`을 누른다.
@@ -398,31 +292,6 @@ $env:SKINEDITOR_RELOAD_SECOND = 'D:\skins\second.lr2skin'
 $test = Start-Process .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
   -ArgumentList '--skin-multi-workspace-smoke' -Wait -PassThru
 $test.ExitCode
-```
-
-로컬에 실제 스킨 두 개가 있을 때는 숨겨진 runtime smoke 경로로 같은 프로세스의
-연속 로드를 자동 확인할 수 있다. CI에는 사용자 스킨을 포함하지 않으므로 넣지 않는다.
-
-```powershell
-$env:SKINEDITOR_RELOAD_FIRST = 'D:\skins\first.lr2skin'
-$env:SKINEDITOR_RELOAD_SECOND = 'D:\skins\second.lr2skin'
-$test = Start-Process .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
-  -ArgumentList '--skin-reload-smoke' -Wait -PassThru
-$test.ExitCode # 0이면 두 스킨 모두 같은 WORKSPACE에서 load 완료
-```
-
-`Workspace > New Workspace` 경계는 별도 mode로 확인한다. 첫 Workspace를 유지한
-채 두 번째 Workspace에서 다른 스킨을 load하고, 두 scene을 시작해 여러 frame 동안
-번갈아 `ProcGame`/draw를 실행한다. 두 Workspace의 timer 41이 모두 전진해야 하며,
-비활성 Preview dock tab도 멈추면 안 된다. `tricoro -> m.h(IIDX)`처럼 첫 스킨이 큰
-경우도 이 경로를 사용한다.
-
-```powershell
-$env:SKINEDITOR_RELOAD_FIRST = 'D:\skins\tricoro\play_7.lr2skin'
-$env:SKINEDITOR_RELOAD_SECOND = 'D:\skins\mh\play_single.lr2skin'
-$test = Start-Process .\SkinEditor_DX9\Release\SkinEditor_DX9.exe `
-  -ArgumentList '--skin-multi-workspace-smoke' -Wait -PassThru
-$test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Preview draw 완료
 ```
 
 ### B. 조건 분기
@@ -486,6 +355,7 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - 추가/삭제 각각 Ctrl+Z가 되는지
 - Undo 후 Preview object와 점멸 사각형 좌표가 일치하는지
 - `#SRC_NUMBER`의 `keta`를 4 이상으로 설정했을 때 Preview 점멸 사각형의
+<<<<<<< Updated upstream
   폭이 단일 glyph가 아니라 `DST w * keta`인지
 - NUMBER `align=0/1/2`를 각각 선택해도 점멸 사각형의 왼쪽은 DST `x`이고,
   숫자 glyph만 그 필드 안에서 right/left/middle로 배치되는지. 특히 right에서
@@ -493,6 +363,10 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - TEXT는 NUMBER와 다른 `align` 순서인 `0=left`, `1=middle`, `2=right`를
   사용하는지. 점멸 사각형은 실제 렌더링된 문자열 폭을 사용하고 middle은 그 폭의
   절반, right는 전체 폭만큼 DST `x` 왼쪽에 표시되는지
+=======
+  폭이 단일 glyph가 아니라 `DST w * keta`이고 right/left/middle 정렬 기준을
+  유지하는지
+>>>>>>> Stashed changes
 - PLAY의 `NOWJUDGE_1P/2P`, `NOWCOMBO_1P/2P`를 선택했을 때도 점멸
   사각형이 표시되고 DST 프레임 위치를 따라가는지
 - Object Browser에서 같은 파일의 Object를 같은 Branch 또는 다른
@@ -694,9 +568,9 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - 640x480 Preview
 - 1280x720 이상 HD Preview
 - `#INFORMATION`이 없고 `#RESOLUTION,1280,720`만 있는 스킨이 1280x720으로 열리는지
-- 명시 해상도가 없고 lane은 화면 왼쪽에 있지만 좌상단 1280x720 backdrop이 있는
-  스킨이 TenRiff 규칙으로 HD 판정되며 toolbar/status에 `inferred`로 표시되는지
-- 화면 밖 애니메이션/전환 panel이 backdrop으로 오인되어 HD/FHD로 승격되지 않는지
+- 명시 해상도가 없고 DST가 include 파일에 분산된 HD 스킨이 전체 DST 경계로
+  추정되며 toolbar/status에 `inferred`로 표시되는지
+- 화면 밖 애니메이션/전환 DST 행 하나가 정상 720p 스킨을 4K로 과대 추정하지 않는지
 - 추정 상태로 열기만 하면 원본이 바뀌지 않고, modal Apply 뒤에만 명시
   `#INFORMATION`으로 기록되는지
 - PLAY 5/7/9/10/14 keys, 5/7/9 battle
@@ -705,12 +579,6 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - 로드 후 toolbar 해상도 modal에서도 같은 즉시 저장 정책이 적용되고 정상적으로
   재로드되는지
 - PLAY 무음 내장 chart note가 정상적으로 내려오는지
-- 14KEYS Simple Preview가 `sample_14.bme`를 LR2 Skin Select와 같은
-  `scratchSide=0`으로 읽어 1P/2P 샘플 lane이 대칭으로 표시되는지
-- COURSERESULT를 연 뒤 같은 Workspace에서 PLAY Simple Preview를 열어도 로그에
-  빈 `courseFilepath`와 `BMSを開けません`이 나타나지 않는지
-- Start 전 PLAY 정적 Preview에서 LN 몸체 뒤에 가려지는 가운데 단노트가 표시되지
-  않고, LN이 없는 lane의 단노트 샘플은 그대로 유지되는지
 
 ### H. New 프리셋
 
@@ -742,9 +610,6 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - COURSERESULT에서 1~5스테이지 제목/레벨과 EX Score, Max Combo,
   Perfect/Great/Good/Bad/Poor 누적 숫자를 확인한다.
 - 임의 해상도에서 화면 밖으로 심하게 벗어나는 필수 Object가 없는지 확인한다.
-- 생성 CSV에서 BGA와 font-backed TEXT/BAR_TITLE을 제외한 모든 raster Object의
-  `SRC w/div_x`, `SRC h/div_y`가 `DST w`, `DST h`와 같은지 확인한다. ImageManager의
-  crop과 Preview가 같은 native-size sprite를 보여야 하며, DST 배치는 이전과 같아야 한다.
 
 ### I. 인코딩과 저장
 
@@ -759,7 +624,7 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 재현 가능한 문제는 다음 내용을 남긴다.
 
 ```text
-Build: AI_2 branch commit/dirty status, Release Win32
+Build: AI branch commit/dirty status, Release Win32
 Skin: scene, key mode, resolution, main lr2skin path
 Steps: open -> option change -> selection -> action
 Expected:

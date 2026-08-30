@@ -176,6 +176,7 @@ int SetFirstSkins(game *g){
 int InitSkinData(SkinManage *skm){
 	skm->Max = 100;
 	skm->Data = (SkinHeader *)malloc(sizeof(SkinHeader) * 100);
+	if (!skm->Data) return 0;
 	skm->Count = 0;
 	memset(skm->Data, 0, skm->Max * sizeof(SkinHeader));
 	for (int i = 0; i < 100; i++) {
@@ -183,7 +184,8 @@ int InitSkinData(SkinManage *skm){
 			skm->Data[i].customs[j].dst_op_start = 0xffffffff;
 			skm->Data[i].customs[j].labelCapacity = 0;
 			skm->Data[i].customs[j].op_label = (CSTR*)malloc(sizeof(CSTR)*100);
-			memset(skm->Data[i].customs[j].op_label + sizeof(CSTR)*skm->Data[i].customs[j].labelCapacity, 0, sizeof(CSTR) * 100);
+			if (!skm->Data[i].customs[j].op_label) return 0;
+			memset(skm->Data[i].customs[j].op_label, 0, sizeof(CSTR) * 100);
 			skm->Data[i].customs[j].labelCapacity += 100;
 		}
 	}
@@ -229,20 +231,26 @@ int ResetSkinData(SkinManage *skm) {
 
 //4a7450
 int ExpandSkinMax(SkinManage *skm){
-	skm->Data = (SkinHeader *)realloc(skm->Data, (skm->Max + 100) * 0xb14);
-	memset(skm->Data + skm->Max, 0, sizeof(SkinHeader) * 100);
-	if (skm->Max < skm->Max + 100) {
-		for (int i = skm->Max; i < skm->Max + 100; i++) {
+	const int oldMax = skm->Max;
+	const int newMax = oldMax + 100;
+	SkinHeader* const expanded = static_cast<SkinHeader*>(
+		realloc(skm->Data, sizeof(SkinHeader) * newMax));
+	if (!expanded) return 0;
+	skm->Data = expanded;
+	memset(skm->Data + oldMax, 0, sizeof(SkinHeader) * (newMax - oldMax));
+	if (oldMax < newMax) {
+		for (int i = oldMax; i < newMax; i++) {
 			for (int j = 0; j < 100; j++) {
 				skm->Data[i].customs[j].dst_op_start = 0xffffffff;
 				skm->Data[i].customs[j].labelCapacity = 0;
 				skm->Data[i].customs[j].op_label = (CSTR*)malloc(sizeof(CSTR) * 100);
-				memset(skm->Data[i].customs[j].op_label + sizeof(CSTR)*skm->Data[i].customs[j].labelCapacity, 0, sizeof(CSTR) * 100);
+				if (!skm->Data[i].customs[j].op_label) return 0;
+				memset(skm->Data[i].customs[j].op_label, 0, sizeof(CSTR) * 100);
 				skm->Data[i].customs[j].labelCapacity += 100;
 			}
 		}
 	}
-	skm->Max = skm->Max + 100;
+	skm->Max = newMax;
 	return 1;
 }
 
@@ -282,7 +290,10 @@ int ParseLR2SkinCustom(SkinManage *skm, CSTR filepath) {
 			skm->Data[skm->Count].targetY = csvBuf.val[7] == 0 ? 480: csvBuf.val[7];
 			skm->Count ++;
 			if (skm->Count == skm->Max) {
-				ExpandSkinMax(skm);
+				if (!ExpandSkinMax(skm)) {
+					fclose(pFile);
+					return 0;
+				}
 			}
 		}
 		else if (buffer.left(11).isSame("#RESOLUTION")) {

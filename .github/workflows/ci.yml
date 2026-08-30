@@ -38,6 +38,10 @@ jobs:
         shell: pwsh
         run: ./scripts/test.ps1
 
+      - name: Build Release x64
+        shell: pwsh
+        run: ./scripts/build.ps1 -Platform x64
+
       - name: Build AI collaboration context
         shell: pwsh
         run: ./scripts/ai-context.ps1 -Check

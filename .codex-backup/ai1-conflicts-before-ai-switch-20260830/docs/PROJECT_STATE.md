@@ -1,9 +1,8 @@
 # SkinEditor 현재 개발 상태
 
-기준일: 2026-08-29
-기준 브랜치: `AI_2`
+기준일: 2026-08-27
+기준 브랜치: `AI`
 주 대상: `Release | Win32(x86)`
-보조 빌드 대상: `Release | x64` (`SkinEditor_DX9\Release-x64`)
 
 이 문서는 지금까지 진행한 작업의 의도와 현재 구현 상태를 다음 작업자가 코드와
 함께 확인할 수 있도록 기록한다. 완료 표시는 현재 코드에 구현되어 있다는 뜻이며,
@@ -28,56 +27,31 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 현재 코드상 가능한 항목:
 
 - 스킨을 열 때 `#INFORMATION` 해상도가 없으면 `#RESOLUTION`, 전체 include가
-  펼쳐진 뒤의 TenRiff LR2 자동 판정, 640x480 fallback 순서로 Preview 해상도 결정
+  펼쳐진 뒤의 DST 경계, 640x480 fallback 순서로 Preview 해상도 자동 결정
 - Open 이후 toolbar의 현재 해상도 버튼에서 해상도를 바꾸고 즉시 원본 반영
 - Object/Command 생성, 이름 지정, SRC/DST 속성 편집
 - FAST/SLOW를 특별 예외가 아닌 NUMBER Object로 취급
 - `$num/$type/$timer/$op/$st` 이름을 ID 또는 이름으로 검색하는 ComboBox
 - Asset crop을 Preview에 놓은 뒤 IMAGE/NUMBER/SLIDER/BUTTON 중 Object 종류 선택
-- Preview에서 선택 Object 이동, 키보드 미세 이동 및 첫 DST rectangle resize
-- Object Inspector의 Layout / Timeline / Conditions semantic 편집과 DST 프레임 증감
+- Preview에서 선택 Object 이동 및 키보드 미세 이동
+- DST 애니메이션 프레임 증감
 - Ctrl+Z 기반 CSV/구조 편집 복구
-- `Simple Mode`에서 숫자 폰트, 판정 폰트, 기어 파트, 노트, 게이지 소스를 의미별로 모아
-  같은 분류의 기존 Asset으로 교체하거나 이미지를 `simple-assets`에 가져오기.
-  노트는 선택 레인, 같은 흰/검/스크래치 계열, 같은 파트 전체 또는 category 전체,
-  폰트는 1P/2P pair 단위로 적용 범위를 고를 수 있으며 DST/조건은 유지
-- 가져온 이미지에 선택 component의 `div_x/div_y/cycle`을 자동 적용하고 frame grid로
-  균등 분할되지 않는 이미지는 수정 전에 거부. 기존 atlas grid가 같은 후보만 필터 가능
-- Hue/Saturation/Brightness 변형을 원본 atlas에 쓰지 않고 crop한 새 PNG로 만든 뒤
-  같은 scope에 적용. Before/After와 snapshot History Undo 제공
 - 현재 include 구조를 유지하는 Save/Ctrl+S와 `SAVED/MODIFIED` 상태 표시
 - Windows 파일 선택기를 쓰는 Save As와 성공 후 새 메인 스크립트로 작업 경로 전환
 - `File > Open another location` 또는 Skin Browser에서 지정한 외부 폴더의
-  `.lr2skin`/`.lr2ss`를 하위 폴더까지 찾아 기존 로더로 열기. `LR2files`
-  기준 경로는 소스 CSV를 바꾸지 않고 실제 LR2 트리 또는 standalone 스킨
-  폴더로 가상 해석하여 include, image, custom file/folder, font, helpfile을
-  Preview 로드 경계에서 사용
-- 같은 Workspace에서 스킨을 연속으로 바꿀 때 이전 CSV/CSTR/Object/History와
-  LR2 graph/image-font 상태를 소유권에 맞게 해제한 뒤 새 문서를 구성. CP932 리소스
-  경로는 한번 절대 경로가 되면 현재 Windows 코드페이지로 다시 변환하지 않으며,
-  D3DX에는 파일명이 아니라 Win32로 읽은 이미지 바이트를 전달
-- 여러 Workspace가 열려 있을 때 LR2의 song/text/gameplay core buffer와 critical
-  section은 각 `WORKSPACE::g`마다 한 번씩 초기화. 한 Workspace의 재로드에서는
-  재사용하지만 새 Workspace가 첫 스킨을 열 때 process 전역 플래그로 생략하지 않음
-- `File > Save OLRskin`에서 현재 Object를 의미별로 분류하고 LR2 호환 스크립트,
-  고정 이미지와 해결된 LR2 가상 root를 한 `.olrskin` 파일로 원자 저장. 일반 LR2
-  workspace의 원본은 건드리지 않고, Import한 OLR workspace는 미저장 script를 먼저
-  저장하여 뒤이은 LR2 folder export가 같은 편집 결과를 사용
-- `File > Import OLR package`에서 패키지를 검증한 뒤 V0.7 `objects`의
-  Layout/Animation/Condition과 V0.4 `simple_mode` source asset을 LR2 CSV로
-  원자적으로 compile하고, 사용자가 고른 새 폴더만 열기
-- Import한 V0.2+ workspace의 `File > Export LR2 folder`에서 `vfs/LR2files`와
-  고정 `assets`를 새 출력 폴더로 풀고 현재 편집 스크립트의 경로를 복원
+  `.lr2skin`/`.lr2ss`를 하위 폴더까지 찾아 기존 로더로 열기
+- `File > Export OLR package`에서 현재 Object를 의미별로 분류하고 LR2 호환
+  스크립트와 고정 이미지를 한 `.olrskin` 파일로 묶기
+- `File > Import OLR package`에서 패키지를 검증한 뒤 사용자가 고른 위치의 새
+  폴더에만 풀고, 추출한 `main.lr2skin`을 일반 Workspace로 열기
 
 주의할 항목:
 
-- TenRiff 규칙으로 추정한 해상도는 workspace/Preview에만 적용하며 원본 CSV에는 자동
+- DST 경계로 추정한 해상도는 workspace/Preview에만 적용하며 원본 CSV에는 자동
   기록하지 않는다. toolbar와 status bar의 `inferred` 표시로 명시 해상도와
   구분하고, 사용자가 해상도 modal의 Apply를 선택했을 때만 `#INFORMATION`에 쓴다.
-  최종 visible `#DST_NOTE`의 최대 x와 좌상단에 고정된 큰 `#DST_IMAGE` backdrop을
-  함께 판정하여 640x480/1280x720/1920x1080 중 하나로 정규화한다. 화면 밖에 둔
-  전환 panel은 backdrop으로 보지 않는다. 이 판정은 `skinResolution.cpp`에 격리하며
-  공용 LR2 parser의 명령 처리에는 결합하지 않는다.
+  여러 DST 행의 상위 경계를 사용하고 소수의 화면 밖 전환 frame은 제외한 뒤,
+  가능한 경우 640x480/1280x720/1920x1080 같은 지원 해상도로 정규화한다.
 - 해상도 변경의 즉시 저장은 의도된 동작이다. Workspace 해상도 modal은 이 점과
   기존 Object 좌표를 자동 scale하지 않는다는 점을 명시한다. 재로드 중 편집 내용을
   잃지 않도록 일반 script 변경은 먼저 Save해야 하고 미저장 Pixel paint도 정리해야 한다.
@@ -90,65 +64,32 @@ Default locations 전환을 제공하며, 파일을 복사하거나 LR2 설정�
 경로에서 직접 연다. 재귀 탐색은 junction/symlink를 따라가지 않는다. 기존 LR2/CSTR
 로더의 제약 때문에 Windows 현재 ANSI 코드 페이지로 표현할 수 없거나 `MAX_PATH`를
 넘는 경로는 잘라서 열지 않고 오류 또는 건너뜀 상태로 표시한다.
-외부 스킨의 `LR2files\Theme\<name>` 선언은 각 행의 owner include와 main 경로
-조상에서 `<name>` 폴더를 찾는다. wildcard는 펼친 파일명으로 바꾸지 않으며
-기존 LR2 random/custom 선택이 그대로 실행된다. owner/main에서 찾은 열린 스킨의
-가상 루트가 프로세스 작업 폴더의 동명 `LR2files`보다 우선하므로, 편집기 옆의 다른
-스킨 리소스가 standalone 작업을 가리지 않는다.
-목록의 해상도 메타데이터도 공용 LR2 parser에 덧붙이지 않고 `skinResolution.cpp`가
-해당 top-level 파일을 읽어 보정한다. 실제 Open 시에는 전체 include가 펼쳐진 뒤 다시
-판정하므로 Browser의 빠른 메타데이터 판정과 Workspace의 최종 판정을 구분한다.
 
 ### 시나리오 A-2: OLR 중간 포맷으로 공유
 
-`.olrskin` V0.7은 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
+`.olrskin` V0.1은 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
 찾기 쉬운 Semantic index와 원본 동작을 보존하는 Compatibility layer를 함께 담는
 ZIP 컨테이너다. 자세한 계약은 [OLR 포맷 문서](OLRSKIN_FORMAT.md)를 따른다.
 
 ```text
 loaded WORKSPACE
   +-- Object Model -> skin.json (gear/notes/judge/combo/gauge/...)
-  +-- first DST family -> skin.json.objects (Layout/Animation/Condition)
-  +-- Simple Mode source IR -> skin.json (number-fonts/judgement-fonts/gear/notes/gauge)
   +-- expanded CSV -> lr2/main.lr2skin
-  +-- resolved LR2 roots -> lr2/vfs/LR2files/*
-  +-- other fixed #IMAGE -> lr2/assets/*
-  +-- row ownership -> compatibility/source-map.json
-  `-- virtual/export map -> compatibility/path-map.json
+  +-- resolved fixed #IMAGE -> lr2/assets/*
+  `-- row ownership -> compatibility/source-map.json
 ```
 
-`Save OLRskin`은 이 projection을 호출하는 파일 작업 정책이다. 일반 LR2 workspace는
-원본 CSV를 저장하지 않은 채 package만 만들고, Import한 OLR workspace는 dirty script를
-먼저 추출 workspace에 저장한 뒤 package를 임시 파일과 atomic replace로 갱신한다.
-성공한 Import/Save의 package 경로는 다음 저장 위치 제안에만 쓰는 workspace-local
-상태이며 package나 LR2 export에 기록하지 않는다.
-
-V0.7은 `skin.json.objects`를 첫 지원 `#DST_*` family의 compile authority로,
-`skin.json.simple_mode`를 지원 `#SRC_*` asset authority로 사용한다. Layout은 첫 DST
-rectangle, Animation은 같은 command의 DST frame들, Condition은 첫 frame의
-timer/loop/op1..3이다. 알려진 OP/TIMER는 symbolic name으로 컴파일하고 custom 900번대와
-이름 없는 값은 raw 숫자로 왕복한다. alternate DST family, IF/ELSE, 다른 열, comment와
-editor metadata는 `lr2/main.lr2skin`에서 보존한다. 하나라도 잘못되면 새 import 폴더를
-제거하고 부분 결과를 남기지 않는다. `sections`는 Object id discovery index이며 V0.8의
-1P/2P/DP variant linkage 전까지 값을 컴파일하지 않는다.
-KCOOL처럼 `#SRC_IMAGE`의 `w/h`에 음수 sentinel을 쓰는 legacy crop은 편집 가능한
-Simple Mode rectangle이 아니므로 새 package의 `simple_mode`에서 제외한다. 기존
-package에 이미 들어 있어도 Import를 중단하지 않고 원본 LR2 행을 raw로 보존한다.
-
-Export 전 Workspace row는 include flattening 중 달라질 수 있으므로 Simple Mode의
-`source_row`와 semantic `destination_row`는 `compatibility/source-map.json`을 통해
-packaged LR2 row로 변환한다.
-이 변환 없이 펼친 row를 compiler 주소로 사용하지 않는다. V0.1-V0.3은 계속 기존처럼
-compatibility script를 기준으로 Import한다.
+V0.1의 `skin.json`은 설명용이다. Export 후 JSON만 직접 수정해도 LR2 스크립트가
+자동 생성되지는 않으며, Import는 `lr2/main.lr2skin`을 기준으로 연다. 이 경계는
+아직 해석하지 못한 LR2 명령, 조건, timer, op, editor metadata를 잃지 않기 위한
+의도된 단계다. Semantic-to-LR2 컴파일은 각 영역의 왕복 테스트를 갖춘 뒤 한 영역씩
+승격한다.
 
 패키지에는 로컬 절대 owner 경로를 기록하지 않는다. main 폴더 내부 include는
 상대 경로, 외부 include는 `<external>/<filename>` label만 source map에 남긴다.
 Import는 archive path traversal, 암호화/지원하지 않는 압축, CRC 오류를 거부하고
-기존 폴더를 덮어쓰지 않는다. 해결된 logical root 안의 wildcard/custom file,
-font와 archive는 폴더 전체로 보존한다. 해결할 수 없는 LR2 root, 외부 경로,
-과도하게 긴 파일은 외부/누락 개수를 결과와 manifest에 명시한다.
-V0.1 패키지는 계속 Import할 수 있지만 path map이 없으므로 LR2 folder Export를
-활성화하지 않는다.
+기존 폴더를 덮어쓰지 않는다. wildcard/custom file, font, video, sound와 해결되지
+않은 이미지는 V0.1에서 외부 의존성으로 결과와 manifest에 명시한다.
 
 ### 시나리오 B: 새 스킨 생성
 
@@ -163,19 +104,10 @@ New에서 Scene과 해상도를 선택하여 필수 Object가 포함된 시작 �
 - RESULT
 - COURSERESULT
 
-New는 `LR2files\Theme` 아래에 새 `.lr2skin`과 알파 채널을 보존하는
-`preset.png`를 만든 후 그 스킨을 즉시 연다. PNG 아틀라스에서 시작 프리셋이 쓰는
-영역은 불투명하고 나머지 빈 영역은 투명하므로, 이후 이미지 편집에서도 투명도를
-유지할 수 있다. `..`, 드라이브명 같은 범위 이탈 경로는 거부하고 기존 파일은
+New는 `LR2files\Theme` 아래에 새 `.lr2skin`과 `preset.bmp`를 만든 후 그 스킨을
+즉시 연다. `..`, 드라이브명 같은 범위 이탈 경로는 거부하고 기존 파일은
 덮어쓰지 않는다. `#SCENETIME`은 DECIDE 프리셋에만 생성하며 PLAY, SELECT,
 RESULT, COURSERESULT에는 기록하지 않는다.
-
-`preset.bmp`는 선택한 해상도와 Scene에 맞춰 native-size sprite를 동적으로 배치한다.
-Raster Object는 `SRC w / div_x`, `SRC h / div_y`가 해당 `DST w`, `DST h`와 같으므로
-초기 상태에서 암묵적인 확대·축소가 없다. BMS가 graph를 공급하는 zero-sized BGA와
-font-backed TEXT/BAR_TITLE은 source crop 크기가 없거나 런타임 소유이므로 이 규칙의
-예외다. 지나치게 큰 임의 해상도가 Release x86 texture 예산을 넘으면 불완전한
-파일을 만드는 대신 New Skin 생성 단계에서 오류로 중단한다.
 
 PLAY 프리셋은 배경, BGA, 키 모드별 Note/Mine/LN과 lane별 Bomb, Measure Line, Judge Line,
 Groove Gauge, FAST/SLOW, 플레이어별 NOWJUDGE 6개 상태와 GOOD 이상에서 사용하는
@@ -186,7 +118,7 @@ NOWCOMBO를 만든다. 1P/2P 판정 timer는 각각 46/47, Bomb timer는 lane in
 BGA는 BMS가 제공하는 graph handle을 사용하더라도 LR2 parser가 `#DST_BGA`를
 소유시킬 수 있도록 zero-sized `#SRC_BGA`를 먼저 생성한다.
 생성 직후에는 첫 Note Object를 Object Browser/Inspector에서
-자동 선택해 필수 lane 구성이 바로 보이게 한다. 공용 `preset.png`의 NUMBER 영역은
+자동 선택해 필수 lane 구성이 바로 보이게 한다. 공용 `preset.bmp`의 NUMBER 영역은
 LR2 frame index에 맞춰 `0~9` 순서를 유지하면서 각 16x16 cell에 읽을 수 있는 숫자
 glyph를 그린다. SELECT는 NOWJUDGE 색상 strip과 분리된 전용 dark-blue 단색/밝은 테두리
 bar sprite와 제목을 포함한다. DECIDE는 패널/강조/플래시와 중앙 정렬된 곡 제목
@@ -210,8 +142,6 @@ Gauge chart의 두 SRC/DST index, 초록/빨강 source 좌표와 하단 기준 �
 테스트에서 고정한다. SELECT bar의 전용 source crop과 border/fill pixel도 검사한다.
 COURSERESULT의 `$st 150~154`,
 `$num 250~254`와 누적 결과 숫자도 같은 테스트에서 검사한다.
-모든 Scene의 raster Object에 대해서는 source 한 frame과 destination의 `w/h`가
-일치하는지도 Object ID 단위로 검사한다.
 
 향후 프리셋 확장 시 `BuildInitialPreset()`에 Scene별 생성기를 추가하되,
 `$SE_OBJECT_NAME`과 고유한 `$SE_OBJECT_ID`를 함께 생성해야 한다.
@@ -253,7 +183,6 @@ Object Inspector는 이 네 숫자 입력을 `ARGB` 색상 선택기 하나로 �
 다중 animation frame 표에 같은 규칙을 적용한다. 인자가 없는 `#DST_BAR_STAGEFILE`,
 `#DST_BAR_STAR`, `#DST_THUMBNAIL`은 색상 필드도 없으므로 대상에서 제외한다.
 색상 선택 중에는 Preview를 갱신하되 한 번의 picker 조작은 History 한 항목으로 묶는다.
-이 동작의 값 갱신, byte 범위 제한과 gesture별 Undo는 `dst-color` self-test가 검증한다.
 
 ### Object 스키마
 
@@ -342,8 +271,7 @@ DST View는 조건 Branch 활성 여부와 무관하게 선택한 SRC/DST의 텍
 
 - **Object Browser**: Type/사용자 그룹/Search/활성 Object 필터, 조건 트리,
   다중 선택, 생성·삭제 Context menu
-- **Object Inspector**: Name, Tagged image, SRC와 semantic Layout/Timeline/Conditions
-  편집. `Advanced LR2`는 지원 범위 밖 필드의 compatibility escape hatch
+- **Object Inspector**: Name, Tagged image, SRC, DST와 애니메이션 프레임 속성
 
 두 창은 보이기 상태만 독립적이며 선택 상태를 복제하지 않는다. 구형 코드가
 `wObjectEditor = true`를 요청하면 Browser와 Inspector를 함께 연다.
@@ -394,20 +322,17 @@ Browser 순서 변경:
 - `#IF` 생성은 선택 Object를 새 조건으로 감쌀 수 있고, 빈 위치에서는
   `#IF/#ENDIF` 뼈대를 만든다.
 
-### Semantic Layout / Timeline / Conditions
+### DST 프레임
 
-- Layout은 첫 DST의 `x/y/w/h(or size)/angle/blend`만 표시하며 static rectangle의
-  기준이다.
-- Timeline은 DST 행을 frame 0부터 순서대로 보여주며
-  `time/x/y/w/h/alpha/rotation/blend`를 직접 편집한다.
-- `+ Frame`은 마지막 DST 행을 복제하고 `- Last Frame`은 마지막 행을 삭제하되
-  최소 1개를 유지한다. 구조 변경 후 `$SE_OBJECT_ID`로 선택을 복원하며 기존
-  History 경로로 Ctrl+Z 할 수 있다.
-- Conditions는 첫 DST의 timer/loop/op1..3를 대표값으로 사용한다. 알려진 값은
-  이름으로 표시하고 900번대 custom 또는 이름 없는 OP는 `Raw LR2 OP`로 표시한다.
-- Simulator는 현재 Workspace의 실제 `GetOptionFlag_dst()` 결과를 All 조건으로
-  계산해 VISIBLE/HIDDEN을 보여준다.
-- 모든 raw 열은 `Advanced LR2`에 남겨 semantic 범위 밖 스킨도 편집 가능하다.
+- `+ DST`: 마지막 DST 행을 복제하여 애니메이션 프레임을 추가한다.
+- `- DST`: 마지막 DST를 삭제하지만 최소 1개는 반드시 유지한다.
+- DST가 0개인 Object에서는 `+ DST`가 비활성이다. 먼저 유효한 DST 명령을
+  생성해야 한다.
+- 탭의 내부 ID를 고정해 개수가 바뀌어도 `DST (n)` 탭이 계속 열린다.
+- rebuild 후 `$SE_OBJECT_ID`를 우선 사용해 같은 Object 선택을 복원한다.
+- 여러 DST는 열 방향 표로 표시하며 첫 DST와 속성명은 고정한다.
+- loop/timer/op 필드는 첫 DST가 대표하며 뒤 animation frame에서는 반복 표시하지
+  않는다.
 
 ## 5. Preview, Image Manager, DST View
 
@@ -436,11 +361,6 @@ Timer Control의 `Simple / Full`은 CSV에 저장하지 않는 Workspace Preview
 16개짜리 내장 패턴으로 안전하게 대체한다. `Full`은 기존 180개 메모리 패턴으로
 LN, mine, 동시치기와 judge 효과를 집중 검사한다. 모드를 누르면 현재 장면이 즉시
 재시작되며 두 모드 모두 LR2 원본 재생 경로와 Rhythm 140 event를 사용한다.
-Simple의 네이티브 14KEYS `sample_14.bme`는 LR2 Skin Select와 동일하게
-`scratchSide=0`으로 파싱한다. 스킨의 2P scratch 배치값을 parser에 다시 적용하지 않아
-샘플 자체의 좌우 대칭 lane을 바꾸지 않는다.
-COURSERESULT Preview 뒤에 같은 Workspace에서 PLAY를 열어도 이전 `isCourse`, stage와
-`courseFilepath`를 PLAY 초기화에서 제거하므로 sample 경로가 빈 코스 경로로 바뀌지 않는다.
 
 ### 확대/축소
 
@@ -458,15 +378,17 @@ Ctrl+MouseWheel로 확대/축소한다.
 - Object를 선택하면 첫 DST와 마지막 DST 경계를 점멸 사각형으로 표시한다.
 - 시작 경계는 cyan, 최종 경계는 red다.
 - NUMBER의 경계 폭은 한 glyph의 DST `w`가 아니라 `w * keta`로 계산하며
+<<<<<<< Updated upstream
   DST `x`를 왼쪽 경계로 사용한다. NUMBER의 `align`은 경계 anchor를 옮기지 않고
   이 `keta` 폭 안에서 숫자 glyph를 right/left/middle로 배치한다.
 - TEXT의 `align`은 NUMBER와 달리 `0=left`, `1=middle`, `2=right`이며 DST `x`를
   문자열 anchor로 사용한다. 경계는 LR2가 폰트와 DST `w/h`에서 계산하는 실제 출력
   폭으로 맞추고, middle/right에서는 각각 그 폭의 절반/전체만큼 왼쪽으로 이동한다.
+=======
+  `align`에 따른 anchor를 유지한다.
+>>>>>>> Stashed changes
 - 선택한 Object 위에서 좌클릭 drag하면 해당 Object의 모든 선택 대상 DST 좌표를
   이동한다.
-- 한 Object를 선택하면 첫 DST 우하단에 흰 handle이 나타난다. handle drag는 첫
-  destination rectangle의 `w/h(or size)`만 바꾸며 최소 절대 크기 1을 유지한다.
 - 방향키 이동도 동일 CSV 편집/History 경로를 사용한다.
 - Ctrl+Z 후 Preview object와 점멸 사각형이 어긋나지 않도록 모델과 Preview의
   파생 데이터를 함께 invalidate/rebuild한다.
@@ -493,8 +415,6 @@ measure event와 종료 sentinel을 넣는다. `Full`에서는 Rhythm timer 140�
 기록된 BPM과 measure event를 그대로 따른다. `flag_gameinput`은 legacy Draw loop가 drawing
 buffer마다 `ProcGame`을 중복 호출하지 않도록 꺼진 상태를 유지한다.
 PLAY Preview의 기본 HI-SPEED는 200이며 LR2 기본 허용 범위 10~900 안에서 동작한다.
-Start 전 정적 PLAY 배치에서는 LN 몸체 구간 안에 들어가 완전히 가려지는 단노트
-샘플을 생성하지 않는다. LN이 없거나 가로형 lane인 경우에는 기존 단노트 3개를 유지한다.
 
 Preview 우클릭은 해당 좌표와 겹치는 Object 중 현재 op와 IF Branch가 성립하는
 Object만 목록에 표시한다. 각 항목은 Object 모델의 대응 SRC 명령과 index를 찾아
@@ -745,10 +665,6 @@ runtime을 함께 invalidate하고, `$SE_...` metadata만 바뀌면 Object 모�
 5. `LoadSkinGraphicMetadata()` — 이미지 크기만 lazy texture와 별도로 조사
 
 Object 모델과 Browser UI cache는 전역이 아니라 각 `WORKSPACE`가 소유한다.
-Simple Mode의 semantic slot projection도 같은 원칙으로 각 `WORKSPACE`가 소유하며,
-변경 없는 frame에서는 재사용하고 CSV/Object 모델 변경 또는 skin reload 때만
-invalidate한다. 따라서 여러 Workspace가 projection을 공유하지 않으며 대형 skin을
-열어 둔 상태에서 전체 source row를 매 frame 다시 분류하지 않는다.
 선택의 기준은 model index가 아니라 `$SE_OBJECT_ID`이며, ID가 없는 기존 Object만
 group/첫 행을 fallback key로 사용한다. Preview, Browser, Inspector, DST View가
 필요로 하는 정수 index는 이 key에서 매번 복원되는 파생값이다. Inspector에서 Name을
@@ -865,7 +781,6 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 | 주제 | 현재 결정 |
 |---|---|
 | 해상도 변경 | 변경 즉시 skin 파일에 저장하는 것이 의도된 동작 |
-| 자동 해상도 판정 | TenRiff의 LR2 lane/backdrop heuristic을 해상도 전용 모듈에서 사용 |
 | Clone | Save As가 정상 동작하고 새 경로로 전환하므로 별도 Clone은 보류 |
 | Save As | 성공 후 반드시 새 main script가 현재 작업 경로가 됨 |
 | FAST/SLOW | 특수 UI 예외가 아니라 일반 Object 생성/편집 흐름으로 처리 |
@@ -873,19 +788,17 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 | Workspace Close | workspace 배열 삭제/상단 close UI는 제거한 상태를 유지 |
 | Schema 배포 | 개발 중 외부 TXT 우선, 배포 시 실행 파일 내 RCDATA fallback |
 | FMOD | Preview 편집에서는 선택 의존성. DLL이 없어도 실행 가능하게 유지 |
-| x64 | x86 기준은 유지하되 Release x64를 별도 출력 폴더와 CI 빌드로 함께 지원 |
-| Skin Browser 확장 | 100개 단위 재할당은 고정 바이트가 아니라 현재 `SkinHeader` 크기를 사용 |
 | Object Editor 구조 | Browser와 Inspector를 별도 도킹 창으로 유지 |
 | Object 이름 fallback | 명시 이름, SRC symbolic 이름, op, non-zero timer 순서. 자동 이름은 저장하지 않음 |
 | AI/UI 계약 | `uiCatalog.h`와 자동 UI map을 기준으로 하고 handoff는 context pack과 검증 증거를 포함 |
-| OLR V0.7 authority | `skin.json.objects`가 첫 지원 DST family의 Layout/Animation/Condition을, `simple_mode`가 지원 SRC asset을 컴파일한다. 다른 DST family, IF/ELSE와 지원 밖 행/열은 `lr2/main.lr2skin`이 보존하며 `vfs/LR2files`는 LR2 Export 전까지 유지 |
+| OLR V0.1 authority | `skin.json`은 설명용, `lr2/main.lr2skin`은 왕복 호환 기준 |
 
 ## 11. 다음 작업 전 확인
 
 1. 루트 `AGENTS.md`와 [AI 협업 가이드](AI_COLLABORATION.md)를 읽는다.
 2. `git status --short`와 `git diff --stat`로 미커밋 작업을 확인한다.
 3. `scripts\ai-context.ps1 -Check`로 최신 context pack을 만든다.
-4. `Release|Win32`가 빌드되는지 확인하고, x64 관련 변경이면 `build.ps1 -Platform x64`도 실행한다.
+4. `Release|Win32`가 빌드되는지 확인한다.
 5. `SkinEditor_DX9\Release\LR2files`가 테스트할 스킨을 포함하는지 확인한다.
 6. tricoro HD와 bluewhite를 순서대로 열어 연속 로딩을 확인한다.
 7. [회귀 테스트](BUILD_AND_TEST.md#회귀-테스트)를 실행한다.

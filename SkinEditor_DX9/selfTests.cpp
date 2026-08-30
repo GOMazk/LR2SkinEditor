@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -844,6 +845,15 @@ int RunSkinBrowserSelfTest() {
                         browserResolution) ||
                     browserResolution.width != 1280 ||
                     browserResolution.height != 720)) result = 16;
+                if (result == 0) {
+                    for (int skinIndex = 1; skinIndex < 101; ++skinIndex)
+                        ParseLR2SkinCustom(&parsedSkin, CSTR(rootSkin.c_str()));
+                    if (parsedSkin.Count != 101 || parsedSkin.Max != 200 ||
+                        !parsedSkin.Data[100].title.isSame("Resolution test") ||
+                        !parsedSkin.Data[100].customs[0].op_label ||
+                        parsedSkin.Data[100].customs[0].labelCapacity != 100)
+                        result = 17;
+                }
             }
         }
     }
@@ -856,7 +866,7 @@ int RunSkinBrowserSelfTest() {
 
     if (result == 0) {
         SkinManage skinData = {};
-        if (!InitSkinData(&skinData)) result = 17;
+        if (!InitSkinData(&skinData)) result = 18;
         else {
             skinData.Data[0].skinFile.assign("first.lr2skin");
             skinData.Data[0].customs[0].title.assign("Option");
@@ -865,12 +875,12 @@ int RunSkinBrowserSelfTest() {
             skinData.Data[0].custom_count = 1;
             skinData.Count = 1;
             CSTR* const labelTable = skinData.Data[0].customs[0].op_label;
-            if (!ResetSkinData(&skinData)) result = 18;
+            if (!ResetSkinData(&skinData)) result = 19;
             else if (skinData.Count != 0 || skinData.Data[0].skinFile.body ||
                 skinData.Data[0].customs[0].title.body ||
                 skinData.Data[0].customs[0].op_label != labelTable ||
                 skinData.Data[0].customs[0].op_label[0].body ||
-                skinData.Data[0].customs[0].dst_op_count != 0) result = 19;
+                skinData.Data[0].customs[0].dst_op_count != 0) result = 20;
         }
     }
     return result;
@@ -979,6 +989,41 @@ int RunPreviewSimulatorSelfTest() {
     if (ResetTimeLapse(140, &rhythmTimer) != 1 ||
         GetTimeLapse(140, &rhythmTimer) != -1.0)
         return 24;
+
+    if (!LR2SEShouldDrawStaticNormalSample(0, true) ||
+        LR2SEShouldDrawStaticNormalSample(1, true) ||
+        !LR2SEShouldDrawStaticNormalSample(2, true))
+        return 25;
+    if (!LR2SEShouldDrawStaticNormalSample(1, false) ||
+        LR2SEShouldDrawStaticNormalSample(-1, false) ||
+        LR2SEShouldDrawStaticNormalSample(3, false))
+        return 26;
+
+    if (LR2SEGetSamplePreviewScratchSide(SKINTYPE_14KEYS, 0, 1) != 0 ||
+        LR2SEGetSamplePreviewScratchSide(SKINTYPE_14KEYS, 1, 0) != 0 ||
+        LR2SEGetSamplePreviewScratchSide(SKINTYPE_10KEYS, 0, 1) != 0)
+        return 27;
+    if (LR2SEGetSamplePreviewScratchSide(SKINTYPE_5KEYSBATTLE, 1, 0) != 1 ||
+        LR2SEGetSamplePreviewScratchSide(SKINTYPE_5KEYSBATTLE, 0, 1) != 2)
+        return 28;
+
+    std::unique_ptr<gameplay> preview(new gameplay());
+    preview->isCourse = 1;
+    preview->courseType = 0;
+    preview->courseStageCount = 5;
+    preview->courseStageNow = 3;
+    preview->courseFilepath[0].assign("stale-course-stage.bme");
+    preview->courseConnection[0] = 4;
+    LR2SEResetPreviewCourseState(preview.get());
+    if (preview->isCourse != 0 || preview->courseType != -1 ||
+        preview->courseStageCount != 1 || preview->courseStageNow != 0)
+        return 29;
+    for (int stage = 0; stage < 5; ++stage) {
+        if (preview->courseFilepath[stage].length() != 0) return 30;
+    }
+    for (int connection = 0; connection < 10; ++connection) {
+        if (preview->courseConnection[connection] != 0) return 31;
+    }
 
     return 0;
 }

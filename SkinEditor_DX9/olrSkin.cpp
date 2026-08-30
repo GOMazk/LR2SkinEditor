@@ -219,6 +219,41 @@ bool IsSemanticObject(const SEOLRSemanticObject& object) {
     return SemanticPartCount(object) > 0;
 }
 
+int SemanticObjectFirstCompilerRow(const SEOLRSemanticObject& object) {
+    int firstRow = (std::numeric_limits<int>::max)();
+    for (const SEOLRSemanticObject::Part& part : object.parts) {
+        for (const SEOLRSemanticObject::SourceBinding& source : part.sources) {
+            if (source.sourceRow > 0) firstRow = (std::min)(firstRow,
+                source.sourceRow);
+        }
+        for (const SEOLRSemanticObject::Destination& destination :
+            part.destinations) {
+            for (const SEOLRSemanticObject::AnimationFrame& frame :
+                destination.animationFrames) {
+                if (frame.destinationRow > 0) firstRow = (std::min)(firstRow,
+                    frame.destinationRow);
+            }
+        }
+    }
+    return firstRow;
+}
+
+std::vector<const SEOLRSemanticObject*> SemanticObjectsInCompilerRowOrder(
+    const SEOLRSkinDocument& document) {
+    std::vector<const SEOLRSemanticObject*> orderedObjects;
+    orderedObjects.reserve(document.objects.size());
+    for (const SEOLRSemanticObject& object : document.objects) {
+        if (IsSemanticObject(object)) orderedObjects.push_back(&object);
+    }
+    std::stable_sort(orderedObjects.begin(), orderedObjects.end(),
+        [](const SEOLRSemanticObject* left,
+            const SEOLRSemanticObject* right) {
+            return SemanticObjectFirstCompilerRow(*left) <
+                SemanticObjectFirstCompilerRow(*right);
+        });
+    return orderedObjects;
+}
+
 size_t SemanticObjectCount(const SEOLRSkinDocument& document) {
     return (size_t)std::count_if(document.objects.begin(),
         document.objects.end(), IsSemanticObject);
@@ -371,6 +406,8 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
         "effects", "texts", "ui", "misc"
     };
     std::ostringstream json;
+    const std::vector<const SEOLRSemanticObject*> orderedObjects =
+        SemanticObjectsInCompilerRowOrder(document);
     json << "{\n";
     json << "  \"format\": \"olrskin-semantic\",\n";
     json << "  \"version\": 8,\n";
@@ -385,10 +422,9 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
     json << "  \"objects\": {\"authority\": \""
         << kSemanticObjectAuthority << "\", \"items\": [";
     bool firstObject = true;
-    for (const SEOLRSemanticObject& object : document.objects) {
-        if (!IsSemanticObject(object)) continue;
+    for (const SEOLRSemanticObject* object : orderedObjects) {
         json << (firstObject ? "\n" : ",\n");
-        WriteSemanticObject(json, object, "    ");
+        WriteSemanticObject(json, *object, "    ");
         firstObject = false;
     }
     if (!firstObject) json << "\n  ";
@@ -400,11 +436,11 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
         const char* category = categories[categoryIndex];
         json << "    \"" << category << "\": [";
         bool first = true;
-        for (const SEOLRSemanticObject& object : document.objects) {
-            if (!IsSemanticObject(object) || object.category != category)
+        for (const SEOLRSemanticObject* object : orderedObjects) {
+            if (object->category != category)
                 continue;
             json << (first ? "\n" : ",\n") << "      \""
-                << JsonEscape(object.id) << "\"";
+                << JsonEscape(object->id) << "\"";
             first = false;
         }
         if (!first) json << "\n    ";

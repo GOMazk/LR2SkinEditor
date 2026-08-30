@@ -542,6 +542,19 @@ static bool LR2SEPreviewFileExists(const char* path) {
 	return true;
 }
 
+int LR2SEGetSamplePreviewScratchSide(int type, int scratchSide1,
+	int scratchSide2) {
+	// Among the matching sample charts used by Preview, ProcS_Play only asks
+	// the BMS loader to rotate key lanes for a 5-key battle skin. In
+	// particular, a native
+	// 7-key chart keeps lanes 1..7 unchanged even when lane 0 (scratch) is
+	// drawn on the right. Passing #SCRATCHSIDE for every Preview type rotated
+	// only the notes while key-beam timers 101..107 retained their LR2 lane
+	// identity, so right-scratch 7-key skins displayed mismatched beams.
+	if (type != SKINTYPE_5KEYSBATTLE) return 0;
+	return scratchSide1 + scratchSide2 * 2;
+}
+
 static int LR2SEPopulateSamplePreviewChart(game* g, int type) {
 	if (!g) return -1;
 	const LR2SEPlayModeInfo playMode = LR2SEGetPlayModeInfo(type);
@@ -562,8 +575,8 @@ static int LR2SEPopulateSamplePreviewChart(game* g, int type) {
 
 	InitGameplay(&g->gameplay, &sampleConfig.play);
 	g->gameplay.isAutoplay = 1;
-	const int scratchSide = g->skstruct.scratchside_1 +
-		g->skstruct.scratchside_2 * 2;
+	const int scratchSide = LR2SEGetSamplePreviewScratchSide(type,
+		g->skstruct.scratchside_1, g->skstruct.scratchside_2);
 	if (ParseBmsFile(&g->gameplay, playMode.samplePath, &g->audio,
 		&sampleConfig, &g->sSelect.metaSelected, 1, scratchSide) < 0)
 		return -1;

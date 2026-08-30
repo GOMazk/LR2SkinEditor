@@ -1059,7 +1059,7 @@ int WORKSPACE::draw() {
                     olrPackageState = 0;
                     wSaveOlrSkin = true;
                 }
-                if (ImGui::MenuItem("Export LR2 folder...", NULL, false,
+                if (ImGui::MenuItem("Export install-ready LR2 folder...", NULL, false,
                     SEIsOLRVirtualWorkspace(mainpath)))
                     ExportLr2SkinInteractive();
             }
@@ -1116,6 +1116,7 @@ int WORKSPACE::draw() {
 
     char olrImportPopup[64];
     snprintf(olrImportPopup, sizeof(olrImportPopup), "OLR import result##%d", num);
+    bool exportImportedOlrNow = false;
     if (olrImportResultPopupRequested) {
         ImGui::OpenPopup(olrImportPopup);
         olrImportResultPopupRequested = false;
@@ -1130,9 +1131,21 @@ int WORKSPACE::draw() {
                 : (olrResultKind == 1 ? "LR2 export failed" : "OLR import failed"));
         ImGui::TextDisabled("%s", operation);
         ImGui::TextWrapped("%s", olrPackageMessage.c_str());
+        if (olrPackageState > 0 && olrResultKind == 0 &&
+            SEIsOLRVirtualWorkspace(mainpath)) {
+            ImGui::Spacing();
+            ImGui::TextColored(SEUI::Colors::Warning(),
+                "This is an edit/Preview workspace, not an LR2 install folder.");
+            if (ImGui::Button("EXPORT INSTALL-READY LR2 FOLDER")) {
+                exportImportedOlrNow = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+        }
         if (ImGui::Button("OK")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+    if (exportImportedOlrNow) ExportLr2SkinInteractive();
 
     // The toolbar exposes common actions without removing their menu entries.
     // It only emits intent; existing WORKSPACE methods remain the single source
@@ -1875,8 +1888,15 @@ int WORKSPACE::LoadSkinScript(char* path) {
             const char* includeText = read->csv.str[1].body ? read->csv.str[1].outstr() : "";
             char includePath[MAX_PATH] = {};
             std::string resolvedInclude;
-            const bool includeResolved = SEResolveSkinResourcePath(includeText,
-                canonicalPath, mainpath, resolvedInclude);
+            const SESkinResourcePathResult includeResolution =
+                SEResolveSkinResourcePath(includeText, canonicalPath, mainpath,
+                    resolvedInclude);
+            const bool includeResolved = includeResolution ==
+                SESkinResourcePathResult::Resolved;
+            if (includeResolution == SESkinResourcePathResult::Rejected) {
+                WriteSkinLoadLog("Rejected unsafe OLR include", includeText);
+                continue;
+            }
             if (includeResolved)
                 strncpy_s(includePath, resolvedInclude.c_str(), _TRUNCATE);
             else {
@@ -2185,20 +2205,28 @@ int WORKSPACE::ParseSkinGraphics() {
                 return -1;
             }
             std::string resolvedPath;
-            if (SEResolveSkinResourcePath(read.csv.str[2].outstr(),
+            const SESkinResourcePathResult resourceResolution =
+                SEResolveSkinResourcePath(read.csv.str[2].outstr(),
                 read.filename.body ? read.filename.outstr() : mainpath,
-                mainpath, resolvedPath))
+                mainpath, resolvedPath);
+            if (resourceResolution == SESkinResourcePathResult::Resolved)
                 tmpstr->assign(resolvedPath.c_str());
+            else if (resourceResolution == SESkinResourcePathResult::Rejected)
+                tmpstr->assign("ERROR");
             else tmpstr->assign(read.csv.str[2]);
         }
 
         else if (read.csv.str[0].isSame("#IMAGE")) {
             CSTR line(read.csv.str[1]);
             std::string resolvedPath;
-            if (SEResolveSkinResourcePath(line.outstr(),
+            const SESkinResourcePathResult resourceResolution =
+                SEResolveSkinResourcePath(line.outstr(),
                 read.filename.body ? read.filename.outstr() : mainpath,
-                mainpath, resolvedPath))
+                mainpath, resolvedPath);
+            if (resourceResolution == SESkinResourcePathResult::Resolved)
                 line.assign(resolvedPath.c_str());
+            else if (resourceResolution == SESkinResourcePathResult::Rejected)
+                line.assign("ERROR");
 
             const int wildcardPosition = line.findStrPos("*");
             if (wildcardPosition < 0) {
@@ -2732,10 +2760,15 @@ int WORKSPACE::LoadSkinGraphicMetadata() {
             if (declaration.filename.body) owner = declaration.filename.outstr();
         }
         std::string resolvedPath;
-        const bool resourceResolved = SEResolveSkinResourcePath(path.outstr(),
-            owner, mainpath, resolvedPath);
+        const SESkinResourcePathResult resourceResolution =
+            SEResolveSkinResourcePath(path.outstr(), owner, mainpath,
+                resolvedPath);
+        const bool resourceResolved = resourceResolution ==
+            SESkinResourcePathResult::Resolved;
         if (resourceResolved)
             path.assign(resolvedPath.c_str());
+        else if (resourceResolution == SESkinResourcePathResult::Rejected)
+            path.assign("ERROR");
 
         char siblingAsset[MAX_PATH] = {};
         if (!resourceResolved && ResolveSiblingPlayPath(path.outstr(), mainpath,
@@ -3844,12 +3877,17 @@ int WORKSPACE::ReadSkinSE() {
                                 }
                             }
                             std::string resolvedImage;
-                            const bool imageResolved = SEResolveSkinResourcePath(
-                                csv.str[1].outstr(),
+                            const SESkinResourcePathResult imageResolution =
+                                SEResolveSkinResourcePath(csv.str[1].outstr(),
                                 read.filename.body ? read.filename.outstr() : mainpath,
                                 mainpath, resolvedImage);
+                            const bool imageResolved = imageResolution ==
+                                SESkinResourcePathResult::Resolved;
                             if (imageResolved)
                                 csv.str[1].assign(resolvedImage.c_str());
+                            else if (imageResolution ==
+                                SESkinResourcePathResult::Rejected)
+                                csv.str[1].assign("ERROR");
                             char siblingImage[MAX_PATH] = {};
                             if (!imageResolved && ResolveSiblingPlayPath(
                                 csv.str[1].outstr(), mainpath,
@@ -4461,11 +4499,17 @@ int WORKSPACE::ReadSkinSE() {
                             }
                         }
                         std::string resolvedFont;
-                        if (SEResolveSkinResourcePath(csv.str[1].outstr(),
+                        const SESkinResourcePathResult fontResolution =
+                            SEResolveSkinResourcePath(csv.str[1].outstr(),
                             read.filename.body ? read.filename.outstr() : mainpath,
-                            mainpath, resolvedFont))
+                            mainpath, resolvedFont);
+                        if (fontResolution == SESkinResourcePathResult::Resolved)
                             csv.str[1].assign(resolvedFont.c_str());
-                        ReadImageFont(GetRandomFileNoError(csv.str[1], dir), &sk->ImageFonts[sk->num_of_ImageFont]);
+                        else if (fontResolution ==
+                            SESkinResourcePathResult::Rejected)
+                            csv.str[1].assign("ERROR");
+                        ReadImageFont(GetRandomFileNoError(csv.str[1], dir),
+                            &sk->ImageFonts[sk->num_of_ImageFont]);
                     }
                     sk->num_of_ImageFont++;
                 }
@@ -4478,10 +4522,15 @@ int WORKSPACE::ReadSkinSE() {
                 SplitCSV(fBuf, &csv, ",");
                 if (sk->helpfileCount < 10) {
                     std::string resolvedHelp;
-                    if (SEResolveSkinResourcePath(csv.str[1].outstr(),
+                    const SESkinResourcePathResult helpResolution =
+                        SEResolveSkinResourcePath(csv.str[1].outstr(),
                         read.filename.body ? read.filename.outstr() : mainpath,
-                        mainpath, resolvedHelp))
+                        mainpath, resolvedHelp);
+                    if (helpResolution == SESkinResourcePathResult::Resolved)
                         csv.str[1].assign(resolvedHelp.c_str());
+                    else if (helpResolution ==
+                        SESkinResourcePathResult::Rejected)
+                        csv.str[1].assign("ERROR");
                     sk->helpfilePath[sk->helpfileCount].assign(&csv.str[1]);
                     sk->helpfileCount = sk->helpfileCount + 1;
                 }
@@ -4532,12 +4581,17 @@ int WORKSPACE::ReadSkinSE() {
             else if (fBuf.left(11).isSame("#CUSTOMFILE")) {
                 SplitCSV(fBuf, &csv, ",");
                 std::string resolvedCustom;
-                const bool customResolved = SEResolveSkinResourcePath(
+                const SESkinResourcePathResult customResolution =
+                    SEResolveSkinResourcePath(
                     csv.str[2].outstr(),
                     read.filename.body ? read.filename.outstr() : mainpath,
                     mainpath, resolvedCustom);
+                const bool customResolved = customResolution ==
+                    SESkinResourcePathResult::Resolved;
                 if (customResolved)
                     csv.str[2].assign(resolvedCustom.c_str());
+                else if (customResolution == SESkinResourcePathResult::Rejected)
+                    csv.str[2].assign("ERROR");
                 char siblingCustom[MAX_PATH] = {};
                 if (!customResolved && ResolveSiblingPlayPath(
                     csv.str[2].outstr(), mainpath,
@@ -4553,10 +4607,15 @@ int WORKSPACE::ReadSkinSE() {
             else if (fBuf.left(13).isSame("#CUSTOMFOLDER")) {
                 SplitCSV(fBuf, &csv, ",");
                 std::string resolvedFolder;
-                if (SEResolveSkinResourcePath(csv.str[2].outstr(),
+                const SESkinResourcePathResult folderResolution =
+                    SEResolveSkinResourcePath(csv.str[2].outstr(),
                     read.filename.body ? read.filename.outstr() : mainpath,
-                    mainpath, resolvedFolder))
+                    mainpath, resolvedFolder);
+                if (folderResolution == SESkinResourcePathResult::Resolved)
                     csv.str[2].assign(resolvedFolder.c_str());
+                else if (folderResolution ==
+                    SESkinResourcePathResult::Rejected)
+                    csv.str[2].assign("ERROR");
                 sk->customfileRANDOM[sk->customfile_count].assign(&csv.str[2]);
                 sk->customfile[sk->customfile_count].assign("RANDOM");
                 sk->customfile_count++;
@@ -9451,7 +9510,12 @@ bool OlrResolveAssetPath(const char* assetPath, const char* ownerPath,
         return false;
     std::error_code error;
     std::filesystem::path candidate;
-    if (SEResolveSkinResourcePath(assetPath, ownerPath, mainSkinPath, resolvedPath)) {
+    const SESkinResourcePathResult resourceResolution =
+        SEResolveSkinResourcePath(assetPath, ownerPath, mainSkinPath,
+            resolvedPath);
+    if (resourceResolution == SESkinResourcePathResult::Rejected)
+        return false;
+    if (resourceResolution == SESkinResourcePathResult::Resolved) {
         candidate = std::filesystem::path(resolvedPath);
         if (std::filesystem::is_regular_file(candidate, error) && !error) return true;
         resolvedPath.clear();
@@ -10138,12 +10202,12 @@ int WORKSPACE::ImportOlrSkinInteractive() {
     std::string stem = package.stem().string();
     if (stem.empty()) stem = "imported-skin";
     std::filesystem::path target = std::filesystem::path(parentFolder) /
-        (stem + "-lr2");
+        (stem + "-olr-workspace");
     std::error_code filesystemError;
     for (int suffix = 2; std::filesystem::exists(target, filesystemError); ++suffix) {
         if (filesystemError) break;
         target = std::filesystem::path(parentFolder) /
-            (stem + "-lr2-" + std::to_string(suffix));
+            (stem + "-olr-workspace-" + std::to_string(suffix));
     }
     if (filesystemError) {
         olrPackageState = -1;
@@ -10223,6 +10287,11 @@ int WORKSPACE::ImportOlrSkinInteractive() {
     if (packageInfo.unresolvedResourceCount > 0)
         result << ". " << packageInfo.unresolvedResourceCount
             << " LR2-rooted resource declarations still require an external installation";
+    if (packageInfo.formatVersion >= 2 &&
+        SEIsOLRVirtualWorkspace(mainpath))
+        result << ". This folder is the editable OLR Preview workspace, not an "
+            "install-ready LR2 tree. Choose Export install-ready LR2 folder now "
+            "or use the File menu later";
     olrPackageMessage = result.str();
     lastSaveState = 0;
     lastSaveMessage = olrPackageMessage;
@@ -10329,7 +10398,7 @@ int WORKSPACE::drawSaveOlrSkin() {
         ImGui::TextWrapped("Save the loaded skin as one portable .olrskin package.");
         ImGui::TextDisabled("V0.8 writes source-bound Object parts with per-destination Layout, Timeline and Conditions, plus Simple Mode assets and LR2 compatibility data.");
         if (SEIsOLRVirtualWorkspace(mainpath)) {
-            ImGui::TextWrapped("This imported OLR workspace will save its current LR2 script first, so Export LR2 folder can use the same edits immediately.");
+            ImGui::TextWrapped("This imported OLR workspace will save its current LR2 script first, so Export install-ready LR2 folder can use the same edits immediately.");
         } else {
             ImGui::TextWrapped("The loaded LR2 source files are not modified by this command.");
         }
@@ -10348,7 +10417,7 @@ int WORKSPACE::drawSaveOlrSkin() {
         ImGui::BulletText("Resolved LR2files roots are bundled below vfs/LR2files with wildcard choices intact.");
         ImGui::BulletText("LR2 commands, comments, timers, conditions and editor metadata are preserved.");
         ImGui::BulletText("Resources outside a resolved LR2 root remain external and are reported.");
-        ImGui::BulletText("After import and Save OLRskin, File > Export LR2 folder materializes an install-ready tree.");
+        ImGui::BulletText("After import and Save OLRskin, File > Export install-ready LR2 folder materializes an install-ready tree.");
         ImGui::BulletText("V0.8 part and destination fields compile into lr2/main.lr2skin; unsupported rows remain raw.");
 
         const bool hasUnsavedImageEdits = !imagePixelPaintDirtyPaths.empty();

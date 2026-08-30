@@ -286,6 +286,8 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    measure event에서 0부터 다시 시작하는지 확인한다. `Simple`은 sample 파일의 BPM과
    measure event를 따라야 한다. 140 tooltip은 ms가 아니라 `1000 = 1 beat`인 beat
    phase로 표시되어야 한다.
+   `#SCRATCHSIDE,1,0`인 7KEY skin에서도 note key 1~7과 key beam timer 101~107이
+   같은 lane에서 반응해야 하며, scratch lane 0만 오른쪽에 표시되어야 한다.
    기본 패턴은 `Simple`이며 현재 key mode에 맞는 기존 `sample_*.bme/pms`를
    재생해야 한다. `Full`을 누르면 장면이 즉시 재시작되고 기존 180개 밀집 패턴으로
    바뀌며, 다시 `Simple`로 돌아갈 수 있어야 한다. sample 파일이 없을 때는
@@ -312,7 +314,7 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
     `lr2/vfs/LR2files/Theme/<skin>/*`를 확인한다. map에 드라이브명이나
     로컬 절대 경로가 없어야 한다. 일반 LR2 workspace의 원본 script는 이 명령만으로
     바뀌지 않아야 한다. 같은 패키지를 `File > Import OLR package`로
-    빈 parent 폴더에 가져오면 새 `<name>-lr2` 폴더가 생기고 추출한
+    빈 parent 폴더에 가져오면 새 `<name>-olr-workspace` 폴더가 생기고 추출한
     `main.lr2skin`이 열려야 한다. 정상/LN/mine, 폭발, judge/combo, gauge와
     font를 원본과 같은 LR2 Preview flow로 다시 확인한다. Import한 workspace를
     열었을 때 M.H의 1P/2P 레이아웃이 모두 유지되고 오른쪽 scratch만 남는 현상이
@@ -322,7 +324,7 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
     편집한 뒤 `Save OLRskin`을 다시 실행하면 원래 package 경로가 제안되고, 재Import한
     script에 편집이 남아 있어야 하며, 이전 `.olrskin` 파일이 새 package 내부
     `lr2/vfs/`에 재귀 포함되지 않아야 한다. 이 workspace에서
-    `File > Export LR2 folder`를
+    `File > Export install-ready LR2 folder`를
     새 대상으로 실행하면
     `<target>/LR2files/...`가 생기고 main CSV에 `vfs/`가 남지 않아야 한다.
     기존 대상 폴더를 덮어쓰지 않고, 해결불가/과도하게 긴 경로는 Export 결과의
@@ -338,8 +340,9 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
     `simple_mode.slots`에서 제외되거나 Import 시 raw LR2 행으로 유지되어야 하며,
     이 때문에 전체 package Import가 실패해서는 안 된다.
     실제 package core 검증은 `SKINEDITOR_TEST_OLR_PACKAGE`에 읽을 `.olrskin` 경로를
-    지정한 뒤 `--self-test-olr-package`를 실행한다. 테스트는 임시 폴더에 추출하고
-    원본 package를 수정하지 않는다.
+    지정한 뒤 `--self-test-olr-package`를 실행한다. 테스트는 임시 폴더에서 Import를
+    실행하고, V0.2+이면 설치용 LR2 Export와 exported main의 `vfs/LR2files` 제거까지
+    확인한 뒤 임시 결과를 지운다. 원본 package는 수정하지 않는다.
     `#SRC_GROOVEGAUGE`, `#SRC_SCORECHART`, `#SRC_GAUGECHART_*`도 Gauge 그룹에서
     같은 계약으로 편집되는지 확인한다.
 14. Object Inspector의 Layout에서 DST rectangle을 편집하고 Preview의 흰 handle로
@@ -365,6 +368,9 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
     여러 `#SRC_NOTE/#SRC_MINE/#SRC_LN_END`가 같은 part에 있고 DST 뒤 새 SRC만 다음
     part를 시작하는지 확인한다. manifest의 `object_count`, `part_count`,
     `destination_count`도 실제 nested array 합계와 일치해야 한다.
+    `objects.items`의 첫 compiler row가 단조 증가하고, 같은 `sections` category의
+    id도 그 순서를 따르는지 확인한다. Import된 `main.lr2skin`은 semantic target
+    열 외에 행 순서가 바뀌면 안 된다.
 16. 보관 중인 V0.1-V0.7 package를 Import하여 각 version의 기존 parser/authority가
     그대로 선택되는지 확인한다. 특히 V0.7의 flat `objects.items`가 V0.8 nested part로
     추측 변환되지 않아야 한다. 현재 writer는 알지 못하는 manifest/`skin.json` 확장

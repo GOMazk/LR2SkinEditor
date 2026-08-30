@@ -260,6 +260,7 @@ int RunOlrPackageSelfTest() {
     const std::string assetPath = virtualNoteFolder + "\\blue.png";
     const std::string previousPackagePath = virtualRoot + "\\previous.olrskin";
     const std::string packagePath = root + "\\test.olrskin";
+    const std::string orderingPackagePath = root + "\\ordering.olrskin";
     const std::string tamperedPath = root + "\\tampered.olrskin";
     const std::string extractedPath = root + "\\imported";
     const std::string materializedPath = root + "\\materialized";
@@ -455,6 +456,56 @@ int RunOlrPackageSelfTest() {
         if (result == 0 &&
             packageBytes.find("previous.olrskin") != std::string::npos)
             result = 37;
+    }
+
+    if (result == 0) {
+        // The editor model groups Objects by command family, so its vector is
+        // not LR2 draw order. The portable semantic index must nevertheless
+        // expose Objects in the order of their first compiler-addressed row.
+        SEOLRSkinDocument orderingDocument = document;
+        orderingDocument.objects.clear();
+        orderingDocument.simpleSlots.clear();
+        SEOLRSemanticObject earlyObject = semanticObject;
+        earlyObject.id = "early_object";
+        earlyObject.parts.resize(1);
+        SEOLRSemanticObject lateObject = semanticObject;
+        lateObject.id = "late_object";
+        lateObject.parts.erase(lateObject.parts.begin());
+        orderingDocument.objects.push_back(std::move(lateObject));
+        orderingDocument.objects.push_back(std::move(earlyObject));
+
+        SEOLRPackageInfo orderingInfo;
+        if (!SEWriteOLRSkinPackage(orderingPackagePath.c_str(),
+            orderingDocument, orderingInfo, errorMessage))
+            result = 80;
+        if (result == 0 && orderingInfo.objectCount != 2)
+            result = 81;
+        if (result == 0) {
+            std::ifstream orderingPackage(orderingPackagePath,
+                std::ios::binary);
+            const std::string orderingBytes(
+                (std::istreambuf_iterator<char>(orderingPackage)),
+                std::istreambuf_iterator<char>());
+            const size_t earlyAt = orderingBytes.find(
+                "\"id\": \"early_object\"");
+            const size_t lateAt = orderingBytes.find(
+                "\"id\": \"late_object\"");
+            if (!orderingPackage || earlyAt == std::string::npos ||
+                lateAt == std::string::npos)
+                result = 82;
+            else if (earlyAt >= lateAt)
+                result = 83;
+            if (result == 0) {
+                const size_t earlySectionAt = orderingBytes.find(
+                    "\"early_object\"", lateAt + 1);
+                const size_t lateSectionAt = orderingBytes.find(
+                    "\"late_object\"", earlySectionAt + 1);
+                if (earlySectionAt == std::string::npos ||
+                    lateSectionAt == std::string::npos ||
+                    earlySectionAt >= lateSectionAt)
+                    result = 84;
+            }
+        }
     }
 
 
@@ -821,13 +872,105 @@ int RunOlrPackageSelfTest() {
 
     if (result == 0) {
         std::string resolved;
-        if (!SEResolveSkinResourcePath(
+        if (SEResolveSkinResourcePath(
             "vfs/LR2files/Theme/Test/note/*.png",
-            extractedMain.c_str(), extractedMain.c_str(), resolved) ||
+            extractedMain.c_str(), extractedMain.c_str(), resolved) !=
+                SESkinResourcePathResult::Resolved ||
             _stricmp(resolved.c_str(),
                 (extractedPath +
                     "\\vfs\\LR2files\\Theme\\Test\\note\\*.png").c_str()) != 0)
             result = 22;
+    }
+
+    if (result == 0) {
+        // LR2 image fonts may live only inside Graphfont.dxa while the skin
+        // addresses Graphfont/font.lr2font. Win32 cannot enumerate that leaf,
+        // so the imported vfs namespace must still anchor the logical path for
+        // the archive-aware loader. This does not assert support for every
+        // legacy DXA format version.
+        const std::filesystem::path fontFolder =
+            std::filesystem::path(extractedPath) / "vfs" / "LR2files" /
+            "Theme" / "Test" / "Font";
+        std::error_code fontError;
+        std::filesystem::create_directories(fontFolder, fontError);
+        if (fontError) result = 62;
+        if (result == 0) {
+            std::ofstream archive(fontFolder / "Graphfont.dxa",
+                std::ios::binary | std::ios::trunc);
+            archive << "archive-backed font fixture";
+            if (!archive) result = 63;
+        }
+        const std::string requested =
+            "vfs/LR2files/Theme/Test/Font/Graphfont/font.lr2font";
+        std::string expected = (fontFolder /
+            "Graphfont/font.lr2font").lexically_normal().string();
+        std::replace(expected.begin(), expected.end(), '/', '\\');
+        std::string resolved;
+        if (result == 0 &&
+            (std::filesystem::exists(expected, fontError) || fontError))
+            result = 64;
+        if (result == 0 && SEResolveSkinResourcePath(requested.c_str(),
+            extractedMain.c_str(), extractedMain.c_str(), resolved) !=
+                SESkinResourcePathResult::Resolved)
+            result = 66;
+        if (result == 0 &&
+            _stricmp(resolved.c_str(), expected.c_str()) != 0)
+            result = 67;
+        std::string rejectedTraversal;
+        if (result == 0 && SEResolveSkinResourcePath(
+            "vfs/LR2files/../../main.lr2skin",
+            extractedMain.c_str(), extractedMain.c_str(), rejectedTraversal) !=
+                SESkinResourcePathResult::Rejected)
+            result = 70;
+        if (result == 0 && !rejectedTraversal.empty())
+            result = 71;
+        const char* rejectedAliases[] = {
+            "vfs/LR2files./../../main.lr2skin",
+            "vfs/LR2files /../../main.lr2skin",
+            "vfs./LR2files/../../main.lr2skin",
+            "vfs /LR2files/../../main.lr2skin",
+            "vfs/Other/../../main.lr2skin",
+        };
+        for (const char* rejectedAlias : rejectedAliases) {
+            std::string rejectedAliasPath;
+            if (result == 0 && SEResolveSkinResourcePath(rejectedAlias,
+                extractedMain.c_str(), extractedMain.c_str(), rejectedAliasPath) !=
+                    SESkinResourcePathResult::Rejected)
+                result = 73;
+            if (result == 0 && !rejectedAliasPath.empty())
+                result = 74;
+        }
+        std::filesystem::remove_all(fontFolder, fontError);
+        if (result == 0 && fontError) result = 65;
+    }
+
+    if (result == 0) {
+        // "vfs" is reserved only inside an imported OLR workspace. Ordinary
+        // LR2 skins may already use that folder name and must retain the legacy
+        // owner-relative lookup behavior.
+        const std::filesystem::path normalSkinFolder =
+            std::filesystem::path(root) / "normal-skin";
+        const std::filesystem::path normalAssetFolder =
+            normalSkinFolder / "vfs" / "Other";
+        std::error_code normalError;
+        std::filesystem::create_directories(normalAssetFolder, normalError);
+        if (normalError) result = 75;
+        const std::filesystem::path normalAsset = normalAssetFolder / "image.png";
+        if (result == 0) {
+            std::ofstream asset(normalAsset, std::ios::binary | std::ios::trunc);
+            asset << "ordinary LR2 relative vfs fixture";
+            if (!asset) result = 76;
+        }
+        std::string normalResolved;
+        const std::string normalMain = (normalSkinFolder / "main.lr2skin").string();
+        if (result == 0 && SEResolveSkinResourcePath(
+            "vfs/Other/image.png", normalMain.c_str(), normalMain.c_str(),
+            normalResolved) != SESkinResourcePathResult::Resolved)
+            result = 77;
+        if (result == 0 && std::filesystem::path(normalResolved) !=
+            std::filesystem::absolute(normalAsset, normalError).lexically_normal())
+            result = 78;
+        if (result == 0 && normalError) result = 79;
     }
 
     SEOLRLr2ExportInfo exportInfo;
@@ -891,9 +1034,10 @@ int RunOlrPackageSelfTest() {
     if (result == 0) {
         std::string resolved;
         const std::string owner = virtualRoot + "\\play.lr2skin";
-        if (!SEResolveSkinResourcePath(
+        if (SEResolveSkinResourcePath(
             ".\\LR2files\\Theme\\Test\\note\\*.png",
-            owner.c_str(), owner.c_str(), resolved) ||
+            owner.c_str(), owner.c_str(), resolved) !=
+                SESkinResourcePathResult::Resolved ||
             _stricmp(resolved.c_str(),
                 (virtualNoteFolder + "\\*.png").c_str()) != 0)
             result = 20;
@@ -911,12 +1055,14 @@ int RunOlrPackageSelfTest() {
         const std::string expected = virtualRoot + "\\" + legacySuffix;
         const std::string owner = virtualRoot + "\\play.lr2skin";
         std::string resolved;
-        if (!SEResolveSkinResourcePath(requested.c_str(), owner.c_str(),
-            owner.c_str(), resolved) || resolved != expected)
+        if (SEResolveSkinResourcePath(requested.c_str(), owner.c_str(),
+            owner.c_str(), resolved) != SESkinResourcePathResult::Resolved ||
+            resolved != expected)
             result = 28;
         std::string resolvedAgain;
-        if (result == 0 && (!SEResolveSkinResourcePath(resolved.c_str(),
-            owner.c_str(), owner.c_str(), resolvedAgain) ||
+        if (result == 0 && (SEResolveSkinResourcePath(resolved.c_str(),
+            owner.c_str(), owner.c_str(), resolvedAgain) !=
+                SESkinResourcePathResult::Resolved ||
             resolvedAgain != expected))
             result = 29;
     }
@@ -948,9 +1094,10 @@ int RunOlrPackageSelfTest() {
         const std::string owner = virtualRoot + "\\play.lr2skin";
         std::string resolved;
         if (result == 0 &&
-            (!SEResolveSkinResourcePath(
+            (SEResolveSkinResourcePath(
                 ".\\LR2files\\Theme\\Test\\note\\*.png",
-                owner.c_str(), owner.c_str(), resolved) ||
+                owner.c_str(), owner.c_str(), resolved) !=
+                    SESkinResourcePathResult::Resolved ||
                 _stricmp(resolved.c_str(),
                     (virtualNoteFolder + "\\*.png").c_str()) != 0))
             result = 33;
@@ -966,12 +1113,32 @@ int RunOlrPackageSelfTest() {
     const char* externalPackage = std::getenv("SKINEDITOR_TEST_OLR_PACKAGE");
     if (result == 0 && externalPackage && *externalPackage) {
         const std::string externalImportPath = root + "\\external-import";
+        const std::string externalExportPath = root + "\\external-export";
         std::string externalMain;
         SEOLRPackageInfo externalInfo;
         if (!SEExtractOLRSkinPackage(externalPackage,
             externalImportPath.c_str(), externalMain, externalInfo,
             errorMessage) || externalMain.empty())
             result = 43;
+        SEOLRLr2ExportInfo externalExportInfo;
+        if (result == 0 && externalInfo.formatVersion >= 2 &&
+            !SEExportOLRWorkspaceToLR2(externalMain.c_str(),
+            externalExportPath.c_str(), externalExportInfo, errorMessage))
+            result = 68;
+        if (result == 0 && externalInfo.formatVersion == 8 &&
+            externalExportInfo.copiedFileCount != externalInfo.assetCount)
+            result = 72;
+        if (result == 0 && externalInfo.formatVersion >= 2) {
+            std::ifstream exportedMain(externalExportInfo.mainSkinPath,
+                std::ios::binary);
+            const std::string exportedBytes(
+                (std::istreambuf_iterator<char>(exportedMain)),
+                std::istreambuf_iterator<char>());
+            if (!exportedMain || exportedBytes.empty() ||
+                exportedBytes.find("vfs/LR2files/") != std::string::npos ||
+                exportedBytes.find("vfs\\LR2files\\") != std::string::npos)
+                result = 69;
+        }
     }
 
     std::error_code cleanupError;
@@ -1138,6 +1305,18 @@ int RunSkinBrowserSelfTest() {
 }
 
 int RunPreviewSimulatorSelfTest() {
+    // A native 7-key chart never rotates key lanes merely because its skin
+    // draws scratch lane 0 on the right. This keeps note lane N paired with
+    // key-beam timer 100+N in the editor just as it is in actual LR2 play.
+    if (LR2SEGetSamplePreviewScratchSide(SKINTYPE_7KEYS, 1, 0) != 0 ||
+        LR2SEGetSamplePreviewScratchSide(SKINTYPE_7KEYS, 0, 1) != 0 ||
+        LR2SEGetSamplePreviewScratchSide(SKINTYPE_7KEYSBATTLE, 1, 1) != 0)
+        return 25;
+    if (LR2SEGetSamplePreviewScratchSide(SKINTYPE_5KEYSBATTLE, 1, 0) != 1 ||
+        LR2SEGetSamplePreviewScratchSide(SKINTYPE_5KEYSBATTLE, 0, 1) != 2 ||
+        LR2SEGetSamplePreviewScratchSide(SKINTYPE_5KEYSBATTLE, 1, 1) != 3)
+        return 26;
+
     LR2SEPreviewChartNote notes[256] = {};
     int count = LR2SEBuildPreviewChart(SKINTYPE_7KEYS,
         LR2SE_PREVIEW_CHART_FULL, notes, 256);

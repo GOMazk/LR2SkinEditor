@@ -65,9 +65,11 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - `File > Import OLR package`에서 패키지를 검증한 뒤 V0.8 `objects`의 nested
   part별 destination Layout/Animation/Condition과 V0.4 `simple_mode` source
   asset을 LR2 CSV로 원자적으로 compile하고, manifest의 구조/asset count와
-  `skin.json`/archive가 일치할 때만 사용자가 고른 새 폴더를 열기
-- Import한 V0.2+ workspace의 `File > Export LR2 folder`에서 `vfs/LR2files`와
-  고정 `assets`를 새 출력 폴더로 풀고 현재 편집 스크립트의 경로를 복원
+  `skin.json`/archive가 일치할 때만 사용자가 고른 새 `*-olr-workspace`를 열기.
+  이 폴더는 편집/Preview용이며 성공 팝업에서 설치용 LR2 export를 바로 실행 가능
+- Import한 V0.2+ workspace의 `File > Export install-ready LR2 folder`에서
+  `vfs/LR2files`와 고정 `assets`를 새 출력 폴더로 풀고 현재 편집 스크립트의
+  경로를 복원
 
 주의할 항목:
 
@@ -142,6 +144,11 @@ destination family를 고르는 selector는 아직 없고 나머지는 `Advanced
 이는 편집 UI의 제한이며, V0.8 package projection과 compiler는 지원되는 모든
 source-bound destination run을 nested 구조로 처리한다.
 
+Object Editor 내부 배열은 command group별이지만 package의 `objects.items`와 각
+`sections` category 안의 id는 Object가 처음 소유한 packaged LR2 행 기준으로 쓴다.
+따라서 semantic index도 LR2 draw order를 따르며, Import는 배열 순서로 script를
+재생성하지 않고 명시된 `source_row`/`destination_row`만 제자리 compile한다.
+
 Condition의 `timer`/`loop`가 `null`이면 원본 frame-0 필드를 그대로 보존한다.
 `condition.all`의 각 term은 1~3의 `slot`을 명시하며, 등장한 slot만 컴파일하고 빠진
 slot은 지우지 않는다. 알려진 OP/TIMER는 symbolic name으로 컴파일하고 custom 900번대와
@@ -174,6 +181,10 @@ font와 archive는 폴더 전체로 보존한다. 해결할 수 없는 LR2 root,
 과도하게 긴 파일은 외부/누락 개수를 결과와 manifest에 명시한다.
 V0.1 패키지는 계속 Import할 수 있지만 path map이 없으므로 LR2 folder Export를
 활성화하지 않는다.
+SkinEditor가 현재 번들한 DxLib는 legacy DXA 1.02 image font를 읽지 못한다.
+LR2beta3 호환성을 깨는 DXA 1.10 변환은 하지 않으며, OLR package와 설치용 LR2
+Export는 원본 `.dxa`를 byte-for-byte 보존한다. 따라서 이 구형 font는 실제 LR2에서는
+사용 가능해도 SkinEditor Preview 로그에는 load 실패로 남을 수 있다.
 현재 `Save OLRskin` writer는 알지 못하는 manifest/`skin.json` 필드를 보존하지 않는다.
 따라서 third-party extension은 editor 재저장 뒤에도 유지된다고 가정할 수 없다.
 향후 extension namespace와 passthrough 또는 명시적 rewrite 경계를 별도 정책으로
@@ -444,6 +455,10 @@ LR2 원본 `ProcI_Play`와 `DrawNotes`가 소비한다. 편집기 코드가 노�
 judge/combo 상태를 직접 만들지 않으므로 판정 시 `ApplyJudgeNote`가 설정하는
 lane별 50/100/120 타이머를 key beam, note explosion, judge/combo를 포함한 실제
 스킨 Object가 LR2와 같은 방식으로 소비한다. 오디오만 의도적으로 비활성 상태다.
+native 7KEY sample은 오른쪽 scratch 스킨에서도 실제 LR2처럼 lane 0만 scratch로
+유지하고 key lane 1~7을 회전하지 않는다. 따라서 note lane N과 key beam timer
+`100+N`의 대응이 보존된다. BMS loader의 `scratchSide` 회전은 실제 LR2가 사용하는
+5KEY BATTLE 호환 Preview에만 전달한다.
 시뮬레이터 실행 상태는 각 WORKSPACE가 소유하므로 여러 스킨 탭 사이에서 공유되지
 않는다. LR2의 song list, Object string, gameplay buffer와 critical section도
 `WORKSPACE::lr2CoreInitialized`를 기준으로 각 `game`마다 한 번 초기화하며, 같은

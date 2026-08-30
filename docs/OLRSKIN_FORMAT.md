@@ -38,7 +38,7 @@ parts:
   archive-backed resources, under `lr2/vfs/LR2files/...`;
 - keep fixed non-LR2-rooted images under `lr2/assets/`; and
 - materialize a new install-ready `LR2files/...` tree only when the user invokes
-  `File > Export LR2 folder` from an imported V0.2+ workspace.
+  `File > Export install-ready LR2 folder` from an imported V0.2+ workspace.
 
 `skin.json.objects` and `skin.json.simple_mode` are the only compiler inputs.
 `sections` contains Object ids for navigation, not duplicate values. The raw LR2
@@ -63,7 +63,7 @@ portable data: a new document load clears it, and neither the package nor LR2
 folder export serializes it.
 
 Import still validates the complete archive before creating a new extraction
-folder. `File > Export LR2 folder` remains available only to imported V0.2+
+folder. `File > Export install-ready LR2 folder` remains available only to imported V0.2+
 workspaces and materializes a new non-existing install-ready LR2 tree.
 
 ## Runtime path model
@@ -199,6 +199,13 @@ Simple Mode compiler uses `source_row` as a deliberately narrow package address,
 paired with an exact `source_command` check. Export translates the expanded
 Workspace row through `compatibility/source-map.json`; it never writes an
 expanded row number directly when include flattening omitted rows.
+
+`objects.items` is serialized by the first packaged LR2 row owned by each
+Object, not by the Object Editor's command-group order. `sections` keeps the
+same row order within each category. This makes the semantic index follow LR2
+draw order while Import still patches the byte-preserved compatibility script
+at explicit `source_row` and `destination_row` addresses instead of rebuilding
+or reordering its lines.
 
 `simple_mode.authority` remains `lr2-source-v0.4`. Every slot requires `category`,
 `source_command`, positive `source_row`, and all eight asset integers: `gr`, `x`,
@@ -362,10 +369,16 @@ Simple Mode and nested Object part destinations into the extracted
 replacement fails.
 V0.1-V0.7 packages continue through their existing version-specific parser and
 authority rules; a legacy flat Object is never reinterpreted as a V0.8 part.
-A successful import creates `main.lr2skin`, `.olr-export-main.txt`, `vfs/` and
-any flat `assets/`; Preview then follows the normal workspace load path.
+A successful V0.2+ import creates an explicitly named `*-olr-workspace`
+containing `main.lr2skin`, `.olr-export-main.txt`, `vfs/` and any flat `assets/`;
+Preview then follows the normal workspace load path. This extracted workspace
+is not an install-ready LR2 tree. Its successful import dialog offers the LR2
+export action directly so the portable `vfs/` layout is not mistaken for a
+folder that can be copied into LR2 as-is. V0.1 remains Preview-loadable but does
+not show that unavailable export action.
 
-`File > Export LR2 folder` is enabled only for an imported V0.2+ workspace. It:
+`File > Export install-ready LR2 folder` is enabled only for an imported V0.2+
+workspace. It:
 
 1. requires a new, non-existing output directory;
 2. copies `vfs/LR2files/**` to `<output>/LR2files/**` without following
@@ -397,6 +410,9 @@ claim perfect lossless coverage for every skin:
   becoming LR2 assets;
 - Windows ANSI/`MAX_PATH` constraints still apply to the legacy editor and ZIP
   filename encoding; and
+- SkinEditor's current bundled DxLib cannot Preview legacy DXA 1.02 image-font
+  archives. LR2 export preserves those archives byte-for-byte because converting
+  them to DXA 1.10 would break LR2beta3 compatibility; and
 - parts reflect only SRC-before/after-DST row boundaries; 1P/2P/DP or other
   variants are not inferred or linked automatically;
 - the Object Inspector currently edits only the first destination command

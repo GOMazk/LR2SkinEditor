@@ -1,4 +1,5 @@
 #include "skinPathResolver.h"
+#include "olrSkin.h"
 
 #include <Windows.h>
 
@@ -67,6 +68,56 @@ bool DirectoryExists(const std::filesystem::path& path) {
     return std::filesystem::is_directory(path, error) && !error;
 }
 
+enum class ImportedWorkspacePathKind {
+    Other,
+    Valid,
+    Invalid,
+};
+
+std::string NormalizeWin32SegmentAlias(const std::string& segment) {
+    size_t length = segment.size();
+    while (length > 0 &&
+        (segment[length - 1] == '.' || segment[length - 1] == ' '))
+        --length;
+    return segment.substr(0, length);
+}
+
+ImportedWorkspacePathKind NormalizeImportedWorkspacePath(const char* requestedPath,
+    std::string& normalizedPath) {
+    normalizedPath.clear();
+    if (!requestedPath || !*requestedPath)
+        return ImportedWorkspacePathKind::Other;
+
+    std::string value = requestedPath;
+    std::replace(value.begin(), value.end(), '\\', '/');
+    while (value.size() >= 2 && value[0] == '.' && value[1] == '/')
+        value.erase(0, 2);
+
+    const std::vector<std::string> segments = SplitPath(value);
+    if (segments.empty() || !EqualsIgnoreCase(
+        NormalizeWin32SegmentAlias(segments[0]), "vfs"))
+        return ImportedWorkspacePathKind::Other;
+
+    // Win32 ignores trailing dots and spaces in ordinary path segments. Treat
+    // every alias of the imported workspace's vfs namespace as reserved, then
+    // accept only its exact spelling. Otherwise vfs. or LR2files. could reach
+    // the real directories after this validator had delegated to legacy path
+    // fallback, including paths containing parent traversal.
+    if (segments.size() < 3 ||
+        !EqualsIgnoreCase(segments[0], "vfs") ||
+        !EqualsIgnoreCase(segments[1], "LR2files"))
+        return ImportedWorkspacePathKind::Invalid;
+    for (const std::string& segment : segments) {
+        if (segment.empty() || segment == "." || segment == ".." ||
+            segment.find(':') != std::string::npos)
+            return ImportedWorkspacePathKind::Invalid;
+    }
+
+    normalizedPath = JoinSegments(segments, 0, segments.size());
+    normalizedPath.replace(0, strlen("vfs/LR2files"), "vfs/LR2files");
+    return ImportedWorkspacePathKind::Valid;
+}
+
 void AddCandidate(std::vector<std::filesystem::path>& candidates,
     std::set<std::string>& keys, const std::filesystem::path& candidate) {
     if (candidate.empty()) return;
@@ -98,6 +149,38 @@ void AddAncestorCandidates(const char* filePath,
         if (parent == cursor) break;
         cursor = parent;
     }
+}
+
+bool ResolveImportedWorkspacePath(const std::string& normalizedPath,
+    const char* ownerFilePath, const char* mainSkinPath,
+    std::string& resolvedPath) {
+    std::vector<std::filesystem::path> candidates;
+    std::set<std::string> keys;
+    const auto addWorkspaceCandidate = [&](const char* filePath) {
+        if (!filePath || !*filePath) return;
+        AddCandidate(candidates, keys,
+            std::filesystem::path(filePath).parent_path() / "vfs" / "LR2files");
+    };
+    addWorkspaceCandidate(ownerFilePath);
+    addWorkspaceCandidate(mainSkinPath);
+
+    const std::string suffix = normalizedPath.substr(strlen("vfs/LR2files/"));
+    for (const std::filesystem::path& candidate : candidates) {
+        if (!DirectoryExists(candidate)) continue;
+        std::error_code error;
+        const std::filesystem::path absolute =
+            std::filesystem::absolute(candidate, error);
+        resolvedPath = (error ? candidate : absolute).lexically_normal().string();
+        if (!resolvedPath.empty() && resolvedPath.back() != '\\' &&
+            resolvedPath.back() != '/')
+            resolvedPath += '\\';
+        // Keep the legacy CP932 suffix as bytes. Constructing a filesystem path
+        // from it can reinterpret valid LR2 text through the active code page.
+        resolvedPath += suffix;
+        std::replace(resolvedPath.begin(), resolvedPath.end(), '/', '\\');
+        return true;
+    }
+    return false;
 }
 
 } // namespace
@@ -162,11 +245,12 @@ bool SEResolveLr2VirtualRoot(const char* requestedPath,
     return false;
 }
 
-bool SEResolveSkinResourcePath(const char* requestedPath,
+SESkinResourcePathResult SEResolveSkinResourcePath(const char* requestedPath,
     const char* ownerFilePath, const char* mainSkinPath,
     std::string& resolvedPath) {
     resolvedPath.clear();
-    if (!requestedPath || !*requestedPath) return false;
+    if (!requestedPath || !*requestedPath)
+        return SESkinResourcePathResult::Unresolved;
 
     // Callers may pass a path already resolved by an earlier parser phase.
     // Reconstructing std::filesystem::path from that CP932 byte stream can
@@ -175,7 +259,25 @@ bool SEResolveSkinResourcePath(const char* requestedPath,
     if (IsAbsoluteWindowsBytePath(requestedPath)) {
         resolvedPath = requestedPath;
         std::replace(resolvedPath.begin(), resolvedPath.end(), '/', '\\');
-        return true;
+        return SESkinResourcePathResult::Resolved;
+    }
+
+    // Imported OLR workspaces deliberately keep portable resources below
+    // vfs/LR2files until the explicit install-ready export. Resolve that
+    // namespace from the workspace root even when the requested leaf exists
+    // only inside a sibling .dxa archive and Win32 cannot enumerate it.
+    if (SEIsOLRVirtualWorkspace(mainSkinPath) ||
+        SEIsOLRVirtualWorkspace(ownerFilePath)) {
+        std::string importedWorkspacePath;
+        const ImportedWorkspacePathKind importedWorkspaceKind =
+            NormalizeImportedWorkspacePath(requestedPath, importedWorkspacePath);
+        if (importedWorkspaceKind == ImportedWorkspacePathKind::Invalid)
+            return SESkinResourcePathResult::Rejected;
+        if (importedWorkspaceKind == ImportedWorkspacePathKind::Valid)
+            return ResolveImportedWorkspacePath(importedWorkspacePath,
+                ownerFilePath, mainSkinPath, resolvedPath)
+                    ? SESkinResourcePathResult::Resolved
+                    : SESkinResourcePathResult::Unresolved;
     }
 
     SELr2VirtualRootResolution root;
@@ -196,7 +298,7 @@ bool SEResolveSkinResourcePath(const char* requestedPath,
             resolvedPath += suffix;
         }
         std::replace(resolvedPath.begin(), resolvedPath.end(), '/', '\\');
-        return true;
+        return SESkinResourcePathResult::Resolved;
     }
 
     const std::filesystem::path requested(requestedPath);
@@ -217,7 +319,7 @@ bool SEResolveSkinResourcePath(const char* requestedPath,
         std::error_code error;
         const std::filesystem::path absolute = std::filesystem::absolute(candidate, error);
         resolvedPath = (error ? candidate : absolute).lexically_normal().string();
-        return true;
+        return SESkinResourcePathResult::Resolved;
     }
-    return false;
+    return SESkinResourcePathResult::Unresolved;
 }

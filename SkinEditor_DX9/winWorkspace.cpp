@@ -4643,7 +4643,9 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
         }
 
         int textAlign = 0;
-        int numberAlign = 0;
+        int textFontIndex = -1;
+        int textStringIndex = -1;
+        int numberKeta = 1;
         bool isTextObject = false;
         bool isNumberObject = false;
         SRC* editorSlider = NULL;
@@ -4652,10 +4654,12 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
             SKINFILELINEREAD& sourceLine = ((SKINFILELINEREAD*)skinfileLines.data)[objectRow];
             if (sourceLine.csv.str[0].isSame("#SRC_TEXT")) {
                 isTextObject = true;
+                textFontIndex = sourceLine.csv.val[2];
+                textStringIndex = sourceLine.csv.val[3];
                 textAlign = sourceLine.csv.val[4];
             } else if (sourceLine.csv.str[0].isSame("#SRC_NUMBER")) {
                 isNumberObject = true;
-                numberAlign = sourceLine.csv.val[12];
+                numberKeta = (std::max)(1, sourceLine.csv.val[13]);
             } else if (sourceLine.csv.str[0].isSame("#SRC_SLIDER")) {
                 for (int srcIndex = 0; srcIndex < arr_SRC.count; ++srcIndex) {
                     SRC& candidate = ((SRC*)arr_SRC.data)[srcIndex];
@@ -4668,14 +4672,59 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
         }
         auto alignedX = [&](float x, float w) {
             if (isTextObject) {
-                if (textAlign == 1) return x - w * 0.5f;
-                if (textAlign == 2) return x - w;
+                // TEXT uses 0=left, 1=middle and 2=right. Unlike NUMBER,
+                // LR2 treats DST x as an anchor and shifts by the rendered
+                // string width (LRDrawText), not by the configured DST width.
+                if (textAlign == 1) return x - (float)(int)(w * 0.5f);
+                if (textAlign == 2) return x - (float)(int)w;
             }
-            if (isNumberObject) {
-                if (numberAlign == 0) return x - w;
-                if (numberAlign == 2) return x - w * 0.5f;
-            }
+            // NUMBER align controls digit placement inside the keta-wide
+            // field. LR2 always advances from the DST x coordinate, so x is
+            // the field's left edge for right, left and middle alignment.
             return x;
+        };
+        auto textFrameWidth = [&](const DST_ANIMATION& frame) {
+            if (!isTextObject || textFontIndex < 0 || textFontIndex >= 10 ||
+                textStringIndex < 0 || textStringIndex >= 300 ||
+                frame.w == 0.0f || frame.h == 0.0f)
+                return frame.w;
+
+            CSTR& text = g.txtStruct.objectStr[textStringIndex];
+            if (!text.body || text.length() < 1) return frame.w;
+
+            float naturalWidth = 0.0f;
+            float naturalHeight = 0.0f;
+            ImageFont& imageFont = g.skstruct.ImageFonts[textFontIndex];
+            if (imageFont.size > 0) {
+                naturalWidth = (float)GetTextGraphLength(&text, &imageFont);
+                naturalHeight = (float)imageFont.size;
+            } else {
+                const int fontHandle = g.skstruct.fontHandle[textFontIndex];
+                int fontSize = 0;
+                int fontThickness = 0;
+                if (fontHandle != -1 &&
+                    GetFontStateToHandle(NULL, &fontSize, &fontThickness, fontHandle) == 0) {
+                    naturalWidth = (float)GetDrawStringWidthToHandle(
+                        text.outstr(), text.length(), fontHandle, 0);
+                    naturalHeight = (float)fontSize;
+                }
+            }
+            if (naturalWidth <= 0.0f || naturalHeight <= 0.0f) return frame.w;
+
+            // Keep the same order as LRDrawText: cap the natural width by
+            // DST w first, then apply the scale selected by DST h.
+            const float widthScale = naturalWidth > frame.w
+                ? frame.w / naturalWidth : 1.0f;
+            const float heightScale = frame.h / naturalHeight;
+            return naturalWidth * widthScale * heightScale;
+        };
+        auto objectFrameWidth = [&](const DST_ANIMATION& frame) {
+            // LR2 draws NUMBER by advancing one DST width per configured
+            // digit. Keep the selection rectangle on the same keta-wide
+            // field instead of highlighting only a single glyph cell.
+            if (isNumberObject) return frame.w * numberKeta;
+            if (isTextObject) return textFrameWidth(frame);
+            return frame.w;
         };
 
         // SliderByTime renders the knob at the animated DST position plus
@@ -4716,11 +4765,14 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
         if (includedRuntimeSlider) continue;
 
         const DST_ANIMATION& firstFrame = editorFrames.front();
-        includeBounds(alignedX(firstFrame.x, firstFrame.w), firstFrame.y,
-            firstFrame.w, firstFrame.h, firstBounds, minX, minY, maxX, maxY);
+        const float firstFrameWidth = objectFrameWidth(firstFrame);
+        includeBounds(alignedX(firstFrame.x, firstFrameWidth), firstFrame.y,
+            firstFrameWidth, firstFrame.h,
+            firstBounds, minX, minY, maxX, maxY);
         const DST_ANIMATION& lastFrame = editorFrames.back();
-        includeBounds(alignedX(lastFrame.x, lastFrame.w), lastFrame.y,
-            lastFrame.w, lastFrame.h, lastBounds,
+        const float lastFrameWidth = objectFrameWidth(lastFrame);
+        includeBounds(alignedX(lastFrame.x, lastFrameWidth), lastFrame.y,
+            lastFrameWidth, lastFrame.h, lastBounds,
             lastMinX, lastMinY, lastMaxX, lastMaxY);
     }
 

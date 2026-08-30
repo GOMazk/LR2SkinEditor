@@ -354,6 +354,14 @@ $test.ExitCode
 - `- DST` 후 최소 하나가 남는지
 - 추가/삭제 각각 Ctrl+Z가 되는지
 - Undo 후 Preview object와 점멸 사각형 좌표가 일치하는지
+- `#SRC_NUMBER`의 `keta`를 4 이상으로 설정했을 때 Preview 점멸 사각형의
+  폭이 단일 glyph가 아니라 `DST w * keta`인지
+- NUMBER `align=0/1/2`를 각각 선택해도 점멸 사각형의 왼쪽은 DST `x`이고,
+  숫자 glyph만 그 필드 안에서 right/left/middle로 배치되는지. 특히 right에서
+  사각형 전체가 DST `x` 왼쪽으로 이동하면 안 된다.
+- TEXT는 NUMBER와 다른 `align` 순서인 `0=left`, `1=middle`, `2=right`를
+  사용하는지. 점멸 사각형은 실제 렌더링된 문자열 폭을 사용하고 middle은 그 폭의
+  절반, right는 전체 폭만큼 DST `x` 왼쪽에 표시되는지
 - PLAY의 `NOWJUDGE_1P/2P`, `NOWCOMBO_1P/2P`를 선택했을 때도 점멸
   사각형이 표시되고 DST 프레임 위치를 따라가는지
 - Object Browser에서 같은 파일의 Object를 같은 Branch 또는 다른

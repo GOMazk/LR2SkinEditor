@@ -377,6 +377,12 @@ Ctrl+MouseWheel로 확대/축소한다.
 
 - Object를 선택하면 첫 DST와 마지막 DST 경계를 점멸 사각형으로 표시한다.
 - 시작 경계는 cyan, 최종 경계는 red다.
+- NUMBER의 경계 폭은 한 glyph의 DST `w`가 아니라 `w * keta`로 계산하며
+  DST `x`를 왼쪽 경계로 사용한다. NUMBER의 `align`은 경계 anchor를 옮기지 않고
+  이 `keta` 폭 안에서 숫자 glyph를 right/left/middle로 배치한다.
+- TEXT의 `align`은 NUMBER와 달리 `0=left`, `1=middle`, `2=right`이며 DST `x`를
+  문자열 anchor로 사용한다. 경계는 LR2가 폰트와 DST `w/h`에서 계산하는 실제 출력
+  폭으로 맞추고, middle/right에서는 각각 그 폭의 절반/전체만큼 왼쪽으로 이동한다.
 - 선택한 Object 위에서 좌클릭 drag하면 해당 Object의 모든 선택 대상 DST 좌표를
   이동한다.
 - 방향키 이동도 동일 CSV 편집/History 경로를 사용한다.

@@ -20,25 +20,38 @@ struct SEOLRSemanticObject {
         Transform transform;
     };
 
+    struct SourceBinding {
+        // One-based compiler address inside lr2/main.lr2skin.
+        int sourceRow = -1;
+        std::string sourceCommand;
+    };
+
+    struct Destination {
+        std::string id;
+        std::string destinationCommand;
+        Transform layout;
+        std::vector<AnimationFrame> animationFrames;
+        bool hasTimer = false;
+        int timer = 0;
+        bool hasLoop = false;
+        int loop = 0;
+        bool hasOptions[3] = {};
+        int options[3] = {};
+    };
+
+    struct Part {
+        // Part ids are stable only inside one projected package. Source row
+        // plus exact command remains the compiler binding.
+        std::string id;
+        std::vector<SourceBinding> sources;
+        std::vector<Destination> destinations;
+    };
+
     std::string id;
     std::string category;
     std::string name;
     std::string group;
-    std::string sourceCommand;
-    std::string destinationCommand;
-    std::vector<int> sourceRows;
-    bool hasDestination = false;
-    int x = 0;
-    int y = 0;
-    int width = 0;
-    int height = 0;
-    int timer = 0;
-    int loop = 0;
-    int op1 = 0;
-    int op2 = 0;
-    int op3 = 0;
-    Transform layout;
-    std::vector<AnimationFrame> animationFrames;
+    std::vector<Part> parts;
 };
 
 struct SEOLRSourceMapEntry {
@@ -102,6 +115,8 @@ struct SEOLRPackageInfo {
     std::vector<std::string> entries;
     int formatVersion = 0;
     int objectCount = 0;
+    int semanticPartCount = 0;
+    int destinationCount = 0;
     int simpleSlotCount = 0;
     int compiledSimpleSlotCount = 0;
     int compiledSemanticObjectCount = 0;
@@ -130,8 +145,13 @@ bool SEWriteOLRSkinPackage(const char* packagePath,
     const SEOLRSkinDocument& document, SEOLRPackageInfo& packageInfo,
     std::string& errorMessage);
 
+// Strictly parses the manifest JSON contract without opening an archive.
+// This is useful to validate tooling input before resolving package entries.
+bool SEParseOLRManifestJson(const std::string& manifestJson,
+    SEOLRPackageInfo& packageInfo, std::string& errorMessage);
+
 // Validates the complete central directory and CRC of every entry without
-// extracting it. Only the OLR V0.1 stored method is accepted.
+// extracting it. V0.1 through the current stored-method format are accepted.
 bool SEInspectOLRSkinPackage(const char* packagePath,
     SEOLRPackageInfo& packageInfo, std::string& errorMessage);
 
@@ -143,8 +163,8 @@ bool SECompileOLRSimpleMode(const std::string& skinJson,
     const std::string& lr2Script, std::string& compiledScript,
     int& compiledSlotCount, std::string& errorMessage);
 
-// Compiles the V0.7 semantic destination authority and the V0.4 Simple Mode
-// authority into an LR2 compatibility script in one atomic in-memory pass.
+// Compiles the V0.7 flat and V0.8 part-based semantic destination authorities
+// with V0.4 Simple Mode into an LR2 compatibility script atomically.
 // V0.4 documents without semantic Objects remain supported.
 bool SECompileOLRSemantics(const std::string& skinJson,
     const std::string& lr2Script, std::string& compiledScript,

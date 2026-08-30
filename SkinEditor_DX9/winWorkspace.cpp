@@ -424,6 +424,24 @@ static bool ReadCommandField(CSVbuf& values, const char* command,
     return false;
 }
 
+static bool ReadNonEmptyCommandField(CSVbuf& values, const char* command,
+    const char* fieldName, int& value) {
+    if (!command || !fieldName) return false;
+    for (int column = 1; column < 30; ++column) {
+        CSTR help = GetCommandHelp(command, column);
+        help.trimWhiteSpace();
+        const char* label = help.body ? help.outstr() : "";
+        if (*label == '$') ++label;
+        if (_stricmp(label, fieldName) != 0) continue;
+        const char* field = values.str[column].body
+            ? values.str[column].outstr() : "";
+        if (!*field) return false;
+        value = atol(field);
+        return true;
+    }
+    return false;
+}
+
 static bool ResolveDstArgbColumns(const char* command, int columns[4]) {
     if (!command || strncmp(command, "#DST", 4) != 0 || !columns) return false;
     columns[0] = columns[1] = columns[2] = columns[3] = -1;
@@ -9509,51 +9527,95 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         const SEObjectGroupDef* group = objectEditorModel.Group(object.group);
         semantic.group = group ? Cp932ToUtf8(group->name.c_str()) : "Unknown";
 
+        std::string categorySourceCommand;
+        SEOLRSemanticObject::Part* part = nullptr;
+        SEOLRSemanticObject::Destination* destination = nullptr;
+        std::string lastDestinationCommand;
+        bool partHasSeenDestination = false;
+        const auto beginPart = [&]() {
+            SEOLRSemanticObject::Part nextPart;
+            nextPart.id = "part_" + std::to_string(semantic.parts.size() + 1);
+            semantic.parts.push_back(std::move(nextPart));
+            part = &semantic.parts.back();
+            destination = nullptr;
+            lastDestinationCommand.clear();
+            partHasSeenDestination = false;
+        };
+
         for (int rowIndex : object.rows) {
             if (rowIndex < 0 || rowIndex >= skinfileLines.count) continue;
             SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
-            semantic.sourceRows.push_back(rowIndex + 1);
             const char* command = row.csv.str[0].body ? row.csv.str[0].outstr() : "";
-            if (semantic.sourceCommand.empty() && !strncmp(command, "#SRC_", 5))
-                semantic.sourceCommand = command;
-            if (!strncmp(command, "#DST_", 5) &&
-                (semantic.destinationCommand.empty() || semantic.destinationCommand == command)) {
-                SEOLRSemanticObject::AnimationFrame frame;
-                frame.destinationRow = rowIndex + 1;
-                const bool hasTime = ReadCommandField(row.csv, command, "time", frame.timeMs);
-                const bool hasX = ReadCommandField(row.csv, command, "x", frame.transform.x);
-                const bool hasY = ReadCommandField(row.csv, command, "y", frame.transform.y);
-                const bool hasWidth = ReadCommandField(row.csv, command, "w", frame.transform.width);
-                bool hasHeight = ReadCommandField(row.csv, command, "h", frame.transform.height);
-                if (!hasHeight) hasHeight = ReadCommandField(row.csv, command, "size", frame.transform.height);
-                const bool hasAlpha = ReadCommandField(row.csv, command, "a", frame.alpha);
-                const bool hasRotation = ReadCommandField(row.csv, command, "angle", frame.transform.rotation);
-                const bool hasBlend = ReadCommandField(row.csv, command, "blend", frame.transform.blend);
-                // V0.7 deliberately owns only DST commands that expose the
-                // complete Layout/Timeline contract. Unsupported LR2 rows stay
-                // byte-preserved in compatibility/lr2/main.lr2skin.
-                if (hasTime && hasX && hasY && hasWidth && hasHeight && hasAlpha &&
-                    hasRotation && hasBlend) {
-                    if (semantic.destinationCommand.empty()) {
-                        semantic.destinationCommand = command;
-                        semantic.hasDestination = true;
-                        semantic.layout = frame.transform;
-                        semantic.x = frame.transform.x;
-                        semantic.y = frame.transform.y;
-                        semantic.width = frame.transform.width;
-                        semantic.height = frame.transform.height;
-                        ReadCommandField(row.csv, command, "timer", semantic.timer);
-                        ReadCommandField(row.csv, command, "loop", semantic.loop);
-                        ReadCommandField(row.csv, command, "op1", semantic.op1);
-                        ReadCommandField(row.csv, command, "op2", semantic.op2);
-                        ReadCommandField(row.csv, command, "op3", semantic.op3);
-                    }
-                    semantic.animationFrames.push_back(frame);
-                }
+            if (!strncmp(command, "#SRC_", 5)) {
+                if (!part || partHasSeenDestination) beginPart();
+                SEOLRSemanticObject::SourceBinding source;
+                source.sourceRow = rowIndex + 1;
+                source.sourceCommand = command;
+                part->sources.push_back(std::move(source));
+                if (categorySourceCommand.empty()) categorySourceCommand = command;
+                continue;
             }
+
+            if (strncmp(command, "#DST_", 5) != 0) continue;
+            if (part) partHasSeenDestination = true;
+
+            SEOLRSemanticObject::AnimationFrame frame;
+            frame.destinationRow = rowIndex + 1;
+            const bool hasTime = ReadCommandField(row.csv, command, "time", frame.timeMs);
+            const bool hasX = ReadCommandField(row.csv, command, "x", frame.transform.x);
+            const bool hasY = ReadCommandField(row.csv, command, "y", frame.transform.y);
+            const bool hasWidth = ReadCommandField(row.csv, command, "w", frame.transform.width);
+            bool hasHeight = ReadCommandField(row.csv, command, "h", frame.transform.height);
+            if (!hasHeight) hasHeight = ReadCommandField(row.csv, command, "size", frame.transform.height);
+            const bool hasAlpha = ReadCommandField(row.csv, command, "a", frame.alpha);
+            const bool hasRotation = ReadCommandField(row.csv, command, "angle", frame.transform.rotation);
+            const bool hasBlend = ReadCommandField(row.csv, command, "blend", frame.transform.blend);
+            const bool hasCompleteContract = hasTime && hasX && hasY && hasWidth &&
+                hasHeight && hasAlpha && hasRotation && hasBlend;
+
+            const bool commandChanged = lastDestinationCommand != command;
+            if (commandChanged) destination = nullptr;
+            lastDestinationCommand = command;
+            // V0.8 owns only DST commands that expose the complete
+            // Layout/Timeline contract. Unsupported rows remain byte-preserved
+            // by the LR2 compatibility script and still delimit SRC cohorts.
+            if (!hasCompleteContract) {
+                destination = nullptr;
+                continue;
+            }
+
+            if (!part) {
+                beginPart();
+                partHasSeenDestination = true;
+                lastDestinationCommand = command;
+                destination = nullptr;
+            }
+            if (!destination) {
+                SEOLRSemanticObject::Destination nextDestination;
+                nextDestination.id = "destination_" +
+                    std::to_string(part->destinations.size() + 1);
+                nextDestination.destinationCommand = command;
+                nextDestination.layout = frame.transform;
+                nextDestination.timer = 0;
+                nextDestination.loop = 0;
+                nextDestination.hasTimer = ReadNonEmptyCommandField(row.csv,
+                    command, "timer", nextDestination.timer);
+                nextDestination.hasLoop = ReadNonEmptyCommandField(row.csv,
+                    command, "loop", nextDestination.loop);
+                const char* optionFields[3] = { "op1", "op2", "op3" };
+                for (int option = 0; option < 3; ++option) {
+                    nextDestination.options[option] = 0;
+                    nextDestination.hasOptions[option] = ReadNonEmptyCommandField(
+                        row.csv, command, optionFields[option],
+                        nextDestination.options[option]);
+                }
+                part->destinations.push_back(std::move(nextDestination));
+                destination = &part->destinations.back();
+            }
+            destination->animationFrames.push_back(frame);
         }
         semantic.category = OlrSemanticCategory(semantic.group,
-            semantic.sourceCommand);
+            categorySourceCommand);
         document.objects.push_back(std::move(semantic));
     }
 
@@ -9724,21 +9786,27 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         slot.sourceRow = packaged->second;
     }
     for (SEOLRSemanticObject& object : document.objects) {
-        for (int& sourceRow : object.sourceRows) {
-            const auto packaged = packagedRowsByExpandedRow.find(sourceRow);
-            if (packaged == packagedRowsByExpandedRow.end()) {
-                resultMessage = "A semantic Object source row was omitted from the packaged LR2 script.";
-                return -1;
+        for (SEOLRSemanticObject::Part& part : object.parts) {
+            for (SEOLRSemanticObject::SourceBinding& source : part.sources) {
+                const auto packaged = packagedRowsByExpandedRow.find(source.sourceRow);
+                if (packaged == packagedRowsByExpandedRow.end()) {
+                    resultMessage = "A semantic Object source row was omitted from the packaged LR2 script.";
+                    return -1;
+                }
+                source.sourceRow = packaged->second;
             }
-            sourceRow = packaged->second;
-        }
-        for (SEOLRSemanticObject::AnimationFrame& frame : object.animationFrames) {
-            const auto packaged = packagedRowsByExpandedRow.find(frame.destinationRow);
-            if (packaged == packagedRowsByExpandedRow.end()) {
-                resultMessage = "A semantic DST row was omitted from the packaged LR2 script.";
-                return -1;
+            for (SEOLRSemanticObject::Destination& destination : part.destinations) {
+                for (SEOLRSemanticObject::AnimationFrame& frame :
+                    destination.animationFrames) {
+                    const auto packaged = packagedRowsByExpandedRow.find(
+                        frame.destinationRow);
+                    if (packaged == packagedRowsByExpandedRow.end()) {
+                        resultMessage = "A semantic DST row was omitted from the packaged LR2 script.";
+                        return -1;
+                    }
+                    frame.destinationRow = packaged->second;
+                }
             }
-            frame.destinationRow = packaged->second;
         }
     }
 
@@ -9749,7 +9817,9 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         return -1;
     }
     std::ostringstream summary;
-    summary << "Exported " << packageInfo.objectCount << " semantic objects, "
+    summary << "Exported " << packageInfo.objectCount << " semantic objects with "
+        << packageInfo.semanticPartCount << " source-bound parts and "
+        << packageInfo.destinationCount << " destination tracks, "
         << packageInfo.simpleSlotCount << " Simple Mode slots, "
         << packageInfo.virtualRootCount << " virtual LR2 roots and "
         << packageInfo.virtualFileCount << " virtual files.";
@@ -9912,8 +9982,12 @@ int WORKSPACE::ImportOlrSkinInteractive() {
 
     olrPackageState = 1;
     std::ostringstream result;
-    result << "Imported " << packageInfo.objectCount << " semantic objects, "
-        << packageInfo.simpleSlotCount << " Simple Mode slots and "
+    result << "Imported " << packageInfo.objectCount << " semantic objects";
+    if (packageInfo.formatVersion >= 8)
+        result << " with " << packageInfo.semanticPartCount
+            << " source-bound parts and " << packageInfo.destinationCount
+            << " destination tracks";
+    result << ", " << packageInfo.simpleSlotCount << " Simple Mode slots and "
         << packageInfo.assetCount << " assets from " << packageInfo.virtualRootCount
         << " virtual LR2 roots to " << extractedMainPath;
     if (packageInfo.formatVersion >= 4)
@@ -10034,7 +10108,7 @@ int WORKSPACE::drawSaveOlrSkin() {
         }
 
         ImGui::TextWrapped("Save the loaded skin as one portable .olrskin package.");
-        ImGui::TextDisabled("V0.7 writes semantic Layout, Timeline, Conditions, Simple Mode assets and LR2 compatibility data.");
+        ImGui::TextDisabled("V0.8 writes source-bound Object parts with per-destination Layout, Timeline and Conditions, plus Simple Mode assets and LR2 compatibility data.");
         if (SEIsOLRVirtualWorkspace(mainpath)) {
             ImGui::TextWrapped("This imported OLR workspace will save its current LR2 script first, so Export LR2 folder can use the same edits immediately.");
         } else {
@@ -10056,7 +10130,7 @@ int WORKSPACE::drawSaveOlrSkin() {
         ImGui::BulletText("LR2 commands, comments, timers, conditions and editor metadata are preserved.");
         ImGui::BulletText("Resources outside a resolved LR2 root remain external and are reported.");
         ImGui::BulletText("After import and Save OLRskin, File > Export LR2 folder materializes an install-ready tree.");
-        ImGui::BulletText("V0.7 semantic fields compile into lr2/main.lr2skin; unsupported rows remain raw.");
+        ImGui::BulletText("V0.8 part and destination fields compile into lr2/main.lr2skin; unsupported rows remain raw.");
 
         const bool hasUnsavedImageEdits = !imagePixelPaintDirtyPaths.empty();
         if (hasUnsavedImageEdits) {

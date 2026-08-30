@@ -62,9 +62,10 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
   고정 이미지와 해결된 LR2 가상 root를 한 `.olrskin` 파일로 원자 저장. 일반 LR2
   workspace의 원본은 건드리지 않고, Import한 OLR workspace는 미저장 script를 먼저
   저장하여 뒤이은 LR2 folder export가 같은 편집 결과를 사용
-- `File > Import OLR package`에서 패키지를 검증한 뒤 V0.7 `objects`의
-  Layout/Animation/Condition과 V0.4 `simple_mode` source asset을 LR2 CSV로
-  원자적으로 compile하고, 사용자가 고른 새 폴더만 열기
+- `File > Import OLR package`에서 패키지를 검증한 뒤 V0.8 `objects`의 nested
+  part별 destination Layout/Animation/Condition과 V0.4 `simple_mode` source
+  asset을 LR2 CSV로 원자적으로 compile하고, manifest의 구조/asset count와
+  `skin.json`/archive가 일치할 때만 사용자가 고른 새 폴더를 열기
 - Import한 V0.2+ workspace의 `File > Export LR2 folder`에서 `vfs/LR2files`와
   고정 `assets`를 새 출력 폴더로 풀고 현재 편집 스크립트의 경로를 복원
 
@@ -100,14 +101,15 @@ Default locations 전환을 제공하며, 파일을 복사하거나 LR2 설정�
 
 ### 시나리오 A-2: OLR 중간 포맷으로 공유
 
-`.olrskin` V0.7은 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
+`.olrskin` V0.8은 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
 찾기 쉬운 Semantic index와 원본 동작을 보존하는 Compatibility layer를 함께 담는
 ZIP 컨테이너다. 자세한 계약은 [OLR 포맷 문서](OLRSKIN_FORMAT.md)를 따른다.
 
 ```text
 loaded WORKSPACE
-  +-- Object Model -> skin.json (gear/notes/judge/combo/gauge/...)
-  +-- first DST family -> skin.json.objects (Layout/Animation/Condition)
+  +-- Object Model -> skin.json.objects (id/name/group)
+  +-- SRC boundaries -> objects.items[].parts[]
+  +-- part DST families -> destinations[] (Layout/Animation/Condition)
   +-- Simple Mode source IR -> skin.json (number-fonts/judgement-fonts/gear/notes/gauge)
   +-- expanded CSV -> lr2/main.lr2skin
   +-- resolved LR2 roots -> lr2/vfs/LR2files/*
@@ -122,23 +124,42 @@ loaded WORKSPACE
 성공한 Import/Save의 package 경로는 다음 저장 위치 제안에만 쓰는 workspace-local
 상태이며 package나 LR2 export에 기록하지 않는다.
 
-V0.7은 `skin.json.objects`를 첫 지원 `#DST_*` family의 compile authority로,
-`skin.json.simple_mode`를 지원 `#SRC_*` asset authority로 사용한다. Layout은 첫 DST
-rectangle, Animation은 같은 command의 DST frame들, Condition은 첫 frame의
-timer/loop/op1..3이다. 알려진 OP/TIMER는 symbolic name으로 컴파일하고 custom 900번대와
-이름 없는 값은 raw 숫자로 왕복한다. alternate DST family, IF/ELSE, 다른 열, comment와
-editor metadata는 `lr2/main.lr2skin`에서 보존한다. 하나라도 잘못되면 새 import 폴더를
-제거하고 부분 결과를 남기지 않는다. `sections`는 Object id discovery index이며 V0.8의
-1P/2P/DP variant linkage 전까지 값을 컴파일하지 않는다.
+V0.8은 `skin.json.objects`의 authority를 `lr2-destination-parts-v0.8`로 두고,
+각 Object를 SRC/DST 행 순서에 따른 nested part로 나눈다. 첫 SRC가 part를 시작하고,
+DST가 나오기 전의 연속 SRC는 같은 part에 속한다. DST 뒤 새 SRC가 나오면 다음 part를
+시작한다. 따라서 NOTE의 multi-SRC-before-DST는 한 part이고, 실제 kamh BUTTON의
+`SRC/DST/SRC/DST` 구조는 두 part다. 각 part 안에서는 연속된 같은 exact DST command
+run이 하나의 destination으로 Layout, Animation과 Condition을 소유한다. command가
+바뀌면 이전과 같은 command가 나중에 다시 나오더라도 새 destination을 시작한다.
+SRC보다 먼저 지원 DST가 나오면 sources가 빈 초기 part를 만들 수 있다. 지원 destination이
+없는 source-only part는 JSON에 빈 semantic 항목을 만들지 않고 compatibility에 남긴다.
+이는 인접 행 구조의 표현일 뿐 1P/2P/DP variant를 추론하거나 IF/ELSE branch를 서로
+연결하지 않는다.
+
+현재 Object Inspector의 Layout/Timeline/Conditions는 선택 Object에서 complete
+semantic contract를 가진 첫 DST command family만 편집한다. nested part나 다른
+destination family를 고르는 selector는 아직 없고 나머지는 `Advanced LR2`에 남는다.
+이는 편집 UI의 제한이며, V0.8 package projection과 compiler는 지원되는 모든
+source-bound destination run을 nested 구조로 처리한다.
+
+Condition의 `timer`/`loop`가 `null`이면 원본 frame-0 필드를 그대로 보존한다.
+`condition.all`의 각 term은 1~3의 `slot`을 명시하며, 등장한 slot만 컴파일하고 빠진
+slot은 지우지 않는다. 알려진 OP/TIMER는 symbolic name으로 컴파일하고 custom 900번대와
+이름 없는 값은 raw 숫자로 왕복한다. `skin.json.simple_mode`는 계속 지원 `#SRC_*`
+asset authority다. IF/ELSE, 지원 밖 행/열, comment와 editor metadata는
+`lr2/main.lr2skin`에서 보존한다. 하나라도 잘못되면 새 import 폴더를 제거하고 부분
+결과를 남기지 않는다. `sections`는 Object id discovery index이며 값을 컴파일하지 않는다.
 KCOOL처럼 `#SRC_IMAGE`의 `w/h`에 음수 sentinel을 쓰는 legacy crop은 편집 가능한
 Simple Mode rectangle이 아니므로 새 package의 `simple_mode`에서 제외한다. 기존
 package에 이미 들어 있어도 Import를 중단하지 않고 원본 LR2 행을 raw로 보존한다.
 
-Export 전 Workspace row는 include flattening 중 달라질 수 있으므로 Simple Mode의
-`source_row`와 semantic `destination_row`는 `compatibility/source-map.json`을 통해
+Export 전 Workspace row는 include flattening 중 달라질 수 있으므로 Simple Mode와
+part source의 `source_row`, 각 destination의 `destination_row`는
+`compatibility/source-map.json`을 통해
 packaged LR2 row로 변환한다.
 이 변환 없이 펼친 row를 compiler 주소로 사용하지 않는다. V0.1-V0.3은 계속 기존처럼
-compatibility script를 기준으로 Import한다.
+compatibility script를 기준으로 Import하며 V0.1-V0.7은 각 버전의 기존 parser와
+authority로 처리한다. legacy flat Object를 V0.8 part로 재해석하지 않는다.
 
 패키지에는 로컬 절대 owner 경로를 기록하지 않는다. main 폴더 내부 include는
 상대 경로, 외부 include는 `<external>/<filename>` label만 source map에 남긴다.
@@ -148,6 +169,13 @@ font와 archive는 폴더 전체로 보존한다. 해결할 수 없는 LR2 root,
 과도하게 긴 파일은 외부/누락 개수를 결과와 manifest에 명시한다.
 V0.1 패키지는 계속 Import할 수 있지만 path map이 없으므로 LR2 folder Export를
 활성화하지 않는다.
+현재 `Save OLRskin` writer는 알지 못하는 manifest/`skin.json` 필드를 보존하지 않는다.
+따라서 third-party extension은 editor 재저장 뒤에도 유지된다고 가정할 수 없다.
+향후 extension namespace와 passthrough 또는 명시적 rewrite 경계를 별도 정책으로
+정의하기 전까지 이를 V0.8의 알려진 제한으로 둔다.
+자동 `olr-package` fixture는 이미 part가 구성된 document/JSON의 package 및 compiler
+왕복을 검증하지만 `WORKSPACE::ExportOlrSkin()`의 행 경계 투영 자체는 호출하지 않는다.
+실제 kamh BUTTON과 NOTE의 part 도출은 `BUILD_AND_TEST.md`의 수동 OLR 절차로 확인한다.
 
 ### 시나리오 B: 새 스킨 생성
 
@@ -803,7 +831,7 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 | Object Editor 구조 | Browser와 Inspector를 별도 도킹 창으로 유지 |
 | Object 이름 fallback | 명시 이름, SRC symbolic 이름, op, non-zero timer 순서. 자동 이름은 저장하지 않음 |
 | AI/UI 계약 | `uiCatalog.h`와 자동 UI map을 기준으로 하고 handoff는 context pack과 검증 증거를 포함 |
-| OLR V0.7 authority | `skin.json.objects`가 첫 지원 DST family의 Layout/Animation/Condition을, `simple_mode`가 지원 SRC asset을 컴파일한다. 다른 DST family, IF/ELSE와 지원 밖 행/열은 `lr2/main.lr2skin`이 보존하며 `vfs/LR2files`는 LR2 Export 전까지 유지 |
+| OLR V0.8 authority | `skin.json.objects`의 source-bound parts가 part별 destination Layout/Animation/Condition을, `simple_mode`가 지원 SRC asset을 컴파일한다. null timer/loop와 누락 OP slot, IF/ELSE와 지원 밖 행/열은 `lr2/main.lr2skin`이 보존하며 `vfs/LR2files`는 LR2 Export 전까지 유지 |
 
 ## 11. 다음 작업 전 확인
 

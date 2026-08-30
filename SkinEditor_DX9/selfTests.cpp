@@ -299,8 +299,13 @@ int RunOlrPackageSelfTest() {
         "#IMAGE,vfs/LR2files/Theme/Test/note/blue.png\r\n"
         "#IMAGE,assets/simple-note.png\r\n"
         "#SRC_IMAGE,0,0,0,0,16,16,1,1,0,0\r\n"
+        "#SRC_BUTTON,0,0,0,0,16,16,1,1,0,0,42,0,0\r\n"
         "#DST_IMAGE,0,0,100,200,16,16,0,255,255,255,255,1,0,0,0,800,46,119,948,0\r\n"
-        "#DST_IMAGE,0,100,110,210,20,18,0,0,255,255,255,1,0,15,0,800,46,119,948,0\r\n";
+        "#DST_IMAGE,0,100,110,210,20,18,0,0,255,255,255,1,0,15,0,800,46,119,948,0\r\n"
+        "#DST_IMAGE,1,0,50,60,10,12,0,200,255,255,255,0,0,0,0,,,,,\r\n"
+        "#SRC_IMAGE,0,1,0,0,16,16,1,1,0,0\r\n"
+        "#DST_IMAGE,0,25,400,300,80,40,0,128,255,255,255,2,0,10,0,222,33,6,7,8\r\n"
+        "#DST_IMAGE,0,75,410,305,80,40,0,64,255,255,255,2,0,15,0,222,33,6,7,8\r\n";
     document.lr2ExportMainPath = "LR2files/Theme/Test/play.lr2skin";
     document.virtualRoots.push_back({ "LR2files/Theme/Test", virtualRoot });
     SEOLRSemanticObject semanticObject;
@@ -308,31 +313,77 @@ int RunOlrPackageSelfTest() {
     semanticObject.category = "misc";
     semanticObject.name = "Test image";
     semanticObject.group = "IMAGE";
-    semanticObject.sourceCommand = "#SRC_IMAGE";
-    semanticObject.destinationCommand = "#DST_IMAGE";
-    semanticObject.sourceRows = { 2, 3 };
-    semanticObject.hasDestination = true;
-    semanticObject.x = 100;
-    semanticObject.y = 200;
-    semanticObject.width = 16;
-    semanticObject.height = 16;
-    semanticObject.layout = { 100, 200, 16, 16, 0, 1 };
+    SEOLRSemanticObject::Part semanticPart;
+    semanticPart.id = "part_1";
+    SEOLRSemanticObject::SourceBinding semanticSource;
+    semanticSource.sourceRow = 5;
+    semanticSource.sourceCommand = "#SRC_IMAGE";
+    semanticPart.sources.push_back(semanticSource);
+    SEOLRSemanticObject::SourceBinding buttonSemanticSource;
+    buttonSemanticSource.sourceRow = 6;
+    buttonSemanticSource.sourceCommand = "#SRC_BUTTON";
+    semanticPart.sources.push_back(buttonSemanticSource);
+    SEOLRSemanticObject::Destination semanticDestination;
+    semanticDestination.id = "destination_1";
+    semanticDestination.destinationCommand = "#DST_IMAGE";
+    semanticDestination.layout = { 100, 200, 16, 16, 0, 1 };
     SEOLRSemanticObject::AnimationFrame firstFrame;
-    firstFrame.destinationRow = 6;
+    firstFrame.destinationRow = 7;
     firstFrame.timeMs = 0;
     firstFrame.alpha = 255;
-    firstFrame.transform = semanticObject.layout;
-    semanticObject.animationFrames.push_back(firstFrame);
+    firstFrame.transform = semanticDestination.layout;
+    semanticDestination.animationFrames.push_back(firstFrame);
     SEOLRSemanticObject::AnimationFrame secondFrame;
-    secondFrame.destinationRow = 7;
+    secondFrame.destinationRow = 8;
     secondFrame.timeMs = 100;
     secondFrame.alpha = 0;
     secondFrame.transform = { 110, 210, 20, 18, 15, 1 };
-    semanticObject.animationFrames.push_back(secondFrame);
-    semanticObject.timer = 46;
-    semanticObject.loop = 800;
-    semanticObject.op1 = 119;
-    semanticObject.op2 = 948;
+    semanticDestination.animationFrames.push_back(secondFrame);
+    semanticDestination.hasTimer = true;
+    semanticDestination.timer = 46;
+    semanticDestination.hasLoop = true;
+    semanticDestination.loop = 800;
+    semanticDestination.hasOptions[0] = true;
+    semanticDestination.options[0] = 119;
+    semanticDestination.hasOptions[1] = true;
+    semanticDestination.options[1] = 948;
+    semanticPart.destinations.push_back(std::move(semanticDestination));
+    SEOLRSemanticObject::Destination alternateSemanticDestination;
+    alternateSemanticDestination.id = "destination_2";
+    alternateSemanticDestination.destinationCommand = "#DST_IMAGE";
+    alternateSemanticDestination.layout = { 50, 60, 10, 12, 0, 0 };
+    SEOLRSemanticObject::AnimationFrame alternateFrame;
+    alternateFrame.destinationRow = 9;
+    alternateFrame.timeMs = 0;
+    alternateFrame.alpha = 200;
+    alternateFrame.transform = alternateSemanticDestination.layout;
+    alternateSemanticDestination.animationFrames.push_back(alternateFrame);
+    semanticPart.destinations.push_back(std::move(alternateSemanticDestination));
+    semanticObject.parts.push_back(std::move(semanticPart));
+    SEOLRSemanticObject::Part secondSemanticPart;
+    secondSemanticPart.id = "part_2";
+    SEOLRSemanticObject::SourceBinding secondSemanticSource;
+    secondSemanticSource.sourceRow = 10;
+    secondSemanticSource.sourceCommand = "#SRC_IMAGE";
+    secondSemanticPart.sources.push_back(secondSemanticSource);
+    SEOLRSemanticObject::Destination secondSemanticDestination;
+    secondSemanticDestination.id = "destination_3";
+    secondSemanticDestination.destinationCommand = "#DST_IMAGE";
+    secondSemanticDestination.layout = { 400, 300, 80, 40, 10, 2 };
+    SEOLRSemanticObject::AnimationFrame thirdFrame;
+    thirdFrame.destinationRow = 11;
+    thirdFrame.timeMs = 25;
+    thirdFrame.alpha = 128;
+    thirdFrame.transform = secondSemanticDestination.layout;
+    secondSemanticDestination.animationFrames.push_back(thirdFrame);
+    SEOLRSemanticObject::AnimationFrame fourthFrame;
+    fourthFrame.destinationRow = 12;
+    fourthFrame.timeMs = 75;
+    fourthFrame.alpha = 64;
+    fourthFrame.transform = { 410, 305, 80, 40, 15, 2 };
+    secondSemanticDestination.animationFrames.push_back(fourthFrame);
+    secondSemanticPart.destinations.push_back(std::move(secondSemanticDestination));
+    semanticObject.parts.push_back(std::move(secondSemanticPart));
     document.objects.push_back(semanticObject);
     SEOLRSemanticObject compatibilityOnlyObject;
     compatibilityOnlyObject.id = "raw_only";
@@ -362,9 +413,10 @@ int RunOlrPackageSelfTest() {
     std::string errorMessage;
     if (result == 0 && !SEWriteOLRSkinPackage(packagePath.c_str(), document,
         packageInfo, errorMessage)) result = 7;
-    if (result == 0 && (packageInfo.formatVersion != 7 ||
+    if (result == 0 && (packageInfo.formatVersion != 8 ||
         packageInfo.entries.size() != 8 ||
         packageInfo.objectCount != 1 || packageInfo.simpleSlotCount != 1 ||
+        packageInfo.semanticPartCount != 2 || packageInfo.destinationCount != 3 ||
         packageInfo.assetCount != 2 ||
         packageInfo.virtualRootCount != 1 || packageInfo.virtualFileCount != 1 ||
         packageInfo.skippedVirtualFileCount != 1))
@@ -377,7 +429,7 @@ int RunOlrPackageSelfTest() {
     if (result == 0 && packageInfo.compiledSimpleSlotCount != 1)
         result = 24;
     if (result == 0 && (packageInfo.compiledSemanticObjectCount != 1 ||
-        packageInfo.compiledAnimationFrameCount != 2))
+        packageInfo.compiledAnimationFrameCount != 5))
         result = 29;
     if (result == 0 && extractedMain != extractedPath + "\\main.lr2skin")
         result = 10;
@@ -402,6 +454,212 @@ int RunOlrPackageSelfTest() {
             result = 37;
     }
 
+
+    if (result == 0) {
+        const std::string manifestJson =
+            "{\"format\":\"olrskin\",\"version\":8,"
+            "\"profile\":\"lr2-semantic-v0.8\","
+            "\"semantic_authority\":\"object parts + simple_mode\","
+            "\"lr2_entry\":\"lr2/main.lr2skin\","
+            "\"skin_entry\":\"skin.json\","
+            "\"path_map_entry\":\"compatibility/path-map.json\","
+            "\"object_count\":2,\"part_count\":3,"
+            "\"destination_count\":4,\"simple_slot_count\":5,"
+            "\"asset_count\":6,\"virtual_root_count\":1,"
+            "\"virtual_file_count\":2,\"skipped_virtual_file_count\":3,"
+            "\"unresolved_image_count\":4,\"unresolved_resource_count\":5}";
+        SEOLRPackageInfo manifestInfo;
+        if (!SEParseOLRManifestJson(manifestJson, manifestInfo, errorMessage) ||
+            manifestInfo.formatVersion != 8 || manifestInfo.objectCount != 2 ||
+            manifestInfo.semanticPartCount != 3 ||
+            manifestInfo.destinationCount != 4 ||
+            manifestInfo.simpleSlotCount != 5 || manifestInfo.assetCount != 6 ||
+            manifestInfo.virtualRootCount != 1 ||
+            manifestInfo.virtualFileCount != 2)
+            result = 51;
+
+        const std::string version8Token = "\"version\":8";
+        const size_t versionAt = manifestJson.find(version8Token);
+        if (result == 0 && versionAt == std::string::npos)
+            result = 52;
+        if (versionAt != std::string::npos) {
+            std::string version17 = manifestJson;
+            version17.replace(versionAt, version8Token.size(), "\"version\":17");
+            if (result == 0 && SEParseOLRManifestJson(version17, manifestInfo,
+                errorMessage)) result = 53;
+
+            std::string version70 = manifestJson;
+            version70.replace(versionAt, version8Token.size(), "\"version\":70");
+            if (result == 0 && SEParseOLRManifestJson(version70, manifestInfo,
+                errorMessage)) result = 54;
+
+            std::string duplicateVersion = manifestJson;
+            duplicateVersion.insert(versionAt, "\"version\":7,");
+            if (result == 0 && SEParseOLRManifestJson(duplicateVersion,
+                manifestInfo, errorMessage)) result = 55;
+
+            std::string leadingZeroVersion = manifestJson;
+            leadingZeroVersion.replace(versionAt, version8Token.size(),
+                "\"version\":08");
+            if (result == 0 && SEParseOLRManifestJson(leadingZeroVersion,
+                manifestInfo, errorMessage)) result = 58;
+        }
+
+        const std::string requiredPartCount = "\"part_count\":3,";
+        const size_t partCountAt = manifestJson.find(requiredPartCount);
+        if (result == 0 && partCountAt == std::string::npos)
+            result = 59;
+        if (partCountAt != std::string::npos) {
+            std::string missingPartCount = manifestJson;
+            missingPartCount.erase(partCountAt, requiredPartCount.size());
+            if (result == 0 && SEParseOLRManifestJson(missingPartCount,
+                manifestInfo, errorMessage)) result = 60;
+        }
+    }
+
+    if (result == 0) {
+        const std::string partsJson =
+            "{\"format\":\"olrskin-semantic\",\"version\":8,"
+            "\"objects\":{\"authority\":\"lr2-destination-parts-v0.8\",\"items\":[{"
+            "\"id\":\"compound\",\"parts\":[{"
+            "\"id\":\"part_a\",\"sources\":[{\"source_row\":1,"
+            "\"source_command\":\"#SRC_IMAGE\"}],\"destinations\":[{"
+            "\"id\":\"destination_a\",\"destination_command\":\"#DST_IMAGE\","
+            "\"layout\":{\"destination_row\":2,\"transform\":{\"x\":300,\"y\":200,"
+            "\"width\":64,\"height\":32,\"rotation\":0,\"blend\":1}},"
+            "\"animation\":{\"frames\":["
+            "{\"destination_row\":2,\"time_ms\":0,\"alpha\":0,\"transform\":{"
+            "\"x\":300,\"y\":200,\"width\":64,\"height\":32,\"rotation\":0,\"blend\":1}},"
+            "{\"destination_row\":3,\"time_ms\":100,\"alpha\":255,\"transform\":{"
+            "\"x\":310,\"y\":205,\"width\":64,\"height\":32,\"rotation\":5,\"blend\":1}}]},"
+            "\"condition\":{\"mode\":\"all\",\"timer\":{\"kind\":\"semantic\","
+            "\"lr2_name\":\"JUDGETIMER_1P\"},\"loop\":800,\"all\":["
+            "{\"slot\":1,\"kind\":\"semantic\",\"lr2_name\":\"CLEAROPTION_SURVIVAL\","
+            "\"negated\":false},{\"slot\":2,\"kind\":\"raw\",\"lr2_op\":948}]}}]},"
+            "{\"id\":\"part_b\",\"sources\":[{\"source_row\":4,"
+            "\"source_command\":\"#SRC_IMAGE\"}],\"destinations\":[{"
+            "\"id\":\"destination_b\",\"destination_command\":\"#DST_IMAGE\","
+            "\"layout\":{\"destination_row\":5,\"transform\":{\"x\":400,\"y\":300,"
+            "\"width\":80,\"height\":40,\"rotation\":10,\"blend\":2}},"
+            "\"animation\":{\"frames\":["
+            "{\"destination_row\":5,\"time_ms\":25,\"alpha\":128,\"transform\":{"
+            "\"x\":400,\"y\":300,\"width\":80,\"height\":40,\"rotation\":10,\"blend\":2}},"
+            "{\"destination_row\":6,\"time_ms\":75,\"alpha\":64,\"transform\":{"
+            "\"x\":410,\"y\":305,\"width\":80,\"height\":40,\"rotation\":15,\"blend\":2}}]},"
+            "\"condition\":{\"mode\":\"all\",\"timer\":null,\"loop\":null,\"all\":["
+            "{\"slot\":2,\"kind\":\"raw\",\"lr2_op\":39}]}}]}]}]},"
+            "\"simple_mode\":{\"authority\":\"lr2-source-v0.4\",\"slots\":[]}}";
+        const std::string partsInput =
+            "#SRC_IMAGE,0,0,0,0,16,16,1,1,0,0,0,0,0\r\n"
+            "#DST_IMAGE,0,0,1,2,3,4,0,255,255,255,255,0,0,0,0,0,0,0,0,0\r\n"
+            "#DST_IMAGE,0,50,5,6,7,8,0,128,255,255,255,0,0,0,0,111,22,3,4,5\n"
+            "#SRC_IMAGE,0,1,0,0,16,16,1,1,0,0,0,0,0\r\n"
+            "#DST_IMAGE,0,0,10,20,30,40,0,255,255,255,255,0,0,0,0,,,,,\r\n"
+            "#DST_IMAGE,0,50,15,25,35,45,0,192,255,255,255,0,0,0,0,222,33,6,7,8\n"
+            "#RAW_PASSTHROUGH,keep,exact";
+        const std::string partsExpected =
+            "#SRC_IMAGE,0,0,0,0,16,16,1,1,0,0,0,0,0\r\n"
+            "#DST_IMAGE,0,0,300,200,64,32,0,0,255,255,255,1,0,0,0,800,46,119,948,0\r\n"
+            "#DST_IMAGE,0,100,310,205,64,32,0,255,255,255,255,1,0,5,0,111,22,3,4,5\n"
+            "#SRC_IMAGE,0,1,0,0,16,16,1,1,0,0,0,0,0\r\n"
+            "#DST_IMAGE,0,25,400,300,80,40,0,128,255,255,255,2,0,10,0,,,,39,\r\n"
+            "#DST_IMAGE,0,75,410,305,80,40,0,64,255,255,255,2,0,15,0,222,33,6,7,8\n"
+            "#RAW_PASSTHROUGH,keep,exact";
+        std::string partsCompiled;
+        int partsSimpleCount = 0;
+        int partsObjectCount = 0;
+        int partsFrameCount = 0;
+        if (!SECompileOLRSemantics(partsJson, partsInput, partsCompiled,
+            partsSimpleCount, partsObjectCount, partsFrameCount, errorMessage))
+            result = 44;
+        else if (partsSimpleCount != 0 || partsObjectCount != 1 ||
+            partsFrameCount != 4)
+            result = 56;
+        else if (partsCompiled != partsExpected)
+            result = 57;
+
+        const std::string multiSourceJson =
+            "{\"format\":\"olrskin-semantic\",\"version\":8,"
+            "\"objects\":{\"authority\":\"lr2-destination-parts-v0.8\",\"items\":[{"
+            "\"id\":\"multi_source\",\"parts\":[{\"id\":\"part_1\",\"sources\":["
+            "{\"source_row\":1,\"source_command\":\"#SRC_IMAGE\"},"
+            "{\"source_row\":2,\"source_command\":\"#SRC_BUTTON\"}],"
+            "\"destinations\":[{\"id\":\"destination_1\","
+            "\"destination_command\":\"#DST_IMAGE\","
+            "\"layout\":{\"destination_row\":3,\"transform\":{\"x\":1,\"y\":2,"
+            "\"width\":3,\"height\":4,\"rotation\":0,\"blend\":0}},"
+            "\"animation\":{\"frames\":[{\"destination_row\":3,\"time_ms\":0,"
+            "\"alpha\":255,\"transform\":{\"x\":1,\"y\":2,\"width\":3,"
+            "\"height\":4,\"rotation\":0,\"blend\":0}}]},"
+            "\"condition\":{\"mode\":\"all\",\"timer\":null,\"loop\":null,"
+            "\"all\":[]}}]}]}]},\"simple_mode\":{\"authority\":"
+            "\"lr2-source-v0.4\",\"slots\":[]}}";
+        const std::string multiSourceInput =
+            "#SRC_IMAGE,0,0,0,0,16,16,1,1,0,0,0,0,0\r\n"
+            "#SRC_BUTTON,0,0,0,0,16,16,1,1,0,0,42,0,0\n"
+            "#DST_IMAGE,0,0,1,2,3,4,0,255,255,255,255,0,0,0,0,,,,,\r\n";
+        std::string multiSourceCompiled;
+        int multiSourceSimpleCount = 0;
+        int multiSourceObjectCount = 0;
+        int multiSourceFrameCount = 0;
+        if (result == 0 && (!SECompileOLRSemantics(multiSourceJson,
+            multiSourceInput, multiSourceCompiled, multiSourceSimpleCount,
+            multiSourceObjectCount, multiSourceFrameCount, errorMessage) ||
+            multiSourceCompiled != multiSourceInput ||
+            multiSourceSimpleCount != 0 || multiSourceObjectCount != 1 ||
+            multiSourceFrameCount != 1))
+            result = 45;
+
+        std::string mismatchedSourceJson = multiSourceJson;
+        const std::string expectedSource =
+            "\"source_command\":\"#SRC_BUTTON\"";
+        const size_t sourceAt = mismatchedSourceJson.find(expectedSource);
+        if (result == 0 && sourceAt == std::string::npos)
+            result = 46;
+        if (sourceAt != std::string::npos)
+            mismatchedSourceJson.replace(sourceAt, expectedSource.size(),
+                "\"source_command\":\"#SRC_SLIDER\"");
+        std::string rejectedSourceOutput;
+        int rejectedSourceSimpleCount = 0;
+        int rejectedSourceObjectCount = 0;
+        int rejectedSourceFrameCount = 0;
+        if (result == 0 && SECompileOLRSemantics(mismatchedSourceJson,
+            multiSourceInput, rejectedSourceOutput, rejectedSourceSimpleCount,
+            rejectedSourceObjectCount, rejectedSourceFrameCount, errorMessage))
+            result = 47;
+        if (result == 0 && (!rejectedSourceOutput.empty() ||
+            rejectedSourceSimpleCount != 0 || rejectedSourceObjectCount != 0 ||
+            rejectedSourceFrameCount != 0))
+            result = 48;
+
+        std::string duplicateDestinationJson = partsJson;
+        const std::string partBRow = "\"destination_row\":5";
+        size_t rowAt = 0;
+        int replacedRows = 0;
+        while ((rowAt = duplicateDestinationJson.find(partBRow, rowAt)) !=
+            std::string::npos) {
+            duplicateDestinationJson.replace(rowAt, partBRow.size(),
+                "\"destination_row\":2");
+            rowAt += strlen("\"destination_row\":2");
+            ++replacedRows;
+        }
+        if (result == 0 && replacedRows != 2)
+            result = 49;
+        std::string rejectedDuplicateOutput;
+        int rejectedDuplicateSimpleCount = 0;
+        int rejectedDuplicateObjectCount = 0;
+        int rejectedDuplicateFrameCount = 0;
+        if (result == 0 && SECompileOLRSemantics(duplicateDestinationJson,
+            partsInput, rejectedDuplicateOutput, rejectedDuplicateSimpleCount,
+            rejectedDuplicateObjectCount, rejectedDuplicateFrameCount,
+            errorMessage))
+            result = 50;
+        if (result == 0 && (!rejectedDuplicateOutput.empty() ||
+            rejectedDuplicateSimpleCount != 0 ||
+            rejectedDuplicateObjectCount != 0 ||
+            rejectedDuplicateFrameCount != 0))
+            result = 61;
+    }
 
     if (result == 0) {
         const std::string semanticJson =

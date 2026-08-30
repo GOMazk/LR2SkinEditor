@@ -199,24 +199,30 @@ Object Inspector Layout / Timeline / Conditions
   -> Save OLRskin projects the same rows into skin.json.objects
 ```
 
-Layout is a view of the first supported `#DST_*` rectangle only. Timeline is an
-ordered view over matching DST rows and owns frame time, transform and alpha.
-Conditions reads timer/loop/op1..3 from frame 0 and evaluates OP terms with the
-same `GetOptionFlag_dst()` used by Preview. These tabs never retain their own
-Object, frame or condition copies; ImGui values are rebuilt from Workspace rows
-on each draw. `Advanced LR2` remains available for fields and command families
-outside the semantic contract.
+Layout, Timeline and Conditions currently select the first destination command
+family in the Object that exposes the complete semantic contract. Timeline is
+an ordered view over every matching row in that family and owns frame time,
+transform and alpha; Conditions reads timer/loop/op1..3 from its frame 0 and
+evaluates OP terms with the same `GetOptionFlag_dst()` used by Preview. The
+Inspector does not yet expose a nested part or destination-family selector.
+Other command families remain editable through `Advanced LR2`, even though the
+V0.8 package projection serializes every supported source-bound destination
+run. These tabs never retain their own Object, frame or condition copies; ImGui
+values are rebuilt from Workspace rows on each draw.
 
 Preview movement translates every selected destination frame. The white
 bottom-right handle is intentionally single-selection only and changes only the
 first destination's width/height (or text size), matching V0.5 static Layout
 authority. All mutations use the existing History entry points.
 
-OLR V0.7 export translates expanded DST rows through the package source map.
-Import validates the exact command and schema before compiling. Layout and
-Timeline frame 0 must agree; unknown/custom OPs remain raw numeric terms rather
-than being guessed. Variant linkage across 1P/2P/DP or alternate DST command
-families is reserved for V0.8.
+OLR V0.8 export translates expanded SRC and DST rows through the package source
+map, derives source-bound parts, and writes each consecutive supported
+destination-command run separately. Import validates the exact source and
+destination commands and schemas before compiling; V0.7 flat Objects continue
+through their legacy authority. Layout and Timeline frame 0 must agree, and
+unknown/custom OPs remain raw numeric terms rather than being guessed. V0.8
+does not infer 1P/2P/DP variants or link alternate destination families or
+IF/ELSE branches.
 
 ### Image asset selection
 
@@ -512,10 +518,11 @@ the command because bundled assets are read from disk. Neither operation
 changes `mainpath`.
 
 `ImportOlrSkinInteractive()` validates the complete archive before creating a
-directory. V0.7 then validates every `skin.json.objects` destination row,
-Layout/frame-0 invariant, semantic or raw condition, and every V0.4
-`skin.json.simple_mode` row. It atomically compiles both authorities into the
-extracted compatibility script; a mismatch removes the new directory. It reparses the resulting
+directory. V0.8 then validates every nested part source binding and destination
+row, the Layout/frame-0 invariant, semantic or raw condition, and every V0.4
+`skin.json.simple_mode` row. V0.7 flat Objects retain their existing authority
+and validation path. Import atomically compiles the declared authorities into
+the extracted compatibility script; a mismatch removes the new directory. It reparses the resulting
 `#INFORMATION`, and enters the normal `LoadSkin()` path. It never follows owner
 labels from `compatibility/source-map.json` and never overwrites an existing
 folder. The result popup is presentation state only; the loaded document and

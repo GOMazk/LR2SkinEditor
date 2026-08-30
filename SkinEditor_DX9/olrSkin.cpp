@@ -26,9 +26,10 @@ constexpr uint32_t kEndOfCentralDirectorySignature = 0x06054b50u;
 constexpr uint16_t kStoredMethod = 0;
 constexpr uint64_t kMaximumClassicZipSize = 0xFFFFFFFFull;
 constexpr size_t kCopyBufferSize = 64 * 1024;
-constexpr int kOlrFormatVersion = 7;
+constexpr int kOlrFormatVersion = 8;
 constexpr const char* kSimpleModeAuthority = "lr2-source-v0.4";
-constexpr const char* kSemanticObjectAuthority = "lr2-destination-v0.7";
+constexpr const char* kLegacySemanticObjectAuthority = "lr2-destination-v0.7";
+constexpr const char* kSemanticObjectAuthority = "lr2-destination-parts-v0.8";
 
 struct PackageEntrySource {
     std::string name;
@@ -169,18 +170,20 @@ void DescribeLr2Option(int option, std::string& key, std::string& value) {
     }
 }
 
-void WriteConditionTerm(std::ostringstream& json, int option,
+void WriteConditionTerm(std::ostringstream& json, int slot, int option,
     const char* indent) {
     const int absolute = std::abs(option);
     if (IsRawLr2Option(option)) {
-        json << indent << "{\"kind\": \"raw\", \"lr2_op\": " << option
+        json << indent << "{\"slot\": " << slot
+            << ", \"kind\": \"raw\", \"lr2_op\": " << option
             << ", \"label\": \"Raw LR2 OP " << option << "\"}";
         return;
     }
     std::string key;
     std::string value;
     DescribeLr2Option(option, key, value);
-    json << indent << "{\"kind\": \"semantic\", \"key\": \""
+    json << indent << "{\"slot\": " << slot
+        << ", \"kind\": \"semantic\", \"key\": \""
         << JsonEscape(key) << "\", \"value\": \"" << JsonEscape(value)
         << "\", \"lr2_name\": \"" << JsonEscape(dstName((unsigned)absolute))
         << "\", \"negated\": " << (option < 0 ? "true" : "false") << "}";
@@ -194,46 +197,65 @@ void WriteTransform(std::ostringstream& json,
         << ", \"blend\": " << transform.blend << "}";
 }
 
-bool IsSemanticDestinationObject(const SEOLRSemanticObject& object) {
-    return object.hasDestination && !object.animationFrames.empty();
+bool IsSemanticDestination(
+    const SEOLRSemanticObject::Destination& destination) {
+    return !destination.destinationCommand.empty() &&
+        !destination.animationFrames.empty();
 }
 
-size_t SemanticDestinationObjectCount(const SEOLRSkinDocument& document) {
-    return (size_t)std::count_if(document.objects.begin(), document.objects.end(),
-        IsSemanticDestinationObject);
+size_t SemanticDestinationCount(const SEOLRSemanticObject::Part& part) {
+    return (size_t)std::count_if(part.destinations.begin(),
+        part.destinations.end(), IsSemanticDestination);
 }
 
-void WriteSemanticObject(std::ostringstream& json,
-    const SEOLRSemanticObject& object, const char* indent) {
+size_t SemanticPartCount(const SEOLRSemanticObject& object) {
+    return (size_t)std::count_if(object.parts.begin(), object.parts.end(),
+        [](const SEOLRSemanticObject::Part& part) {
+            return SemanticDestinationCount(part) > 0;
+        });
+}
+
+bool IsSemanticObject(const SEOLRSemanticObject& object) {
+    return SemanticPartCount(object) > 0;
+}
+
+size_t SemanticObjectCount(const SEOLRSkinDocument& document) {
+    return (size_t)std::count_if(document.objects.begin(),
+        document.objects.end(), IsSemanticObject);
+}
+
+size_t SemanticPartCount(const SEOLRSkinDocument& document) {
+    size_t count = 0;
+    for (const SEOLRSemanticObject& object : document.objects)
+        count += SemanticPartCount(object);
+    return count;
+}
+
+size_t SemanticDestinationCount(const SEOLRSkinDocument& document) {
+    size_t count = 0;
+    for (const SEOLRSemanticObject& object : document.objects)
+        for (const SEOLRSemanticObject::Part& part : object.parts)
+            count += SemanticDestinationCount(part);
+    return count;
+}
+
+void WriteSemanticDestination(std::ostringstream& json,
+    const SEOLRSemanticObject::Destination& destination,
+    const char* indent) {
     json << indent << "{\n";
-    json << indent << "  \"id\": \"" << JsonEscape(object.id) << "\",\n";
-    json << indent << "  \"name\": \"" << JsonEscape(object.name) << "\",\n";
-    json << indent << "  \"group\": \"" << JsonEscape(object.group) << "\",\n";
-    json << indent << "  \"source_command\": \""
-        << JsonEscape(object.sourceCommand) << "\",\n";
+    json << indent << "  \"id\": \"" << JsonEscape(destination.id)
+        << "\",\n";
     json << indent << "  \"destination_command\": \""
-        << JsonEscape(object.destinationCommand) << "\",\n";
-    json << indent << "  \"source_rows\": [";
-    for (size_t index = 0; index < object.sourceRows.size(); ++index) {
-        if (index) json << ", ";
-        json << object.sourceRows[index];
-    }
-    json << "],\n";
-    if (!object.hasDestination || object.animationFrames.empty()) {
-        json << indent << "  \"layout\": null,\n"
-            << indent << "  \"animation\": {\"frames\": []},\n"
-            << indent << "  \"condition\": null\n";
-        json << indent << "}";
-        return;
-    }
-
+        << JsonEscape(destination.destinationCommand) << "\",\n";
     json << indent << "  \"layout\": {\"destination_row\": "
-        << object.animationFrames.front().destinationRow << ", \"transform\": ";
-    WriteTransform(json, object.layout);
+        << destination.animationFrames.front().destinationRow
+        << ", \"transform\": ";
+    WriteTransform(json, destination.layout);
     json << "},\n";
     json << indent << "  \"animation\": {\"frames\": [";
-    for (size_t index = 0; index < object.animationFrames.size(); ++index) {
-        const SEOLRSemanticObject::AnimationFrame& frame = object.animationFrames[index];
+    for (size_t index = 0; index < destination.animationFrames.size(); ++index) {
+        const SEOLRSemanticObject::AnimationFrame& frame =
+            destination.animationFrames[index];
         json << (index ? ",\n" : "\n") << indent
             << "    {\"destination_row\": " << frame.destinationRow
             << ", \"time_ms\": " << frame.timeMs << ", \"alpha\": "
@@ -243,29 +265,87 @@ void WriteSemanticObject(std::ostringstream& json,
     }
     json << "\n" << indent << "  ]},\n";
 
-    const int options[] = { object.op1, object.op2, object.op3 };
-    const int absoluteTimer = std::abs(object.timer);
-    const char* timerLabel = timerName((unsigned)absoluteTimer);
-    const bool rawTimer = object.timer < 0 || !timerLabel[0];
     json << indent << "  \"condition\": {\"mode\": \"all\", \"timer\": ";
-    if (rawTimer) {
-        json << "{\"kind\": \"raw\", \"lr2_timer\": " << object.timer
-            << ", \"label\": \"Raw LR2 TIMER " << object.timer << "\"}";
+    if (!destination.hasTimer) {
+        json << "null";
     }
     else {
-        json << "{\"kind\": \"semantic\", \"lr2_name\": \""
-            << JsonEscape(timerLabel) << "\"}";
+        const int absoluteTimer = std::abs(destination.timer);
+        const char* timerLabel = timerName((unsigned)absoluteTimer);
+        const bool rawTimer = destination.timer < 0 || !timerLabel[0];
+        if (rawTimer) {
+            json << "{\"kind\": \"raw\", \"lr2_timer\": "
+                << destination.timer << ", \"label\": \"Raw LR2 TIMER "
+                << destination.timer << "\"}";
+        }
+        else {
+            json << "{\"kind\": \"semantic\", \"lr2_name\": \""
+                << JsonEscape(timerLabel) << "\"}";
+        }
     }
-    json << ", \"loop\": " << object.loop << ", \"all\": [";
+    json << ", \"loop\": ";
+    if (destination.hasLoop) json << destination.loop;
+    else json << "null";
+    json << ", \"all\": [";
     bool firstCondition = true;
-    for (int option : options) {
-        if (option == 0) continue;
+    for (int optionIndex = 0; optionIndex < 3; ++optionIndex) {
+        if (!destination.hasOptions[optionIndex]) continue;
         json << (firstCondition ? "\n" : ",\n");
-        WriteConditionTerm(json, option, (std::string(indent) + "    ").c_str());
+        WriteConditionTerm(json, optionIndex + 1,
+            destination.options[optionIndex],
+            (std::string(indent) + "    ").c_str());
         firstCondition = false;
     }
     if (!firstCondition) json << "\n" << indent << "  ";
     json << "]}\n";
+    json << indent << "}";
+}
+
+void WriteSemanticPart(std::ostringstream& json,
+    const SEOLRSemanticObject::Part& part, const char* indent) {
+    json << indent << "{\n";
+    json << indent << "  \"id\": \"" << JsonEscape(part.id) << "\",\n";
+    json << indent << "  \"sources\": [";
+    for (size_t index = 0; index < part.sources.size(); ++index) {
+        const SEOLRSemanticObject::SourceBinding& source = part.sources[index];
+        json << (index ? ",\n" : "\n") << indent
+            << "    {\"source_row\": " << source.sourceRow
+            << ", \"source_command\": \""
+            << JsonEscape(source.sourceCommand) << "\"}";
+    }
+    if (!part.sources.empty()) json << "\n" << indent << "  ";
+    json << "],\n";
+    json << indent << "  \"destinations\": [";
+    bool firstDestination = true;
+    for (const SEOLRSemanticObject::Destination& destination :
+        part.destinations) {
+        if (!IsSemanticDestination(destination)) continue;
+        json << (firstDestination ? "\n" : ",\n");
+        WriteSemanticDestination(json, destination,
+            (std::string(indent) + "    ").c_str());
+        firstDestination = false;
+    }
+    if (!firstDestination) json << "\n" << indent << "  ";
+    json << "]\n";
+    json << indent << "}";
+}
+
+void WriteSemanticObject(std::ostringstream& json,
+    const SEOLRSemanticObject& object, const char* indent) {
+    json << indent << "{\n";
+    json << indent << "  \"id\": \"" << JsonEscape(object.id) << "\",\n";
+    json << indent << "  \"name\": \"" << JsonEscape(object.name) << "\",\n";
+    json << indent << "  \"group\": \"" << JsonEscape(object.group) << "\",\n";
+    json << indent << "  \"parts\": [";
+    bool firstPart = true;
+    for (const SEOLRSemanticObject::Part& part : object.parts) {
+        if (SemanticDestinationCount(part) == 0) continue;
+        json << (firstPart ? "\n" : ",\n");
+        WriteSemanticPart(json, part, (std::string(indent) + "    ").c_str());
+        firstPart = false;
+    }
+    if (!firstPart) json << "\n" << indent << "  ";
+    json << "]\n";
     json << indent << "}";
 }
 
@@ -293,7 +373,7 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
     std::ostringstream json;
     json << "{\n";
     json << "  \"format\": \"olrskin-semantic\",\n";
-    json << "  \"version\": 7,\n";
+    json << "  \"version\": 8,\n";
     json << "  \"metadata\": {\"title\": \"" << JsonEscape(document.title)
         << "\", \"maker\": \"" << JsonEscape(document.maker)
         << "\", \"scene\": \"" << JsonEscape(document.scene) << "\"},\n";
@@ -306,7 +386,7 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
         << kSemanticObjectAuthority << "\", \"items\": [";
     bool firstObject = true;
     for (const SEOLRSemanticObject& object : document.objects) {
-        if (!IsSemanticDestinationObject(object)) continue;
+        if (!IsSemanticObject(object)) continue;
         json << (firstObject ? "\n" : ",\n");
         WriteSemanticObject(json, object, "    ");
         firstObject = false;
@@ -321,7 +401,7 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
         json << "    \"" << category << "\": [";
         bool first = true;
         for (const SEOLRSemanticObject& object : document.objects) {
-            if (!IsSemanticDestinationObject(object) || object.category != category)
+            if (!IsSemanticObject(object) || object.category != category)
                 continue;
             json << (first ? "\n" : ",\n") << "      \""
                 << JsonEscape(object.id) << "\"";
@@ -397,12 +477,14 @@ std::string BuildManifestJson(const SEOLRSkinDocument& document,
     json << "{\n"
         << "  \"format\": \"olrskin\",\n"
         << "  \"version\": " << kOlrFormatVersion << ",\n"
-        << "  \"profile\": \"lr2-semantic-v0.7\",\n"
-        << "  \"semantic_authority\": \"objects + simple_mode\",\n"
+        << "  \"profile\": \"lr2-semantic-v0.8\",\n"
+        << "  \"semantic_authority\": \"object parts + simple_mode\",\n"
         << "  \"lr2_entry\": \"lr2/main.lr2skin\",\n"
         << "  \"skin_entry\": \"skin.json\",\n"
         << "  \"path_map_entry\": \"compatibility/path-map.json\",\n"
-        << "  \"object_count\": " << SemanticDestinationObjectCount(document) << ",\n"
+        << "  \"object_count\": " << SemanticObjectCount(document) << ",\n"
+        << "  \"part_count\": " << SemanticPartCount(document) << ",\n"
+        << "  \"destination_count\": " << SemanticDestinationCount(document) << ",\n"
         << "  \"simple_slot_count\": " << document.simpleSlots.size() << ",\n"
         << "  \"asset_count\": " << bundledAssetCount << ",\n"
         << "  \"virtual_root_count\": " << document.virtualRoots.size() << ",\n"
@@ -884,21 +966,76 @@ struct SemanticCompileFrame {
 struct SemanticCompileConditionTerm {
     bool isRaw = false;
     bool isNegated = false;
+    bool hasSlot = false;
+    int slot = 0;
     int rawOption = 0;
     std::string lr2Name;
 };
 
+struct SemanticCompileSourceBinding {
+    int sourceRow = -1;
+    std::string sourceCommand;
+};
+
 struct SemanticCompileObject {
     std::string id;
+    std::string parentId;
+    std::string partKey;
+    std::vector<SemanticCompileSourceBinding> sources;
     std::string destinationCommand;
     int layoutRow = -1;
     SemanticCompileTransform layout;
     std::vector<SemanticCompileFrame> frames;
     bool timerIsRaw = false;
+    bool hasTimer = false;
     int rawTimer = 0;
     std::string timerName;
+    bool hasLoop = false;
     int loop = 0;
     std::vector<SemanticCompileConditionTerm> conditions;
+};
+
+struct SemanticCompilePart {
+    std::string id;
+    std::vector<SemanticCompileSourceBinding> sources;
+    std::vector<SemanticCompileObject> destinations;
+};
+
+struct ParsedOlrManifest {
+    std::string format;
+    std::string profile;
+    std::string semanticAuthority;
+    std::string lr2Entry;
+    std::string skinEntry;
+    std::string pathMapEntry;
+    int version = -1;
+    int objectCount = 0;
+    int partCount = 0;
+    int destinationCount = 0;
+    int simpleSlotCount = 0;
+    int assetCount = 0;
+    int unresolvedImageCount = 0;
+    int virtualRootCount = 0;
+    int virtualFileCount = 0;
+    int skippedVirtualFileCount = 0;
+    int unresolvedResourceCount = 0;
+    bool hasFormat = false;
+    bool hasProfile = false;
+    bool hasSemanticAuthority = false;
+    bool hasVersion = false;
+    bool hasLr2Entry = false;
+    bool hasSkinEntry = false;
+    bool hasPathMapEntry = false;
+    bool hasObjectCount = false;
+    bool hasPartCount = false;
+    bool hasDestinationCount = false;
+    bool hasSimpleSlotCount = false;
+    bool hasAssetCount = false;
+    bool hasUnresolvedImageCount = false;
+    bool hasVirtualRootCount = false;
+    bool hasVirtualFileCount = false;
+    bool hasSkippedVirtualFileCount = false;
+    bool hasUnresolvedResourceCount = false;
 };
 
 class SimpleModeJsonReader {
@@ -913,6 +1050,10 @@ public:
         objectAuthority.clear();
         objects.clear();
         hasObjects = false;
+        hasDocumentFormat_ = false;
+        documentFormat_.clear();
+        hasDocumentVersion_ = false;
+        documentVersion_ = -1;
         SkipWhitespace();
         if (!Take('{')) return Fail("skin.json root must be an object.", errorMessage);
         bool foundSimpleMode = false;
@@ -922,7 +1063,19 @@ public:
                 std::string key;
                 if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
                     return false;
-                if (key == "simple_mode") {
+                if (key == "format") {
+                    if (hasDocumentFormat_)
+                        return Fail("skin.json contains duplicate format fields.", errorMessage);
+                    hasDocumentFormat_ = true;
+                    if (!ReadString(documentFormat_, errorMessage)) return false;
+                }
+                else if (key == "version") {
+                    if (hasDocumentVersion_)
+                        return Fail("skin.json contains duplicate version fields.", errorMessage);
+                    hasDocumentVersion_ = true;
+                    if (!ReadInteger(documentVersion_, errorMessage)) return false;
+                }
+                else if (key == "simple_mode") {
                     if (foundSimpleMode)
                         return Fail("skin.json contains duplicate simple_mode objects.", errorMessage);
                     foundSimpleMode = true;
@@ -948,9 +1101,133 @@ public:
         return true;
     }
 
+    bool ReadManifest(ParsedOlrManifest& manifest,
+        std::string& errorMessage) {
+        manifest = ParsedOlrManifest();
+        SkipWhitespace();
+        if (!Take('{'))
+            return Fail("manifest.json root must be an object.", errorMessage);
+        std::set<std::string> keys;
+        SkipWhitespace();
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
+                    return false;
+                if (!keys.insert(key).second)
+                    return Fail("manifest.json contains a duplicate top-level field.",
+                        errorMessage);
+                int* count = nullptr;
+                if (key == "format") {
+                    manifest.hasFormat = true;
+                    if (!ReadString(manifest.format, errorMessage)) return false;
+                }
+                else if (key == "version") {
+                    manifest.hasVersion = true;
+                    if (!ReadInteger(manifest.version, errorMessage)) return false;
+                }
+                else if (key == "profile") {
+                    manifest.hasProfile = true;
+                    if (!ReadString(manifest.profile, errorMessage)) return false;
+                }
+                else if (key == "semantic_authority") {
+                    manifest.hasSemanticAuthority = true;
+                    if (!ReadString(manifest.semanticAuthority, errorMessage)) return false;
+                }
+                else if (key == "lr2_entry") {
+                    manifest.hasLr2Entry = true;
+                    if (!ReadString(manifest.lr2Entry, errorMessage)) return false;
+                }
+                else if (key == "skin_entry") {
+                    manifest.hasSkinEntry = true;
+                    if (!ReadString(manifest.skinEntry, errorMessage)) return false;
+                }
+                else if (key == "path_map_entry") {
+                    manifest.hasPathMapEntry = true;
+                    if (!ReadString(manifest.pathMapEntry, errorMessage)) return false;
+                }
+                else if (key == "object_count") {
+                    manifest.hasObjectCount = true;
+                    count = &manifest.objectCount;
+                }
+                else if (key == "part_count") {
+                    manifest.hasPartCount = true;
+                    count = &manifest.partCount;
+                }
+                else if (key == "destination_count") {
+                    manifest.hasDestinationCount = true;
+                    count = &manifest.destinationCount;
+                }
+                else if (key == "simple_slot_count") {
+                    manifest.hasSimpleSlotCount = true;
+                    count = &manifest.simpleSlotCount;
+                }
+                else if (key == "asset_count") {
+                    manifest.hasAssetCount = true;
+                    count = &manifest.assetCount;
+                }
+                else if (key == "unresolved_image_count") {
+                    manifest.hasUnresolvedImageCount = true;
+                    count = &manifest.unresolvedImageCount;
+                }
+                else if (key == "virtual_root_count") {
+                    manifest.hasVirtualRootCount = true;
+                    count = &manifest.virtualRootCount;
+                }
+                else if (key == "virtual_file_count") {
+                    manifest.hasVirtualFileCount = true;
+                    count = &manifest.virtualFileCount;
+                }
+                else if (key == "skipped_virtual_file_count") {
+                    manifest.hasSkippedVirtualFileCount = true;
+                    count = &manifest.skippedVirtualFileCount;
+                }
+                else if (key == "unresolved_resource_count") {
+                    manifest.hasUnresolvedResourceCount = true;
+                    count = &manifest.unresolvedResourceCount;
+                }
+
+                if (count) {
+                    if (!ReadInteger(*count, errorMessage)) return false;
+                    if (*count < 0)
+                        return Fail("manifest.json counts cannot be negative.",
+                            errorMessage);
+                }
+                else if (key != "format" && key != "version" &&
+                    key != "profile" && key != "semantic_authority" &&
+                    key != "lr2_entry" && key != "skin_entry" &&
+                    key != "path_map_entry" &&
+                    !SkipValue(0, errorMessage)) return false;
+
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        SkipWhitespace();
+        if (at_ != text_.size())
+            return Fail("manifest.json has trailing data after its root object.",
+                errorMessage);
+        if (!manifest.hasFormat || !manifest.hasVersion ||
+            !manifest.hasLr2Entry || !manifest.hasSkinEntry)
+            return Fail("manifest.json is missing a required field.", errorMessage);
+        return true;
+    }
+
+    bool HasDocumentFormat() const { return hasDocumentFormat_; }
+    const std::string& DocumentFormat() const { return documentFormat_; }
+    bool HasDocumentVersion() const { return hasDocumentVersion_; }
+    int DocumentVersion() const { return documentVersion_; }
+
 private:
     const std::string& text_;
     size_t at_ = 0;
+    bool semanticItemsUseParts_ = false;
+    bool semanticItemsUseLegacy_ = false;
+    std::set<std::string> semanticParentIds_;
+    bool hasDocumentFormat_ = false;
+    std::string documentFormat_;
+    bool hasDocumentVersion_ = false;
+    int documentVersion_ = -1;
 
     void SkipWhitespace() {
         while (at_ < text_.size() &&
@@ -1039,8 +1316,17 @@ private:
         const size_t start = at_;
         if (at_ < text_.size() && text_[at_] == '-') ++at_;
         const size_t digits = at_;
-        while (at_ < text_.size() && text_[at_] >= '0' && text_[at_] <= '9')
+        if (at_ >= text_.size() || text_[at_] < '0' || text_[at_] > '9')
+            return Fail("skin.json expected an integer.", errorMessage);
+        if (text_[at_] == '0') {
             ++at_;
+            if (at_ < text_.size() && text_[at_] >= '0' && text_[at_] <= '9')
+                return Fail("JSON integers cannot contain leading zeroes.", errorMessage);
+        }
+        else {
+            while (at_ < text_.size() && text_[at_] >= '0' && text_[at_] <= '9')
+                ++at_;
+        }
         if (digits == at_)
             return Fail("skin.json expected an integer.", errorMessage);
         if (at_ < text_.size() && (text_[at_] == '.' || text_[at_] == 'e' ||
@@ -1067,6 +1353,14 @@ private:
             return true;
         }
         return Fail("skin.json expected a boolean.", errorMessage);
+    }
+
+    bool ReadNull(std::string& errorMessage) {
+        SkipWhitespace();
+        if (text_.compare(at_, 4, "null") != 0)
+            return Fail("skin.json expected null.", errorMessage);
+        at_ += 4;
+        return true;
     }
 
     bool SkipValue(int depth, std::string& errorMessage) {
@@ -1164,6 +1458,12 @@ private:
         }
         if (!foundAuthority || !foundItems)
             return Fail("objects requires authority and items.", errorMessage);
+        if (authority == kSemanticObjectAuthority && semanticItemsUseLegacy_)
+            return Fail("V0.8 objects authority cannot contain legacy flat destinations.",
+                errorMessage);
+        if (authority == kLegacySemanticObjectAuthority && semanticItemsUseParts_)
+            return Fail("V0.7 objects authority cannot contain V0.8 parts.",
+                errorMessage);
         return true;
     }
 
@@ -1172,18 +1472,20 @@ private:
         if (!Take('[')) return Fail("objects.items must be an array.", errorMessage);
         if (Take(']')) return true;
         for (;;) {
-            SemanticCompileObject object;
-            if (!ReadSemanticObject(object, errorMessage)) return false;
-            objects.push_back(std::move(object));
+            if (!ReadSemanticItem(objects, errorMessage)) return false;
             if (Take(']')) return true;
             if (!Require(',', errorMessage)) return false;
         }
     }
 
-    bool ReadSemanticObject(SemanticCompileObject& object,
+    bool ReadSemanticItem(std::vector<SemanticCompileObject>& objects,
         std::string& errorMessage) {
         if (!Take('{')) return Fail("Each semantic Object must be an object.", errorMessage);
+        SemanticCompileObject legacyObject;
+        std::string parentId;
+        std::vector<SemanticCompilePart> parts;
         bool foundId = false;
+        bool foundParts = false;
         bool foundCommand = false;
         bool foundLayout = false;
         bool foundAnimation = false;
@@ -1196,40 +1498,248 @@ private:
                 if (key == "id") {
                     if (foundId) return Fail("A semantic Object contains duplicate id fields.", errorMessage);
                     foundId = true;
-                    if (!ReadString(object.id, errorMessage)) return false;
+                    if (!ReadString(parentId, errorMessage)) return false;
+                    legacyObject.id = parentId;
+                    legacyObject.parentId = parentId;
+                }
+                else if (key == "parts") {
+                    if (foundParts)
+                        return Fail("A semantic Object contains duplicate parts fields.", errorMessage);
+                    foundParts = true;
+                    if (!ReadSemanticParts(parts, errorMessage)) return false;
                 }
                 else if (key == "destination_command") {
                     if (foundCommand)
                         return Fail("A semantic Object contains duplicate destination_command fields.", errorMessage);
                     foundCommand = true;
-                    if (!ReadString(object.destinationCommand, errorMessage)) return false;
+                    if (!ReadString(legacyObject.destinationCommand, errorMessage)) return false;
                 }
                 else if (key == "layout") {
                     if (foundLayout) return Fail("A semantic Object contains duplicate layout fields.", errorMessage);
                     foundLayout = true;
-                    if (!ReadLayout(object, errorMessage)) return false;
+                    if (!ReadLayout(legacyObject, errorMessage)) return false;
                 }
                 else if (key == "animation") {
                     if (foundAnimation)
                         return Fail("A semantic Object contains duplicate animation fields.", errorMessage);
                     foundAnimation = true;
-                    if (!ReadAnimation(object.frames, errorMessage)) return false;
+                    if (!ReadAnimation(legacyObject.frames, errorMessage)) return false;
                 }
                 else if (key == "condition") {
                     if (foundCondition)
                         return Fail("A semantic Object contains duplicate condition fields.", errorMessage);
                     foundCondition = true;
-                    if (!ReadCondition(object, errorMessage)) return false;
+                    if (!ReadCondition(legacyObject, errorMessage)) return false;
                 }
                 else if (!SkipValue(0, errorMessage)) return false;
                 if (Take('}')) break;
                 if (!Require(',', errorMessage)) return false;
             }
         }
-        if (!foundId || !foundCommand || !foundLayout || !foundAnimation ||
-            !foundCondition || object.id.empty() || object.destinationCommand.empty() ||
-            object.frames.empty())
+        if (!foundId || parentId.empty())
+            return Fail("A semantic Object requires a non-empty id.", errorMessage);
+        if (!semanticParentIds_.insert(parentId).second)
+            return Fail("Two semantic Objects use the same parent id.", errorMessage);
+        const bool hasLegacyCompilerFields = foundCommand || foundLayout ||
+            foundAnimation || foundCondition;
+        if (foundParts) {
+            if (hasLegacyCompilerFields)
+                return Fail("A V0.8 semantic Object cannot mix parts and flat destination fields.",
+                    errorMessage);
+            if (parts.empty())
+                return Fail("A V0.8 semantic Object requires at least one part.", errorMessage);
+            semanticItemsUseParts_ = true;
+            std::set<std::string> partIds;
+            for (SemanticCompilePart& part : parts) {
+                if (!partIds.insert(part.id).second)
+                    return Fail("A semantic Object contains duplicate part ids.", errorMessage);
+                if (part.destinations.empty())
+                    return Fail("Each semantic part requires a destination.", errorMessage);
+                std::set<std::string> destinationIds;
+                const std::string partKey = parentId + "/" + part.id;
+                for (SemanticCompileObject& destination : part.destinations) {
+                    if (!destinationIds.insert(destination.id).second)
+                        return Fail("A semantic part contains duplicate destination ids.",
+                            errorMessage);
+                    destination.parentId = parentId;
+                    destination.partKey = partKey;
+                    destination.sources = part.sources;
+                    destination.id = partKey + "/" + destination.id;
+                    objects.push_back(std::move(destination));
+                }
+            }
+            return true;
+        }
+        if (!foundCommand || !foundLayout || !foundAnimation ||
+            !foundCondition || legacyObject.destinationCommand.empty() ||
+            legacyObject.frames.empty())
             return Fail("A semantic Object is missing a compiler field.", errorMessage);
+        semanticItemsUseLegacy_ = true;
+        objects.push_back(std::move(legacyObject));
+        return true;
+    }
+
+    bool ReadSemanticParts(std::vector<SemanticCompilePart>& parts,
+        std::string& errorMessage) {
+        if (!Take('[')) return Fail("Object parts must be an array.", errorMessage);
+        if (Take(']')) return true;
+        for (;;) {
+            SemanticCompilePart part;
+            if (!ReadSemanticPart(part, errorMessage)) return false;
+            parts.push_back(std::move(part));
+            if (Take(']')) return true;
+            if (!Require(',', errorMessage)) return false;
+        }
+    }
+
+    bool ReadSemanticPart(SemanticCompilePart& part,
+        std::string& errorMessage) {
+        if (!Take('{')) return Fail("Each semantic part must be an object.", errorMessage);
+        bool foundId = false;
+        bool foundSources = false;
+        bool foundDestinations = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
+                    return false;
+                if (key == "id") {
+                    if (foundId) return Fail("A semantic part contains duplicate id fields.", errorMessage);
+                    foundId = true;
+                    if (!ReadString(part.id, errorMessage)) return false;
+                }
+                else if (key == "sources") {
+                    if (foundSources)
+                        return Fail("A semantic part contains duplicate sources fields.", errorMessage);
+                    foundSources = true;
+                    if (!ReadSourceBindings(part.sources, errorMessage)) return false;
+                }
+                else if (key == "destinations") {
+                    if (foundDestinations)
+                        return Fail("A semantic part contains duplicate destinations fields.", errorMessage);
+                    foundDestinations = true;
+                    if (!ReadDestinationArray(part.destinations, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundId || part.id.empty() || !foundSources || !foundDestinations)
+            return Fail("A semantic part requires id, sources and destinations.", errorMessage);
+        return true;
+    }
+
+    bool ReadSourceBindings(std::vector<SemanticCompileSourceBinding>& sources,
+        std::string& errorMessage) {
+        if (!Take('[')) return Fail("Part sources must be an array.", errorMessage);
+        if (Take(']')) return true;
+        for (;;) {
+            SemanticCompileSourceBinding source;
+            if (!ReadSourceBinding(source, errorMessage)) return false;
+            sources.push_back(std::move(source));
+            if (Take(']')) return true;
+            if (!Require(',', errorMessage)) return false;
+        }
+    }
+
+    bool ReadSourceBinding(SemanticCompileSourceBinding& source,
+        std::string& errorMessage) {
+        if (!Take('{')) return Fail("Each part source must be an object.", errorMessage);
+        bool foundRow = false;
+        bool foundCommand = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
+                    return false;
+                if (key == "source_row") {
+                    if (foundRow) return Fail("A part source contains duplicate source_row fields.", errorMessage);
+                    foundRow = true;
+                    if (!ReadInteger(source.sourceRow, errorMessage)) return false;
+                }
+                else if (key == "source_command") {
+                    if (foundCommand)
+                        return Fail("A part source contains duplicate source_command fields.", errorMessage);
+                    foundCommand = true;
+                    if (!ReadString(source.sourceCommand, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundRow || !foundCommand || source.sourceRow <= 0 ||
+            source.sourceCommand.compare(0, 5, "#SRC_") != 0)
+            return Fail("A part source requires a positive row and #SRC_* command.",
+                errorMessage);
+        return true;
+    }
+
+    bool ReadDestinationArray(std::vector<SemanticCompileObject>& destinations,
+        std::string& errorMessage) {
+        if (!Take('[')) return Fail("Part destinations must be an array.", errorMessage);
+        if (Take(']')) return true;
+        for (;;) {
+            SemanticCompileObject destination;
+            if (!ReadSemanticDestination(destination, errorMessage)) return false;
+            destinations.push_back(std::move(destination));
+            if (Take(']')) return true;
+            if (!Require(',', errorMessage)) return false;
+        }
+    }
+
+    bool ReadSemanticDestination(SemanticCompileObject& destination,
+        std::string& errorMessage) {
+        if (!Take('{')) return Fail("Each semantic destination must be an object.", errorMessage);
+        bool foundId = false;
+        bool foundCommand = false;
+        bool foundLayout = false;
+        bool foundAnimation = false;
+        bool foundCondition = false;
+        if (!Take('}')) {
+            for (;;) {
+                std::string key;
+                if (!ReadString(key, errorMessage) || !Require(':', errorMessage))
+                    return false;
+                if (key == "id") {
+                    if (foundId) return Fail("A semantic destination contains duplicate id fields.", errorMessage);
+                    foundId = true;
+                    if (!ReadString(destination.id, errorMessage)) return false;
+                }
+                else if (key == "destination_command") {
+                    if (foundCommand)
+                        return Fail("A semantic destination contains duplicate destination_command fields.", errorMessage);
+                    foundCommand = true;
+                    if (!ReadString(destination.destinationCommand, errorMessage)) return false;
+                }
+                else if (key == "layout") {
+                    if (foundLayout) return Fail("A semantic destination contains duplicate layout fields.", errorMessage);
+                    foundLayout = true;
+                    if (!ReadLayout(destination, errorMessage)) return false;
+                }
+                else if (key == "animation") {
+                    if (foundAnimation)
+                        return Fail("A semantic destination contains duplicate animation fields.", errorMessage);
+                    foundAnimation = true;
+                    if (!ReadAnimation(destination.frames, errorMessage)) return false;
+                }
+                else if (key == "condition") {
+                    if (foundCondition)
+                        return Fail("A semantic destination contains duplicate condition fields.", errorMessage);
+                    foundCondition = true;
+                    if (!ReadCondition(destination, errorMessage)) return false;
+                }
+                else if (!SkipValue(0, errorMessage)) return false;
+                if (Take('}')) break;
+                if (!Require(',', errorMessage)) return false;
+            }
+        }
+        if (!foundId || destination.id.empty() || !foundCommand ||
+            !foundLayout || !foundAnimation || !foundCondition ||
+            destination.destinationCommand.empty() || destination.frames.empty())
+            return Fail("A semantic destination is missing a compiler field.",
+                errorMessage);
         return true;
     }
 
@@ -1387,12 +1897,25 @@ private:
                 else if (key == "timer") {
                     if (foundTimer) return Fail("Object condition contains duplicate timer fields.", errorMessage);
                     foundTimer = true;
-                    if (!ReadTimer(object, errorMessage)) return false;
+                    SkipWhitespace();
+                    if (text_.compare(at_, 4, "null") == 0) {
+                        if (!ReadNull(errorMessage)) return false;
+                        object.hasTimer = false;
+                    }
+                    else if (!ReadTimer(object, errorMessage)) return false;
                 }
                 else if (key == "loop") {
                     if (foundLoop) return Fail("Object condition contains duplicate loop fields.", errorMessage);
                     foundLoop = true;
-                    if (!ReadInteger(object.loop, errorMessage)) return false;
+                    SkipWhitespace();
+                    if (text_.compare(at_, 4, "null") == 0) {
+                        if (!ReadNull(errorMessage)) return false;
+                        object.hasLoop = false;
+                    }
+                    else {
+                        if (!ReadInteger(object.loop, errorMessage)) return false;
+                        object.hasLoop = true;
+                    }
                 }
                 else if (key == "all") {
                     if (foundAll) return Fail("Object condition contains duplicate all fields.", errorMessage);
@@ -1446,6 +1969,7 @@ private:
         object.timerIsRaw = kind == "raw";
         if ((object.timerIsRaw && !foundRaw) || (!object.timerIsRaw && !foundName))
             return Fail("Condition timer is missing its LR2 identity.", errorMessage);
+        object.hasTimer = true;
         return true;
     }
 
@@ -1467,6 +1991,7 @@ private:
         if (!Take('{')) return Fail("Each condition term must be an object.", errorMessage);
         std::string kind;
         bool foundKind = false;
+        bool foundSlot = false;
         bool foundName = false;
         bool foundRaw = false;
         bool foundNegated = false;
@@ -1474,7 +1999,14 @@ private:
             for (;;) {
                 std::string key;
                 if (!ReadString(key, errorMessage) || !Require(':', errorMessage)) return false;
-                if (key == "kind") {
+                if (key == "slot") {
+                    if (foundSlot)
+                        return Fail("A condition term contains duplicate slot fields.", errorMessage);
+                    foundSlot = true;
+                    term.hasSlot = true;
+                    if (!ReadInteger(term.slot, errorMessage)) return false;
+                }
+                else if (key == "kind") {
                     if (foundKind) return Fail("A condition term contains duplicate kind fields.", errorMessage);
                     foundKind = true;
                     if (!ReadString(kind, errorMessage)) return false;
@@ -1636,6 +2168,53 @@ private:
         return true;
     }
 };
+
+bool ParseOLRManifestJson(const std::string& manifestJson,
+    SEOLRPackageInfo& packageInfo, std::string& errorMessage) {
+    packageInfo = SEOLRPackageInfo();
+    errorMessage.clear();
+    ParsedOlrManifest manifest;
+    SimpleModeJsonReader reader(manifestJson);
+    if (!reader.ReadManifest(manifest, errorMessage)) return false;
+    if (manifest.format != "olrskin" || manifest.version < 1 ||
+        manifest.version > kOlrFormatVersion ||
+        manifest.lr2Entry != "lr2/main.lr2skin" ||
+        manifest.skinEntry != "skin.json") {
+        errorMessage = "The OLR manifest format, version or entry references are unsupported.";
+        return false;
+    }
+    if (manifest.version >= 2 && (!manifest.hasPathMapEntry ||
+        manifest.pathMapEntry != "compatibility/path-map.json")) {
+        errorMessage = "The OLR V0.2+ manifest has no supported path map reference.";
+        return false;
+    }
+    if (manifest.version == 8 && (!manifest.hasProfile ||
+        manifest.profile != "lr2-semantic-v0.8" ||
+        !manifest.hasSemanticAuthority ||
+        manifest.semanticAuthority != "object parts + simple_mode" ||
+        !manifest.hasObjectCount || !manifest.hasPartCount ||
+        !manifest.hasDestinationCount || !manifest.hasSimpleSlotCount ||
+        !manifest.hasAssetCount || !manifest.hasVirtualRootCount ||
+        !manifest.hasVirtualFileCount ||
+        !manifest.hasSkippedVirtualFileCount ||
+        !manifest.hasUnresolvedImageCount ||
+        !manifest.hasUnresolvedResourceCount)) {
+        errorMessage = "The OLR V0.8 manifest profile, semantic authority or required counts are unsupported.";
+        return false;
+    }
+    packageInfo.formatVersion = manifest.version;
+    packageInfo.objectCount = manifest.objectCount;
+    packageInfo.semanticPartCount = manifest.partCount;
+    packageInfo.destinationCount = manifest.destinationCount;
+    packageInfo.simpleSlotCount = manifest.simpleSlotCount;
+    packageInfo.assetCount = manifest.assetCount;
+    packageInfo.unresolvedImageCount = manifest.unresolvedImageCount;
+    packageInfo.virtualRootCount = manifest.virtualRootCount;
+    packageInfo.virtualFileCount = manifest.virtualFileCount;
+    packageInfo.skippedVirtualFileCount = manifest.skippedVirtualFileCount;
+    packageInfo.unresolvedResourceCount = manifest.unresolvedResourceCount;
+    return true;
+}
 
 struct PreservedScriptLine {
     std::string content;
@@ -1817,7 +2396,7 @@ bool ValidateManifest(FILE* archive,
     const std::vector<PackageEntryRecord>& entries, SEOLRPackageInfo& info,
     std::string& errorMessage) {
     const PackageEntryRecord* manifest = nullptr;
-    bool hasSkin = false;
+    const PackageEntryRecord* skin = nullptr;
     bool hasSourceMap = false;
     bool hasPathMap = false;
     bool hasMain = false;
@@ -1825,7 +2404,7 @@ bool ValidateManifest(FILE* archive,
     for (const PackageEntryRecord& entry : entries) {
         info.entries.push_back(entry.name);
         if (entry.name == "manifest.json") manifest = &entry;
-        else if (entry.name == "skin.json") hasSkin = true;
+        else if (entry.name == "skin.json") skin = &entry;
         else if (entry.name == "compatibility/source-map.json") hasSourceMap = true;
         else if (entry.name == "compatibility/path-map.json") hasPathMap = true;
         else if (entry.name == "lr2/main.lr2skin") hasMain = true;
@@ -1835,7 +2414,7 @@ bool ValidateManifest(FILE* archive,
             ++info.assetCount;
         if (entry.name.rfind("lr2/vfs/", 0) == 0) ++info.virtualFileCount;
     }
-    if (!manifest || !hasSkin || !hasSourceMap || !hasMain) {
+    if (!manifest || !skin || !hasSourceMap || !hasMain) {
         errorMessage = "The OLR package is missing a required entry.";
         return false;
     }
@@ -1843,54 +2422,89 @@ bool ValidateManifest(FILE* archive,
     if (!CopyAndValidateEntry(archive, *manifest, nullptr, &bytes, errorMessage))
         return false;
     const std::string text(bytes.begin(), bytes.end());
-    const bool isVersion1 = text.find("\"version\": 1") != std::string::npos;
-    const bool isVersion2 = text.find("\"version\": 2") != std::string::npos;
-    const bool isVersion3 = text.find("\"version\": 3") != std::string::npos;
-    const bool isVersion4 = text.find("\"version\": 4") != std::string::npos;
-    const bool isVersion5 = text.find("\"version\": 5") != std::string::npos;
-    const bool isVersion6 = text.find("\"version\": 6") != std::string::npos;
-    const bool isVersion7 = text.find("\"version\": 7") != std::string::npos;
-    if (text.find("\"format\": \"olrskin\"") == std::string::npos ||
-        (!isVersion1 && !isVersion2 && !isVersion3 && !isVersion4 &&
-            !isVersion5 && !isVersion6 && !isVersion7) ||
-        text.find("\"lr2_entry\": \"lr2/main.lr2skin\"") == std::string::npos) {
-        errorMessage = "The OLR manifest format or version is unsupported.";
-        return false;
-    }
-    if ((isVersion2 || isVersion3 || isVersion4 || isVersion5 ||
-        isVersion6 || isVersion7) &&
+    SEOLRPackageInfo manifestInfo;
+    if (!ParseOLRManifestJson(text, manifestInfo, errorMessage)) return false;
+    if (manifestInfo.formatVersion >= 2 &&
         (!hasPathMap || !hasExportMain)) {
         errorMessage = "The OLR V0.2+ package is missing its virtual path metadata.";
         return false;
     }
-    info.formatVersion = isVersion7 ? 7 : isVersion6 ? 6 : isVersion5 ? 5 :
-        isVersion4 ? 4 : isVersion3 ? 3 : isVersion2 ? 2 : 1;
-    const char* objectKey = "\"object_count\": ";
-    const char* simpleSlotKey = "\"simple_slot_count\": ";
-    const char* unresolvedKey = "\"unresolved_image_count\": ";
-    const char* rootKey = "\"virtual_root_count\": ";
-    const char* skippedKey = "\"skipped_virtual_file_count\": ";
-    const char* unresolvedResourceKey = "\"unresolved_resource_count\": ";
-    const size_t objectAt = text.find(objectKey);
-    const size_t simpleSlotAt = text.find(simpleSlotKey);
-    const size_t unresolvedAt = text.find(unresolvedKey);
-    const size_t rootAt = text.find(rootKey);
-    const size_t skippedAt = text.find(skippedKey);
-    const size_t unresolvedResourceAt = text.find(unresolvedResourceKey);
-    if (objectAt != std::string::npos)
-        info.objectCount = atoi(text.c_str() + objectAt + strlen(objectKey));
-    if (simpleSlotAt != std::string::npos)
-        info.simpleSlotCount = atoi(text.c_str() + simpleSlotAt +
-            strlen(simpleSlotKey));
-    if (unresolvedAt != std::string::npos)
-        info.unresolvedImageCount = atoi(text.c_str() + unresolvedAt + strlen(unresolvedKey));
-    if (rootAt != std::string::npos)
-        info.virtualRootCount = atoi(text.c_str() + rootAt + strlen(rootKey));
-    if (skippedAt != std::string::npos)
-        info.skippedVirtualFileCount = atoi(text.c_str() + skippedAt + strlen(skippedKey));
-    if (unresolvedResourceAt != std::string::npos)
-        info.unresolvedResourceCount = atoi(text.c_str() + unresolvedResourceAt +
-            strlen(unresolvedResourceKey));
+    if (manifestInfo.formatVersion == 8) {
+        if (info.assetCount != manifestInfo.assetCount ||
+            info.virtualFileCount != manifestInfo.virtualFileCount) {
+            errorMessage = "The OLR V0.8 manifest asset counts do not match the archive.";
+            return false;
+        }
+
+        std::vector<unsigned char> skinBytes;
+        if (!CopyAndValidateEntry(archive, *skin, nullptr, &skinBytes,
+            errorMessage)) return false;
+        const std::string skinJson(skinBytes.begin(), skinBytes.end());
+        std::string simpleAuthority;
+        std::vector<SimpleModeCompileSlot> slots;
+        std::string objectAuthority;
+        std::vector<SemanticCompileObject> objects;
+        bool hasObjects = false;
+        SimpleModeJsonReader skinReader(skinJson);
+        if (!skinReader.Read(simpleAuthority, slots, objectAuthority, objects,
+            hasObjects, errorMessage)) return false;
+        if (!skinReader.HasDocumentFormat() ||
+            skinReader.DocumentFormat() != "olrskin-semantic" ||
+            !skinReader.HasDocumentVersion() ||
+            skinReader.DocumentVersion() != 8 ||
+            simpleAuthority != kSimpleModeAuthority || !hasObjects ||
+            objectAuthority != kSemanticObjectAuthority) {
+            errorMessage = "The OLR V0.8 manifest and skin.json authorities do not match.";
+            return false;
+        }
+
+        std::set<std::string> parentIds;
+        std::set<std::string> partKeys;
+        for (const SemanticCompileObject& object : objects) {
+            parentIds.insert(object.parentId);
+            partKeys.insert(object.partKey);
+        }
+        if (manifestInfo.objectCount != static_cast<int>(parentIds.size()) ||
+            manifestInfo.semanticPartCount != static_cast<int>(partKeys.size()) ||
+            manifestInfo.destinationCount != static_cast<int>(objects.size()) ||
+            manifestInfo.simpleSlotCount != static_cast<int>(slots.size())) {
+            errorMessage = "The OLR V0.8 manifest semantic counts do not match skin.json.";
+            return false;
+        }
+    }
+    else if (manifestInfo.formatVersion >= 4) {
+        std::vector<unsigned char> skinBytes;
+        if (!CopyAndValidateEntry(archive, *skin, nullptr, &skinBytes,
+            errorMessage)) return false;
+        const std::string skinJson(skinBytes.begin(), skinBytes.end());
+        std::string simpleAuthority;
+        std::vector<SimpleModeCompileSlot> slots;
+        std::string objectAuthority;
+        std::vector<SemanticCompileObject> objects;
+        bool hasObjects = false;
+        SimpleModeJsonReader skinReader(skinJson);
+        if (!skinReader.Read(simpleAuthority, slots, objectAuthority, objects,
+            hasObjects, errorMessage)) return false;
+        // V0.4 manifests historically contain a version-3 skin document.
+        // Reserve version 8+ documents for the V0.8 authority without
+        // imposing equality on the older manifest/document version pairs.
+        if ((skinReader.HasDocumentVersion() &&
+            skinReader.DocumentVersion() >= 8) ||
+            simpleAuthority != kSimpleModeAuthority ||
+            (hasObjects && objectAuthority != kLegacySemanticObjectAuthority)) {
+            errorMessage = "The pre-V0.8 manifest and skin.json authorities do not match.";
+            return false;
+        }
+    }
+    info.formatVersion = manifestInfo.formatVersion;
+    info.objectCount = manifestInfo.objectCount;
+    info.semanticPartCount = manifestInfo.semanticPartCount;
+    info.destinationCount = manifestInfo.destinationCount;
+    info.simpleSlotCount = manifestInfo.simpleSlotCount;
+    info.unresolvedImageCount = manifestInfo.unresolvedImageCount;
+    info.virtualRootCount = manifestInfo.virtualRootCount;
+    info.skippedVirtualFileCount = manifestInfo.skippedVirtualFileCount;
+    info.unresolvedResourceCount = manifestInfo.unresolvedResourceCount;
     return true;
 }
 
@@ -1916,6 +2530,11 @@ bool OpenAndValidateArchive(const char* packagePath, FILE*& archive,
     return true;
 }
 
+}
+
+bool SEParseOLRManifestJson(const std::string& manifestJson,
+    SEOLRPackageInfo& packageInfo, std::string& errorMessage) {
+    return ParseOLRManifestJson(manifestJson, packageInfo, errorMessage);
 }
 
 bool SEIsOLRSimpleSlotCompilable(const SEOLRSimpleSlot& slot) {
@@ -2028,9 +2647,23 @@ bool SECompileOLRSemantics(const std::string& skinJson,
         compiledSlotCount = simpleCount;
         return true;
     }
-    if (objectAuthority != kSemanticObjectAuthority) {
+    const bool usesPartAuthority = objectAuthority == kSemanticObjectAuthority;
+    const bool usesLegacyAuthority =
+        objectAuthority == kLegacySemanticObjectAuthority;
+    if (!usesPartAuthority && !usesLegacyAuthority) {
         errorMessage = "skin.json objects authority is not supported: " +
             objectAuthority + ".";
+        return false;
+    }
+    if (usesPartAuthority && (!reader.HasDocumentFormat() ||
+        reader.DocumentFormat() != "olrskin-semantic" ||
+        !reader.HasDocumentVersion() || reader.DocumentVersion() != 8)) {
+        errorMessage = "V0.8 part objects require an olrskin-semantic version 8 document.";
+        return false;
+    }
+    if (usesLegacyAuthority && reader.HasDocumentVersion() &&
+        reader.DocumentVersion() >= 8) {
+        errorMessage = "A version 8 semantic document cannot use the V0.7 flat object authority.";
         return false;
     }
     if (arr_CommandHelp.count <= 0 && LoadCommandHelp(nullptr) != 0) {
@@ -2041,6 +2674,10 @@ bool SECompileOLRSemantics(const std::string& skinJson,
     std::vector<PreservedScriptLine> lines = SplitPreservedScriptLines(simpleCompiled);
     std::set<int> compiledRows;
     std::set<std::string> objectIds;
+    std::set<std::string> compiledParentIds;
+    std::map<int, std::string> sourcePartByRow;
+    int pendingObjectCount = 0;
+    int pendingAnimationFrameCount = 0;
     for (const SemanticCompileObject& object : objects) {
         if (!objectIds.insert(object.id).second) {
             errorMessage = "Two semantic Objects use the id '" + object.id + "'.";
@@ -2051,21 +2688,50 @@ bool SECompileOLRSemantics(const std::string& skinJson,
                 object.destinationCommand + ".";
             return false;
         }
+        for (const SemanticCompileSourceBinding& source : object.sources) {
+            if (source.sourceRow <= 0 || source.sourceRow > (int)lines.size()) {
+                errorMessage = "Semantic source_row is outside lr2/main.lr2skin: " +
+                    std::to_string(source.sourceRow) + ".";
+                return false;
+            }
+            const std::vector<std::string> sourceFields = SplitSimpleCsv(
+                lines[(size_t)source.sourceRow - 1].content);
+            if (sourceFields.empty() || _stricmp(sourceFields[0].c_str(),
+                source.sourceCommand.c_str()) != 0) {
+                errorMessage = "Semantic source row/command mismatch at LR2 row " +
+                    std::to_string(source.sourceRow) + ": expected " +
+                    source.sourceCommand + ".";
+                return false;
+            }
+            const auto existingSource = sourcePartByRow.find(source.sourceRow);
+            if (existingSource != sourcePartByRow.end() &&
+                existingSource->second != object.partKey) {
+                errorMessage = "Two semantic parts bind LR2 source row " +
+                    std::to_string(source.sourceRow) + ".";
+                return false;
+            }
+            sourcePartByRow[source.sourceRow] = object.partKey;
+        }
         if (object.layoutRow != object.frames.front().destinationRow ||
             !SameTransform(object.layout, object.frames.front().transform)) {
             errorMessage = "Semantic Object layout must match animation frame 0: " +
                 object.id + ".";
             return false;
         }
-        if (!IsSafeSemanticTransform(object.layout) || object.loop < -1000000 ||
-            object.loop > 1000000000) {
+        if (!IsSafeSemanticTransform(object.layout) ||
+            (object.hasLoop && (object.loop < -1000000 ||
+                object.loop > 1000000000))) {
             errorMessage = "Semantic Object layout or loop is outside the safe LR2 range: " +
                 object.id + ".";
             return false;
         }
 
+        if (usesLegacyAuthority && (!object.hasTimer || !object.hasLoop)) {
+            errorMessage = "V0.7 semantic conditions require timer and loop values.";
+            return false;
+        }
         int timer = object.rawTimer;
-        if (!object.timerIsRaw) {
+        if (object.hasTimer && !object.timerIsRaw) {
             timer = FindTimerByName(object.timerName);
             if (timer < 0) {
                 errorMessage = "Semantic timer name is unknown: " + object.timerName + ".";
@@ -2073,8 +2739,27 @@ bool SECompileOLRSemantics(const std::string& skinJson,
             }
         }
         int options[3] = {};
+        bool hasOptions[3] = {};
         for (size_t index = 0; index < object.conditions.size(); ++index) {
             const SemanticCompileConditionTerm& condition = object.conditions[index];
+            int optionSlot = (int)index;
+            if (usesPartAuthority) {
+                if (!condition.hasSlot || condition.slot < 1 || condition.slot > 3) {
+                    errorMessage = "V0.8 condition terms require a slot from 1 to 3: " +
+                        object.id + ".";
+                    return false;
+                }
+                optionSlot = condition.slot - 1;
+                if (hasOptions[optionSlot]) {
+                    errorMessage = "A V0.8 destination contains duplicate OP slots: " +
+                        object.id + ".";
+                    return false;
+                }
+            }
+            else if (condition.hasSlot) {
+                errorMessage = "V0.7 condition terms cannot use V0.8 slots.";
+                return false;
+            }
             int option = condition.rawOption;
             if (!condition.isRaw) {
                 option = FindOptionByName(condition.lr2Name);
@@ -2090,7 +2775,8 @@ bool SECompileOLRSemantics(const std::string& skinJson,
                     object.id + ".";
                 return false;
             }
-            options[index] = option;
+            options[optionSlot] = option;
+            hasOptions[optionSlot] = true;
         }
 
         for (size_t frameIndex = 0; frameIndex < object.frames.size(); ++frameIndex) {
@@ -2140,11 +2826,14 @@ bool SECompileOLRSemantics(const std::string& skinJson,
                 return false;
 
             if (frameIndex == 0) {
-                if (!AssignCompiledField(fields, object.destinationCommand, "loop",
-                    object.loop, true, errorMessage) ||
-                    !AssignCompiledField(fields, object.destinationCommand, "timer",
-                        timer, true, errorMessage)) return false;
+                if (object.hasLoop && !AssignCompiledField(fields,
+                    object.destinationCommand, "loop", object.loop, true,
+                    errorMessage)) return false;
+                if (object.hasTimer && !AssignCompiledField(fields,
+                    object.destinationCommand, "timer", timer, true,
+                    errorMessage)) return false;
                 for (int optionIndex = 0; optionIndex < 3; ++optionIndex) {
+                    if (usesPartAuthority && !hasOptions[optionIndex]) continue;
                     const std::string fieldName = "op" + std::to_string(optionIndex + 1);
                     const bool required = options[optionIndex] != 0;
                     if (!AssignCompiledField(fields, object.destinationCommand,
@@ -2153,16 +2842,21 @@ bool SECompileOLRSemantics(const std::string& skinJson,
                 }
             }
             JoinCompiledFields(line, fields);
-            ++compiledAnimationFrameCount;
+            ++pendingAnimationFrameCount;
         }
-        ++compiledObjectCount;
+        if (usesPartAuthority) compiledParentIds.insert(object.parentId);
+        else ++pendingObjectCount;
     }
+    if (usesPartAuthority)
+        pendingObjectCount = static_cast<int>(compiledParentIds.size());
 
     std::ostringstream output;
     for (const PreservedScriptLine& line : lines)
         output << line.content << line.ending;
     compiledScript = output.str();
     compiledSlotCount = simpleCount;
+    compiledObjectCount = pendingObjectCount;
+    compiledAnimationFrameCount = pendingAnimationFrameCount;
     return true;
 }
 

@@ -61,15 +61,18 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - `File > Save OLRskin`에서 현재 Object를 의미별로 분류하고 LR2 호환 스크립트,
   고정 이미지와 해결된 LR2 가상 root를 한 `.olrskin` 파일로 원자 저장. 일반 LR2
   workspace의 원본은 건드리지 않고, Import한 OLR workspace는 미저장 script를 먼저
-  저장하여 뒤이은 LR2 folder export가 같은 편집 결과를 사용
-- `File > Import OLR package`에서 패키지를 검증한 뒤 V0.8 `objects`의 nested
+  저장하여 뒤이은 LR2 folder export가 같은 편집 결과를 사용. 해상도 근거가 전혀
+  없을 때 OLR canvas는 1280x720 HD를 기본으로 하고, package/LR2 출력에서는
+  `#INFORMATION` 6·7번 칸을 단일 실행 해상도 기준으로 사용
+- `File > Import OLR package`에서 패키지를 검증한 뒤 V0.9 `objects`의 nested
   part별 destination Layout/Animation/Condition과 V0.4 `simple_mode` source
   asset을 LR2 CSV로 원자적으로 compile하고, manifest의 구조/asset count와
   `skin.json`/archive가 일치할 때만 사용자가 고른 새 `*-olr-workspace`를 열기.
   이 폴더는 편집/Preview용이며 성공 팝업에서 설치용 LR2 export를 바로 실행 가능
 - Import한 V0.2+ workspace의 `File > Export install-ready LR2 folder`에서
   `vfs/LR2files`와 고정 `assets`를 새 출력 폴더로 풀고 현재 편집 스크립트의
-  경로를 복원
+  경로를 복원. V0.9 무편집 왕복이면 원본 main/include graph를 그대로 사용하고,
+  편집 또는 고정 asset 재배치가 있으면 compatibility main으로 안전하게 전환
 
 주의할 항목:
 
@@ -83,6 +86,9 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - 해상도 변경의 즉시 저장은 의도된 동작이다. Workspace 해상도 modal은 이 점과
   기존 Object 좌표를 자동 scale하지 않는다는 점을 명시한다. 재로드 중 편집 내용을
   잃지 않도록 일반 script 변경은 먼저 Save해야 하고 미저장 Pixel paint도 정리해야 한다.
+  저장은 `#INFORMATION` 6·7번 칸을 갱신하고, LR2 목록 파서의 다음 slot을 오염시킬 수
+  있는 활성 `#RESOLUTION` 행은 row 수를 유지한 비실행
+  `$OLR_IGNORED_RESOLUTION` 행으로 바꾼다.
 - Save As는 스크립트 경로를 전환하지만 이미지, 폰트 등 리소스 파일을 복제하지
   않는다. 정상 Save As 흐름이 있으므로 별도 Clone 기능은 현재 필수 기능이 아니다.
 - 실제 스킨별 좌표·경로·조건 조합은 수동 회귀 테스트가 필요하다.
@@ -103,7 +109,7 @@ Default locations 전환을 제공하며, 파일을 복사하거나 LR2 설정�
 
 ### 시나리오 A-2: OLR 중간 포맷으로 공유
 
-`.olrskin` V0.8은 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
+`.olrskin` V0.9는 LR2 CSV를 버리는 새 저장 형식이 아니라, AI와 사람이 구조를
 찾기 쉬운 Semantic index와 원본 동작을 보존하는 Compatibility layer를 함께 담는
 ZIP 컨테이너다. 자세한 계약은 [OLR 포맷 문서](OLRSKIN_FORMAT.md)를 따른다.
 
@@ -114,6 +120,7 @@ loaded WORKSPACE
   +-- part DST families -> destinations[] (Layout/Animation/Condition)
   +-- Simple Mode source IR -> skin.json (number-fonts/judgement-fonts/gear/notes/gauge)
   +-- expanded CSV -> lr2/main.lr2skin
+  +-- unchanged baseline -> lr2/.olr-compatibility-baseline.lr2skin
   +-- resolved LR2 roots -> lr2/vfs/LR2files/*
   +-- other fixed #IMAGE -> lr2/assets/*
   +-- row ownership -> compatibility/source-map.json
@@ -126,7 +133,7 @@ loaded WORKSPACE
 성공한 Import/Save의 package 경로는 다음 저장 위치 제안에만 쓰는 workspace-local
 상태이며 package나 LR2 export에 기록하지 않는다.
 
-V0.8은 `skin.json.objects`의 authority를 `lr2-destination-parts-v0.8`로 두고,
+V0.9는 `skin.json.objects`의 authority를 `lr2-destination-parts-v0.9`로 두고,
 각 Object를 SRC/DST 행 순서에 따른 nested part로 나눈다. 첫 SRC가 part를 시작하고,
 DST가 나오기 전의 연속 SRC는 같은 part에 속한다. DST 뒤 새 SRC가 나오면 다음 part를
 시작한다. 따라서 NOTE의 multi-SRC-before-DST는 한 part이고, 실제 kamh BUTTON의
@@ -141,7 +148,7 @@ SRC보다 먼저 지원 DST가 나오면 sources가 빈 초기 part를 만들 �
 현재 Object Inspector의 Layout/Timeline/Conditions는 선택 Object에서 complete
 semantic contract를 가진 첫 DST command family만 편집한다. nested part나 다른
 destination family를 고르는 selector는 아직 없고 나머지는 `Advanced LR2`에 남는다.
-이는 편집 UI의 제한이며, V0.8 package projection과 compiler는 지원되는 모든
+이는 편집 UI의 제한이며, V0.9 package projection과 compiler는 지원되는 모든
 source-bound destination run을 nested 구조로 처리한다.
 
 Object Editor 내부 배열은 command group별이지만 package의 `objects.items`와 각
@@ -156,22 +163,39 @@ slot은 지우지 않는다. 알려진 OP/TIMER는 symbolic name으로 컴파일
 asset authority다. IF/ELSE, 지원 밖 행/열, comment와 editor metadata는
 `lr2/main.lr2skin`에서 보존한다. 하나라도 잘못되면 새 import 폴더를 제거하고 부분
 결과를 남기지 않는다. `sections`는 Object id discovery index이며 값을 컴파일하지 않는다.
+OLR의 canvas 근거가 없으면 1280x720 HD를 기본으로 하며, explicit 또는 TenRiff
+추정 SD/HD/FHD는 유지한다. package 및 설치용 LR2 main은 항상 첫
+`#INFORMATION`의 6·7번 칸에 이 크기를 기록한다. 별도 `#RESOLUTION`은 LR2 파서의
+stale CSV/다음 slot 기록 결함을 피하도록 같은 행에서
+`$OLR_IGNORED_RESOLUTION`로 무력화한다.
 KCOOL처럼 `#SRC_IMAGE`의 `w/h`에 음수 sentinel을 쓰는 legacy crop은 편집 가능한
 Simple Mode rectangle이 아니므로 새 package의 `simple_mode`에서 제외한다. 기존
 package에 이미 들어 있어도 Import를 중단하지 않고 원본 LR2 행을 raw로 보존한다.
+V0.9 compiler는 지원 숫자 필드도 기존 LR2 값과 실제 값이 달라질 때만 쓴다. 따라서
+빈 timer/cycle/angle처럼 LR2에서 0으로 해석되는 토큰과 `div_x/div_y=0` legacy 값이
+무편집 Import만으로 `0` 또는 `1`로 정규화되지 않는다. Simple Mode Preview가 0 division을
+1x1로 해석하더라도 package 주소는 raw CSV 값을 사용하며, 컴파일 안전 범위 밖이면
+해당 행 전체를 compatibility-owned 상태로 남긴다.
 
 Export 전 Workspace row는 include flattening 중 달라질 수 있으므로 Simple Mode와
 part source의 `source_row`, 각 destination의 `destination_row`는
 `compatibility/source-map.json`을 통해
 packaged LR2 row로 변환한다.
 이 변환 없이 펼친 row를 compiler 주소로 사용하지 않는다. V0.1-V0.3은 계속 기존처럼
-compatibility script를 기준으로 Import하며 V0.1-V0.7은 각 버전의 기존 parser와
-authority로 처리한다. legacy flat Object를 V0.8 part로 재해석하지 않는다.
+compatibility script를 기준으로 Import하며 V0.1-V0.8은 각 버전의 기존 parser와
+authority로 처리한다. legacy flat Object를 V0.9 part로 재해석하지 않는다.
 평탄화된 include 본문은 경로가 없는 `$OLR_FILE start/end`로 감싸 원래 파일별
 IF/ELSE stack을 유지한다. 따라서 include 안의 짝 없는 `#ELSE`가 main의 1P/2P
 wrapper 조건을 소비하거나 반대편 Object를 활성화하지 않는다. LR2 폴더로 내보낸
 평탄 script에서도 같은 의미가 유지되도록 짝 없는 child control row는 비실행
 `$OLR_IGNORED_CONTROL` comment로 바꾸고, 파일 끝에 남은 child `#IF`는 닫는다.
+다만 무편집 V0.9 package는 평탄 script를 LR2 main에 덮어쓰지 않는다. package의
+baseline과 Import 후 compatibility script가 byte-identical이고, 기록된 main이
+`vfs`에 있으며 고정 `assets` 재배치가 필요 없을 때 원본 include-based main을 설치한다.
+이 경로는 file-local `#CUSTOMOPTION`, `#IF/#ELSE`, `#ENDOFHEADER` 의미를 원본 그대로
+유지하되 복사본 main의 해상도 header만 `#INFORMATION` 기준으로 안전하게 정규화하므로
+1P `SC,1..7`가 반대쪽 scratch 조건으로 바뀌는 문제를 피한다. 조건 하나라도
+깨지면 marker를 무효화하고 현재 편집 compatibility script를 사용한다.
 
 패키지에는 로컬 절대 owner 경로를 기록하지 않는다. main 폴더 내부 include는
 상대 경로, 외부 include는 `<external>/<filename>` label만 source map에 남긴다.
@@ -188,9 +212,12 @@ Export는 원본 `.dxa`를 byte-for-byte 보존한다. 따라서 이 구형 font
 현재 `Save OLRskin` writer는 알지 못하는 manifest/`skin.json` 필드를 보존하지 않는다.
 따라서 third-party extension은 editor 재저장 뒤에도 유지된다고 가정할 수 없다.
 향후 extension namespace와 passthrough 또는 명시적 rewrite 경계를 별도 정책으로
-정의하기 전까지 이를 V0.8의 알려진 제한으로 둔다.
+정의하기 전까지 이를 V0.9의 알려진 제한으로 둔다. 편집된 flat row를 원래 include
+owner 파일들로 다시 분배하는 일반 compiler는 아직 없으며, 이것이 OLRskin 1.0의
+핵심 잔여 과제다.
 자동 `olr-package` fixture는 이미 part가 구성된 document/JSON의 package 및 compiler
-왕복과 M.H 형태의 1P/2P file-scope marker 조건 분리를 검증하지만,
+왕복, 빈 숫자 token 무변경, 원본 main/include materialization과 M.H 형태의 1P/2P
+file-scope marker 조건 분리를 검증하지만,
 `WORKSPACE::ExportOlrSkin()`의 전체 행 경계 투영 자체는 호출하지 않는다.
 실제 kamh BUTTON과 NOTE의 part 도출은 `BUILD_AND_TEST.md`의 수동 OLR 절차로 확인한다.
 
@@ -212,7 +239,8 @@ New는 `LR2files\Theme` 아래에 새 `.lr2skin`과 알파 채널을 보존하�
 영역은 불투명하고 나머지 빈 영역은 투명하므로, 이후 이미지 편집에서도 투명도를
 유지할 수 있다. `..`, 드라이브명 같은 범위 이탈 경로는 거부하고 기존 파일은
 덮어쓰지 않는다. `#SCENETIME`은 DECIDE 프리셋에만 생성하며 PLAY, SELECT,
-RESULT, COURSERESULT에는 기록하지 않는다.
+RESULT, COURSERESULT에는 기록하지 않는다. 생성 header의 해상도는
+`#INFORMATION` 6·7번 칸에만 기록하며 활성 `#RESOLUTION`을 중복 생성하지 않는다.
 
 PLAY 프리셋은 배경, BGA, 키 모드별 Note/Mine/LN과 lane별 Bomb, Measure Line, Judge Line,
 Groove Gauge, FAST/SLOW, 플레이어별 NOWJUDGE 6개 상태와 GOOD 이상에서 사용하는
@@ -852,7 +880,7 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 | Object Editor 구조 | Browser와 Inspector를 별도 도킹 창으로 유지 |
 | Object 이름 fallback | 명시 이름, SRC symbolic 이름, op, non-zero timer 순서. 자동 이름은 저장하지 않음 |
 | AI/UI 계약 | `uiCatalog.h`와 자동 UI map을 기준으로 하고 handoff는 context pack과 검증 증거를 포함 |
-| OLR V0.8 authority | `skin.json.objects`의 source-bound parts가 part별 destination Layout/Animation/Condition을, `simple_mode`가 지원 SRC asset을 컴파일한다. null timer/loop와 누락 OP slot, IF/ELSE와 지원 밖 행/열은 `lr2/main.lr2skin`이 보존하며 `vfs/LR2files`는 LR2 Export 전까지 유지 |
+| OLR V0.9 authority | `skin.json.objects`의 source-bound parts와 `simple_mode`는 값이 실제로 바뀐 필드만 컴파일한다. 무편집 package는 원본 main/include graph를 설치하고, 편집 또는 고정 asset 재배치 시에는 현재 compatibility main으로 안전하게 전환한다 |
 
 ## 11. 다음 작업 전 확인
 

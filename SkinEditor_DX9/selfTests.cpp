@@ -240,6 +240,27 @@ int RunResolutionEstimatorSelfTest() {
         decision.destinationEvidenceCount != 0)
         return 9;
 
+    std::string preparedScript;
+    std::string resolutionError;
+    if (!SEPrepareLr2ExportResolution(
+        "#INFORMATION,0,title,maker,,,,\r\n"
+        "#RESOLUTION,1280,720\r\n"
+        "#IMAGE,background.png\r\n",
+        1280, 720, preparedScript, resolutionError) ||
+        preparedScript.find(
+            "#INFORMATION,0,title,maker,,,1280,720\r\n") != 0 ||
+        preparedScript.find(
+            "$OLR_IGNORED_RESOLUTION,#RESOLUTION,1280,720\r\n") ==
+                std::string::npos ||
+        preparedScript.find("\r\n#RESOLUTION,") != std::string::npos)
+        return 10;
+
+    preparedScript = "must remain transactional";
+    if (SEPrepareLr2ExportResolution("#RESOLUTION,1\r\n",
+        1280, 720, preparedScript, resolutionError) ||
+        !preparedScript.empty())
+        return 11;
+
     return 0;
 }
 
@@ -261,6 +282,11 @@ int RunOlrPackageSelfTest() {
     const std::string previousPackagePath = virtualRoot + "\\previous.olrskin";
     const std::string packagePath = root + "\\test.olrskin";
     const std::string orderingPackagePath = root + "\\ordering.olrskin";
+    const std::string preservationPackagePath = root + "\\preservation.olrskin";
+    const std::string preservationExtractedPath = root + "\\preservation-imported";
+    const std::string preservationMaterializedPath = root + "\\preservation-materialized";
+    const std::string preservationEditedMaterializedPath =
+        root + "\\preservation-edited-materialized";
     const std::string tamperedPath = root + "\\tampered.olrskin";
     const std::string extractedPath = root + "\\imported";
     const std::string materializedPath = root + "\\materialized";
@@ -299,10 +325,11 @@ int RunOlrPackageSelfTest() {
     document.resolutionSource = "#RESOLUTION";
     document.lr2Script =
         "#INFORMATION,0,OLR self test,SkinEditor,,,1280,720\r\n"
+        "#RESOLUTION,1280,720\r\n"
         "#CUSTOMFILE,NOTE,vfs/LR2files/Theme/Test/note/*.png,blue\r\n"
         "#IMAGE,vfs/LR2files/Theme/Test/note/blue.png\r\n"
         "#IMAGE,assets/simple-note.png\r\n"
-        "#SRC_IMAGE,0,0,0,0,16,16,1,1,0,0\r\n"
+        "#SRC_IMAGE,0,0,0,0,16,16,1,1,,0\r\n"
         "#SRC_BUTTON,0,0,0,0,16,16,1,1,0,0,42,0,0\r\n"
         "#DST_IMAGE,0,0,100,200,16,16,0,255,255,255,255,1,0,0,0,800,46,119,948,0\r\n"
         "#DST_IMAGE,0,100,110,210,20,18,0,0,255,255,255,1,0,15,0,800,46,119,948,0\r\n"
@@ -320,11 +347,11 @@ int RunOlrPackageSelfTest() {
     SEOLRSemanticObject::Part semanticPart;
     semanticPart.id = "part_1";
     SEOLRSemanticObject::SourceBinding semanticSource;
-    semanticSource.sourceRow = 5;
+    semanticSource.sourceRow = 6;
     semanticSource.sourceCommand = "#SRC_IMAGE";
     semanticPart.sources.push_back(semanticSource);
     SEOLRSemanticObject::SourceBinding buttonSemanticSource;
-    buttonSemanticSource.sourceRow = 6;
+    buttonSemanticSource.sourceRow = 7;
     buttonSemanticSource.sourceCommand = "#SRC_BUTTON";
     semanticPart.sources.push_back(buttonSemanticSource);
     SEOLRSemanticObject::Destination semanticDestination;
@@ -332,13 +359,13 @@ int RunOlrPackageSelfTest() {
     semanticDestination.destinationCommand = "#DST_IMAGE";
     semanticDestination.layout = { 100, 200, 16, 16, 0, 1 };
     SEOLRSemanticObject::AnimationFrame firstFrame;
-    firstFrame.destinationRow = 7;
+    firstFrame.destinationRow = 8;
     firstFrame.timeMs = 0;
     firstFrame.alpha = 255;
     firstFrame.transform = semanticDestination.layout;
     semanticDestination.animationFrames.push_back(firstFrame);
     SEOLRSemanticObject::AnimationFrame secondFrame;
-    secondFrame.destinationRow = 8;
+    secondFrame.destinationRow = 9;
     secondFrame.timeMs = 100;
     secondFrame.alpha = 0;
     secondFrame.transform = { 110, 210, 20, 18, 15, 1 };
@@ -357,7 +384,7 @@ int RunOlrPackageSelfTest() {
     alternateSemanticDestination.destinationCommand = "#DST_IMAGE";
     alternateSemanticDestination.layout = { 50, 60, 10, 12, 0, 0 };
     SEOLRSemanticObject::AnimationFrame alternateFrame;
-    alternateFrame.destinationRow = 9;
+    alternateFrame.destinationRow = 10;
     alternateFrame.timeMs = 0;
     alternateFrame.alpha = 200;
     alternateFrame.transform = alternateSemanticDestination.layout;
@@ -367,7 +394,7 @@ int RunOlrPackageSelfTest() {
     SEOLRSemanticObject::Part secondSemanticPart;
     secondSemanticPart.id = "part_2";
     SEOLRSemanticObject::SourceBinding secondSemanticSource;
-    secondSemanticSource.sourceRow = 10;
+    secondSemanticSource.sourceRow = 11;
     secondSemanticSource.sourceCommand = "#SRC_IMAGE";
     secondSemanticPart.sources.push_back(secondSemanticSource);
     SEOLRSemanticObject::Destination secondSemanticDestination;
@@ -375,13 +402,13 @@ int RunOlrPackageSelfTest() {
     secondSemanticDestination.destinationCommand = "#DST_IMAGE";
     secondSemanticDestination.layout = { 400, 300, 80, 40, 10, 2 };
     SEOLRSemanticObject::AnimationFrame thirdFrame;
-    thirdFrame.destinationRow = 11;
+    thirdFrame.destinationRow = 12;
     thirdFrame.timeMs = 25;
     thirdFrame.alpha = 128;
     thirdFrame.transform = secondSemanticDestination.layout;
     secondSemanticDestination.animationFrames.push_back(thirdFrame);
     SEOLRSemanticObject::AnimationFrame fourthFrame;
-    fourthFrame.destinationRow = 12;
+    fourthFrame.destinationRow = 13;
     fourthFrame.timeMs = 75;
     fourthFrame.alpha = 64;
     fourthFrame.transform = { 410, 305, 80, 40, 15, 2 };
@@ -400,7 +427,7 @@ int RunOlrPackageSelfTest() {
     simpleSlot.label = "Test image - Gear line";
     simpleSlot.objectId = "obj_test";
     simpleSlot.sourceCommand = "#SRC_IMAGE";
-    simpleSlot.sourceRow = 5;
+    simpleSlot.sourceRow = 6;
     simpleSlot.graphicId = 0;
     simpleSlot.width = 16;
     simpleSlot.height = 16;
@@ -417,7 +444,7 @@ int RunOlrPackageSelfTest() {
     std::string errorMessage;
     if (result == 0 && !SEWriteOLRSkinPackage(packagePath.c_str(), document,
         packageInfo, errorMessage)) result = 7;
-    if (result == 0 && (packageInfo.formatVersion != 8 ||
+    if (result == 0 && (packageInfo.formatVersion != 9 ||
         packageInfo.entries.size() != 8 ||
         packageInfo.objectCount != 1 || packageInfo.simpleSlotCount != 1 ||
         packageInfo.semanticPartCount != 2 || packageInfo.destinationCount != 3 ||
@@ -441,7 +468,12 @@ int RunOlrPackageSelfTest() {
         std::ifstream script(extractedMain, std::ios::binary);
         const std::string scriptBytes((std::istreambuf_iterator<char>(script)),
             std::istreambuf_iterator<char>());
-        if (scriptBytes != document.lr2Script) result = 11;
+        std::string expectedScript;
+        std::string prepareError;
+        if (!SEPrepareLr2ExportResolution(document.lr2Script, 1280, 720,
+            expectedScript, prepareError) || scriptBytes != expectedScript ||
+            scriptBytes.find("\r\n#RESOLUTION,") != std::string::npos)
+            result = 11;
     }
     if (result == 0) {
         // The archive uses stored ZIP entries, so an unsupported Object id
@@ -1007,6 +1039,102 @@ int RunOlrPackageSelfTest() {
     }
 
     if (result == 0) {
+        // V0.9 keeps the original file-local customization and include graph
+        // when semantic compilation leaves the compatibility script unchanged.
+        const std::string originalMain =
+            "#INFORMATION,0,Original include main,SkinEditor,,,1280,720\r\n"
+            "#RESOLUTION,1\r\n"
+            "#CUSTOMOPTION,PLAY SIDE,900,1P,2P\r\n"
+            "#IF,900\r\n"
+            "#INCLUDE,parts\\play.csv\r\n"
+            "#ENDIF\r\n";
+        const std::filesystem::path originalMainPath =
+            std::filesystem::path(virtualRoot) / "play.lr2skin";
+        const std::filesystem::path originalPartPath =
+            std::filesystem::path(virtualRoot) / "parts" / "play.csv";
+        std::error_code preserveError;
+        std::filesystem::create_directories(originalPartPath.parent_path(),
+            preserveError);
+        if (preserveError) result = 85;
+        if (result == 0) {
+            std::ofstream mainOutput(originalMainPath,
+                std::ios::binary | std::ios::trunc);
+            mainOutput.write(originalMain.data(), originalMain.size());
+            std::ofstream partOutput(originalPartPath,
+                std::ios::binary | std::ios::trunc);
+            partOutput << "#SRC_IMAGE,0,0,0,0,16,16,1,1,0,0\r\n";
+            if (!mainOutput || !partOutput) result = 86;
+        }
+
+        SEOLRSkinDocument preservationDocument = document;
+        preservationDocument.assets.clear();
+        preservationDocument.preserveOriginalMainWhenUnchanged = true;
+        preservationDocument.lr2CompatibilityBaseline =
+            preservationDocument.lr2Script;
+        SEOLRPackageInfo preservationInfo;
+        if (result == 0 && (!SEWriteOLRSkinPackage(
+            preservationPackagePath.c_str(), preservationDocument,
+            preservationInfo, errorMessage) ||
+            !preservationInfo.preservesOriginalMainWhenUnchanged))
+            result = 87;
+
+        std::string preservationMain;
+        if (result == 0 && (!SEExtractOLRSkinPackage(
+            preservationPackagePath.c_str(), preservationExtractedPath.c_str(),
+            preservationMain, preservationInfo, errorMessage) ||
+            !preservationInfo.preservesOriginalMainWhenUnchanged))
+            result = 88;
+        SEOLRLr2ExportInfo preservationExportInfo;
+        if (result == 0 && (!SEExportOLRWorkspaceToLR2(
+            preservationMain.c_str(), preservationMaterializedPath.c_str(),
+            preservationExportInfo, errorMessage) ||
+            !preservationExportInfo.preservedOriginalMain))
+            result = 89;
+        if (result == 0) {
+            std::ifstream preservedMain(preservationExportInfo.mainSkinPath,
+                std::ios::binary);
+            const std::string preservedBytes(
+                (std::istreambuf_iterator<char>(preservedMain)),
+                std::istreambuf_iterator<char>());
+            const std::filesystem::path preservedPart =
+                std::filesystem::path(preservationExportInfo.mainSkinPath)
+                    .parent_path() / "parts" / "play.csv";
+            std::string expectedOriginalMain;
+            std::string prepareError;
+            if (!SEPrepareLr2ExportResolution(originalMain, 1280, 720,
+                expectedOriginalMain, prepareError) || !preservedMain ||
+                preservedBytes != expectedOriginalMain ||
+                preservedBytes.find("\r\n#RESOLUTION,") != std::string::npos ||
+                !std::filesystem::is_regular_file(preservedPart, preserveError) ||
+                preserveError)
+                result = 90;
+        }
+        if (result == 0) {
+            std::ofstream editedWorkspaceMain(preservationMain,
+                std::ios::binary | std::ios::app);
+            editedWorkspaceMain << "$OLR_SELF_TEST_EDIT\r\n";
+            if (!editedWorkspaceMain) result = 91;
+        }
+        SEOLRLr2ExportInfo editedExportInfo;
+        if (result == 0 && (!SEExportOLRWorkspaceToLR2(
+            preservationMain.c_str(),
+            preservationEditedMaterializedPath.c_str(), editedExportInfo,
+            errorMessage) || editedExportInfo.preservedOriginalMain))
+            result = 92;
+        if (result == 0) {
+            std::ifstream editedMain(editedExportInfo.mainSkinPath,
+                std::ios::binary);
+            const std::string editedBytes(
+                (std::istreambuf_iterator<char>(editedMain)),
+                std::istreambuf_iterator<char>());
+            if (!editedMain ||
+                editedBytes.find("$OLR_SELF_TEST_EDIT") == std::string::npos ||
+                editedBytes == originalMain)
+                result = 93;
+        }
+    }
+
+    if (result == 0) {
         SEOLRSkinDocument unsafeDocument = document;
         unsafeDocument.virtualRoots[0].logicalRoot = "LR2files/Theme/../escape";
         if (SEWriteOLRSkinPackage((root + "\\unsafe.olrskin").c_str(),
@@ -1125,7 +1253,7 @@ int RunOlrPackageSelfTest() {
             !SEExportOLRWorkspaceToLR2(externalMain.c_str(),
             externalExportPath.c_str(), externalExportInfo, errorMessage))
             result = 68;
-        if (result == 0 && externalInfo.formatVersion == 8 &&
+        if (result == 0 && externalInfo.formatVersion >= 8 &&
             externalExportInfo.copiedFileCount != externalInfo.assetCount)
             result = 72;
         if (result == 0 && externalInfo.formatVersion >= 2) {
@@ -1268,6 +1396,8 @@ int RunSkinBrowserSelfTest() {
                     SetCurrentDirectoryA(originalWorkingDirectory);
                 SESkinResolutionDecision browserResolution;
                 if (result == 0 && (parsedSkin.Count != 1 ||
+                    parsedSkin.Data[0].targetX != 1280 ||
+                    parsedSkin.Data[0].targetY != 720 ||
                     !SEResolveSkinResolutionFile(rootSkin.c_str(),
                         browserResolution) ||
                     browserResolution.width != 1280 ||

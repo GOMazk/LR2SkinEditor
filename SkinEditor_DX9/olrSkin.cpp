@@ -1,6 +1,7 @@
 #include "olrSkin.h"
 #include "op.h"
 #include "seHelper.h"
+#include "skinResolution.h"
 
 #include <Windows.h>
 
@@ -26,10 +27,34 @@ constexpr uint32_t kEndOfCentralDirectorySignature = 0x06054b50u;
 constexpr uint16_t kStoredMethod = 0;
 constexpr uint64_t kMaximumClassicZipSize = 0xFFFFFFFFull;
 constexpr size_t kCopyBufferSize = 64 * 1024;
-constexpr int kOlrFormatVersion = 8;
+constexpr int kOlrFormatVersion = 9;
 constexpr const char* kSimpleModeAuthority = "lr2-source-v0.4";
 constexpr const char* kLegacySemanticObjectAuthority = "lr2-destination-v0.7";
-constexpr const char* kSemanticObjectAuthority = "lr2-destination-parts-v0.8";
+constexpr const char* kV8SemanticObjectAuthority = "lr2-destination-parts-v0.8";
+constexpr const char* kSemanticObjectAuthority = "lr2-destination-parts-v0.9";
+constexpr const char* kCompatibilityBaselineEntry =
+    "lr2/.olr-compatibility-baseline.lr2skin";
+constexpr const char* kPreserveOriginalMainEntry =
+    "lr2/.olr-preserve-original-main";
+
+SESkinResolutionDecision ResolveOlrExportResolution(
+    const std::string& script) {
+    std::vector<std::string> lines;
+    std::istringstream input(script);
+    std::string line;
+    while (std::getline(input, line)) lines.push_back(line);
+    SESkinResolutionDecision decision = SEResolveSkinResolution(lines);
+    if (decision.source == SESkinResolutionSource::Default640x480) {
+        decision.width = 1280;
+        decision.height = 720;
+    }
+    return decision;
+}
+
+bool IsPartSemanticAuthority(const std::string& authority) {
+    return authority == kV8SemanticObjectAuthority ||
+        authority == kSemanticObjectAuthority;
+}
 
 struct PackageEntrySource {
     std::string name;
@@ -410,7 +435,7 @@ std::string BuildSkinJson(const SEOLRSkinDocument& document) {
         SemanticObjectsInCompilerRowOrder(document);
     json << "{\n";
     json << "  \"format\": \"olrskin-semantic\",\n";
-    json << "  \"version\": 8,\n";
+    json << "  \"version\": " << kOlrFormatVersion << ",\n";
     json << "  \"metadata\": {\"title\": \"" << JsonEscape(document.title)
         << "\", \"maker\": \"" << JsonEscape(document.maker)
         << "\", \"scene\": \"" << JsonEscape(document.scene) << "\"},\n";
@@ -513,8 +538,8 @@ std::string BuildManifestJson(const SEOLRSkinDocument& document,
     json << "{\n"
         << "  \"format\": \"olrskin\",\n"
         << "  \"version\": " << kOlrFormatVersion << ",\n"
-        << "  \"profile\": \"lr2-semantic-v0.8\",\n"
-        << "  \"semantic_authority\": \"object parts + simple_mode\",\n"
+        << "  \"profile\": \"lr2-semantic-v0.9\",\n"
+        << "  \"semantic_authority\": \"change-aware object parts + simple_mode\",\n"
         << "  \"lr2_entry\": \"lr2/main.lr2skin\",\n"
         << "  \"skin_entry\": \"skin.json\",\n"
         << "  \"path_map_entry\": \"compatibility/path-map.json\",\n"
@@ -528,6 +553,10 @@ std::string BuildManifestJson(const SEOLRSkinDocument& document,
         << "  \"skipped_virtual_file_count\": " << skippedVirtualFileCount << ",\n"
         << "  \"unresolved_image_count\": " << document.unresolvedImageCount << ",\n"
         << "  \"unresolved_resource_count\": " << document.unresolvedResourceCount << ",\n"
+        << "  \"materialization\": \""
+        << (document.preserveOriginalMainWhenUnchanged
+            ? "original-main-if-unchanged" : "flattened-compatibility")
+        << "\",\n"
         << "  \"limitations\": [\"SRC fields outside simple_mode remain compatibility-owned\", "
         << "\"IF/ELSE control flow remains compatibility-owned\", "
         << "\"resources outside captured LR2 roots remain external\"]\n"
@@ -1494,11 +1523,11 @@ private:
         }
         if (!foundAuthority || !foundItems)
             return Fail("objects requires authority and items.", errorMessage);
-        if (authority == kSemanticObjectAuthority && semanticItemsUseLegacy_)
-            return Fail("V0.8 objects authority cannot contain legacy flat destinations.",
+        if (IsPartSemanticAuthority(authority) && semanticItemsUseLegacy_)
+            return Fail("Part-based objects authority cannot contain legacy flat destinations.",
                 errorMessage);
         if (authority == kLegacySemanticObjectAuthority && semanticItemsUseParts_)
-            return Fail("V0.7 objects authority cannot contain V0.8 parts.",
+            return Fail("V0.7 objects authority cannot contain part-based destinations.",
                 errorMessage);
         return true;
     }
@@ -1580,10 +1609,10 @@ private:
             foundAnimation || foundCondition;
         if (foundParts) {
             if (hasLegacyCompilerFields)
-                return Fail("A V0.8 semantic Object cannot mix parts and flat destination fields.",
+                return Fail("A part-based semantic Object cannot mix parts and flat destination fields.",
                     errorMessage);
             if (parts.empty())
-                return Fail("A V0.8 semantic Object requires at least one part.", errorMessage);
+                return Fail("A part-based semantic Object requires at least one part.", errorMessage);
             semanticItemsUseParts_ = true;
             std::set<std::string> partIds;
             for (SemanticCompilePart& part : parts) {
@@ -2238,6 +2267,21 @@ bool ParseOLRManifestJson(const std::string& manifestJson,
         errorMessage = "The OLR V0.8 manifest profile, semantic authority or required counts are unsupported.";
         return false;
     }
+    if (manifest.version == 9 && (!manifest.hasProfile ||
+        manifest.profile != "lr2-semantic-v0.9" ||
+        !manifest.hasSemanticAuthority ||
+        manifest.semanticAuthority !=
+            "change-aware object parts + simple_mode" ||
+        !manifest.hasObjectCount || !manifest.hasPartCount ||
+        !manifest.hasDestinationCount || !manifest.hasSimpleSlotCount ||
+        !manifest.hasAssetCount || !manifest.hasVirtualRootCount ||
+        !manifest.hasVirtualFileCount ||
+        !manifest.hasSkippedVirtualFileCount ||
+        !manifest.hasUnresolvedImageCount ||
+        !manifest.hasUnresolvedResourceCount)) {
+        errorMessage = "The OLR V0.9 manifest profile, semantic authority or required counts are unsupported.";
+        return false;
+    }
     packageInfo.formatVersion = manifest.version;
     packageInfo.objectCount = manifest.objectCount;
     packageInfo.semanticPartCount = manifest.partCount;
@@ -2376,6 +2420,18 @@ bool IsSafeSemanticTransform(const SemanticCompileTransform& transform) {
     return true;
 }
 
+bool IsEquivalentLr2IntegerToken(const std::string& token, int value) {
+    const char* begin = token.c_str();
+    while (*begin && std::isspace(static_cast<unsigned char>(*begin))) ++begin;
+    if (!*begin) return value == 0;
+    char* end = nullptr;
+    const long long parsed = _strtoi64(begin, &end, 10);
+    if (end == begin) return false;
+    while (*end && std::isspace(static_cast<unsigned char>(*end))) ++end;
+    return !*end && parsed >= (std::numeric_limits<int>::min)() &&
+        parsed <= (std::numeric_limits<int>::max)() && parsed == value;
+}
+
 bool AssignCompiledField(std::vector<std::string>& fields,
     const std::string& command, const char* fieldName, int value,
     bool required, std::string& errorMessage) {
@@ -2389,6 +2445,11 @@ bool AssignCompiledField(std::vector<std::string>& fields,
     if (column >= (int)fields.size()) fields.resize((size_t)column + 1);
     if (!required && value == 0 && fields[(size_t)column].empty())
         return true;
+    // V0.9 treats the compatibility row as the baseline. LR2 parses an empty
+    // numeric token as zero, so an unchanged semantic zero must not normalize
+    // that token to the text "0". The same rule preserves whitespace and
+    // leading zeroes until a semantic edit actually changes the LR2 value.
+    if (IsEquivalentLr2IntegerToken(fields[(size_t)column], value)) return true;
     fields[(size_t)column] = std::to_string(value);
     return true;
 }
@@ -2437,6 +2498,8 @@ bool ValidateManifest(FILE* archive,
     bool hasPathMap = false;
     bool hasMain = false;
     bool hasExportMain = false;
+    bool hasCompatibilityBaseline = false;
+    bool hasPreserveOriginalMain = false;
     for (const PackageEntryRecord& entry : entries) {
         info.entries.push_back(entry.name);
         if (entry.name == "manifest.json") manifest = &entry;
@@ -2445,6 +2508,10 @@ bool ValidateManifest(FILE* archive,
         else if (entry.name == "compatibility/path-map.json") hasPathMap = true;
         else if (entry.name == "lr2/main.lr2skin") hasMain = true;
         else if (entry.name == "lr2/.olr-export-main.txt") hasExportMain = true;
+        else if (entry.name == kCompatibilityBaselineEntry)
+            hasCompatibilityBaseline = true;
+        else if (entry.name == kPreserveOriginalMainEntry)
+            hasPreserveOriginalMain = true;
         if (entry.name.rfind("lr2/assets/", 0) == 0 ||
             entry.name.rfind("lr2/vfs/", 0) == 0)
             ++info.assetCount;
@@ -2465,10 +2532,10 @@ bool ValidateManifest(FILE* archive,
         errorMessage = "The OLR V0.2+ package is missing its virtual path metadata.";
         return false;
     }
-    if (manifestInfo.formatVersion == 8) {
+    if (manifestInfo.formatVersion >= 8) {
         if (info.assetCount != manifestInfo.assetCount ||
             info.virtualFileCount != manifestInfo.virtualFileCount) {
-            errorMessage = "The OLR V0.8 manifest asset counts do not match the archive.";
+            errorMessage = "The OLR V0.8+ manifest asset counts do not match the archive.";
             return false;
         }
 
@@ -2484,13 +2551,16 @@ bool ValidateManifest(FILE* archive,
         SimpleModeJsonReader skinReader(skinJson);
         if (!skinReader.Read(simpleAuthority, slots, objectAuthority, objects,
             hasObjects, errorMessage)) return false;
+        const int expectedVersion = manifestInfo.formatVersion;
+        const char* expectedAuthority = expectedVersion == 8
+            ? kV8SemanticObjectAuthority : kSemanticObjectAuthority;
         if (!skinReader.HasDocumentFormat() ||
             skinReader.DocumentFormat() != "olrskin-semantic" ||
             !skinReader.HasDocumentVersion() ||
-            skinReader.DocumentVersion() != 8 ||
+            skinReader.DocumentVersion() != expectedVersion ||
             simpleAuthority != kSimpleModeAuthority || !hasObjects ||
-            objectAuthority != kSemanticObjectAuthority) {
-            errorMessage = "The OLR V0.8 manifest and skin.json authorities do not match.";
+            objectAuthority != expectedAuthority) {
+            errorMessage = "The OLR V0.8+ manifest and skin.json authorities do not match.";
             return false;
         }
 
@@ -2504,7 +2574,12 @@ bool ValidateManifest(FILE* archive,
             manifestInfo.semanticPartCount != static_cast<int>(partKeys.size()) ||
             manifestInfo.destinationCount != static_cast<int>(objects.size()) ||
             manifestInfo.simpleSlotCount != static_cast<int>(slots.size())) {
-            errorMessage = "The OLR V0.8 manifest semantic counts do not match skin.json.";
+            errorMessage = "The OLR V0.8+ manifest semantic counts do not match skin.json.";
+            return false;
+        }
+        if (manifestInfo.formatVersion == 9 &&
+            hasCompatibilityBaseline != hasPreserveOriginalMain) {
+            errorMessage = "The OLR V0.9 original-main metadata is incomplete.";
             return false;
         }
     }
@@ -2541,6 +2616,9 @@ bool ValidateManifest(FILE* archive,
     info.virtualRootCount = manifestInfo.virtualRootCount;
     info.skippedVirtualFileCount = manifestInfo.skippedVirtualFileCount;
     info.unresolvedResourceCount = manifestInfo.unresolvedResourceCount;
+    info.preservesOriginalMainWhenUnchanged =
+        manifestInfo.formatVersion == 9 && hasCompatibilityBaseline &&
+        hasPreserveOriginalMain;
     return true;
 }
 
@@ -2636,8 +2714,11 @@ bool SECompileOLRSimpleMode(const std::string& skinJson,
             continue;
         const int values[] = { slot.graphicId, slot.x, slot.y, slot.width,
             slot.height, slot.divX, slot.divY, slot.cycle };
-        for (int field = 0; field < 8; ++field)
-            fields[(size_t)field + 2] = std::to_string(values[field]);
+        for (int field = 0; field < 8; ++field) {
+            std::string& token = fields[(size_t)field + 2];
+            if (!IsEquivalentLr2IntegerToken(token, values[field]))
+                token = std::to_string(values[field]);
+        }
         std::ostringstream rebuilt;
         for (size_t field = 0; field < fields.size(); ++field) {
             if (field) rebuilt << ',';
@@ -2683,7 +2764,9 @@ bool SECompileOLRSemantics(const std::string& skinJson,
         compiledSlotCount = simpleCount;
         return true;
     }
-    const bool usesPartAuthority = objectAuthority == kSemanticObjectAuthority;
+    const bool usesPartAuthority = IsPartSemanticAuthority(objectAuthority);
+    const bool usesV8PartAuthority =
+        objectAuthority == kV8SemanticObjectAuthority;
     const bool usesLegacyAuthority =
         objectAuthority == kLegacySemanticObjectAuthority;
     if (!usesPartAuthority && !usesLegacyAuthority) {
@@ -2693,13 +2776,14 @@ bool SECompileOLRSemantics(const std::string& skinJson,
     }
     if (usesPartAuthority && (!reader.HasDocumentFormat() ||
         reader.DocumentFormat() != "olrskin-semantic" ||
-        !reader.HasDocumentVersion() || reader.DocumentVersion() != 8)) {
-        errorMessage = "V0.8 part objects require an olrskin-semantic version 8 document.";
+        !reader.HasDocumentVersion() ||
+        reader.DocumentVersion() != (usesV8PartAuthority ? 8 : 9))) {
+        errorMessage = "Part-based objects require the matching V0.8 or V0.9 semantic document.";
         return false;
     }
     if (usesLegacyAuthority && reader.HasDocumentVersion() &&
         reader.DocumentVersion() >= 8) {
-        errorMessage = "A version 8 semantic document cannot use the V0.7 flat object authority.";
+        errorMessage = "A version 8+ semantic document cannot use the V0.7 flat object authority.";
         return false;
     }
     if (arr_CommandHelp.count <= 0 && LoadCommandHelp(nullptr) != 0) {
@@ -2781,19 +2865,19 @@ bool SECompileOLRSemantics(const std::string& skinJson,
             int optionSlot = (int)index;
             if (usesPartAuthority) {
                 if (!condition.hasSlot || condition.slot < 1 || condition.slot > 3) {
-                    errorMessage = "V0.8 condition terms require a slot from 1 to 3: " +
+                    errorMessage = "Part-based condition terms require a slot from 1 to 3: " +
                         object.id + ".";
                     return false;
                 }
                 optionSlot = condition.slot - 1;
                 if (hasOptions[optionSlot]) {
-                    errorMessage = "A V0.8 destination contains duplicate OP slots: " +
+                    errorMessage = "A part-based destination contains duplicate OP slots: " +
                         object.id + ".";
                     return false;
                 }
             }
             else if (condition.hasSlot) {
-                errorMessage = "V0.7 condition terms cannot use V0.8 slots.";
+                errorMessage = "V0.7 condition terms cannot use part-based slots.";
                 return false;
             }
             int option = condition.rawOption;
@@ -2905,6 +2989,17 @@ bool SEWriteOLRSkinPackage(const char* packagePath,
         errorMessage = "The OLR package has no compiled LR2 compatibility script.";
         return false;
     }
+    if (document.preserveOriginalMainWhenUnchanged &&
+        (document.lr2CompatibilityBaseline.empty() ||
+            document.lr2CompatibilityBaseline != document.lr2Script)) {
+        errorMessage = "The OLR V0.9 original-main baseline does not match the compatibility script.";
+        return false;
+    }
+    std::string lr2ExportScript;
+    if (!SEPrepareLr2ExportResolution(document.lr2Script,
+        document.canvasWidth, document.canvasHeight, lr2ExportScript,
+        errorMessage))
+        return false;
     if (!IsSafeArchivePath(document.lr2ExportMainPath) ||
         document.lr2ExportMainPath.rfind("LR2files/", 0) != 0 ||
         document.lr2ExportMainPath.find('*') != std::string::npos ||
@@ -2937,9 +3032,15 @@ bool SEWriteOLRSkinPackage(const char* packagePath,
         BuildSourceMapJson(document)));
     entries.push_back(MemoryEntry("compatibility/path-map.json",
         BuildPathMapJson(document, rootStats)));
-    entries.push_back(MemoryEntry("lr2/main.lr2skin", document.lr2Script));
+    entries.push_back(MemoryEntry("lr2/main.lr2skin", lr2ExportScript));
     entries.push_back(MemoryEntry("lr2/.olr-export-main.txt",
         document.lr2ExportMainPath + "\n"));
+    if (document.preserveOriginalMainWhenUnchanged) {
+        entries.push_back(MemoryEntry(kCompatibilityBaselineEntry,
+            lr2ExportScript));
+        entries.push_back(MemoryEntry(kPreserveOriginalMainEntry,
+            "original-main-if-unchanged\n"));
+    }
     for (PackageEntrySource& asset : assetEntries)
         entries.push_back(std::move(asset));
 
@@ -3074,6 +3175,23 @@ bool SEExtractOLRSkinPackage(const char* packagePath,
         packageInfo.compiledSimpleSlotCount = compiledSlotCount;
         packageInfo.compiledSemanticObjectCount = compiledObjectCount;
         packageInfo.compiledAnimationFrameCount = compiledAnimationFrameCount;
+        if (packageInfo.preservesOriginalMainWhenUnchanged) {
+            const std::filesystem::path baselinePath = target /
+                std::filesystem::path(kCompatibilityBaselineEntry).filename();
+            std::ifstream baselineFile(baselinePath, std::ios::binary);
+            const std::string baseline((std::istreambuf_iterator<char>(baselineFile)),
+                std::istreambuf_iterator<char>());
+            if (!baselineFile || baseline != compiledScript) {
+                // A semantic edit changed the compatibility script. Remove the
+                // preservation capability now so a later LR2 export cannot
+                // silently choose the stale include-based main from vfs/.
+                std::filesystem::remove(target /
+                    std::filesystem::path(kPreserveOriginalMainEntry).filename(),
+                    filesystemError);
+                filesystemError.clear();
+                packageInfo.preservesOriginalMainWhenUnchanged = false;
+            }
+        }
     }
     return true;
 }
@@ -3122,6 +3240,27 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
         return false;
     }
 
+    const SESkinResolutionDecision exportResolution =
+        ResolveOlrExportResolution(script);
+    std::string compiledScript;
+    if (!SEPrepareLr2ExportResolution(script, exportResolution.width,
+        exportResolution.height, compiledScript, errorMessage))
+        return false;
+
+    const std::filesystem::path compatibilityBaselinePath = workspace /
+        std::filesystem::path(kCompatibilityBaselineEntry).filename();
+    const std::filesystem::path preserveOriginalMainPath = workspace /
+        std::filesystem::path(kPreserveOriginalMainEntry).filename();
+    std::ifstream baselineFile(compatibilityBaselinePath, std::ios::binary);
+    const std::string compatibilityBaseline(
+        (std::istreambuf_iterator<char>(baselineFile)),
+        std::istreambuf_iterator<char>());
+    std::error_code preservationError;
+    const bool hasPreservationMarker = std::filesystem::is_regular_file(
+        preserveOriginalMainPath, preservationError) && !preservationError;
+    const bool canPreserveOriginalMain = hasPreservationMarker && baselineFile &&
+        compatibilityBaseline == script;
+
     std::error_code filesystemError;
     const std::filesystem::path target(outputDirectory);
     if (std::filesystem::exists(target, filesystemError)) {
@@ -3168,7 +3307,6 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
     }
     else filesystemError.clear();
 
-    std::string compiledScript = script;
     const auto restoreVirtualPaths = [&](const std::string& virtualPrefix) {
         const std::string lr2Prefix = "LR2files\\";
         size_t position = 0;
@@ -3195,7 +3333,9 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
         // assets/*. The compiled LR2 main keeps those relative declarations,
         // so materialize the folder beside the final main skin as well.
         const std::filesystem::path assetRoot = workspace / "assets";
-        if (std::filesystem::is_directory(assetRoot, filesystemError) &&
+        const bool hasFixedAssets = std::filesystem::is_directory(assetRoot,
+            filesystemError) && !filesystemError;
+        if (hasFixedAssets &&
             !filesystemError) {
             std::filesystem::recursive_directory_iterator iterator(assetRoot,
                 std::filesystem::directory_options::skip_permission_denied,
@@ -3231,18 +3371,43 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
         }
         else filesystemError.clear();
         if (ok) {
-            std::filesystem::create_directories(compiledMain.parent_path(), filesystemError);
-            FILE* output = filesystemError ? nullptr : OpenFile(compiledMain.string().c_str(), "wb");
-            bool writeOk = output != nullptr;
-            if (writeOk && fwrite(compiledScript.data(), 1, compiledScript.size(), output) !=
-                compiledScript.size())
-                writeOk = false;
-            if (output && fclose(output) != 0) writeOk = false;
-            if (!writeOk) {
-                errorMessage = "The compiled LR2 main skin could not be written.";
-                ok = false;
+            std::error_code mainError;
+            const bool originalMainIsAvailable = std::filesystem::is_regular_file(
+                compiledMain, mainError) && !mainError;
+            if (canPreserveOriginalMain && !hasFixedAssets &&
+                originalMainIsAvailable) {
+                std::ifstream originalMainFile(compiledMain, std::ios::binary);
+                const std::string originalMain(
+                    (std::istreambuf_iterator<char>(originalMainFile)),
+                    std::istreambuf_iterator<char>());
+                const bool originalMainRead = originalMainFile.is_open();
+                originalMainFile.close();
+                std::string preparedOriginalMain;
+                std::string originalResolutionError;
+                if (originalMainRead && SEPrepareLr2ExportResolution(
+                    originalMain, exportResolution.width,
+                    exportResolution.height, preparedOriginalMain,
+                    originalResolutionError) && WriteTextFileAtomic(
+                        compiledMain.string(), preparedOriginalMain,
+                        originalResolutionError)) {
+                    exportInfo.mainSkinPath = compiledMain.string();
+                    exportInfo.preservedOriginalMain = true;
+                }
             }
-            else exportInfo.mainSkinPath = compiledMain.string();
+            if (!exportInfo.preservedOriginalMain) {
+                std::filesystem::create_directories(compiledMain.parent_path(), filesystemError);
+                FILE* output = filesystemError ? nullptr : OpenFile(compiledMain.string().c_str(), "wb");
+                bool writeOk = output != nullptr;
+                if (writeOk && fwrite(compiledScript.data(), 1, compiledScript.size(), output) !=
+                    compiledScript.size())
+                    writeOk = false;
+                if (output && fclose(output) != 0) writeOk = false;
+                if (!writeOk) {
+                    errorMessage = "The compiled LR2 main skin could not be written.";
+                    ok = false;
+                }
+                else exportInfo.mainSkinPath = compiledMain.string();
+            }
         }
     }
 

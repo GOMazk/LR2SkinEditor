@@ -3403,9 +3403,10 @@ int WORKSPACE::LoadSceneSE() {
 }
 
 // Persist the resolution from the skin picker without requiring the skin to
-// be loaded first. LR2 stores the target width and height in fields 6 and 7 of
-// #INFORMATION. The final replace is atomic so a failed write leaves the
-// original skin untouched.
+// be loaded first. #INFORMATION is the LR2-safe authority; active
+// #RESOLUTION rows are neutralized because several LR2 builds write them into
+// the next skin-list slot. The final replace is atomic so a failed write
+// leaves the original skin untouched.
 static bool SaveResolutionToSkinFile(const char* path, int width, int height) {
     if (!path || !*path || width <= 0 || height <= 0) return false;
     FILE* input = fopen(path, "rb");
@@ -3420,61 +3421,18 @@ static bool SaveResolutionToSkinFile(const char* path, int width, int height) {
     }
     fclose(input);
 
-    size_t informationStart = std::string::npos;
-    size_t informationEnd = std::string::npos;
-
-    for (size_t lineStart = 0; lineStart <= contents.size();) {
-        size_t lineBreak = contents.find('\n', lineStart);
-        const size_t fullEnd = lineBreak == std::string::npos ? contents.size() : lineBreak + 1;
-        size_t contentEnd = lineBreak == std::string::npos ? contents.size() : lineBreak;
-        if (contentEnd > lineStart && contents[contentEnd - 1] == '\r') --contentEnd;
-        size_t commandStart = lineStart;
-        if (commandStart == 0 && contents.size() >= 3 &&
-            (unsigned char)contents[0] == 0xEF && (unsigned char)contents[1] == 0xBB &&
-            (unsigned char)contents[2] == 0xBF) commandStart = 3;
-        while (commandStart < contentEnd &&
-            (contents[commandStart] == ' ' || contents[commandStart] == '\t')) ++commandStart;
-        const size_t commandLength = contentEnd - commandStart;
-        if (commandLength >= 12 &&
-            _strnicmp(contents.c_str() + commandStart, "#INFORMATION", 12) == 0 &&
-            (commandLength == 12 || contents[commandStart + 12] == ',' ||
-                contents[commandStart + 12] == ' ' || contents[commandStart + 12] == '\t')) {
-            informationStart = commandStart;
-            informationEnd = contentEnd;
-            break;
-        }
-        if (lineBreak == std::string::npos) break;
-        lineStart = fullEnd;
-    }
-
-    if (informationStart == std::string::npos) return false;
-
-    std::string information = contents.substr(informationStart, informationEnd - informationStart);
-    std::vector<std::string> fields;
-    size_t fieldStart = 0;
-    for (;;) {
-        const size_t comma = information.find(',', fieldStart);
-        fields.push_back(information.substr(fieldStart,
-            comma == std::string::npos ? std::string::npos : comma - fieldStart));
-        if (comma == std::string::npos) break;
-        fieldStart = comma + 1;
-    }
-    while (fields.size() < 8) fields.push_back("");
-    fields[6] = std::to_string(width);
-    fields[7] = std::to_string(height);
-
-    std::string updatedInformation;
-    for (size_t i = 0; i < fields.size(); ++i) {
-        if (i) updatedInformation += ',';
-        updatedInformation += fields[i];
-    }
-    contents.replace(informationStart, informationEnd - informationStart, updatedInformation);
+    std::string preparedContents;
+    std::string resolutionError;
+    if (!SEPrepareLr2ExportResolution(contents, width, height,
+        preparedContents, resolutionError))
+        return false;
 
     const std::string tempPath = std::string(path) + ".resolution.tmp";
     FILE* output = fopen(tempPath.c_str(), "wb");
     if (!output) return false;
-    const bool writeOk = contents.empty() ||
-        fwrite(contents.data(), 1, contents.size(), output) == contents.size();
+    const bool writeOk = preparedContents.empty() ||
+        fwrite(preparedContents.data(), 1, preparedContents.size(), output) ==
+            preparedContents.size();
     const bool closeOk = fclose(output) == 0;
     if (!writeOk || !closeOk) {
         remove(tempPath.c_str());
@@ -9772,9 +9730,12 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
     document.maker = Cp932ToUtf8(meta.maker.body ? meta.maker.outstr() : "");
     document.scene = meta.type >= 0 && meta.type < 21
         ? SKINTYPESTR[meta.type] : "UNKNOWN";
-    document.canvasWidth = skinSizeX;
-    document.canvasHeight = skinSizeY;
-    document.resolutionSource = SESkinResolutionSourceText(skinResolutionSource);
+    const bool usesOlrHdDefault =
+        skinResolutionSource == SESkinResolutionSource::Default640x480;
+    document.canvasWidth = usesOlrHdDefault ? 1280 : skinSizeX;
+    document.canvasHeight = usesOlrHdDefault ? 720 : skinSizeY;
+    document.resolutionSource = usesOlrHdDefault
+        ? "OLR HD default" : SESkinResolutionSourceText(skinResolutionSource);
     document.resolutionInferred = SEIsInferredSkinResolution(skinResolutionSource);
 
     const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
@@ -9836,7 +9797,7 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
             const bool commandChanged = lastDestinationCommand != command;
             if (commandChanged) destination = nullptr;
             lastDestinationCommand = command;
-            // V0.8 owns only DST commands that expose the complete
+            // V0.9 owns only DST commands that expose the complete
             // Layout/Timeline contract. Unsupported rows remain byte-preserved
             // by the LR2 compatibility script and still delimit SRC cohorts.
             if (!hasCompleteContract) {
@@ -9896,7 +9857,35 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         semanticSlot.divX = slot.divX;
         semanticSlot.divY = slot.divY;
         semanticSlot.cycle = slot.cycle;
-        if (!SEIsOLRSimpleSlotCompilable(semanticSlot)) {
+        // Simple Mode uses effective 1x1 divisions for Preview, but the OLR
+        // compiler address must be projected from the raw CSV values. Without
+        // this boundary, a legacy div_y=0 row becomes div_y=1 merely by
+        // importing an untouched package.
+        bool hasRawAsset = slot.row >= 0 && slot.row < skinfileLines.count;
+        if (hasRawAsset) {
+            SKINFILELINEREAD& sourceRow =
+                ((SKINFILELINEREAD*)skinfileLines.data)[slot.row];
+            const char* sourceCommand = sourceRow.csv.str[0].body
+                ? sourceRow.csv.str[0].outstr() : slot.command.c_str();
+            hasRawAsset =
+                ReadCommandField(sourceRow.csv, sourceCommand, "gr",
+                    semanticSlot.graphicId) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "x",
+                    semanticSlot.x) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "y",
+                    semanticSlot.y) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "w",
+                    semanticSlot.width) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "h",
+                    semanticSlot.height) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "div_x",
+                    semanticSlot.divX) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "div_y",
+                    semanticSlot.divY) &&
+                ReadCommandField(sourceRow.csv, sourceCommand, "cycle",
+                    semanticSlot.cycle);
+        }
+        if (!hasRawAsset || !SEIsOLRSimpleSlotCompilable(semanticSlot)) {
             ++rawCompatibilitySimpleSlotCount;
             continue;
         }
@@ -10053,6 +10042,60 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         document.sourceMap.push_back(std::move(source));
     }
     document.lr2Script = lr2.str();
+
+    // V0.9 keeps the exact include-based LR2 main as the install authority
+    // while the generated compatibility script is unchanged. The original
+    // file must already belong to a captured virtual root; otherwise there is
+    // no complete include/resource graph that can safely replace the flat
+    // compatibility script during materialization.
+    std::filesystem::path capturedOriginalMain;
+    for (const SEOLRVirtualRootInput& root : document.virtualRoots) {
+        std::string logicalRoot = root.logicalRoot;
+        std::replace(logicalRoot.begin(), logicalRoot.end(), '\\', '/');
+        std::string exportMain = document.lr2ExportMainPath;
+        std::replace(exportMain.begin(), exportMain.end(), '\\', '/');
+        if (exportMain != logicalRoot &&
+            (exportMain.size() <= logicalRoot.size() ||
+                exportMain.compare(0, logicalRoot.size(), logicalRoot) != 0 ||
+                exportMain[logicalRoot.size()] != '/'))
+            continue;
+        std::filesystem::path relative = exportMain == logicalRoot
+            ? std::filesystem::path()
+            : std::filesystem::path(exportMain.substr(logicalRoot.size() + 1));
+        std::error_code originalError;
+        const std::filesystem::path candidate =
+            std::filesystem::path(root.sourceDirectory) / relative;
+        if (std::filesystem::is_regular_file(candidate, originalError) &&
+            !originalError) {
+            capturedOriginalMain = candidate;
+            break;
+        }
+    }
+    if (!capturedOriginalMain.empty() && document.assets.empty()) {
+        if (SEIsOLRVirtualWorkspace(mainpath)) {
+            const std::filesystem::path workspace =
+                std::filesystem::path(mainpath).parent_path();
+            std::error_code markerError;
+            const bool hasPreservationMarker = std::filesystem::is_regular_file(
+                workspace / ".olr-preserve-original-main", markerError) &&
+                !markerError;
+            std::ifstream baselineFile(
+                workspace / ".olr-compatibility-baseline.lr2skin",
+                std::ios::binary);
+            const std::string baseline(
+                (std::istreambuf_iterator<char>(baselineFile)),
+                std::istreambuf_iterator<char>());
+            if (hasPreservationMarker && baselineFile &&
+                baseline == document.lr2Script) {
+                document.preserveOriginalMainWhenUnchanged = true;
+                document.lr2CompatibilityBaseline = baseline;
+            }
+        }
+        else {
+            document.preserveOriginalMainWhenUnchanged = true;
+            document.lr2CompatibilityBaseline = document.lr2Script;
+        }
+    }
 
     // Simple Mode source_row is a compiler address inside the packaged script,
     // not the expanded Workspace row. Includes and $FILE markers above may have
@@ -10367,6 +10410,10 @@ int WORKSPACE::ExportLr2SkinInteractive() {
     result << "Created an install-ready LR2 tree with "
         << exportInfo.copiedFileCount << " resource files. Main skin: "
         << exportInfo.mainSkinPath;
+    if (exportInfo.preservedOriginalMain)
+        result << " The original include-based LR2 main was preserved.";
+    else
+        result << " The compatibility script was materialized because the original-main preservation contract was unavailable or changed.";
     olrPackageMessage = result.str();
     lastSaveState = 1;
     lastSaveMessage = "LR2 export created";
@@ -10396,7 +10443,7 @@ int WORKSPACE::drawSaveOlrSkin() {
         }
 
         ImGui::TextWrapped("Save the loaded skin as one portable .olrskin package.");
-        ImGui::TextDisabled("V0.8 writes source-bound Object parts with per-destination Layout, Timeline and Conditions, plus Simple Mode assets and LR2 compatibility data.");
+        ImGui::TextDisabled("V0.9 preserves unchanged LR2 tokens and the original include-based main, while retaining source-bound Object parts, Simple Mode assets and compatibility data.");
         if (SEIsOLRVirtualWorkspace(mainpath)) {
             ImGui::TextWrapped("This imported OLR workspace will save its current LR2 script first, so Export install-ready LR2 folder can use the same edits immediately.");
         } else {
@@ -10418,7 +10465,7 @@ int WORKSPACE::drawSaveOlrSkin() {
         ImGui::BulletText("LR2 commands, comments, timers, conditions and editor metadata are preserved.");
         ImGui::BulletText("Resources outside a resolved LR2 root remain external and are reported.");
         ImGui::BulletText("After import and Save OLRskin, File > Export install-ready LR2 folder materializes an install-ready tree.");
-        ImGui::BulletText("V0.8 part and destination fields compile into lr2/main.lr2skin; unsupported rows remain raw.");
+        ImGui::BulletText("V0.9 patches only changed semantic fields; an untouched port installs the original include-based LR2 main.");
 
         const bool hasUnsavedImageEdits = !imagePixelPaintDirtyPaths.empty();
         if (hasUnsavedImageEdits) {
@@ -11126,7 +11173,6 @@ namespace {
         skin << "// Generated by SkinEditor initial preset\r\n";
         skin << "#INFORMATION," << type << ',' << title << ',' << maker << ',' << atlasScriptPath
             << ",," << width << ',' << height << "\r\n";
-        skin << "#RESOLUTION," << width << ',' << height << "\r\n";
         skin << "#ENDOFHEADER\r\n\r\n";
         if (type == 5)
             skin << "#STARTINPUT,1000\r\n#LOADSTART,0\r\n#FADEOUT,500\r\n#CLOSE,1000\r\n";
@@ -11397,6 +11443,9 @@ int RunInitialPresetSelfTest() {
             std::istreambuf_iterator<char>());
         if (!validatePresetAtlas(atlasPath, contents))
             return 240 + testIndex;
+        if (contents.find(",,1280,720\r\n") == std::string::npos ||
+            contents.find("\r\n#RESOLUTION,") != std::string::npos)
+            return 260 + testIndex;
         if (contents.find("#SCENETIME") != std::string::npos)
             return 100 + testIndex;
 
@@ -15085,7 +15134,7 @@ int WORKSPACE::drawObjectEditor() {
                 }
 
                 // V0.5-V0.7 intentionally own one destination command family.
-                // A later family is a variant (V0.8) and remains available in
+                // A later family is a variant (V0.9) and remains available in
                 // Advanced LR2 without being mixed into this timeline.
                 for (int row : dstRows) {
                     SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];

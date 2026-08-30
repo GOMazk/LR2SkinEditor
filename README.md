@@ -12,7 +12,7 @@ Object Editor와 현대화 UI 관련 미커밋 변경이 포함될 수 있으므
 - [현재 개발 상태와 설계](docs/PROJECT_STATE.md)
 - [빌드, 실행 및 회귀 테스트](docs/BUILD_AND_TEST.md)
 - [UI 구조와 디버깅 규칙](docs/UI_ARCHITECTURE.md)
-- [OLR Skin V0.8 포맷](docs/OLRSKIN_FORMAT.md)
+- [OLR Skin V0.9 포맷](docs/OLRSKIN_FORMAT.md)
 - [외부 코드 고지](docs/THIRD_PARTY_NOTICES.md)
 - [AI/UI 지도 생성 및 활용](docs/UI_MAP.md)
 - [AI 협업 시작 가이드](docs/AI_COLLABORATION.md)

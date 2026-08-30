@@ -206,7 +206,7 @@ transform and alpha; Conditions reads timer/loop/op1..3 from its frame 0 and
 evaluates OP terms with the same `GetOptionFlag_dst()` used by Preview. The
 Inspector does not yet expose a nested part or destination-family selector.
 Other command families remain editable through `Advanced LR2`, even though the
-V0.8 package projection serializes every supported source-bound destination
+V0.9 package projection serializes every supported source-bound destination
 run. These tabs never retain their own Object, frame or condition copies; ImGui
 values are rebuilt from Workspace rows on each draw.
 
@@ -215,14 +215,16 @@ bottom-right handle is intentionally single-selection only and changes only the
 first destination's width/height (or text size), matching V0.5 static Layout
 authority. All mutations use the existing History entry points.
 
-OLR V0.8 export translates expanded SRC and DST rows through the package source
+OLR V0.9 export translates expanded SRC and DST rows through the package source
 map, derives source-bound parts, and writes each consecutive supported
 destination-command run separately. Import validates the exact source and
 destination commands and schemas before compiling; V0.7 flat Objects continue
 through their legacy authority. Layout and Timeline frame 0 must agree, and
-unknown/custom OPs remain raw numeric terms rather than being guessed. V0.8
+unknown/custom OPs remain raw numeric terms rather than being guessed. V0.9
 does not infer 1P/2P/DP variants or link alternate destination families or
-IF/ELSE branches.
+IF/ELSE branches. Compile assigns a supported numeric field only when its parsed
+LR2 value differs, preserving empty zero tokens and legacy text spellings during
+an unchanged round trip.
 
 ### Image asset selection
 
@@ -470,8 +472,10 @@ toolbar and Ctrl+S all call `SaveCurrentSkin()`; the bottom status bar derives
 native file picker and must continue switching the active working path after
 success. The loaded-workspace resolution modal is the deliberate exception to
 ordinary undoable editing: after a clean-state guard it atomically changes the
-root `#INFORMATION` resolution and reloads the workspace. Panel components must
-not duplicate any of these file operations.
+root `#INFORMATION` resolution, neutralizes active `#RESOLUTION` rows as
+`$OLR_IGNORED_RESOLUTION`, and reloads the workspace. This avoids the legacy LR2
+skin-list parser's next-slot write while keeping physical row addresses stable.
+Panel components must not duplicate any of these file operations.
 
 `skinResolution.cpp` owns the loaded canvas resolution decision. `LoadSkin()`
 passes it the fully expanded script after includes have been read, and applies
@@ -518,7 +522,7 @@ the command because bundled assets are read from disk. Neither operation
 changes `mainpath`.
 
 `ImportOlrSkinInteractive()` validates the complete archive before creating a
-directory. V0.8 then validates every nested part source binding and destination
+directory. V0.8+ then validates every nested part source binding and destination
 row, the Layout/frame-0 invariant, semantic or raw condition, and every V0.4
 `skin.json.simple_mode` row. V0.7 flat Objects retain their existing authority
 and validation path. Import atomically compiles the declared authorities into
@@ -531,7 +535,13 @@ selection continue to be owned by `WORKSPACE`.
 `ExportLr2SkinInteractive()` is the third user-facing flow. It accepts only an
 imported V0.2+ virtual workspace, rejects dirty script or pixel state, and
 materializes a new non-existing install-ready LR2 tree without writing into a
-user's LR2 installation.
+user's LR2 installation. For V0.9 it keeps the copied original include-based
+main only while the hidden marker and byte-identical compatibility baseline are
+valid, the original main exists and no fixed asset relocation is required.
+Otherwise it writes the current compatibility script, so semantic or raw edits
+cannot be lost. Both paths resolve an otherwise unknown OLR canvas to HD
+1280x720, persist the selected canvas in `#INFORMATION` fields 6/7 and leave no
+active `#RESOLUTION` command in the materialized main.
 
 After a successful import, the source `.olrskin` path is retained only as local
 Workspace state to suggest the next Save OLRskin destination. The association

@@ -41,14 +41,18 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 - `preview-simulator`: PLAY 키 모드별 메모리 chart의 시간순 lane 배치, 동시치기,
   LN/mine, 2P lane, measure event/sentinel 및 Rhythm 140 시작·리셋 계약
 - `resolution-estimator`: `#INFORMATION`/`#RESOLUTION` 우선순위, TenRiff에서 이식한
-  lane/backdrop 기반 SD/HD/FHD 판정, 화면 밖 전환 panel 제외, 640x480 fallback
-- `olr-package`: 명시적으로 두 part와 여러 source/destination을 구성한 V0.8
+  lane/backdrop 기반 SD/HD/FHD 판정, 화면 밖 전환 panel 제외, 640x480 Preview
+  fallback, LR2 출력 시 `#INFORMATION` 기록과 활성 `#RESOLUTION` 무력화
+- `olr-package`: 명시적으로 두 part와 여러 source/destination을 구성한 V0.9
   document의 stored ZIP 생성/검사/추출, manifest와 `skin.json`/archive의 구조·asset
   count 일치, nested
   part별 Layout/Timeline/Condition compile, null timer/loop와 누락 OP slot 보존,
   M.H형 1P/2P wrapper와 include 내부 고아 `#ELSE` 사이의 `$OLR_FILE` scope 분리,
   고아 control row 무력화와 열린 child `#IF` 자동 종료, 재저장 시 scope marker 비증식,
-  known OP/TIMER와 raw OP 왕복, V0.7 flat authority 호환, LR2·asset byte 보존,
+  빈 numeric zero token의 무변경 왕복, 원본 main/include graph materialization과
+  편집된 compatibility script의 안전한 fallback,
+  OLR HD 기본값 및 package/원본-main의 `#INFORMATION` 해상도 단일화,
+  known OP/TIMER와 raw OP 왕복, V0.8/V0.7 authority 호환, LR2·asset byte 보존,
   path traversal 거부, CRC 손상 탐지, CP932 가상/절대 경로의 반복 해석 안전성.
   별도 compiler fixture는 한 part의 multi-source binding과 명시적으로 구성한 두
   part 주소를 검증한다. 이 self-test는 `WORKSPACE::ExportOlrSkin()`을 호출하지
@@ -65,7 +69,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 - `initial-preset`: 공용 atlas의 읽을 수 있는 0~9 NUMBER glyph, PLAY/BATTLE 키 모드별 lane index와 각 lane의
   Normal/Mine/LN/DST_NOTE/Bomb, Measure Line, Judge Line, Gauge, FAST/SLOW,
   플레이어별 NOWJUDGE/NOWCOMBO, RESULT의 label/판정 숫자/chart 및 COURSERESULT의
-  1~5스테이지 제목/레벨과 누적 결과 필수 Object 생성
+  1~5스테이지 제목/레벨과 누적 결과 필수 Object 생성, `#INFORMATION` 해상도와
+  활성 `#RESOLUTION` 비생성
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제, graphic ID 배정과 선택
   Object SRC에 대한 원자적 Asset 적용/Undo, `#IMAGE` 경로 교체/Undo, 이미지 상태
   진단, named grid Asset 일괄 등록/단일 Undo
@@ -310,7 +315,9 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 11. 실제 M.H/IIDX 형태 스킨에서 `File > Save OLRskin`을 실행하고
     일반 ZIP viewer로 `manifest.json`, `skin.json`,
     `compatibility/source-map.json`, `compatibility/path-map.json`,
-    `lr2/main.lr2skin`, `lr2/.olr-export-main.txt`,
+    `lr2/main.lr2skin`, `lr2/.olr-export-main.txt`, V0.9의
+    `lr2/.olr-compatibility-baseline.lr2skin`,
+    `lr2/.olr-preserve-original-main`,
     `lr2/vfs/LR2files/Theme/<skin>/*`를 확인한다. map에 드라이브명이나
     로컬 절대 경로가 없어야 한다. 일반 LR2 workspace의 원본 script는 이 명령만으로
     바뀌지 않아야 한다. 같은 패키지를 `File > Import OLR package`로
@@ -326,14 +333,20 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
     `lr2/vfs/`에 재귀 포함되지 않아야 한다. 이 workspace에서
     `File > Export install-ready LR2 folder`를
     새 대상으로 실행하면
-    `<target>/LR2files/...`가 생기고 main CSV에 `vfs/`가 남지 않아야 한다.
+    `<target>/LR2files/...`가 생겨야 한다. 무편집 V0.9 package는 성공 메시지가 원본
+    include-based main 보존을 표시하고, exported main과 include tree가 원본과
+    같아야 한다. 단, main header는 `#INFORMATION` 6·7번 칸이 package canvas와 같고
+    활성 `#RESOLUTION`이 없어야 하며 이 의도된 정규화는 byte-for-byte 비교에서
+    제외한다. 나머지 빈 timer/cycle/angle, `div_x/div_y=0`,
+    `#CUSTOMOPTION`과 `#ENDOFHEADER`도 비교한다. 편집 후에는 compatibility script
+    materialization을 표시하고 main CSV에 `vfs/`가 남지 않아야 한다.
     기존 대상 폴더를 덮어쓰지 않고, 해결불가/과도하게 긴 경로는 Export 결과의
     외부 의존성/누락 경고와 manifest 개수에 나타나야 한다.
 12. Simple Mode의 Notes에서 흰 건반/검은 건반/scratch scope를 각각 적용해 같은
     note part만 바뀌는지 확인한다. 판정/콤보는 1P/2P pair를 확인하고, atlas grid와
     맞지 않는 image import가 거부되는지 확인한다. Hue/Saturation/Brightness variant가
     `simple-assets`의 새 PNG를 사용하고 Undo 시 원본 PNG가 변하지 않는지도 확인한다.
-13. V0.8 package의 `skin.json.simple_mode.slots[].asset` 하나를 바꾸어 Import하면
+13. V0.9 package의 `skin.json.simple_mode.slots[].asset` 하나를 바꾸어 Import하면
     대응 `#SRC_*`의 `gr/x/y/w/h/div_x/div_y/cycle`만 바뀌는지 비교한다. 잘못된
     `source_row` 또는 `source_command` package는 새 import folder 없이 실패해야 한다.
     KCOOL처럼 `#SRC_IMAGE`에 `w/h=-1` 또는 음수 width를 쓰는 legacy crop은
@@ -371,8 +384,8 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
     `objects.items`의 첫 compiler row가 단조 증가하고, 같은 `sections` category의
     id도 그 순서를 따르는지 확인한다. Import된 `main.lr2skin`은 semantic target
     열 외에 행 순서가 바뀌면 안 된다.
-16. 보관 중인 V0.1-V0.7 package를 Import하여 각 version의 기존 parser/authority가
-    그대로 선택되는지 확인한다. 특히 V0.7의 flat `objects.items`가 V0.8 nested part로
+16. 보관 중인 V0.1-V0.8 package를 Import하여 각 version의 기존 parser/authority가
+    그대로 선택되는지 확인한다. 특히 V0.7의 flat `objects.items`가 V0.9 nested part로
     추측 변환되지 않아야 한다. 현재 writer는 알지 못하는 manifest/`skin.json` 확장
     필드를 재저장할 때 보존하지 않으므로, 이 동작을 forward-compatible round trip으로
     기록하거나 보장하지 않는다.
@@ -646,6 +659,8 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - 640x480 Preview
 - 1280x720 이상 HD Preview
 - `#INFORMATION`이 없고 `#RESOLUTION,1280,720`만 있는 스킨이 1280x720으로 열리는지
+- 위 스킨을 해상도 modal로 저장하면 `#INFORMATION` 6·7번 칸이 1280,720이 되고
+  활성 `#RESOLUTION`은 `$OLR_IGNORED_RESOLUTION`로 바뀌는지
 - 명시 해상도가 없고 lane은 화면 왼쪽에 있지만 좌상단 1280x720 backdrop이 있는
   스킨이 TenRiff 규칙으로 HD 판정되며 toolbar/status에 `inferred`로 표시되는지
 - 화면 밖 애니메이션/전환 panel이 backdrop으로 오인되어 HD/FHD로 승격되지 않는지
@@ -672,6 +687,8 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
   실제 BMS의 정지 이미지/동영상 BGA가 지정한 영역 안에 표시되는지 확인한다.
 - 생성한 PLAY/BATTLE 스킨을 실제 LR2에서 열고 BMS 재생을 시작했을 때
   Measure Line 누락으로 `ProcI_Play` 접근 위반이 발생하지 않는지 확인한다.
+- 생성한 main에는 해상도가 `#INFORMATION` 6·7번 칸에만 있고 활성
+  `#RESOLUTION`이 없어, LR2 스킨 목록 진입/전환 시 종료되지 않는지 확인한다.
 - Groove Gauge가 50칸으로 lane 폭을 채우고, gauge 값 변화에 따라 밝은 채움과
   어두운 빈칸 및 80% 경계 색상이 바뀌는지 확인한다.
 - PLAY 생성 직후 첫 Note가 Object Browser에서 자동 선택·스크롤되고 Inspector에

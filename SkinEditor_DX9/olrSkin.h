@@ -97,8 +97,10 @@ struct SEOLRSkinDocument {
     std::string maker;
     std::string scene;
     std::string resolutionSource;
-    int canvasWidth = 640;
-    int canvasHeight = 480;
+    // OLR authoring defaults to LR2's HD family when the source has no
+    // explicit or inferable canvas. Explicit SD/FHD sources remain unchanged.
+    int canvasWidth = 1280;
+    int canvasHeight = 720;
     bool resolutionInferred = false;
     std::vector<SEOLRSemanticObject> objects;
     std::vector<SEOLRSimpleSlot> simpleSlots;
@@ -107,6 +109,12 @@ struct SEOLRSkinDocument {
     std::vector<SEOLRAssetInput> assets;
     std::vector<SEOLRVirtualRootInput> virtualRoots;
     std::string lr2ExportMainPath;
+    // V0.9 may materialize the original include-based LR2 main instead of the
+    // flattened compatibility script, but only while that script is still
+    // byte-identical to this baseline. Semantic or editor changes disable the
+    // shortcut so no edit can be silently discarded.
+    bool preserveOriginalMainWhenUnchanged = false;
+    std::string lr2CompatibilityBaseline;
     int unresolvedImageCount = 0;
     int unresolvedResourceCount = 0;
 };
@@ -127,6 +135,7 @@ struct SEOLRPackageInfo {
     int skippedVirtualFileCount = 0;
     int unresolvedImageCount = 0;
     int unresolvedResourceCount = 0;
+    bool preservesOriginalMainWhenUnchanged = false;
 };
 
 // True when a projected source atlas can be safely edited by the V0.4 Simple
@@ -137,6 +146,7 @@ bool SEIsOLRSimpleSlotCompilable(const SEOLRSimpleSlot& slot);
 struct SEOLRLr2ExportInfo {
     int copiedFileCount = 0;
     std::string mainSkinPath;
+    bool preservedOriginalMain = false;
 };
 
 // Writes a deterministic, stored-method ZIP package through a temporary file.
@@ -163,7 +173,7 @@ bool SECompileOLRSimpleMode(const std::string& skinJson,
     const std::string& lr2Script, std::string& compiledScript,
     int& compiledSlotCount, std::string& errorMessage);
 
-// Compiles the V0.7 flat and V0.8 part-based semantic destination authorities
+// Compiles the V0.7 flat and V0.8/V0.9 part-based semantic authorities
 // with V0.4 Simple Mode into an LR2 compatibility script atomically.
 // V0.4 documents without semantic Objects remain supported.
 bool SECompileOLRSemantics(const std::string& skinJson,

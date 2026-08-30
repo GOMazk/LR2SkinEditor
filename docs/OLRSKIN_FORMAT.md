@@ -4,11 +4,10 @@
 human-facing semantic index next to the compatibility data needed to return to
 LR2 without silently deleting commands the editor does not understand.
 
-## V0.8 scope
+## V0.9 scope
 
-V0.8 keeps the V0.4 Simple Mode source compiler and replaces V0.7's flat,
-first-destination-family Object projection with source-bound nested Object
-parts:
+V0.9 keeps V0.8's source-bound nested Object parts and V0.4 Simple Mode source
+compiler, then makes LR2 fidelity the release focus:
 
 - save the currently loaded, fully expanded LR2 document as one ZIP package
   through `File > Save OLRskin`, retaining path-free `$OLR_FILE start/end`
@@ -36,15 +35,27 @@ parts:
   skin is edited or previewed;
 - bundle each resolved logical LR2 root, including wildcard choices, fonts and
   archive-backed resources, under `lr2/vfs/LR2files/...`;
-- keep fixed non-LR2-rooted images under `lr2/assets/`; and
+- keep fixed non-LR2-rooted images under `lr2/assets/`;
 - materialize a new install-ready `LR2files/...` tree only when the user invokes
-  `File > Export install-ready LR2 folder` from an imported V0.2+ workspace.
+  `File > Export install-ready LR2 folder` from an imported V0.2+ workspace;
+- use HD 1280x720 as the OLR canvas only when the loaded source has no explicit
+  or TenRiff-inferred resolution, and write the selected canvas to LR2's
+  `#INFORMATION` fields 6 and 7;
+- turn every active `#RESOLUTION` row in package/materialized mains into an
+  inert `$OLR_IGNORED_RESOLUTION` row while preserving its physical row address,
+  avoiding the LR2 skin-list parser path that can corrupt the next skin slot;
+- compare each owned numeric field by its parsed LR2 value before writing, so an
+  unchanged empty zero, whitespace or leading-zero spelling is not normalized;
+  and
+- when the compatibility script is still byte-identical to its V0.9 baseline,
+  materialize the original captured main and include graph instead of replacing
+  it with the flattened compatibility script.
 
 `skin.json.objects` and `skin.json.simple_mode` are the only compiler inputs.
 `sections` contains Object ids for navigation, not duplicate values. The raw LR2
 script remains compatibility authority for unsupported SRC fields, unowned
 condition slots, control flow, events, comments, metadata and unknown commands.
-Parts describe source/DST adjacency only. V0.8 does not infer 1P/2P/DP variants
+Parts describe source/DST adjacency only. V0.9 does not infer 1P/2P/DP variants
 or link parts across IF/ELSE branches.
 
 ## Save, import and LR2 export
@@ -63,8 +74,25 @@ portable data: a new document load clears it, and neither the package nor LR2
 folder export serializes it.
 
 Import still validates the complete archive before creating a new extraction
-folder. `File > Export install-ready LR2 folder` remains available only to imported V0.2+
-workspaces and materializes a new non-existing install-ready LR2 tree.
+folder. `File > Export install-ready LR2 folder` remains available only to
+imported V0.2+ workspaces and materializes a new non-existing install-ready LR2
+tree.
+
+The original-main shortcut is deliberately invalidated by evidence, not by a
+guess. Import removes its marker if semantic compilation changes
+`main.lr2skin`. A later save carries the marker forward only when the generated
+compatibility script still equals the stored baseline, the recorded original
+main is present in a captured root and no relocated fixed `assets/` are needed.
+All other cases use the compatibility-script materializer so editor changes
+cannot be silently discarded.
+
+Resolution is normalized at the package boundary, not by mutating the opened
+source skin. `skin.json.canvas` and `lr2/main.lr2skin` therefore agree. An
+explicit or inferred SD/FHD source keeps that family; only the otherwise
+unresolved OLR default becomes HD. LR2 output has one executable authority:
+`#INFORMATION,...,width,height`. A legacy `#RESOLUTION` row remains visible only
+behind `$OLR_IGNORED_RESOLUTION` so semantic and source-map row numbers do not
+shift.
 
 ## Runtime path model
 
@@ -108,6 +136,8 @@ example.olrskin
 `-- lr2/
     |-- main.lr2skin
     |-- .olr-export-main.txt
+    |-- .olr-compatibility-baseline.lr2skin  (optional V0.9)
+    |-- .olr-preserve-original-main          (optional V0.9)
     |-- vfs/
     |   `-- LR2files/
     |       `-- Theme/
@@ -126,6 +156,10 @@ be resolved. Existing `.olrskin` containers and interrupted
 `.olrskin.skineditor.tmp` files inside a captured virtual root are transport
 artifacts, not LR2 assets, so export skips and counts them. This prevents a
 save/import/save cycle from recursively embedding the previous package.
+The two V0.9 original-main entries are a pair: validation rejects a package that
+contains only one. The baseline is the exact compatibility script at package
+creation; the marker grants only the conditional materialization behavior
+described above.
 
 All entry names use forward slashes and must be relative. Import rejects an
 absolute path, drive prefix, empty path segment, `.` or `..` segment, backslash,
@@ -135,14 +169,14 @@ target directory.
 
 ## `manifest.json`
 
-Required V0.8 fields include:
+The current V0.9 writer emits:
 
 ```json
 {
   "format": "olrskin",
-  "version": 8,
-  "profile": "lr2-semantic-v0.8",
-  "semantic_authority": "object parts + simple_mode",
+  "version": 9,
+  "profile": "lr2-semantic-v0.9",
+  "semantic_authority": "change-aware object parts + simple_mode",
   "lr2_entry": "lr2/main.lr2skin",
   "skin_entry": "skin.json",
   "path_map_entry": "compatibility/path-map.json",
@@ -155,13 +189,14 @@ Required V0.8 fields include:
   "virtual_file_count": 10,
   "skipped_virtual_file_count": 0,
   "unresolved_image_count": 0,
-  "unresolved_resource_count": 0
+  "unresolved_resource_count": 0,
+  "materialization": "original-main-if-unchanged"
 }
 ```
 
 `object_count` is the number of `objects.items`, `part_count` is the sum of all
 item `parts`, and `destination_count` is the sum of all part `destinations`.
-Every shown count is a required non-negative integer in V0.8. Inspection checks
+Every shown count is a required non-negative integer in V0.8+. Inspection checks
 the four semantic/Simple Mode counts against the validated `skin.json` arrays
 and checks `asset_count` and `virtual_file_count` against the ZIP entries.
 Virtual-root, skipped-path and unresolved counts remain declared export-time
@@ -169,8 +204,9 @@ diagnostics; inspection validates their type and range but does not currently
 recompute them. Export reports unresolved data instead of pretending it was
 bundled.
 
-V0.8 requires the manifest and `skin.json` document to both declare version 8
-and the V0.8 authorities. Legacy inspection keeps the historical exception in
+V0.9 requires the manifest and `skin.json` document to both declare version 9
+and the V0.9 authorities. V0.8 retains its matching version-8 authority. Legacy
+inspection keeps the historical exception in
 which a V0.4 manifest can contain a version-3 `skin.json`; it rejects a
 version-8 document under any pre-V0.8 manifest instead of imposing version
 equality on older package pairs.
@@ -220,7 +256,7 @@ atomically.
 
 ### Object part and destination contract
 
-`objects.authority` is `lr2-destination-parts-v0.8`. An item contains its
+`objects.authority` is `lr2-destination-parts-v0.9`. An item contains its
 stable identity and an ordered `parts` array. A part contains the exact source
 row addresses that establish that part and one or more independently compiled
 destination families.
@@ -347,6 +383,13 @@ synthetic `#ENDIF`. This makes the flat script preserve the same condition
 scope when it is materialized for LR2, where `$OLR_FILE` comments themselves
 have no execution semantics.
 
+The same compatibility main also normalizes resolution without removing a
+physical row. The first `#INFORMATION` receives the OLR canvas in fields 6 and
+7. Every active `#RESOLUTION` becomes
+`$OLR_IGNORED_RESOLUTION,#RESOLUTION,...`. This is deliberate LR2 compatibility:
+the affected legacy parser reads `#INFORMATION` correctly but can reuse stale
+CSV data and write a standalone `#RESOLUTION` into the next skin-list slot.
+
 `compatibility/path-map.json` records:
 
 - the workspace prefix, currently `vfs/`;
@@ -362,13 +405,15 @@ skin.
 ## Import and LR2 export
 
 Import validates the whole archive and extracts only the `lr2/` subtree into a
-new folder. For V0.8 it first requires the version-8 semantic document header,
-matching authorities and manifest/`skin.json`/archive counts. It then compiles
-Simple Mode and nested Object part destinations into the extracted
-`main.lr2skin`, and deletes the complete new folder if validation or atomic
-replacement fails.
+new folder. For V0.8+ it first requires the matching semantic document header,
+authorities and manifest/`skin.json`/archive counts. It then compiles Simple Mode
+and nested Object part destinations into the extracted `main.lr2skin`, and
+deletes the complete new folder if validation or atomic replacement fails. V0.9
+leaves an LR2 field token untouched when its parsed numeric value already equals
+the semantic value. It also removes the original-main marker if the compiled
+script differs from the stored baseline.
 V0.1-V0.7 packages continue through their existing version-specific parser and
-authority rules; a legacy flat Object is never reinterpreted as a V0.8 part.
+authority rules; a legacy flat Object is never reinterpreted as a V0.8/V0.9 part.
 A successful V0.2+ import creates an explicitly named `*-olr-workspace`
 containing `main.lr2skin`, `.olr-export-main.txt`, `vfs/` and any flat `assets/`;
 Preview then follows the normal workspace load path. This extracted workspace
@@ -385,25 +430,36 @@ workspace. It:
    symlinks;
 3. copies flat `assets/**` beside the compiled main skin so relative fixed-image
    declarations remain valid;
-4. restores virtual CSV fields from `vfs/LR2files/...` to Windows-style
-   `LR2files\...`; and
-5. writes the current edited compatibility script to the recorded main-skin
-   location, replacing only the copied file inside that new output tree.
+4. if the V0.9 marker and byte-identical baseline remain valid, the recorded
+   original main exists in the copied tree and no fixed assets require
+   relocation, keeps its include/customization structure while normalizing the
+   copied main's resolution header; otherwise
+5. restores virtual CSV fields from `vfs/LR2files/...` to Windows-style
+   `LR2files\...` and writes the current compatibility script to the recorded
+   main-skin location, replacing only the copied file inside the new output tree.
 
 It never modifies an installed LR2 tree or the original source skin. The
 exported folder can be inspected first and then copied into LR2 by the user.
 
 ## Compatibility and lossless boundary
 
-The reader accepts V0.1 through V0.8 packages. V0.1 imports remain loadable but
+The reader accepts V0.1 through V0.9 packages. V0.1 imports remain loadable but
 do not expose LR2 folder export because they have no path map or export marker.
 
-V0.8 adds source-bound nested parts and slot-preserving conditions, but does not
-claim perfect lossless coverage for every skin:
+V0.9 adds change-aware field compilation and the unchanged original-main path on
+top of V0.8's nested parts. It still does not claim perfect lossless coverage for
+every edited skin:
 
-- includes are flattened into the authoritative compatibility script with
-  path-free file-scope markers; their original files are also present when they
-  belonged to a captured root;
+- includes are flattened into the editable compatibility script with path-free
+  file-scope markers. Their original files are also present when they belonged
+  to a captured root, and V0.9 uses that original graph for an unchanged LR2
+  materialization;
+- after a semantic or raw script edit, V0.9 safely falls back to the flattened
+  compatibility main. Splitting arbitrary edited rows back into their original
+  owner files is deferred to the V1.0 lossless LR2skin compiler;
+- exact main-header bytes are not an invariant: active `#RESOLUTION` rows are
+  intentionally neutralized and `#INFORMATION` fields 6/7 are normalized for
+  LR2 safety. Other original-main rows and the include graph remain preserved;
 - unresolved `LR2files/...` roots remain external and are counted;
 - paths longer than the safe package-entry limit are skipped and counted;
 - nested `.olrskin` containers are skipped and counted instead of recursively
@@ -418,7 +474,7 @@ claim perfect lossless coverage for every skin:
 - the Object Inspector currently edits only the first destination command
   family in the selected Object that exposes the complete semantic contract. It
   has no nested part/destination-family selector; other families remain in
-  `Advanced LR2` even though export and import support the nested V0.8 shape;
+  `Advanced LR2` even though export and import support the nested V0.9 shape;
 - IF/ELSE control flow, per-frame shared-field oddities, event logic and
   unsupported commands stay compatibility-owned; and
 - `sections` remains a semantic navigation index and never compiles values; and
@@ -428,7 +484,7 @@ claim perfect lossless coverage for every skin:
 
 ## Versioning rules
 
-- V0.8 readers must continue to dispatch V0.1-V0.7 packages to their existing
+- V0.9 readers must continue to dispatch V0.1-V0.8 packages to their existing
   parser and authority behavior.
 - A V0.2+ package requires both `compatibility/path-map.json` and
   `lr2/.olr-export-main.txt`.
@@ -445,10 +501,13 @@ flattened include bodies contain file-local orphan `#ELSE` rows. It verifies
 that `$OLR_FILE` boundaries keep only the selected side active and remain
 stable when a package is saved again. It then creates a synthetic virtual theme
 and an `SEOLRSkinDocument` whose two parts are already explicit. It writes and
-inspects that V0.8 package with one Simple Mode slot and two destinations,
+inspects that V0.9 package with one Simple Mode slot and two destinations,
 extracts and compiles it,
-verifies virtual and fixed asset bytes, materializes a new LR2 tree, checks
-restored script paths, rejects unsafe roots and CRC tampering, and tests
+verifies virtual and fixed asset bytes, preserves an empty numeric zero token,
+materializes both compatibility and unchanged original-include LR2 trees, checks
+that their executable resolution authority is `#INFORMATION`, checks that an
+edited compatibility script disables original-main reuse, checks restored
+script paths, rejects unsafe roots and CRC tampering, and tests
 standalone LR2-root resolution. Its compiler fixture changes all eight supported
 asset fields. Direct compiler fixtures validate multiple source bindings in one
 explicit part and an explicitly described two-part structure. Destination

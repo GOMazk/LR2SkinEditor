@@ -67,6 +67,10 @@ $tests = @(
         Argument = '--self-test-asset-metadata'
     },
     [pscustomobject]@{
+        Name = 'object-reorder'
+        Argument = '--self-test-object-reorder'
+    },
+    [pscustomobject]@{
         Name = 'pixel-paint'
         Argument = '--self-test-pixel-paint'
     },

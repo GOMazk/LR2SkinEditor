@@ -442,6 +442,12 @@ Ctrl+MouseWheel로 확대/축소한다.
 
 - Object를 선택하면 첫 DST와 마지막 DST 경계를 점멸 사각형으로 표시한다.
 - 시작 경계는 cyan, 최종 경계는 red다.
+- NUMBER의 경계 폭은 한 glyph의 DST `w`가 아니라 `w * keta`로 계산하며
+  DST `x`를 왼쪽 경계로 사용한다. NUMBER의 `align`은 경계 anchor를 옮기지 않고
+  이 `keta` 폭 안에서 숫자 glyph를 right/left/middle로 배치한다.
+- TEXT의 `align`은 NUMBER와 달리 `0=left`, `1=middle`, `2=right`이며 DST `x`를
+  문자열 anchor로 사용한다. 경계는 LR2가 폰트와 DST `w/h`에서 계산하는 실제 출력
+  폭으로 맞추고, middle/right에서는 각각 그 폭의 절반/전체만큼 왼쪽으로 이동한다.
 - 선택한 Object 위에서 좌클릭 drag하면 해당 Object의 모든 선택 대상 DST 좌표를
   이동한다.
 - 한 Object를 선택하면 첫 DST 우하단에 흰 handle이 나타난다. handle drag는 첫
@@ -476,7 +482,9 @@ PLAY Preview의 기본 HI-SPEED는 200이며 LR2 기본 허용 범위 10~900 안
 Preview 우클릭은 해당 좌표와 겹치는 Object 중 현재 op와 IF Branch가 성립하는
 Object만 목록에 표시한다. 각 항목은 Object 모델의 대응 SRC 명령과 index를 찾아
 thumbnail을 만든다. 항목 hover 시 얇은 노란 점멸 사각형으로 위치를 표시하고,
-클릭 시 Browser/Inspector/DST View 선택을 동기화한다.
+클릭 시 Browser/Inspector/DST View 선택을 동기화한다. LR2는 뒤쪽 CSV DST를 나중에
+그려 앞에 배치하므로, 겹친 후보 목록도 이 순서를 뒤집어 가장 앞에 보이는 Object부터
+표시한다.
 
 ### 이미지 번호와 텍스처 선택
 
@@ -607,12 +615,49 @@ replace한다. 최초 저장 전 같은 경로에 `.skineditor-pixel.bak` 원본
 공유하는 다른 `SRCGR` texture에도 편집 pixel을 동기화하며 저장 후 Preview runtime을
 다시 불러온다. 현재 직접 편집은 lock 가능한 32-bit D3D texture에 한정한다.
 
-ImageManager의 `New image`는 1~16384px 범위의 새 RGBA 이미지를 만들고,
-`Merge image`는 현재 전체 texture 위에 선택한 Asset crop을 자동 배치해 alpha
+ImageManager의 `Add image...`는 기존 이미지 파일을 고른 뒤 대상 논리 gr를 선택하는
+modal을 연다. 목록에는 각 `#IMAGE`의 gr, Fixed/Wildcard 여부, IF group과 원본 경로가
+함께 표시된다. 기본 `New fixed #IMAGE`는 현재 Customize/OP에서 LR2가 실제로 활성화한
+`#IMAGE` 표의 trailing gr에 선언과 전체 크기 Asset을 추가하므로 기존 gr를 밀지 않는다. 기존 gr를 선택하면 새
+`#IMAGE`는 만들지 않고, 선택 파일이 그 fixed 선언 자체이거나 현재 wildcard 후보일
+때만 전체 크기 `$SRC_IMAGE`를 추가한다. 따라서 서로 다른 fixed 파일을 같은 gr에 잘못
+연결하거나 중간 삽입으로 뒤 SRC 참조를 바꾸지 않는다. 이미지가 하나도 없는 스킨의
+빈 화면에서도 새 trailing gr 등록을 사용할 수 있으며, 스킨 폴더 내부 파일은 상대
+경로, 외부 파일은 절대 경로로 기록한다.
+`New image`는 1~16384px 범위의 새 RGBA 이미지를 만들고, `Merge image`는 현재 전체
+texture 위에 선택한 Asset crop을 자동 배치해 alpha
 composite한다. 기준 texture의 alpha가 0인 영역을 위에서부터 탐색해 crop 전체가
 들어가는 첫 빈자리를 사용한다. 맞는 공간이 없으면 오른쪽 추가와 아래쪽 추가 중
 최종 canvas 면적이 작은 방향을 골라 자동 확장한다. 사용자가 x/y나 확장 여부를
 직접 입력하지 않는다. 두 기능 모두 기본 출력은 PNG이고 기존 파일을 덮어쓰지 않는다.
+
+`GIF to sprite...`는 Windows Imaging Component로 GIF의 모든 frame과 disposal,
+부분 frame offset, 투명도를 합성해 PNG sprite sheet를 만든다. GIF decoder의 BGRA
+변환 결과만 신뢰하지 않고 indexed pixel과 Graphic Control Extension의 transparent
+color index를 직접 대조해 해당 pixel을 alpha 0으로 보존한다. 빈 cell이 LR2
+animation에 노출되지 않도록 `columns * rows == 출력 cell 수`인 factor grid만
+선택한다. GIF frame delay가 서로 다르면 delay의 최대공약수만큼 같은 frame을
+복제해 LR2의 균등 frame animation에서도 원래 시간을 보존한다. 이 확장이 256
+cell 또는 sheet 제한을 넘으면 원본 frame 수를 유지하고 modal에서 timing 근사
+경고를 표시한다. `Register in this skin CSV`가 켜져 있으면 생성된 sheet 크기와
+grid를 `w/h/div_x/div_y`, GIF 전체 시간을 `cycle`로 기록해 trailing gr에 등록한다.
+등록 직후에도 editor-only `$SRC_IMAGE` 행을 animation metadata 원본으로 사용하므로
+Asset Browser에서 Preview로 drop해 만드는 Object의 `#SRC_IMAGE`에도 같은
+`div_x/div_y/cycle`이 자동 입력된다.
+한 장의 RGBA sheet가 Release Win32의 texture 메모리를 고갈시키지 않도록 변환 결과는
+4096x4096 및 16M pixel 예산 안에 둔다. 원본 frame을 그대로 배치할 수 없으면 factor
+grid와 frame 수는 유지하면서 모든 frame을 같은 비율로 자동 축소하고 modal에 원본/출력
+frame 크기를 표시한다. 축소는 texture에만 적용하고 editor-only Asset metadata에 원본
+canvas 크기를 함께 저장하므로 Preview drop의 기본 DST 크기는 원본 GIF frame 크기를
+유지한다.
+생성 이미지가 현재 스킨과 같은 LR2 설치의 `LR2files` 아래에 있으면 `#IMAGE`는
+CSV 폴더 기준의 `.\...`가 아니라 `LR2files\...` 경로로 기록한다. stock LR2가
+CSV-relative fallback에서 찾은 경로를 `LoadGraph()`에 전달하지 못해 handle `-1` 뒤
+`DerivationGraph()`에서 종료되는 문제를 피하기 위한 호환 규칙이다.
+출력 PNG는 atomic 생성하며 기존 파일을 덮어쓰지 않는다. Release Win32의 주소 공간을
+고갈시키지 않도록 완성 sheet 전체를 BGRA 메모리에 만들지 않고 sprite 한 행씩 WIC
+encoder에 순차 기록한다. 메모리·경로 예외도 modal 오류로 변환해 프로세스를 종료하지
+않는다.
 
 `Replace`는 현재 `SRCGR`가 가리키는 `#IMAGE` 선언의 파일 경로만 교체한다. 논리
 gr, IF Branch와 모든 SRC crop 좌표는 유지한다. 새 이미지 크기가 다르면 영향받는
@@ -645,11 +690,22 @@ $SRC_IMAGE,0,new_gr,0,0,width,height,1,1,0,0,0,0,0
 ```
 
 IF/ELSEIF/ELSE는 형제 branch마다 같은 gr slot을 공유하므로 현재 선언 옆에 새
-`#IMAGE`를 삽입하면 뒤의 기존 gr가 밀린다. 이를 피하기 위해 전체 조건 트리의 가장
-긴 branch가 끝난 뒤의 trailing gr를 계산하고 root `$FILE ... end` 직전에 추가한다.
+`#IMAGE`를 삽입하면 뒤의 기존 gr가 밀린다. 이를 피하기 위해 현재 OP로 활성화된
+행만 LR2와 같은 순서로 세어 trailing gr를 계산하고 root `$FILE ... end` 직전에 추가한다.
+tricoro처럼 1P/2P를 하나의 IF/ELSE가 아닌 서로 배타적인 연속 `#IF` 블록으로 작성한
+스킨에서도 두 블록의 이미지 수를 합산하지 않는다. 생성 Asset metadata는 바로 앞
+`#IMAGE` 선언 행도 함께 식별하므로, 비활성 Branch에 같은 gr가 있어도 썸네일이 다른
+텍스처로 바뀌지 않는다.
 재파싱 후 full-size Asset이 생성되며 ImageManager와 Asset Browser가 그 Asset을
 자동 선택한다. 출력 파일이 root skin 폴더 아래 있으면 CSV에는 portable relative
 path를 저장하고, 바깥에 있으면 absolute path를 유지한다.
+
+editor-only Asset을 Preview에 drop해 만드는 Object는 선택 중인 오래된 include/IF
+Object의 뒤가 아니라 자기 `#IMAGE`/`$SRC_IMAGE` 선언 바로 뒤에 삽입한다. 따라서
+tricoro처럼 include가 먼저 펼쳐지는 스킨에서도 Object SRC가 새 graphic보다 먼저
+해석되어 DST 점멸 사각형만 남는 순서 오류를 만들지 않는다. 생성 이미지의 상대
+`#IMAGE` 경로는 먼저 실행 디렉터리에서, 파일이 없으면 선언을 소유한 CSV 폴더와 root
+skin 폴더 순서로 해석해 ImageManager와 Preview가 같은 파일을 로드한다.
 
 `arr_SRC`, `arr_DST`, `arr_IMG`, `arr_SRCGR`, `arr_ifunit`, `arr_seobj`는 CSV에서
 파생되는 편집기 cache다. 모든 CSV 변경은 `NotifyDocumentChanged()`를 거쳐

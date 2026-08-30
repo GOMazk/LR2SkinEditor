@@ -13255,64 +13255,69 @@ int RunInitialPresetSelfTest() {
                 sceneContents.find(highGaugeDestination) == std::string::npos)
                 return 185 + testIndex;
 
-            std::ifstream atlasInput(sceneAtlasPath, std::ios::binary);
-            const std::vector<unsigned char> atlasBytes(
-                (std::istreambuf_iterator<char>(atlasInput)),
-                std::istreambuf_iterator<char>());
-            if (atlasBytes.size() < 54 || atlasBytes[0] != 'B' ||
-                atlasBytes[1] != 'M')
+            PDIRECT3DTEXTURE9 atlasTexture = NULL;
+            int atlasWidth = 0;
+            int atlasHeight = 0;
+            if (!LoadTextureFromFile(sceneAtlasPath.c_str(), &atlasTexture,
+                &atlasWidth, &atlasHeight) ||
+                resultDigitSource.w <= 0 ||
+                resultDigitSource.w % 10 != 0 ||
+                resultDigitSource.x < 0 || resultDigitSource.y < 0 ||
+                resultDigitSource.x + resultDigitSource.w > atlasWidth ||
+                resultDigitSource.y + resultDigitSource.h > atlasHeight ||
+                lowGaugeSource.x < 0 || lowGaugeSource.y < 0 ||
+                highGaugeSource.x < 0 || highGaugeSource.y < 0 ||
+                lowGaugeSource.x >= atlasWidth ||
+                lowGaugeSource.y >= atlasHeight ||
+                highGaugeSource.x >= atlasWidth ||
+                highGaugeSource.y >= atlasHeight) {
+                if (atlasTexture) atlasTexture->Release();
                 return 190 + testIndex;
-            auto read32 = [&](int offset) {
-                return (int)atlasBytes[offset] |
-                    ((int)atlasBytes[offset + 1] << 8) |
-                    ((int)atlasBytes[offset + 2] << 16) |
-                    ((int)atlasBytes[offset + 3] << 24);
-            };
-            const int atlasWidth = read32(18);
-            const int atlasHeight = read32(22);
-            const int atlasRowBytes = (atlasWidth * 3 + 3) & ~3;
-            const size_t expectedAtlasSize =
-                54 + (size_t)atlasRowBytes * atlasHeight;
-            if (atlasBytes.size() != expectedAtlasSize ||
-                atlasBytes[0] != 'B' || atlasBytes[1] != 'M')
-                return 190 + testIndex;
-            auto atlasPixel = [&](int x, int y) {
-                const int fileY = atlasHeight - 1 - y;
-                return 54 + (size_t)fileY * atlasRowBytes +
-                    (size_t)x * 3;
-            };
-            if (resultDigitSource.w <= 0 ||
-                resultDigitSource.w % 10 != 0)
-                return 200 + testIndex;
+            }
             const int digitW = resultDigitSource.w / 10;
             const int digitH = resultDigitSource.h;
             for (int digit = 0; digit < 10; ++digit) {
                 bool foundBright = false;
                 for (int y = 0; y < digitH && !foundBright; ++y) {
                     for (int x = 0; x < digitW; ++x) {
-                        const size_t pixel = atlasPixel(
+                        D3DCOLOR pixel = 0;
+                        if (!ReadTexturePixel(atlasTexture,
                             resultDigitSource.x + digit * digitW + x,
-                            resultDigitSource.y + y);
-                        if (atlasBytes[pixel] > 200 &&
-                            atlasBytes[pixel + 1] > 200 &&
-                            atlasBytes[pixel + 2] > 200) {
+                            resultDigitSource.y + y, &pixel)) {
+                            atlasTexture->Release();
+                            return 195 + testIndex;
+                        }
+                        if (((pixel >> 24) & 0xff) == 255 &&
+                            ((pixel >> 16) & 0xff) > 200 &&
+                            ((pixel >> 8) & 0xff) > 200 &&
+                            (pixel & 0xff) > 200) {
                             foundBright = true;
                             break;
                         }
                     }
                 }
-                if (!foundBright) return 200 + testIndex;
+                if (!foundBright) {
+                    atlasTexture->Release();
+                    return 200 + testIndex;
+                }
             }
-            const size_t lowGaugePixel = atlasPixel(lowGaugeSource.x,
-                lowGaugeSource.y);
-            const size_t highGaugePixel = atlasPixel(highGaugeSource.x,
-                highGaugeSource.y);
-            if (atlasBytes[lowGaugePixel] != 145 ||
-                atlasBytes[lowGaugePixel + 1] != 235 ||
-                atlasBytes[lowGaugePixel + 2] != 70 ||
-                atlasBytes[highGaugePixel] != 70 ||
-                atlasBytes[highGaugePixel + 1] != 90 ||
-                atlasBytes[highGaugePixel + 2] != 255)
+            D3DCOLOR lowGaugePixel = 0;
+            D3DCOLOR highGaugePixel = 0;
+            const bool resultPixelsMatch =
+                ReadTexturePixel(atlasTexture, lowGaugeSource.x,
+                    lowGaugeSource.y, &lowGaugePixel) &&
+                ReadTexturePixel(atlasTexture, highGaugeSource.x,
+                    highGaugeSource.y, &highGaugePixel) &&
+                ((lowGaugePixel >> 24) & 0xff) == 255 &&
+                ((lowGaugePixel >> 16) & 0xff) == 70 &&
+                ((lowGaugePixel >> 8) & 0xff) == 235 &&
+                (lowGaugePixel & 0xff) == 145 &&
+                ((highGaugePixel >> 24) & 0xff) == 255 &&
+                ((highGaugePixel >> 16) & 0xff) == 255 &&
+                ((highGaugePixel >> 8) & 0xff) == 90 &&
+                (highGaugePixel & 0xff) == 70;
+            atlasTexture->Release();
+            if (!resultPixelsMatch)
                 return 210 + testIndex;
         }
     }

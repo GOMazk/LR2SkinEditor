@@ -88,8 +88,6 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunWorkspaceReloadLifecycleSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-dst-color"))
         return RunDstColorSelfTest();
-    if (cmdline && strstr(cmdline, "--self-test-initial-preset"))
-        return RunInitialPresetSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-object-reorder"))
         return RunObjectReorderSelfTest();
 

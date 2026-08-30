@@ -53,6 +53,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   편집된 compatibility script의 안전한 fallback,
   OLR HD 기본값 및 package/원본-main의 `#INFORMATION` 해상도 단일화,
   known OP/TIMER와 raw OP 왕복, V0.8/V0.7 authority 호환, LR2·asset byte 보존,
+  혼합 대소문자/slash VFS 해제, `#INFORMATION` thumbnail과 custom/help 경로 rooting,
+  `Theme|Sound` 밖 main 거부, 이동된 export root에서 LR2 `MakeSkinList()` 인식,
   path traversal 거부, CRC 손상 탐지, CP932 가상/절대 경로의 반복 해석 안전성.
   별도 compiler fixture는 한 part의 multi-source binding과 명시적으로 구성한 두
   part 주소를 검증한다. 이 self-test는 `WORKSPACE::ExportOlrSkin()`을 호출하지
@@ -339,7 +341,12 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
     활성 `#RESOLUTION`이 없어야 하며 이 의도된 정규화는 byte-for-byte 비교에서
     제외한다. 나머지 빈 timer/cycle/angle, `div_x/div_y=0`,
     `#CUSTOMOPTION`과 `#ENDOFHEADER`도 비교한다. 편집 후에는 compatibility script
-    materialization을 표시하고 main CSV에 `vfs/`가 남지 않아야 한다.
+    materialization을 표시하고 main/include CSV에 표기 차이와 무관하게 `vfs/`가
+    남지 않아야 한다. export root의 `INSTALL.txt`가 `LR2.exe`가 있는 폴더에
+    `LR2files`를 합치라고 안내하고, main이 `LR2files\Theme` 또는 `Sound` 아래
+    `.lr2skin/.lr2ss`인지 확인한다. export 폴더를 다른 경로 또는 다른 PC로 옮겨
+    LR2를 시작했을 때 스킨 목록에 나타나고 thumbnail/custom file/help 경로가 원래
+    PC의 절대 경로 없이 동작해야 한다.
     기존 대상 폴더를 덮어쓰지 않고, 해결불가/과도하게 긴 경로는 Export 결과의
     외부 의존성/누락 경고와 manifest 개수에 나타나야 한다.
 12. Simple Mode의 Notes에서 흰 건반/검은 건반/scratch scope를 각각 적용해 같은

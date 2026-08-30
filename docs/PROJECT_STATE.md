@@ -71,8 +71,13 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
   이 폴더는 편집/Preview용이며 성공 팝업에서 설치용 LR2 export를 바로 실행 가능
 - Import한 V0.2+ workspace의 `File > Export install-ready LR2 folder`에서
   `vfs/LR2files`와 고정 `assets`를 새 출력 폴더로 풀고 현재 편집 스크립트의
-  경로를 복원. V0.9 무편집 왕복이면 원본 main/include graph를 그대로 사용하고,
-  편집 또는 고정 asset 재배치가 있으면 compatibility main으로 안전하게 전환
+  경로를 명령별로 복원. 대소문자·slash·선행 `.\`가 다른 VFS 경로도 제거하고,
+  `#INFORMATION` thumbnail, `#CUSTOMFILE/#CUSTOMFOLDER`, `#HELPFILE`처럼 LR2가
+  process 기준으로 읽는 상대 경로는 export main의 `LR2files` 위치에 고정한다.
+  main은 LR2가 실제 검색하는 `LR2files/Theme|Sound` 아래 `.lr2skin|.lr2ss`만 허용하며
+  설치 위치를 적은 `INSTALL.txt`를 함께 만든다. V0.9 무편집 왕복이면 복사된 모든
+  main/include script에도 같은 경로 규칙을 적용하고, 편집 또는 고정 asset 재배치가
+  있으면 compatibility main으로 안전하게 전환
 
 주의할 항목:
 
@@ -216,7 +221,8 @@ Export는 원본 `.dxa`를 byte-for-byte 보존한다. 따라서 이 구형 font
 owner 파일들로 다시 분배하는 일반 compiler는 아직 없으며, 이것이 OLRskin 1.0의
 핵심 잔여 과제다.
 자동 `olr-package` fixture는 이미 part가 구성된 document/JSON의 package 및 compiler
-왕복, 빈 숫자 token 무변경, 원본 main/include materialization과 M.H 형태의 1P/2P
+왕복, 빈 숫자 token 무변경, 원본 main/include materialization, 혼합 표기 VFS 해제와
+이동된 임시 LR2 root에서의 실제 `MakeSkinList()` 인식, M.H 형태의 1P/2P
 file-scope marker 조건 분리를 검증하지만,
 `WORKSPACE::ExportOlrSkin()`의 전체 행 경계 투영 자체는 호출하지 않는다.
 실제 kamh BUTTON과 NOTE의 part 도출은 `BUILD_AND_TEST.md`의 수동 OLR 절차로 확인한다.

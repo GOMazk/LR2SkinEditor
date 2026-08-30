@@ -27,8 +27,10 @@ Entry points:
 - `SEExportOLRWorkspaceToLR2()` materializes an imported workspace into a new
   install-ready `LR2files/` tree. An unchanged V0.9 workspace keeps the copied
   original include-based main after applying the same safe resolution-header
-  rule; an edited or ineligible workspace writes the flattened compatibility
-  script with restored virtual CSV path fields.
+  and path rules to every copied `.lr2skin`, `.lr2ss`, and `.csv`; an edited or
+  ineligible workspace writes the flattened compatibility script. Both paths
+  remove case/slash variants of `vfs/LR2files`, root LR2 process-relative
+  header/custom/help paths, and reject computer-local absolute declarations.
 - `SEResolveSkinResourcePath()` maps LR2-rooted declarations to either a real
   LR2 tree, a standalone theme folder or an imported `vfs/` workspace without
   mutating source rows.
@@ -104,7 +106,9 @@ Important invariants:
 - LR2 export accepts only an imported V0.2+ workspace and a non-existing target;
   it copies virtual roots and any fixed `assets/`, selects the safe original or
   compatibility main as described above, and never writes directly into a
-  user's LR2 installation.
+  user's LR2 installation. The recorded main must be an `.lr2skin` or `.lr2ss`
+  below `LR2files/Theme` or `LR2files/Sound`, matching LR2's actual skin-list
+  scan roots. The output includes `INSTALL.txt` with the exact merge location.
 - archive writes use a temporary file followed by atomic replacement.
 
 Tests: run `--self-test-olr-package`, normally through `scripts/test.ps1`. The
@@ -113,7 +117,10 @@ manifest counts, preserves an empty numeric zero token, and proves that an
 unchanged original main plus include file survives LR2 materialization while an
 edited compatibility script forces the safe fallback. It also feeds an active
 width/height `#RESOLUTION` row through package and original-main materialization
-and verifies that only the `#INFORMATION` canvas remains executable. Direct
+and verifies that only the `#INFORMATION` canvas remains executable. Mixed-case
+virtual paths are removed from the main/include graph, and LR2's own
+`MakeSkinList()` must enumerate the exported main from a relocated temporary
+root. Direct
 compiler fixtures cover explicit multi-source and
 two-part addresses, partial condition ownership and the retained V0.7 flat
 authority. They do not call `WORKSPACE::ExportOlrSkin()`, so real kamh BUTTON

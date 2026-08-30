@@ -430,16 +430,26 @@ workspace. It:
    symlinks;
 3. copies flat `assets/**` beside the compiled main skin so relative fixed-image
    declarations remain valid;
-4. if the V0.9 marker and byte-identical baseline remain valid, the recorded
+4. requires the recorded main to be an `.lr2skin` or `.lr2ss` below the only
+   roots LR2 enumerates, `LR2files/Theme` and `LR2files/Sound`;
+5. if the V0.9 marker and byte-identical baseline remain valid, the recorded
    original main exists in the copied tree and no fixed assets require
    relocation, keeps its include/customization structure while normalizing the
-   copied main's resolution header; otherwise
-5. restores virtual CSV fields from `vfs/LR2files/...` to Windows-style
-   `LR2files\...` and writes the current compatibility script to the recorded
-   main-skin location, replacing only the copied file inside the new output tree.
+   copied main's resolution header; otherwise it writes the current
+   compatibility script to the recorded main-skin location; and
+6. rewrites path-bearing CSV fields in the selected main and copied include
+   scripts. `vfs/LR2files` matching is case-insensitive and accepts slash or
+   backslash plus leading `.\`; rooted output uses Windows-style
+   `LR2files\...`. `#INFORMATION` thumbnails, `#CUSTOMFILE/#CUSTOMFOLDER`, and
+   `#HELPFILE` are rooted to the declaring script's logical LR2 folder because
+   LR2 consumes them relative to its process directory. Computer-local absolute
+   path fields are rejected instead of producing an export that works only on
+   the source PC.
 
 It never modifies an installed LR2 tree or the original source skin. The
 exported folder can be inspected first and then copied into LR2 by the user.
+`INSTALL.txt` says to merge its `LR2files` directory into the folder containing
+`LR2.exe` and records the normalized main-skin path.
 
 ## Compatibility and lossless boundary
 
@@ -507,7 +517,9 @@ verifies virtual and fixed asset bytes, preserves an empty numeric zero token,
 materializes both compatibility and unchanged original-include LR2 trees, checks
 that their executable resolution authority is `#INFORMATION`, checks that an
 edited compatibility script disables original-main reuse, checks restored
-script paths, rejects unsafe roots and CRC tampering, and tests
+script paths including mixed-case/slash virtual aliases and direct LR2 path
+fields, enumerates the relocated export through LR2's own `MakeSkinList()`,
+rejects non-discoverable main destinations, unsafe roots and CRC tampering, and tests
 standalone LR2-root resolution. Its compiler fixture changes all eight supported
 asset fields. Direct compiler fixtures validate multiple source bindings in one
 explicit part and an explicitly described two-part structure. Destination

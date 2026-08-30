@@ -145,9 +145,15 @@ bool SEIsOLRSimpleSlotCompilable(const SEOLRSimpleSlot& slot);
 
 struct SEOLRLr2ExportInfo {
     int copiedFileCount = 0;
+    int rewrittenVirtualPathCount = 0;
     std::string mainSkinPath;
     bool preservedOriginalMain = false;
+    std::string originalMainFallbackReason;
 };
+
+// LR2 enumerates installable skins only below LR2files/Theme and
+// LR2files/Sound, using the .lr2skin and .lr2ss extensions.
+bool SEIsLr2DiscoverableExportMainPath(const char* path);
 
 // Writes a deterministic, stored-method ZIP package through a temporary file.
 // The destination may be replaced, but source assets are only read.

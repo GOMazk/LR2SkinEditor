@@ -47,7 +47,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\ai-context.ps1 -Check
 ```
 
-GitHub Actions도 같은 스크립트를 사용하므로 로컬과 CI의 검증 경로가 같습니다.
+64비트 실행 파일이 필요하면 같은 환경에서 다음 명령을 추가로 실행합니다. x86
+배포 폴더를 덮지 않고 `SkinEditor_DX9\Release-x64\SkinEditor_DX9.exe`에 출력됩니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Platform x64
+```
+
+GitHub Actions도 같은 스크립트로 Release x86 테스트와 Release x64 빌드를 확인하므로
+로컬과 CI의 검증 경로가 같습니다.
 다른 AI에게 작업을 넘길 때는 `.build\ai-context\context-pack.md`와
 `context-manifest.json`을 함께 전달하십시오.
 

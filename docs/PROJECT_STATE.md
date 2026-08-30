@@ -3,6 +3,7 @@
 기준일: 2026-08-27
 기준 브랜치: `AI`
 주 대상: `Release | Win32(x86)`
+보조 빌드 대상: `Release | x64` (`SkinEditor_DX9\Release-x64`)
 
 이 문서는 지금까지 진행한 작업의 의도와 현재 구현 상태를 다음 작업자가 코드와
 함께 확인할 수 있도록 기록한다. 완료 표시는 현재 코드에 구현되어 있다는 뜻이며,
@@ -109,6 +110,13 @@ New는 `LR2files\Theme` 아래에 새 `.lr2skin`과 `preset.bmp`를 만든 후 �
 덮어쓰지 않는다. `#SCENETIME`은 DECIDE 프리셋에만 생성하며 PLAY, SELECT,
 RESULT, COURSERESULT에는 기록하지 않는다.
 
+`preset.bmp`는 선택한 해상도와 Scene에 맞춰 native-size sprite를 동적으로 배치한다.
+Raster Object는 `SRC w / div_x`, `SRC h / div_y`가 해당 `DST w`, `DST h`와 같으므로
+초기 상태에서 암묵적인 확대·축소가 없다. BMS가 graph를 공급하는 zero-sized BGA와
+font-backed TEXT/BAR_TITLE은 source crop 크기가 없거나 런타임 소유이므로 이 규칙의
+예외다. 지나치게 큰 임의 해상도가 Release x86 texture 예산을 넘으면 불완전한
+파일을 만드는 대신 New Skin 생성 단계에서 오류로 중단한다.
+
 PLAY 프리셋은 배경, BGA, 키 모드별 Note/Mine/LN과 lane별 Bomb, Measure Line, Judge Line,
 Groove Gauge, FAST/SLOW, 플레이어별 NOWJUDGE 6개 상태와 GOOD 이상에서 사용하는
 NOWCOMBO를 만든다. 1P/2P 판정 timer는 각각 46/47, Bomb timer는 lane index에
@@ -142,6 +150,8 @@ Gauge chart의 두 SRC/DST index, 초록/빨강 source 좌표와 하단 기준 �
 테스트에서 고정한다. SELECT bar의 전용 source crop과 border/fill pixel도 검사한다.
 COURSERESULT의 `$st 150~154`,
 `$num 250~254`와 누적 결과 숫자도 같은 테스트에서 검사한다.
+모든 Scene의 raster Object에 대해서는 source 한 frame과 destination의 `w/h`가
+일치하는지도 Object ID 단위로 검사한다.
 
 향후 프리셋 확장 시 `BuildInitialPreset()`에 Scene별 생성기를 추가하되,
 `$SE_OBJECT_NAME`과 고유한 `$SE_OBJECT_ID`를 함께 생성해야 한다.
@@ -791,6 +801,8 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 | Workspace Close | workspace 배열 삭제/상단 close UI는 제거한 상태를 유지 |
 | Schema 배포 | 개발 중 외부 TXT 우선, 배포 시 실행 파일 내 RCDATA fallback |
 | FMOD | Preview 편집에서는 선택 의존성. DLL이 없어도 실행 가능하게 유지 |
+| x64 | x86 기준은 유지하되 Release x64를 별도 출력 폴더와 CI 빌드로 함께 지원 |
+| Skin Browser 확장 | 100개 단위 재할당은 고정 바이트가 아니라 현재 `SkinHeader` 크기를 사용 |
 | Object Editor 구조 | Browser와 Inspector를 별도 도킹 창으로 유지 |
 | Object 이름 fallback | 명시 이름, SRC symbolic 이름, op, non-zero timer 순서. 자동 이름은 저장하지 않음 |
 | AI/UI 계약 | `uiCatalog.h`와 자동 UI map을 기준으로 하고 handoff는 context pack과 검증 증거를 포함 |
@@ -801,7 +813,7 @@ UI summary와 마지막 JUnit 결과를 context pack으로 묶는다.
 1. 루트 `AGENTS.md`와 [AI 협업 가이드](AI_COLLABORATION.md)를 읽는다.
 2. `git status --short`와 `git diff --stat`로 미커밋 작업을 확인한다.
 3. `scripts\ai-context.ps1 -Check`로 최신 context pack을 만든다.
-4. `Release|Win32`가 빌드되는지 확인한다.
+4. `Release|Win32`가 빌드되는지 확인하고, x64 관련 변경이면 `build.ps1 -Platform x64`도 실행한다.
 5. `SkinEditor_DX9\Release\LR2files`가 테스트할 스킨을 포함하는지 확인한다.
 6. tricoro HD와 bluewhite를 순서대로 열어 연속 로딩을 확인한다.
 7. [회귀 테스트](BUILD_AND_TEST.md#회귀-테스트)를 실행한다.

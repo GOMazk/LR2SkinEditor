@@ -442,6 +442,15 @@ int RunSkinBrowserSelfTest() {
                     parsedSkin.Data[0].targetX != 1280 ||
                     parsedSkin.Data[0].targetY != 720))
                     result = 16;
+                if (result == 0) {
+                    for (int skinIndex = 1; skinIndex < 101; ++skinIndex)
+                        ParseLR2SkinCustom(&parsedSkin, CSTR(rootSkin.c_str()));
+                    if (parsedSkin.Count != 101 || parsedSkin.Max != 200 ||
+                        !parsedSkin.Data[100].title.isSame("Resolution test") ||
+                        !parsedSkin.Data[100].customs[0].op_label ||
+                        parsedSkin.Data[100].customs[0].labelCapacity != 100)
+                        result = 17;
+                }
             }
         }
     }
@@ -454,7 +463,7 @@ int RunSkinBrowserSelfTest() {
 
     if (result == 0) {
         SkinManage skinData = {};
-        if (!InitSkinData(&skinData)) result = 17;
+        if (!InitSkinData(&skinData)) result = 18;
         else {
             skinData.Data[0].skinFile.assign("first.lr2skin");
             skinData.Data[0].customs[0].title.assign("Option");
@@ -463,12 +472,12 @@ int RunSkinBrowserSelfTest() {
             skinData.Data[0].custom_count = 1;
             skinData.Count = 1;
             CSTR* const labelTable = skinData.Data[0].customs[0].op_label;
-            if (!ResetSkinData(&skinData)) result = 18;
+            if (!ResetSkinData(&skinData)) result = 19;
             else if (skinData.Count != 0 || skinData.Data[0].skinFile.body ||
                 skinData.Data[0].customs[0].title.body ||
                 skinData.Data[0].customs[0].op_label != labelTable ||
                 skinData.Data[0].customs[0].op_label[0].body ||
-                skinData.Data[0].customs[0].dst_op_count != 0) result = 19;
+                skinData.Data[0].customs[0].dst_op_count != 0) result = 20;
         }
     }
     return result;

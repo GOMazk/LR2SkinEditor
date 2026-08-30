@@ -10,7 +10,8 @@
 - Direct3D 9 / DxLib
 - `Microsoft.DXSDK.D3DX` NuGet package `9.29.952.8`
 
-프로젝트에는 Win32와 x64 구성이 모두 있지만 현재 배포와 반복 검증 기준은 x86다.
+프로젝트는 Release Win32와 Release x64를 모두 빌드할 수 있다. 현재 배포와 전체
+반복 검증 기준은 계속 x86이며, x64는 별도 산출물로 빌드·링크를 검증한다.
 새 PC에서는 Visual Studio Installer에서 **Desktop development with C++**와
 Windows 10/11 SDK를 설치한다.
 
@@ -28,16 +29,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\ai-context.ps1 -Check
 
 `build.ps1`은 Visual Studio 2022 C++ Build Tools를 `vswhere`로 찾는다. 구형
 DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버전과 SHA-512로
-검증하여 준비한 다음 `Release | Win32`를 빌드한다. 기존
-개발·배포 실행 경로와 동일한 `SkinEditor_DX9\Release`에 실행 파일과 런타임을
-출력한다. 중간 생성물은 `.build\obj`, 텍스트/binlog는 `.build\logs`에 둔다.
+검증하여 준비한 다음 기본값으로 `Release | Win32`를 빌드한다. 기존 개발·배포
+실행 경로와 동일한 `SkinEditor_DX9\Release`에 x86 실행 파일과 런타임을 출력한다.
+`-Platform x64`를 지정하면 x64 DxLib/FMOD/D3DX 라이브러리를 선택하고 x64 D3DX
+런타임과 실행 파일을 `SkinEditor_DX9\Release-x64`에 분리한다. 중간 생성물은
+`.build\obj`, 텍스트/binlog는 `.build\logs`에 둔다.
 
 `test.ps1`은 다음 계약 테스트를 각각 별도 프로세스로 실행한다.
 
 - `schema-contract`: 실행 파일에 포함된 command/object 스키마와 symbolic field
 - `ui-contract`: 창 카탈로그의 고유 key/title, owner, dock, workspace별 ImGui ID
 - `skin-browser`: 외부 폴더의 대소문자 확장자, 하위 폴더 탐색, 비스킨 파일 제외,
-  잘못된 위치 거부
+  잘못된 위치 거부, 100개를 넘는 등록 스킨 목록의 구조체 크기 기반 안전 확장
 - `preview-simulator`: PLAY 키 모드별 메모리 chart의 시간순 lane 배치, 동시치기,
   LN/mine, 2P lane, Simple sample의 LR2 호환 scratch-side 선택,
   COURSERESULT에서 PLAY로 전환할 때 course 상태 제거, measure event/sentinel 및
@@ -80,7 +83,8 @@ source 위치만 포함한 focus pack이 생성된다.
 검사하고 `.build\docs-check\docs-check.json`을 남긴다.
 
 `.github\workflows\ci.yml`은 push, pull request와 수동 실행에서 UI 지도 검증,
-빌드, 자체 테스트와 AI context 생성을 Windows Server 2022에서 실행한다. 로그,
+Release x86 빌드·자체 테스트, Release x64 빌드와 AI context 생성을 Windows Server
+2022에서 실행한다. 로그,
 JUnit, UI 지도, 문서 검사와 AI 인계 자료는 실패 여부와 관계없이 CI
 artifact로 보존한다. 러너는 현재 프로젝트의 Visual Studio 2022/`v143`
 기준을 지키기 위해 `windows-2022`로 고정하고, checkout과 artifact action은 현행
@@ -97,6 +101,8 @@ D:\Github\SkinEditor\
   |     +-- Release\
   |           +-- SkinEditor_DX9.exe
   |           +-- LR2files\
+  |     +-- Release-x64\
+  |           +-- SkinEditor_DX9.exe
   +-- LR2\
   +-- lib\
         +-- DxLib\
@@ -143,6 +149,26 @@ $env:Path = $skinEditorBuildPath
 
 현재 프로젝트에는 기존 warning이 남아 있을 수 있으므로 총 warning 수만 보고
 성공으로 판단하지 말고 변경 전후 차이를 확인한다.
+
+## Release x64 빌드
+
+저장소 루트의 권장 명령은 다음과 같다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Platform x64
+```
+
+Visual Studio 2022 Developer PowerShell에서 직접 빌드할 수도 있다.
+
+```powershell
+cd D:\Github\SkinEditor
+msbuild SkinEditor_DX9\SkinEditor_DX9.vcxproj /t:Build /p:Configuration=Release /p:Platform=x64 /m
+```
+
+성공하면 `SkinEditor_DX9\Release-x64\SkinEditor_DX9.exe`와 x64
+`D3DX9_43.dll`이 생성된다. x86과 x64는 서로 다른 출력·중간 폴더를 사용하므로
+연속으로 빌드해도 산출물을 덮어쓰지 않는다. 전체 GUI/LR2 호환 회귀 기준은 아직
+x86이며, x64 실행 파일은 자동 self-test와 별도 smoke test로 확인한다.
 
 Asset 메타데이터 저장/재파싱 자동 점검:
 
@@ -613,6 +639,9 @@ $test.ExitCode
 - COURSERESULT에서 1~5스테이지 제목/레벨과 EX Score, Max Combo,
   Perfect/Great/Good/Bad/Poor 누적 숫자를 확인한다.
 - 임의 해상도에서 화면 밖으로 심하게 벗어나는 필수 Object가 없는지 확인한다.
+- 생성 CSV에서 BGA와 font-backed TEXT/BAR_TITLE을 제외한 모든 raster Object의
+  `SRC w/div_x`, `SRC h/div_y`가 `DST w`, `DST h`와 같은지 확인한다. ImageManager의
+  crop과 Preview가 같은 native-size sprite를 보여야 하며, DST 배치는 이전과 같아야 한다.
 
 ### I. 인코딩과 저장
 

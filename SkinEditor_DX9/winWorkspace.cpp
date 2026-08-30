@@ -28,6 +28,7 @@
 #include <cctype>
 #include <climits>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -10060,20 +10061,18 @@ namespace {
 
     struct PresetLabelSprite {
         const char* text;
-        int x;
-        int y;
         int w;
         int h;
     };
 
     static const PresetLabelSprite kResultLabelSprites[] = {
-        { "EX SCORE",  0, 168, 47, 7 },
-        { "MAX COMBO", 0, 180, 53, 7 },
-        { "PERFECT",  64, 168, 41, 7 },
-        { "GREAT",    64, 180, 29, 7 },
-        { "GOOD",     64, 192, 23, 7 },
-        { "BAD",      64, 204, 17, 7 },
-        { "POOR",     64, 216, 23, 7 },
+        { "EX SCORE", 47, 7 },
+        { "MAX COMBO", 53, 7 },
+        { "PERFECT", 41, 7 },
+        { "GREAT", 29, 7 },
+        { "GOOD", 23, 7 },
+        { "BAD", 17, 7 },
+        { "POOR", 23, 7 },
     };
 
     static unsigned char PresetGlyphRow(char glyph, int row) {
@@ -10104,142 +10103,311 @@ namespace {
         }
     }
 
-    static bool PresetLabelPixel(const PresetLabelSprite& label,
-        int localX, int localY) {
-        if (localX < 0 || localY < 0 || localX >= label.w ||
-            localY >= label.h) return false;
-        const int character = localX / 6;
-        const int column = localX % 6;
-        if (column >= 5 || character >= (int)strlen(label.text)) return false;
-        const unsigned char row = PresetGlyphRow(label.text[character], localY);
-        return (row & (1 << (4 - column))) != 0;
-    }
+    struct PresetRect {
+        int x = 0;
+        int y = 0;
+        int w = 0;
+        int h = 0;
+    };
 
-    static bool WritePresetAtlasBmp(const std::filesystem::path& outputPath, std::string& error) {
-        const int width = 256, height = 256;
-        const int rowBytes = (width * 3 + 3) & ~3;
-        std::vector<unsigned char> bmp(54 + rowBytes * height, 0);
-        auto put16 = [&](int offset, unsigned value) {
-            bmp[offset] = (unsigned char)(value & 0xff);
-            bmp[offset + 1] = (unsigned char)((value >> 8) & 0xff);
-        };
-        auto put32 = [&](int offset, unsigned value) {
-            for (int i = 0; i < 4; ++i) bmp[offset + i] = (unsigned char)((value >> (i * 8)) & 0xff);
-        };
-        bmp[0] = 'B'; bmp[1] = 'M';
-        put32(2, (unsigned)bmp.size());
-        put32(10, 54); put32(14, 40); put32(18, width); put32(22, height);
-        put16(26, 1); put16(28, 24); put32(34, rowBytes * height);
+    enum class PresetSpriteKind {
+        Background,
+        NoteWhite,
+        NoteBlue,
+        NoteRed,
+        Mine,
+        LongNoteBody,
+        LongNoteEnd,
+        LongNoteStart,
+        BombStrip,
+        MeasureLine,
+        JudgeLine,
+        CurrentJudge,
+        DigitStrip,
+        GaugeStrip,
+        SelectBar,
+        Panel,
+        Accent,
+        Flash,
+        ResultLabel,
+        GaugeChartLow,
+        GaugeChartHigh,
+        ScoreChart,
+    };
 
-        auto pixelColor = [&](int x, int y, unsigned char& r, unsigned char& g, unsigned char& b) {
-            r = 14; g = 20; b = 31; // background tile at x >= 192
-            if (x < 192) {
-                if (y < 16) { r = 235; g = 242; b = 255; }
-                else if (y < 32) { r = 70; g = 180; b = 255; }
-                else if (y < 48) { r = 255; g = 70; b = 85; }
-                else if (y < 64) { r = 70; g = 230; b = 150; }
-                else if (y < 72) { r = 255; g = 220; b = 70; }
-                else if (y < 104) {
-                    const int band = (x / 32) % 6;
-                    static const unsigned char colors[6][3] = {
-                        { 250, 250, 250 }, { 90, 210, 255 }, { 100, 255, 150 },
-                        { 255, 220, 80 }, { 255, 120, 80 }, { 255, 70, 100 }
-                    };
-                    r = colors[band][0]; g = colors[band][1]; b = colors[band][2];
-                }
-                else if (y < 120 && x < 160) {
-                    const int digit = x / 16;
-                    const int localX = x % 16;
-                    const int localY = y - 104;
-                    const bool edge = localX == 0 || localX == 15 ||
-                        localY == 0 || localY == 15;
-                    r = edge ? 44 : 18;
-                    g = edge ? 65 : 28;
-                    b = edge ? 92 : 43;
-                    const int glyphX = (localX - 3) / 2;
-                    const int glyphY = (localY - 1) / 2;
-                    if (localX >= 3 && localX < 13 && localY >= 1 &&
-                        localY < 15 && glyphX >= 0 && glyphX < 5 &&
-                        glyphY >= 0 && glyphY < 7 &&
-                        (kPresetDigitGlyphs[digit][glyphY] &
-                            (1 << (4 - glyphX)))) {
-                        r = 245; g = 250; b = 255;
-                    }
-                }
-                else if (y < 136 && x < 64) {
-                    static const unsigned char gaugeColors[4][3] = {
-                        { 255, 90, 70 }, { 70, 235, 145 },
-                        { 70, 28, 32 }, { 24, 48, 58 }
-                    };
-                    const int gaugeState = x / 16;
-                    r = gaugeColors[gaugeState][0];
-                    g = gaugeColors[gaugeState][1];
-                    b = gaugeColors[gaugeState][2];
-                }
+    struct PresetAtlasSprite {
+        PresetRect rect;
+        PresetSpriteKind kind = PresetSpriteKind::Background;
+        int variant = 0;
+        std::string text;
+    };
+
+    class PresetAtlasBuilder {
+    public:
+        PresetAtlasBuilder(int screenWidth, int screenHeight)
+            : width_((std::max)(512, (std::max)(screenWidth, screenHeight))) {
+        }
+
+        PresetRect Acquire(PresetSpriteKind kind, int width, int height,
+            int variant = 0, const char* text = NULL) {
+            width = (std::max)(1, width);
+            height = (std::max)(1, height);
+            const std::string spriteText = text ? text : "";
+            for (const PresetAtlasSprite& sprite : sprites_) {
+                if (sprite.kind == kind && sprite.variant == variant &&
+                    sprite.rect.w == width && sprite.rect.h == height &&
+                    sprite.text == spriteText)
+                    return sprite.rect;
             }
-            if (x < 192 && y >= 136 && y < 168) {
-                const int frame = x / 32;
-                const int localX = x % 32 - 16;
-                const int localY = y - 136 - 16;
-                const int radius = (std::max)(2, 15 - frame * 2);
-                const int distance = abs(localX) + abs(localY);
-                if (distance <= radius) {
-                    const bool core = distance <= (std::max)(1, radius / 3);
-                    r = 255;
-                    g = core ? 255 : (unsigned char)(190 - frame * 15);
-                    b = core ? 245 : (unsigned char)(70 + frame * 12);
-                }
+
+            if (width > width_) width_ = width;
+            if (cursorX_ > 0 && cursorX_ + width > width_) {
+                cursorX_ = 0;
+                cursorY_ += shelfHeight_ + kPadding;
+                shelfHeight_ = 0;
             }
-            // Dedicated RESULT surfaces and baked labels.  Keeping these in
-            // the atlas avoids depending on a system font in the generated
-            // skin and makes the default result screen understandable in LR2.
-            if (x >= 128 && x < 192 && y >= 168 && y < 224) {
-                const int shade = 24 + (y - 168) / 7;
-                r = (unsigned char)shade;
-                g = (unsigned char)(shade + 8);
-                b = (unsigned char)(shade + 18);
+            PresetAtlasSprite sprite;
+            sprite.rect = { cursorX_, cursorY_, width, height };
+            sprite.kind = kind;
+            sprite.variant = variant;
+            sprite.text = spriteText;
+            sprites_.push_back(sprite);
+            cursorX_ += width + kPadding;
+            shelfHeight_ = (std::max)(shelfHeight_, height);
+            return sprite.rect;
+        }
+
+        int width() const { return width_; }
+        int height() const { return (std::max)(1, cursorY_ + shelfHeight_); }
+
+        bool WriteBmp(const std::filesystem::path& outputPath,
+            std::string& error) const {
+            const int atlasHeight = height();
+            const uint64_t pixelCount = (uint64_t)width_ * atlasHeight;
+            if (width_ > 8192 || atlasHeight > 8192 ||
+                pixelCount > 32ull * 1024ull * 1024ull) {
+                error = "The native-size preset atlas is too large for the x86 renderer.";
+                return false;
             }
-            // SELECT bar body: a dedicated flat tile.  The old preset reused
-            // y=72..103, which is the six-color NOWJUDGE strip and therefore
-            // became a rainbow when stretched across the selection list.
-            if (x < 192 && y >= 224) {
-                const bool border = x < 2 || x >= 190 ||
-                    y < 226 || y >= 254;
-                r = border ? 92 : 28;
-                g = border ? 158 : 45;
-                b = border ? 225 : 68;
-            }
-            for (const PresetLabelSprite& label : kResultLabelSprites) {
-                if (x < label.x || x >= label.x + label.w ||
-                    y < label.y || y >= label.y + label.h) continue;
-                r = 24; g = 32; b = 48;
-                if (PresetLabelPixel(label, x - label.x, y - label.y)) {
-                    r = 225; g = 235; b = 248;
+            const int rowBytes = (width_ * 3 + 3) & ~3;
+            std::vector<unsigned char> bmp(54 + (size_t)rowBytes * atlasHeight, 0);
+            auto put16 = [&](int offset, unsigned value) {
+                bmp[offset] = (unsigned char)(value & 0xff);
+                bmp[offset + 1] = (unsigned char)((value >> 8) & 0xff);
+            };
+            auto put32 = [&](int offset, unsigned value) {
+                for (int i = 0; i < 4; ++i)
+                    bmp[offset + i] = (unsigned char)((value >> (i * 8)) & 0xff);
+            };
+            bmp[0] = 'B'; bmp[1] = 'M';
+            put32(2, (unsigned)bmp.size());
+            put32(10, 54); put32(14, 40); put32(18, width_);
+            put32(22, atlasHeight); put16(26, 1); put16(28, 24);
+            put32(34, rowBytes * atlasHeight);
+
+            auto setColor = [](unsigned char& r, unsigned char& g,
+                unsigned char& b, int red, int green, int blue) {
+                r = (unsigned char)red;
+                g = (unsigned char)green;
+                b = (unsigned char)blue;
+            };
+            auto spritePixel = [&](const PresetAtlasSprite& sprite,
+                int localX, int localY, unsigned char& r,
+                unsigned char& g, unsigned char& b) {
+            const int w = sprite.rect.w;
+            const int h = sprite.rect.h;
+            const bool edge = localX == 0 || localY == 0 ||
+                localX == w - 1 || localY == h - 1;
+            switch (sprite.kind) {
+            case PresetSpriteKind::Background:
+                setColor(r, g, b, 14 + (localY % 48 == 0 ? 6 : 0),
+                    20 + (localY % 48 == 0 ? 8 : 0),
+                    31 + (localY % 48 == 0 ? 10 : 0));
+                break;
+            case PresetSpriteKind::NoteWhite:
+                setColor(r, g, b, edge ? 190 : 235, edge ? 205 : 242,
+                    edge ? 225 : 255);
+                break;
+            case PresetSpriteKind::NoteBlue:
+                setColor(r, g, b, edge ? 45 : 70, edge ? 135 : 180,
+                    edge ? 205 : 255);
+                break;
+            case PresetSpriteKind::NoteRed:
+            case PresetSpriteKind::Mine:
+                setColor(r, g, b, edge ? 210 : 255, edge ? 45 : 70,
+                    edge ? 58 : 85);
+                break;
+            case PresetSpriteKind::LongNoteBody:
+            case PresetSpriteKind::LongNoteEnd:
+            case PresetSpriteKind::LongNoteStart:
+                setColor(r, g, b, edge ? 42 : 70, edge ? 185 : 230,
+                    edge ? 120 : 150);
+                if (sprite.kind == PresetSpriteKind::LongNoteEnd &&
+                    localY < (std::max)(1, h / 4))
+                    setColor(r, g, b, 150, 255, 205);
+                if (sprite.kind == PresetSpriteKind::LongNoteStart &&
+                    localY >= h - (std::max)(1, h / 4))
+                    setColor(r, g, b, 150, 255, 205);
+                break;
+            case PresetSpriteKind::BombStrip: {
+                const int frameW = w / 6;
+                const int frame = (std::min)(5, localX / frameW);
+                const int dx = localX % frameW - frameW / 2;
+                const int dy = localY - h / 2;
+                const int radius = (std::max)(2,
+                    (std::min)(frameW, h) / 2 - frame * 2);
+                setColor(r, g, b, 14, 20, 31);
+                if (abs(dx) + abs(dy) <= radius) {
+                    const bool core = abs(dx) + abs(dy) <=
+                        (std::max)(1, radius / 3);
+                    setColor(r, g, b, 255, core ? 255 : 190 - frame * 15,
+                        core ? 245 : 70 + frame * 12);
                 }
                 break;
             }
-        };
-        for (int y = 0; y < height; ++y) {
-            const int fileY = height - 1 - y;
-            for (int x = 0; x < width; ++x) {
-                unsigned char r, g, b;
-                pixelColor(x, y, r, g, b);
-                const size_t pos = 54 + (size_t)fileY * rowBytes + (size_t)x * 3;
-                bmp[pos] = b; bmp[pos + 1] = g; bmp[pos + 2] = r;
+            case PresetSpriteKind::MeasureLine:
+                setColor(r, g, b, 255, 220, 70);
+                break;
+            case PresetSpriteKind::JudgeLine:
+                setColor(r, g, b, 255, 70, 100);
+                break;
+            case PresetSpriteKind::CurrentJudge: {
+                static const unsigned char colors[6][3] = {
+                    { 250, 250, 250 }, { 90, 210, 255 },
+                    { 100, 255, 150 }, { 255, 220, 80 },
+                    { 255, 120, 80 }, { 255, 70, 100 }
+                };
+                const int judge = (std::max)(0, (std::min)(5, sprite.variant));
+                setColor(r, g, b, colors[judge][0], colors[judge][1],
+                    colors[judge][2]);
+                break;
             }
+            case PresetSpriteKind::DigitStrip: {
+                const int digitW = w / 10;
+                const int digit = (std::min)(9, localX / digitW);
+                const int cellX = localX % digitW;
+                const int padX = (std::max)(1, digitW / 6);
+                const int padY = (std::max)(1, h / 10);
+                const int innerW = (std::max)(1, digitW - padX * 2);
+                const int innerH = (std::max)(1, h - padY * 2);
+                const int glyphX = (cellX - padX) * 5 / innerW;
+                const int glyphY = (localY - padY) * 7 / innerH;
+                const bool glyph = cellX >= padX && cellX < digitW - padX &&
+                    localY >= padY && localY < h - padY &&
+                    glyphX >= 0 && glyphX < 5 && glyphY >= 0 && glyphY < 7 &&
+                    (kPresetDigitGlyphs[digit][glyphY] &
+                        (1 << (4 - glyphX))) != 0;
+                setColor(r, g, b, glyph ? 245 : (edge ? 44 : 18),
+                    glyph ? 250 : (edge ? 65 : 28),
+                    glyph ? 255 : (edge ? 92 : 43));
+                break;
+            }
+            case PresetSpriteKind::GaugeStrip: {
+                static const unsigned char colors[4][3] = {
+                    { 255, 90, 70 }, { 70, 235, 145 },
+                    { 70, 28, 32 }, { 24, 48, 58 }
+                };
+                const int state = (std::min)(3, localX / (w / 4));
+                setColor(r, g, b, colors[state][0], colors[state][1],
+                    colors[state][2]);
+                break;
+            }
+            case PresetSpriteKind::SelectBar: {
+                const int border = (std::max)(1, (std::min)(w, h) / 16);
+                const bool barEdge = localX < border || localX >= w - border ||
+                    localY < border || localY >= h - border;
+                setColor(r, g, b, barEdge ? 92 : 28,
+                    barEdge ? 158 : 45, barEdge ? 225 : 68);
+                break;
+            }
+            case PresetSpriteKind::Panel:
+                setColor(r, g, b, edge ? 48 : 24, edge ? 62 : 32,
+                    edge ? 84 : 48);
+                break;
+            case PresetSpriteKind::Accent:
+                setColor(r, g, b, 255, 220, 70);
+                break;
+            case PresetSpriteKind::Flash:
+                setColor(r, g, b, 235, 242, 255);
+                break;
+            case PresetSpriteKind::ResultLabel: {
+                setColor(r, g, b, 24, 32, 48);
+                const int characters = (int)sprite.text.size();
+                if (characters <= 0) break;
+                const int cell = (std::max)(1, w / characters);
+                const int character = (std::min)(characters - 1,
+                    localX / cell);
+                const int cellX = localX - character * cell;
+                const int glyphX = cellX * 6 / cell;
+                const int glyphY = localY * 7 / h;
+                if (glyphX < 5 && glyphY < 7 &&
+                    (PresetGlyphRow(sprite.text[character], glyphY) &
+                        (1 << (4 - glyphX))))
+                    setColor(r, g, b, 225, 235, 248);
+                break;
+            }
+            case PresetSpriteKind::GaugeChartLow:
+                setColor(r, g, b, 70, 235, 145);
+                break;
+            case PresetSpriteKind::GaugeChartHigh:
+                setColor(r, g, b, 255, 90, 70);
+                break;
+            case PresetSpriteKind::ScoreChart:
+                setColor(r, g, b, 70, 180, 255);
+                break;
+            }
+            };
+            for (const PresetAtlasSprite& sprite : sprites_) {
+                for (int localY = 0; localY < sprite.rect.h; ++localY) {
+                    const int y = sprite.rect.y + localY;
+                    const int fileY = atlasHeight - 1 - y;
+                    for (int localX = 0; localX < sprite.rect.w; ++localX) {
+                        unsigned char r, g, b;
+                        spritePixel(sprite, localX, localY, r, g, b);
+                        const int x = sprite.rect.x + localX;
+                        const size_t pos = 54 + (size_t)fileY * rowBytes +
+                            (size_t)x * 3;
+                        bmp[pos] = b;
+                        bmp[pos + 1] = g;
+                        bmp[pos + 2] = r;
+                    }
+                }
+            }
+
+            const std::filesystem::path tempPath =
+                outputPath.string() + ".tmp";
+            std::ofstream output(tempPath,
+                std::ios::binary | std::ios::trunc);
+            if (!output) {
+                error = "Could not create the preset image.";
+                return false;
+            }
+            output.write((const char*)bmp.data(),
+                (std::streamsize)bmp.size());
+            output.close();
+            if (!output) {
+                std::filesystem::remove(tempPath);
+                error = "Could not write the preset image.";
+                return false;
+            }
+            std::error_code ec;
+            std::filesystem::rename(tempPath, outputPath, ec);
+            if (ec) {
+                std::filesystem::remove(tempPath);
+                error = "Could not finalize the preset image.";
+                return false;
+            }
+            return true;
         }
 
-        const std::filesystem::path tempPath = outputPath.string() + ".tmp";
-        std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
-        if (!output) { error = "Could not create the preset image."; return false; }
-        output.write((const char*)bmp.data(), (std::streamsize)bmp.size());
-        output.close();
-        if (!output) { std::filesystem::remove(tempPath); error = "Could not write the preset image."; return false; }
-        std::error_code ec;
-        std::filesystem::rename(tempPath, outputPath, ec);
-        if (ec) { std::filesystem::remove(tempPath); error = "Could not finalize the preset image."; return false; }
-        return true;
-    }
+    private:
+        static const int kPadding = 2;
+        int width_ = 512;
+        int cursorX_ = 0;
+        int cursorY_ = 0;
+        int shelfHeight_ = 0;
+        std::vector<PresetAtlasSprite> sprites_;
+    };
 
     static void AppendDst(std::ostringstream& skin, const char* command, int index,
         int x, int y, int w, int h, int timer = 0) {
@@ -10258,8 +10426,9 @@ namespace {
             << ",0,0,0,-1," << timer << ",0,0,0\r\n";
     }
 
-    static void AppendPlayFeedbackPreset(std::ostringstream& skin, int player,
-        int fieldX, int fieldWidth, int judgeY, int screenHeight) {
+    static void AppendPlayFeedbackPreset(std::ostringstream& skin,
+        PresetAtlasBuilder& atlas, int player, int fieldX, int fieldWidth,
+        int judgeY, int screenHeight) {
         const char* playerSuffix = player == 0 ? "1P" : "2P";
         const int timer = 46 + player;
         const int judgeWidth = (std::max)(64, fieldWidth * 72 / 100);
@@ -10275,8 +10444,12 @@ namespace {
         skin << "$SE_OBJECT_NAME,Current Judge " << playerSuffix
             << "\r\n$SE_OBJECT_ID,preset_nowjudge_" << player << "\r\n";
         for (int judge = 0; judge < 6; ++judge) {
+            const PresetRect judgeSprite = atlas.Acquire(
+                PresetSpriteKind::CurrentJudge, judgeWidth, judgeHeight,
+                judge);
             skin << "#SRC_NOWJUDGE_" << playerSuffix << ',' << judge
-                << ",0," << (judge * 32) << ",72,32,32,1,1,0,"
+                << ",0," << judgeSprite.x << ',' << judgeSprite.y << ','
+                << judgeSprite.w << ',' << judgeSprite.h << ",1,1,0,"
                 << timer << ",0,0,0\r\n";
             const std::string command = std::string("#DST_NOWJUDGE_") +
                 playerSuffix;
@@ -10286,10 +10459,15 @@ namespace {
 
         skin << "$SE_OBJECT_NAME,Current Combo " << playerSuffix
             << "\r\n$SE_OBJECT_ID,preset_nowcombo_" << player << "\r\n";
+        const PresetRect comboDigits = atlas.Acquire(
+            PresetSpriteKind::DigitStrip, comboDigitWidth * 10,
+            comboDigitHeight);
         // LR2 displays combo digits only for GOOD/GREAT/PGREAT (slots 3..5).
         for (int judge = 3; judge < 6; ++judge) {
             skin << "#SRC_NOWCOMBO_" << playerSuffix << ',' << judge
-                << ",0,0,104,160,16,10,1,0," << timer
+                << ",0," << comboDigits.x << ',' << comboDigits.y << ','
+                << comboDigits.w << ',' << comboDigits.h
+                << ",10,1,0," << timer
                 << ",0,1,7\r\n";
             const std::string command = std::string("#DST_NOWCOMBO_") +
                 playerSuffix;
@@ -10298,15 +10476,20 @@ namespace {
         }
     }
 
-    static void AppendSelectPreset(std::ostringstream& skin, int width, int height) {
+    static void AppendSelectPreset(std::ostringstream& skin,
+        PresetAtlasBuilder& atlas, int width, int height) {
         const int barW = (std::max)(240, width * 54 / 100);
         const int barH = (std::max)(24, height / 15);
         const int barX = (width - barW) / 2;
         const int centerY = height / 2 - barH / 2;
+        const PresetRect barSprite = atlas.Acquire(
+            PresetSpriteKind::SelectBar, barW, barH);
 
         skin << "$SE_OBJECT_NAME,Selection Bar Sources\r\n$SE_OBJECT_ID,preset_select_bar_sources\r\n";
         for (int barType = 0; barType < 10; ++barType)
-            skin << "#SRC_BAR_BODY," << barType << ",0,0,224,192,32,1,1,0,0\r\n";
+            skin << "#SRC_BAR_BODY," << barType << ",0,"
+                << barSprite.x << ',' << barSprite.y << ',' << barSprite.w
+                << ',' << barSprite.h << ",1,1,0,0\r\n";
         for (int slot = 0; slot <= 20; ++slot) {
             const int y = centerY + (slot - 10) * barH;
             skin << "#DST_BAR_BODY_OFF," << slot << ",0," << barX << ',' << y << ',' << barW << ',' << barH
@@ -10326,28 +10509,43 @@ namespace {
             << ',' << (std::max)(14, barH * 55 / 100) << ",0,255,255,235,120,0,0,0,0,0,0,0,0,0\r\n";
     }
 
-    static void AppendDecidePreset(std::ostringstream& skin, int width, int height) {
+    static void AppendDecidePreset(std::ostringstream& skin,
+        PresetAtlasBuilder& atlas, int width, int height) {
         const int panelW = width * 68 / 100;
         const int panelH = height * 46 / 100;
         const int panelX = (width - panelW) / 2;
         const int panelY = (height - panelH) / 2;
+        const int accentH = (std::max)(4, height / 90);
+        const int flashH = (std::max)(8, height / 30);
 
         skin << "$SE_OBJECT_NAME,Decision Panel\r\n$SE_OBJECT_ID,preset_decide_panel\r\n";
-        skin << "#SRC_IMAGE,0,0,0,72,192,32,1,1,0,0,0,0,0\r\n";
+        const PresetRect panelSprite = atlas.Acquire(
+            PresetSpriteKind::Panel, panelW, panelH, 1);
+        skin << "#SRC_IMAGE,0,0," << panelSprite.x << ',' << panelSprite.y
+            << ',' << panelSprite.w << ',' << panelSprite.h
+            << ",1,1,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY, panelW, panelH);
 
         skin << "$SE_OBJECT_NAME,Decision Accent\r\n$SE_OBJECT_ID,preset_decide_accent\r\n";
-        skin << "#SRC_IMAGE,0,0,0,64,192,8,1,1,0,0,0,0,0\r\n";
-        AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY, panelW, (std::max)(4, height / 90));
-        AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY + panelH - (std::max)(4, height / 90),
-            panelW, (std::max)(4, height / 90));
+        const PresetRect accentSprite = atlas.Acquire(
+            PresetSpriteKind::Accent, panelW, accentH);
+        skin << "#SRC_IMAGE,0,0," << accentSprite.x << ',' << accentSprite.y
+            << ',' << accentSprite.w << ',' << accentSprite.h
+            << ",1,1,0,0,0,0,0\r\n";
+        AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY, panelW, accentH);
+        AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY + panelH - accentH,
+            panelW, accentH);
 
         skin << "$SE_OBJECT_NAME,Decision Flash\r\n$SE_OBJECT_ID,preset_decide_flash\r\n";
-        skin << "#SRC_IMAGE,0,0,0,0,192,16,1,1,0,0,0,0,0\r\n";
+        const PresetRect flashSprite = atlas.Acquire(
+            PresetSpriteKind::Flash, panelW, flashH);
+        skin << "#SRC_IMAGE,0,0," << flashSprite.x << ',' << flashSprite.y
+            << ',' << flashSprite.w << ',' << flashSprite.h
+            << ",1,1,0,0,0,0,0\r\n";
         skin << "#DST_IMAGE,0,0," << panelX << ',' << (panelY + panelH / 2) << ',' << panelW << ','
-            << (std::max)(8, height / 30) << ",0,0,255,255,255,1,0,0,0,500,0,0,0,0\r\n";
+            << flashH << ",0,0,255,255,255,1,0,0,0,500,0,0,0,0\r\n";
         skin << "#DST_IMAGE,0,500," << panelX << ',' << (panelY + panelH / 2) << ',' << panelW << ','
-            << (std::max)(8, height / 30) << ",0,220,255,255,255,1,0,0,0,0,0,0,0,0\r\n";
+            << flashH << ",0,220,255,255,255,1,0,0,0,0,0,0,0,0\r\n";
 
         const int titleFontSize = (std::max)(18, height / 18);
         const int titleX = panelX + panelW * 8 / 100;
@@ -10364,15 +10562,21 @@ namespace {
             << ",0,255,245,250,255,0,0,0,0,0,0,0,0,0\r\n";
     }
 
-    static void AppendResultNumber(std::ostringstream& skin, const char* name, const char* id,
+    static void AppendResultNumber(std::ostringstream& skin,
+        PresetAtlasBuilder& atlas, const char* name, const char* id,
         int numberId, int x, int y, int digitW, int digitH, int digits) {
         skin << "$SE_OBJECT_NAME," << name << "\r\n$SE_OBJECT_ID," << id << "\r\n";
-        skin << "#SRC_NUMBER,0,0,0,104,160,16,10,1,0,0," << numberId << ",0," << digits << "\r\n";
+        const PresetRect digitsSprite = atlas.Acquire(
+            PresetSpriteKind::DigitStrip, digitW * 10, digitH);
+        skin << "#SRC_NUMBER,0,0," << digitsSprite.x << ',' << digitsSprite.y
+            << ',' << digitsSprite.w << ',' << digitsSprite.h
+            << ",10,1,0,0," << numberId << ",0," << digits << "\r\n";
         AppendDst(skin, "#DST_NUMBER", 0, x, y, digitW, digitH);
     }
 
-    static void AppendResultLabel(std::ostringstream& skin, int labelIndex,
-        const char* name, const char* id, int x, int y, int targetHeight) {
+    static void AppendResultLabel(std::ostringstream& skin,
+        PresetAtlasBuilder& atlas, int labelIndex, const char* name,
+        const char* id, int x, int y, int targetHeight) {
         if (labelIndex < 0 || labelIndex >= IM_ARRAYSIZE(kResultLabelSprites))
             return;
         const PresetLabelSprite& label = kResultLabelSprites[labelIndex];
@@ -10380,12 +10584,17 @@ namespace {
             label.w * targetHeight / label.h);
         skin << "$SE_OBJECT_NAME," << name << " Label\r\n$SE_OBJECT_ID,"
             << id << "\r\n";
-        skin << "#SRC_IMAGE,0,0," << label.x << ',' << label.y << ','
-            << label.w << ',' << label.h << ",1,1,0,0,0,0,0\r\n";
+        const PresetRect labelSprite = atlas.Acquire(
+            PresetSpriteKind::ResultLabel, targetWidth, targetHeight,
+            labelIndex, label.text);
+        skin << "#SRC_IMAGE,0,0," << labelSprite.x << ',' << labelSprite.y
+            << ',' << labelSprite.w << ',' << labelSprite.h
+            << ",1,1,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_IMAGE", 0, x, y, targetWidth, targetHeight);
     }
 
-    static void AppendResultPreset(std::ostringstream& skin, int width, int height) {
+    static void AppendResultPreset(std::ostringstream& skin,
+        PresetAtlasBuilder& atlas, int width, int height) {
         const int panelX = width * 8 / 100;
         const int panelY = height * 14 / 100;
         const int panelW = width * 84 / 100;
@@ -10396,7 +10605,11 @@ namespace {
         const int padding = (std::max)(18, panelW / 24);
 
         skin << "$SE_OBJECT_NAME,Result Panel\r\n$SE_OBJECT_ID,preset_result_panel\r\n";
-        skin << "#SRC_IMAGE,0,0,128,168,64,56,1,1,0,0,0,0,0\r\n";
+        const PresetRect panelSprite = atlas.Acquire(
+            PresetSpriteKind::Panel, panelW, panelH, 2);
+        skin << "#SRC_IMAGE,0,0," << panelSprite.x << ',' << panelSprite.y
+            << ',' << panelSprite.w << ',' << panelSprite.h
+            << ",1,1,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY, panelW, panelH);
 
         const int leftLabelX = panelX + padding;
@@ -10407,13 +10620,13 @@ namespace {
         const int row = digitH * 3 / 2;
         const int labelOffsetY = (std::max)(0, (digitH - labelH) / 2);
 
-        AppendResultLabel(skin, 0, "EX Score", "preset_result_label_exscore",
+        AppendResultLabel(skin, atlas, 0, "EX Score", "preset_result_label_exscore",
             leftLabelX, firstY + labelOffsetY, labelH);
-        AppendResultNumber(skin, "EX Score", "preset_result_exscore", 101,
+        AppendResultNumber(skin, atlas, "EX Score", "preset_result_exscore", 101,
             leftNumberX, firstY, digitW, digitH, 6);
-        AppendResultLabel(skin, 1, "Max Combo", "preset_result_label_maxcombo",
+        AppendResultLabel(skin, atlas, 1, "Max Combo", "preset_result_label_maxcombo",
             leftLabelX, firstY + row + labelOffsetY, labelH);
-        AppendResultNumber(skin, "Max Combo", "preset_result_maxcombo", 105,
+        AppendResultNumber(skin, atlas, "Max Combo", "preset_result_maxcombo", 105,
             leftNumberX, firstY + row, digitW, digitH, 5);
 
         struct ResultJudgeRow {
@@ -10432,10 +10645,10 @@ namespace {
         };
         for (int index = 0; index < IM_ARRAYSIZE(judgeRows); ++index) {
             const int y = firstY + row * index;
-            AppendResultLabel(skin, judgeRows[index].labelIndex,
+            AppendResultLabel(skin, atlas, judgeRows[index].labelIndex,
                 judgeRows[index].name, judgeRows[index].labelId,
                 rightLabelX, y + labelOffsetY, labelH);
-            AppendResultNumber(skin, judgeRows[index].name,
+            AppendResultNumber(skin, atlas, judgeRows[index].name,
                 judgeRows[index].id, judgeRows[index].numberId,
                 rightNumberX, y, digitW, digitH, 5);
         }
@@ -10449,30 +10662,45 @@ namespace {
         const int secondChartX = panelX + panelW * 54 / 100;
         skin << "$SE_OBJECT_NAME,Result Gauge Chart Backdrop\r\n"
             "$SE_OBJECT_ID,preset_result_gauge_chart_backdrop\r\n";
-        skin << "#SRC_IMAGE,0,0,128,168,64,56,1,1,0,0,0,0,0\r\n";
+        const PresetRect chartBackdrop = atlas.Acquire(
+            PresetSpriteKind::Panel, chartW, chartH, 3);
+        skin << "#SRC_IMAGE,0,0," << chartBackdrop.x << ','
+            << chartBackdrop.y << ',' << chartBackdrop.w << ','
+            << chartBackdrop.h << ",1,1,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_IMAGE", 0, chartX, chartY, chartW, chartH);
         skin << "$SE_OBJECT_NAME,Result Score Chart Backdrop\r\n"
             "$SE_OBJECT_ID,preset_result_score_chart_backdrop\r\n";
-        skin << "#SRC_IMAGE,0,0,128,168,64,56,1,1,0,0,0,0,0\r\n";
+        skin << "#SRC_IMAGE,0,0," << chartBackdrop.x << ','
+            << chartBackdrop.y << ',' << chartBackdrop.w << ','
+            << chartBackdrop.h << ",1,1,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_IMAGE", 0, secondChartX, chartY, chartW, chartH);
         skin << "$SE_OBJECT_NAME,Groove Gauge Chart\r\n$SE_OBJECT_ID,preset_result_gauge_chart\r\n";
         // LR2 switches from index 0 to index 1 at the 80% clear border.
         // Both destinations use the bottom of the backdrop as their origin;
         // Scene05_Result applies a negative y offset while drawing the graph.
-        skin << "#SRC_GAUGECHART_1P,0,0,16,120,2,2,1,1,0,0,"
+        const PresetRect lowGauge = atlas.Acquire(
+            PresetSpriteKind::GaugeChartLow, 2, 2);
+        const PresetRect highGauge = atlas.Acquire(
+            PresetSpriteKind::GaugeChartHigh, 2, 2);
+        skin << "#SRC_GAUGECHART_1P,0,0," << lowGauge.x << ','
+            << lowGauge.y << ",2,2,1,1,0,0,"
             << chartW << ',' << chartFieldH << ",500,2000\r\n";
         AppendDst(skin, "#DST_GAUGECHART_1P", 0, chartX, chartBaseY, 2, 2);
-        skin << "#SRC_GAUGECHART_1P,1,0,0,120,2,2,1,1,0,0,"
+        skin << "#SRC_GAUGECHART_1P,1,0," << highGauge.x << ','
+            << highGauge.y << ",2,2,1,1,0,0,"
             << chartW << ',' << chartFieldH << ",500,2000\r\n";
         AppendDst(skin, "#DST_GAUGECHART_1P", 1, chartX, chartBaseY, 2, 2);
         skin << "$SE_OBJECT_NAME,Score Chart\r\n$SE_OBJECT_ID,preset_result_score_chart\r\n";
-        skin << "#SRC_SCORECHART,0,0,0,16,2,2,1,1,0,0,"
+        const PresetRect scoreChart = atlas.Acquire(
+            PresetSpriteKind::ScoreChart, 2, 2);
+        skin << "#SRC_SCORECHART,0,0," << scoreChart.x << ','
+            << scoreChart.y << ",2,2,1,1,0,0,"
             << chartW << ',' << chartFieldH << ",500,2000\r\n";
         AppendDst(skin, "#DST_SCORECHART", 0, secondChartX, chartBaseY, 2, 2);
     }
 
     static void AppendCourseResultPreset(std::ostringstream& skin,
-        int width, int height) {
+        PresetAtlasBuilder& atlas, int width, int height) {
         const int panelX = width * 8 / 100;
         const int panelY = height * 12 / 100;
         const int panelW = width * 84 / 100;
@@ -10484,7 +10712,11 @@ namespace {
 
         skin << "$SE_OBJECT_NAME,Course Result Panel\r\n"
             "$SE_OBJECT_ID,preset_course_result_panel\r\n";
-        skin << "#SRC_IMAGE,0,0,0,72,192,32,1,1,0,0,0,0,0\r\n";
+        const PresetRect panelSprite = atlas.Acquire(
+            PresetSpriteKind::Panel, panelW, panelH, 4);
+        skin << "#SRC_IMAGE,0,0," << panelSprite.x << ',' << panelSprite.y
+            << ',' << panelSprite.w << ',' << panelSprite.h
+            << ",1,1,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_IMAGE", 0, panelX, panelY, panelW, panelH);
 
         skin << "#FONT," << fontSize << ",2,2,Arial\r\n";
@@ -10509,7 +10741,7 @@ namespace {
             snprintf(levelName, sizeof(levelName), "Course Stage %d Level",
                 stage + 1);
             snprintf(levelId, sizeof(levelId), "preset_course_level_%d", stage);
-            AppendResultNumber(skin, levelName, levelId, 250 + stage,
+            AppendResultNumber(skin, atlas, levelName, levelId, 250 + stage,
                 stageLevelX, stageY, digitW, digitH, 2);
         }
 
@@ -10532,11 +10764,92 @@ namespace {
             { "Course Poor", "preset_course_poor", 114, 5 },
         };
         for (int index = 0; index < IM_ARRAYSIZE(summary); ++index) {
-            AppendResultNumber(skin, summary[index].name, summary[index].id,
+            AppendResultNumber(skin, atlas, summary[index].name, summary[index].id,
                 summary[index].numberId, summaryX,
                 summaryY + index * summaryRow, digitW, digitH,
                 summary[index].digits);
         }
+    }
+
+    static std::vector<std::string> SplitPresetCsvRow(
+        const std::string& row) {
+        std::vector<std::string> fields;
+        size_t start = 0;
+        while (start <= row.size()) {
+            const size_t comma = row.find(',', start);
+            if (comma == std::string::npos) {
+                fields.push_back(row.substr(start));
+                break;
+            }
+            fields.push_back(row.substr(start, comma - start));
+            start = comma + 1;
+        }
+        return fields;
+    }
+
+    // Raster preset sprites are generated at their destination frame size so
+    // New Skin starts without hidden scaling.  BGA receives its graph from the
+    // BMS at runtime, while TEXT/BAR_TITLE are font-backed and have no source
+    // crop dimensions, so those commands are intentionally outside this rule.
+    static bool ValidatePresetNativeSpriteSizes(const std::string& contents) {
+        typedef std::pair<int, int> SpriteSize;
+        struct ObjectSizes {
+            std::set<SpriteSize> source;
+            std::set<SpriteSize> destination;
+        };
+        std::map<std::string, ObjectSizes> objects;
+        std::string currentObject;
+        std::istringstream rows(contents);
+        std::string row;
+        while (std::getline(rows, row)) {
+            if (!row.empty() && row.back() == '\r') row.pop_back();
+            if (row.compare(0, strlen("$SE_OBJECT_NAME,"),
+                "$SE_OBJECT_NAME,") == 0) {
+                currentObject.clear();
+                continue;
+            }
+            if (row.compare(0, strlen("$SE_OBJECT_ID,"),
+                "$SE_OBJECT_ID,") == 0) {
+                currentObject = row.substr(strlen("$SE_OBJECT_ID,"));
+                continue;
+            }
+            if (currentObject.empty()) continue;
+            const std::vector<std::string> fields = SplitPresetCsvRow(row);
+            if (fields.size() < 7) continue;
+            const std::string& command = fields[0];
+            const bool source = command.compare(0, 5, "#SRC_") == 0;
+            const bool destination = command.compare(0, 5, "#DST_") == 0;
+            if (!source && !destination) continue;
+            if (command == "#SRC_BGA" || command == "#DST_BGA" ||
+                command == "#SRC_TEXT" || command == "#DST_TEXT" ||
+                command == "#SRC_BAR_TITLE" ||
+                command == "#DST_BAR_TITLE")
+                continue;
+            const int width = atoi(fields[5].c_str());
+            const int height = atoi(fields[6].c_str());
+            if (width <= 0 || height <= 0) return false;
+            if (source) {
+                if (fields.size() < 9) return false;
+                const int divX = atoi(fields[7].c_str());
+                const int divY = atoi(fields[8].c_str());
+                if (divX <= 0 || divY <= 0 || width % divX != 0 ||
+                    height % divY != 0)
+                    return false;
+                objects[currentObject].source.insert(
+                    SpriteSize(width / divX, height / divY));
+            }
+            else {
+                objects[currentObject].destination.insert(
+                    SpriteSize(width, height));
+            }
+        }
+        for (const auto& entry : objects) {
+            if (!entry.second.source.empty() &&
+                !entry.second.destination.empty() &&
+                entry.second.source != entry.second.destination)
+                return false;
+        }
+        return true;
     }
 
     static bool BuildInitialPreset(int type, int width, int height, const std::string& titleUtf8,
@@ -10580,6 +10893,7 @@ namespace {
         const int fieldTop = (std::max)(20, height / 18);
         const int judgeY = height * 78 / 100;
         const int laneHeight = (std::max)(8, height / 60);
+        PresetAtlasBuilder atlas(width, height);
 
         std::ostringstream skin;
         skin << "// Generated by SkinEditor initial preset\r\n";
@@ -10600,7 +10914,11 @@ namespace {
         skin << "#IMAGE," << atlasScriptPath << "\r\n\r\n";
 
         skin << "$SE_OBJECT_NAME,Background\r\n$SE_OBJECT_ID,preset_background\r\n";
-        skin << "#SRC_IMAGE,0,0,192,0,64,256,1,1,0,0,0,0,0\r\n";
+        const PresetRect backgroundSprite = atlas.Acquire(
+            PresetSpriteKind::Background, width, height);
+        skin << "#SRC_IMAGE,0,0," << backgroundSprite.x << ','
+            << backgroundSprite.y << ',' << backgroundSprite.w << ','
+            << backgroundSprite.h << ",1,1,0,0,0,0,0\r\n";
         AppendDst(skin, "#DST_IMAGE", 0, 0, 0, width, height);
 
         if (IsPlayPresetType(type)) {
@@ -10620,20 +10938,48 @@ namespace {
             const int fieldX = twoPlayers ? margin + player * (fieldWidth + gap) : margin;
             const int laneWidth = (std::max)(8, fieldWidth / lanesPerPlayer);
             const int usedWidth = laneWidth * lanesPerPlayer;
+            const PresetRect noteWhite = atlas.Acquire(
+                PresetSpriteKind::NoteWhite, laneWidth, laneHeight);
+            const PresetRect noteBlue = atlas.Acquire(
+                PresetSpriteKind::NoteBlue, laneWidth, laneHeight);
+            const PresetRect noteRed = atlas.Acquire(
+                PresetSpriteKind::NoteRed, laneWidth, laneHeight);
+            const PresetRect mine = atlas.Acquire(
+                PresetSpriteKind::Mine, laneWidth, laneHeight);
+            const PresetRect longNoteBody = atlas.Acquire(
+                PresetSpriteKind::LongNoteBody, laneWidth, laneHeight);
+            const PresetRect longNoteEnd = atlas.Acquire(
+                PresetSpriteKind::LongNoteEnd, laneWidth, laneHeight);
+            const PresetRect longNoteStart = atlas.Acquire(
+                PresetSpriteKind::LongNoteStart, laneWidth, laneHeight);
             for (int lane = 0; lane < lanesPerPlayer; ++lane, ++generatedLane) {
                 // LR2 reserves 0/10 for the two scratches. PMS uses 1..9,
                 // while DP/Battle uses a second bank beginning at 10.
                 const int laneIndex = player * 10 + lane + (keysPerPlayer == 9 ? 1 : 0);
                 const int laneX = fieldX + lane * laneWidth;
-                const int noteSourceY = hasScratch && lane == 0
-                    ? 32 : (((lane - (hasScratch ? 1 : 0)) % 2) ? 16 : 0);
+                const PresetRect& noteSprite = hasScratch && lane == 0
+                    ? noteRed : (((lane - (hasScratch ? 1 : 0)) % 2)
+                        ? noteBlue : noteWhite);
                 skin << "$SE_OBJECT_NAME,Note P" << (player + 1) << " Lane " << lane << "\r\n";
                 skin << "$SE_OBJECT_ID,preset_note_" << generatedLane << "\r\n";
-                skin << "#SRC_NOTE," << laneIndex << ",0,0," << noteSourceY << ",16,16,1,1,0,0,0,0,0\r\n";
-                skin << "#SRC_MINE," << laneIndex << ",0,0,32,16,16,1,1,0,0,0,0,0\r\n";
-                skin << "#SRC_LN_BODY," << laneIndex << ",0,0,48,16,16,1,1,0\r\n";
-                skin << "#SRC_LN_END," << laneIndex << ",0,16,48,16,16,1,1,0\r\n";
-                skin << "#SRC_LN_START," << laneIndex << ",0,32,48,16,16,1,1,0\r\n";
+                skin << "#SRC_NOTE," << laneIndex << ",0," << noteSprite.x
+                    << ',' << noteSprite.y << ',' << noteSprite.w << ','
+                    << noteSprite.h << ",1,1,0,0,0,0,0\r\n";
+                skin << "#SRC_MINE," << laneIndex << ",0," << mine.x << ','
+                    << mine.y << ',' << mine.w << ',' << mine.h
+                    << ",1,1,0,0,0,0,0\r\n";
+                skin << "#SRC_LN_BODY," << laneIndex << ",0,"
+                    << longNoteBody.x << ',' << longNoteBody.y << ','
+                    << longNoteBody.w << ',' << longNoteBody.h
+                    << ",1,1,0\r\n";
+                skin << "#SRC_LN_END," << laneIndex << ",0,"
+                    << longNoteEnd.x << ',' << longNoteEnd.y << ','
+                    << longNoteEnd.w << ',' << longNoteEnd.h
+                    << ",1,1,0\r\n";
+                skin << "#SRC_LN_START," << laneIndex << ",0,"
+                    << longNoteStart.x << ',' << longNoteStart.y << ','
+                    << longNoteStart.w << ',' << longNoteStart.h
+                    << ",1,1,0\r\n";
                 AppendDst(skin, "#DST_NOTE", laneIndex, laneX, judgeY, laneWidth, laneHeight);
 
                 const int bombTimer = 50 + laneIndex;
@@ -10644,7 +10990,11 @@ namespace {
                 skin << "$SE_OBJECT_NAME,Bomb P" << (player + 1)
                     << " Lane " << lane << "\r\n";
                 skin << "$SE_OBJECT_ID,preset_bomb_" << generatedLane << "\r\n";
-                skin << "#SRC_IMAGE,0,0,0,136,192,32,6,1,280,"
+                const PresetRect bombSprite = atlas.Acquire(
+                    PresetSpriteKind::BombStrip, bombSize * 6, bombSize);
+                skin << "#SRC_IMAGE,0,0," << bombSprite.x << ','
+                    << bombSprite.y << ',' << bombSprite.w << ','
+                    << bombSprite.h << ",6,1,280,"
                     << bombTimer << ",0,0,0\r\n";
                 AppendTimedDstPair(skin, "#DST_IMAGE", 0, bombX, bombY,
                     bombSize, bombSize, 280, bombTimer, 2);
@@ -10656,49 +11006,73 @@ namespace {
             // measure lines, so keep one LINE object for every player.
             skin << "$SE_OBJECT_NAME,Measure Line P" << (player + 1) << "\r\n";
             skin << "$SE_OBJECT_ID,preset_line_" << player << "\r\n";
-            skin << "#SRC_LINE," << player << ",0,0,64,192,8,1,1,0,0,0,0,0\r\n";
+            const int measureLineH = (std::max)(1, height / 720);
+            const PresetRect measureLine = atlas.Acquire(
+                PresetSpriteKind::MeasureLine, usedWidth, measureLineH);
+            skin << "#SRC_LINE," << player << ",0," << measureLine.x << ','
+                << measureLine.y << ',' << measureLine.w << ','
+                << measureLine.h << ",1,1,0,0,0,0,0\r\n";
             AppendDst(skin, "#DST_LINE", player, fieldX, judgeY, usedWidth,
-                (std::max)(1, height / 720));
+                measureLineH);
 
             skin << "$SE_OBJECT_NAME,Judge Line P" << (player + 1) << "\r\n";
             skin << "$SE_OBJECT_ID,preset_judgeline_" << player << "\r\n";
-            skin << "#SRC_JUDGELINE," << player << ",0,0,64,192,8,1,1,0,0,0,0,0\r\n";
+            const PresetRect judgeLine = atlas.Acquire(
+                PresetSpriteKind::JudgeLine, usedWidth, laneHeight);
+            skin << "#SRC_JUDGELINE," << player << ",0," << judgeLine.x
+                << ',' << judgeLine.y << ',' << judgeLine.w << ','
+                << judgeLine.h << ",1,1,0,0,0,0,0\r\n";
             AppendDst(skin, "#DST_JUDGELINE", player, fieldX, judgeY, usedWidth, laneHeight);
 
-            AppendPlayFeedbackPreset(skin, player, fieldX, usedWidth,
+            AppendPlayFeedbackPreset(skin, atlas, player, fieldX, usedWidth,
                 judgeY, height);
 
             skin << "$SE_OBJECT_NAME,Groove Gauge P" << (player + 1) << "\r\n";
             skin << "$SE_OBJECT_ID,preset_gauge_" << player << "\r\n";
             const int gaugeCellWidth = (std::max)(2, usedWidth / 50);
+            const int gaugeHeight = (std::max)(10, height / 35);
+            const PresetRect gaugeSprite = atlas.Acquire(
+                PresetSpriteKind::GaugeStrip, gaugeCellWidth * 4,
+                gaugeHeight);
             skin << "#SRC_GROOVEGAUGE," << player
-                << ",0,0,120,64,16,4,1,0,0," << gaugeCellWidth
+                << ",0," << gaugeSprite.x << ',' << gaugeSprite.y << ','
+                << gaugeSprite.w << ',' << gaugeSprite.h
+                << ",4,1,0,0," << gaugeCellWidth
                 << ",0\r\n";
             AppendDst(skin, "#DST_GROOVEGAUGE", player, fieldX, height * 90 / 100,
-                gaugeCellWidth, (std::max)(10, height / 35));
+                gaugeCellWidth, gaugeHeight);
 
             // LR2 documents FAST/SLOW counters 212/214 for 1P. Do not create
             // misleading duplicate P2 counters in DP/Battle presets.
             if (player == 0) {
                 const int numberX = fieldX;
                 const int numberY = height * 84 / 100;
+                const int numberDigitW = (std::max)(8, fieldWidth / 24);
+                const int numberDigitH = (std::max)(12, height / 35);
+                const PresetRect numberDigits = atlas.Acquire(
+                    PresetSpriteKind::DigitStrip, numberDigitW * 10,
+                    numberDigitH);
                 skin << "$SE_OBJECT_NAME,FAST\r\n$SE_OBJECT_ID,preset_fast\r\n";
-                skin << "#SRC_NUMBER,0,0,0,104,160,16,10,1,0,0,212,0,4\r\n";
+                skin << "#SRC_NUMBER,0,0," << numberDigits.x << ','
+                    << numberDigits.y << ',' << numberDigits.w << ','
+                    << numberDigits.h << ",10,1,0,0,212,0,4\r\n";
                 AppendDst(skin, "#DST_NUMBER", 0, numberX, numberY,
-                    (std::max)(8, fieldWidth / 24), (std::max)(12, height / 35));
+                    numberDigitW, numberDigitH);
                 skin << "$SE_OBJECT_NAME,SLOW\r\n$SE_OBJECT_ID,preset_slow\r\n";
-                skin << "#SRC_NUMBER,0,0,0,104,160,16,10,1,0,0,214,0,4\r\n";
+                skin << "#SRC_NUMBER,0,0," << numberDigits.x << ','
+                    << numberDigits.y << ',' << numberDigits.w << ','
+                    << numberDigits.h << ",10,1,0,0,214,0,4\r\n";
                 AppendDst(skin, "#DST_NUMBER", 0, numberX + fieldWidth / 2, numberY,
-                    (std::max)(8, fieldWidth / 24), (std::max)(12, height / 35));
+                    numberDigitW, numberDigitH);
             }
             }
         }
-        else if (type == 5) AppendSelectPreset(skin, width, height);
-        else if (type == 6) AppendDecidePreset(skin, width, height);
-        else if (type == 7) AppendResultPreset(skin, width, height);
-        else if (type == 15) AppendCourseResultPreset(skin, width, height);
+        else if (type == 5) AppendSelectPreset(skin, atlas, width, height);
+        else if (type == 6) AppendDecidePreset(skin, atlas, width, height);
+        else if (type == 7) AppendResultPreset(skin, atlas, width, height);
+        else if (type == 15) AppendCourseResultPreset(skin, atlas, width, height);
 
-        if (!WritePresetAtlasBmp(atlasPath, error)) return false;
+        if (!atlas.WriteBmp(atlasPath, error)) return false;
         const std::filesystem::path tempSkinPath = skinPath.string() + ".tmp";
         std::ofstream output(tempSkinPath, std::ios::binary | std::ios::trunc);
         if (!output) { std::filesystem::remove(atlasPath); error = "Could not create the skin script."; return false; }
@@ -10765,6 +11139,8 @@ int RunInitialPresetSelfTest() {
             std::istreambuf_iterator<char>());
         if (contents.find("#SCENETIME") != std::string::npos)
             return 100 + testIndex;
+        if (!ValidatePresetNativeSpriteSizes(contents))
+            return 240 + testIndex;
 
         int keysPerPlayer = 7;
         if (type == 1 || type == 3 || type == 13) keysPerPlayer = 5;
@@ -10820,19 +11196,6 @@ int RunInitialPresetSelfTest() {
         if (collectIndices("#SRC_LINE,") != expectedPlayers ||
             collectIndices("#DST_LINE,") != expectedPlayers)
             return 90 + testIndex;
-        for (int player = 0; player < playerCount; ++player) {
-            for (int lane = 0; lane < lanesPerPlayer; ++lane) {
-                const int laneIndex = player * 10 + lane +
-                    (keysPerPlayer == 9 ? 1 : 0);
-                const int expectedSourceY = hasScratch && lane == 0
-                    ? 32 : (((lane - (hasScratch ? 1 : 0)) % 2) ? 16 : 0);
-                const std::string notePrefix = "#SRC_NOTE," +
-                    std::to_string(laneIndex) + ",0,0," +
-                    std::to_string(expectedSourceY) + ",16,16,";
-                if (contents.find(notePrefix) == std::string::npos)
-                    return 70 + testIndex;
-            }
-        }
         if (countPrefix("$SE_OBJECT_ID,preset_note_") !=
                 (int)expectedLanes.size() ||
             countPrefix("$SE_OBJECT_NAME,Note P") !=
@@ -10878,11 +11241,29 @@ int RunInitialPresetSelfTest() {
             presetFieldWidth / lanesPerPlayer);
         const int expectedGaugeCellWidth = (std::max)(2,
             presetLaneWidth * lanesPerPlayer / 50);
+        const int expectedGaugeHeight = (std::max)(10, 720 / 35);
         for (int player = 0; player < playerCount; ++player) {
-            const std::string gaugeSource = "#SRC_GROOVEGAUGE," +
-                std::to_string(player) + ",0,0,120,64,16,4,1,0,0," +
-                std::to_string(expectedGaugeCellWidth) + ",0";
-            if (contents.find(gaugeSource) == std::string::npos)
+            bool foundGauge = false;
+            std::istringstream gaugeRows(contents);
+            std::string gaugeRow;
+            const std::string prefix = "#SRC_GROOVEGAUGE," +
+                std::to_string(player) + ',';
+            while (std::getline(gaugeRows, gaugeRow)) {
+                if (!gaugeRow.empty() && gaugeRow.back() == '\r')
+                    gaugeRow.pop_back();
+                if (gaugeRow.compare(0, prefix.size(), prefix) != 0)
+                    continue;
+                const std::vector<std::string> fields =
+                    SplitPresetCsvRow(gaugeRow);
+                foundGauge = fields.size() > 12 &&
+                    atoi(fields[5].c_str()) == expectedGaugeCellWidth * 4 &&
+                    atoi(fields[6].c_str()) == expectedGaugeHeight &&
+                    atoi(fields[7].c_str()) == 4 &&
+                    atoi(fields[8].c_str()) == 1 &&
+                    atoi(fields[11].c_str()) == expectedGaugeCellWidth;
+                break;
+            }
+            if (!foundGauge)
                 return 80 + testIndex;
         }
     }
@@ -10899,6 +11280,7 @@ int RunInitialPresetSelfTest() {
     const std::string courseContents(
         (std::istreambuf_iterator<char>(courseInput)),
         std::istreambuf_iterator<char>());
+    if (!ValidatePresetNativeSpriteSizes(courseContents)) return 68;
 
     auto countCoursePrefix = [&](const char* prefix) {
         int count = 0;
@@ -10979,6 +11361,8 @@ int RunInitialPresetSelfTest() {
         const std::string sceneContents(
             (std::istreambuf_iterator<char>(sceneInput)),
             std::istreambuf_iterator<char>());
+        if (!ValidatePresetNativeSpriteSizes(sceneContents))
+            return 245 + testIndex;
         const bool hasSceneTime =
             sceneContents.find("#SCENETIME") != std::string::npos;
         if (hasSceneTime != (type == 6))
@@ -10999,6 +11383,7 @@ int RunInitialPresetSelfTest() {
         }
         if (type == 5) {
             int barSourceCount = 0;
+            PresetRect barSource;
             std::istringstream rows(sceneContents);
             std::string row;
             while (std::getline(rows, row)) {
@@ -11006,21 +11391,41 @@ int RunInitialPresetSelfTest() {
                 if (row.compare(0, strlen("#SRC_BAR_BODY,"),
                     "#SRC_BAR_BODY,") != 0) continue;
                 ++barSourceCount;
-                if (row.find(",0,0,224,192,32,1,1,0,0") ==
-                    std::string::npos)
+                const std::vector<std::string> fields =
+                    SplitPresetCsvRow(row);
+                if (fields.size() < 11)
+                    return 215 + testIndex;
+                const PresetRect current = {
+                    atoi(fields[3].c_str()), atoi(fields[4].c_str()),
+                    atoi(fields[5].c_str()), atoi(fields[6].c_str())
+                };
+                if (barSourceCount == 1) barSource = current;
+                if (current.x != barSource.x || current.y != barSource.y ||
+                    current.w != barSource.w || current.h != barSource.h ||
+                    current.w != (std::max)(240, 1280 * 54 / 100) ||
+                    current.h != (std::max)(24, 720 / 15) ||
+                    atoi(fields[7].c_str()) != 1 ||
+                    atoi(fields[8].c_str()) != 1)
                     return 215 + testIndex;
             }
-            if (barSourceCount != 10 ||
-                sceneContents.find("#SRC_BAR_BODY,0,0,0,72,192,32") !=
-                    std::string::npos)
+            if (barSourceCount != 10)
                 return 220 + testIndex;
 
             std::ifstream atlasInput(sceneAtlasPath, std::ios::binary);
             const std::vector<unsigned char> atlasBytes(
                 (std::istreambuf_iterator<char>(atlasInput)),
                 std::istreambuf_iterator<char>());
-            const int atlasWidth = 256;
-            const int atlasHeight = 256;
+            if (atlasBytes.size() < 54 || atlasBytes[0] != 'B' ||
+                atlasBytes[1] != 'M')
+                return 225 + testIndex;
+            auto read32 = [&](int offset) {
+                return (int)atlasBytes[offset] |
+                    ((int)atlasBytes[offset + 1] << 8) |
+                    ((int)atlasBytes[offset + 2] << 16) |
+                    ((int)atlasBytes[offset + 3] << 24);
+            };
+            const int atlasWidth = read32(18);
+            const int atlasHeight = read32(22);
             const int atlasRowBytes = (atlasWidth * 3 + 3) & ~3;
             if (atlasBytes.size() !=
                 54 + (size_t)atlasRowBytes * atlasHeight)
@@ -11029,8 +11434,10 @@ int RunInitialPresetSelfTest() {
                 return 54 + (size_t)(atlasHeight - 1 - y) *
                     atlasRowBytes + (size_t)x * 3;
             };
-            const size_t borderPixel = atlasPixel(0, 224);
-            const size_t fillPixel = atlasPixel(10, 230);
+            const size_t borderPixel = atlasPixel(barSource.x,
+                barSource.y);
+            const size_t fillPixel = atlasPixel(barSource.x +
+                barSource.w / 2, barSource.y + barSource.h / 2);
             if (atlasBytes[borderPixel] != 225 ||
                 atlasBytes[borderPixel + 1] != 158 ||
                 atlasBytes[borderPixel + 2] != 92 ||
@@ -11070,17 +11477,33 @@ int RunInitialPresetSelfTest() {
             const int requiredResultNumbers[] = {
                 101, 105, 110, 111, 112, 113, 114
             };
+            std::set<int> resultNumberIds;
+            PresetRect resultDigitSource;
+            std::istringstream resultNumberRows(sceneContents);
+            std::string resultNumberRow;
+            while (std::getline(resultNumberRows, resultNumberRow)) {
+                if (!resultNumberRow.empty() &&
+                    resultNumberRow.back() == '\r')
+                    resultNumberRow.pop_back();
+                if (resultNumberRow.compare(0, strlen("#SRC_NUMBER,"),
+                    "#SRC_NUMBER,") != 0)
+                    continue;
+                const std::vector<std::string> fields =
+                    SplitPresetCsvRow(resultNumberRow);
+                if (fields.size() < 14) return 170 + testIndex;
+                resultNumberIds.insert(atoi(fields[11].c_str()));
+                if (resultDigitSource.w == 0) {
+                    resultDigitSource = { atoi(fields[3].c_str()),
+                        atoi(fields[4].c_str()), atoi(fields[5].c_str()),
+                        atoi(fields[6].c_str()) };
+                }
+            }
             for (int numberId : requiredResultNumbers) {
-                const std::string numberSource =
-                    "#SRC_NUMBER,0,0,0,104,160,16,10,1,0,0," +
-                    std::to_string(numberId) + ",0,";
-                if (sceneContents.find(numberSource) == std::string::npos)
+                if (resultNumberIds.find(numberId) == resultNumberIds.end())
                     return 170 + testIndex;
             }
             if (sceneContents.find("preset_result_miss") != std::string::npos ||
-                sceneContents.find("Miss Count") != std::string::npos ||
-                sceneContents.find("#SRC_IMAGE,0,0,128,168,64,56,") ==
-                    std::string::npos)
+                sceneContents.find("Miss Count") != std::string::npos)
                 return 180 + testIndex;
 
             auto countResultPrefix = [&](const char* prefix) {
@@ -11105,14 +11528,6 @@ int RunInitialPresetSelfTest() {
             const int testChartH = testPanelH * 24 / 100;
             const int testChartFieldH = (std::max)(2, testChartH - 2);
             const int testChartBaseY = testChartY + testChartFieldH;
-            const std::string lowGaugeSource =
-                "#SRC_GAUGECHART_1P,0,0,16,120,2,2,1,1,0,0," +
-                std::to_string(testChartW) + ',' +
-                std::to_string(testChartFieldH) + ",500,2000";
-            const std::string highGaugeSource =
-                "#SRC_GAUGECHART_1P,1,0,0,120,2,2,1,1,0,0," +
-                std::to_string(testChartW) + ',' +
-                std::to_string(testChartFieldH) + ",500,2000";
             const std::string lowGaugeDestination =
                 "#DST_GAUGECHART_1P,0,0," +
                 std::to_string(testChartX) + ',' +
@@ -11121,12 +11536,35 @@ int RunInitialPresetSelfTest() {
                 "#DST_GAUGECHART_1P,1,0," +
                 std::to_string(testChartX) + ',' +
                 std::to_string(testChartBaseY) + ",2,2,";
+            PresetRect lowGaugeSource;
+            PresetRect highGaugeSource;
+            std::istringstream chartRows(sceneContents);
+            std::string chartRow;
+            while (std::getline(chartRows, chartRow)) {
+                if (!chartRow.empty() && chartRow.back() == '\r')
+                    chartRow.pop_back();
+                if (chartRow.compare(0, strlen("#SRC_GAUGECHART_1P,"),
+                    "#SRC_GAUGECHART_1P,") != 0)
+                    continue;
+                const std::vector<std::string> fields =
+                    SplitPresetCsvRow(chartRow);
+                if (fields.size() < 15 || atoi(fields[5].c_str()) != 2 ||
+                    atoi(fields[6].c_str()) != 2 ||
+                    atoi(fields[11].c_str()) != testChartW ||
+                    atoi(fields[12].c_str()) != testChartFieldH)
+                    return 185 + testIndex;
+                PresetRect source = { atoi(fields[3].c_str()),
+                    atoi(fields[4].c_str()), 2, 2 };
+                if (atoi(fields[1].c_str()) == 0)
+                    lowGaugeSource = source;
+                else if (atoi(fields[1].c_str()) == 1)
+                    highGaugeSource = source;
+            }
             if (countResultPrefix("#SRC_GAUGECHART_1P,") != 2 ||
                 countResultPrefix("#DST_GAUGECHART_1P,") != 2 ||
                 countResultPrefix("#SRC_SCORECHART,") != 1 ||
                 countResultPrefix("#DST_SCORECHART,") != 1 ||
-                sceneContents.find(lowGaugeSource) == std::string::npos ||
-                sceneContents.find(highGaugeSource) == std::string::npos ||
+                lowGaugeSource.w != 2 || highGaugeSource.w != 2 ||
                 sceneContents.find(lowGaugeDestination) == std::string::npos ||
                 sceneContents.find(highGaugeDestination) == std::string::npos)
                 return 185 + testIndex;
@@ -11135,46 +11573,60 @@ int RunInitialPresetSelfTest() {
             const std::vector<unsigned char> atlasBytes(
                 (std::istreambuf_iterator<char>(atlasInput)),
                 std::istreambuf_iterator<char>());
-            const int atlasWidth = 256;
-            const int atlasHeight = 256;
+            if (atlasBytes.size() < 54 || atlasBytes[0] != 'B' ||
+                atlasBytes[1] != 'M')
+                return 190 + testIndex;
+            auto read32 = [&](int offset) {
+                return (int)atlasBytes[offset] |
+                    ((int)atlasBytes[offset + 1] << 8) |
+                    ((int)atlasBytes[offset + 2] << 16) |
+                    ((int)atlasBytes[offset + 3] << 24);
+            };
+            const int atlasWidth = read32(18);
+            const int atlasHeight = read32(22);
             const int atlasRowBytes = (atlasWidth * 3 + 3) & ~3;
             const size_t expectedAtlasSize =
                 54 + (size_t)atlasRowBytes * atlasHeight;
             if (atlasBytes.size() != expectedAtlasSize ||
                 atlasBytes[0] != 'B' || atlasBytes[1] != 'M')
                 return 190 + testIndex;
-            for (int digit = 0; digit < 10; ++digit) {
-                for (int row = 0; row < 7; ++row) {
-                    for (int column = 0; column < 5; ++column) {
-                        const int x = digit * 16 + 3 + column * 2;
-                        const int y = 104 + 1 + row * 2;
-                        const int fileY = atlasHeight - 1 - y;
-                        const size_t pixel = 54 +
-                            (size_t)fileY * atlasRowBytes + (size_t)x * 3;
-                        const bool bright = atlasBytes[pixel] > 200 &&
-                            atlasBytes[pixel + 1] > 200 &&
-                            atlasBytes[pixel + 2] > 200;
-                        const bool expected =
-                            (kPresetDigitGlyphs[digit][row] &
-                                (1 << (4 - column))) != 0;
-                        if (bright != expected)
-                            return 200 + testIndex;
-                    }
-                }
-            }
             auto atlasPixel = [&](int x, int y) {
                 const int fileY = atlasHeight - 1 - y;
                 return 54 + (size_t)fileY * atlasRowBytes +
                     (size_t)x * 3;
             };
-            const size_t redGaugePixel = atlasPixel(0, 120);
-            const size_t greenGaugePixel = atlasPixel(16, 120);
-            if (atlasBytes[redGaugePixel] != 70 ||
-                atlasBytes[redGaugePixel + 1] != 90 ||
-                atlasBytes[redGaugePixel + 2] != 255 ||
-                atlasBytes[greenGaugePixel] != 145 ||
-                atlasBytes[greenGaugePixel + 1] != 235 ||
-                atlasBytes[greenGaugePixel + 2] != 70)
+            if (resultDigitSource.w <= 0 ||
+                resultDigitSource.w % 10 != 0)
+                return 200 + testIndex;
+            const int digitW = resultDigitSource.w / 10;
+            const int digitH = resultDigitSource.h;
+            for (int digit = 0; digit < 10; ++digit) {
+                bool foundBright = false;
+                for (int y = 0; y < digitH && !foundBright; ++y) {
+                    for (int x = 0; x < digitW; ++x) {
+                        const size_t pixel = atlasPixel(
+                            resultDigitSource.x + digit * digitW + x,
+                            resultDigitSource.y + y);
+                        if (atlasBytes[pixel] > 200 &&
+                            atlasBytes[pixel + 1] > 200 &&
+                            atlasBytes[pixel + 2] > 200) {
+                            foundBright = true;
+                            break;
+                        }
+                    }
+                }
+                if (!foundBright) return 200 + testIndex;
+            }
+            const size_t lowGaugePixel = atlasPixel(lowGaugeSource.x,
+                lowGaugeSource.y);
+            const size_t highGaugePixel = atlasPixel(highGaugeSource.x,
+                highGaugeSource.y);
+            if (atlasBytes[lowGaugePixel] != 145 ||
+                atlasBytes[lowGaugePixel + 1] != 235 ||
+                atlasBytes[lowGaugePixel + 2] != 70 ||
+                atlasBytes[highGaugePixel] != 70 ||
+                atlasBytes[highGaugePixel + 1] != 90 ||
+                atlasBytes[highGaugePixel + 2] != 255)
                 return 210 + testIndex;
         }
     }

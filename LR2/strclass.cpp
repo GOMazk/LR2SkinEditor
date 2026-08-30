@@ -391,7 +391,7 @@ int CSTR::lastSpaceCount() {
 		for (pcVar2 = pBody + len - 1; ((pBody <= pcVar2 && (*pcVar2 == ' ')) || (*pcVar2 == '\t')); pcVar2--) {
 
 		}
-		return (int)pBody - (int)pcVar2 + len - 1;
+		return static_cast<int>((pBody + len - 1) - pcVar2);
 	}
 	return 0;
 }
@@ -402,7 +402,7 @@ int CSTR::findStrPos(const char *str) {
 	if (body) {
 		pcVar1 = strstr(body, str);
 		if (pcVar1) {
-			return (int)(pcVar1 - (int)body);
+			return static_cast<int>(pcVar1 - body);
 		}
 	}
 	return -1;
@@ -413,7 +413,7 @@ int CSTR::findChrBackPos(const char ch) {
 	if (body) {
 		chrPos = strrchr(body, ch);
 		if (chrPos) {
-			return (int)(chrPos - (int)body);
+			return static_cast<int>(chrPos - body);
 		}
 	}
 	return -1;
@@ -646,16 +646,14 @@ CSTR CSTR::makeCRCstr() {
 	sprintf(local_4, "%x", dVar2);
 	str = local_4;
 	if (local_4 == NULL) {
-		pcVar3 = (int)calloc(1, 0x40);
-		ret = (char*)pcVar3;
-		return ret;
+		return CSTR();
 	}
 	CVar4 = local_4;
 	do {
 		cVar1 = *CVar4;
 		CVar4 = CVar4 + 1;
 	} while (cVar1 != '\0');
-	pcVar3 = (int)CVar4 - (int)(local_4 + 1);
+	pcVar3 = static_cast<int>(CVar4 - (local_4 + 1));
 	pstr = (char *)calloc(1, (size_t)(pcVar3 + 1));
 	ret = pstr;
 	if (pstr != (char *)0x0) {
@@ -682,7 +680,7 @@ CSTR& CSTR::assign(const char *str, int len) {
 		}
 		sVar3 = msize();
 
-		if (((int)(char *)(len + 1) <= (int)sVar3) || resize(len + 1) != false) {
+		if ((static_cast<size_t>(len + 1) <= sVar3) || resize(len + 1) != false) {
 			sVar3 = msize();
 			memset(this->body, 0, sVar3);
 			strncpy(this->body, str, len);
@@ -1060,7 +1058,7 @@ CSTR& CSTR::trimWhiteSpace() {
 	else {
 		for (; ((cVar1 = *pcVar3, cVar1 != '\0' && (cVar1 == ' ')) || (cVar1 == '\t')); pcVar3++) {
 		}
-		fSpaceCount = (int)(pcVar3 + -(int)pcVar4);
+		fSpaceCount = static_cast<int>(pcVar3 - pcVar4);
 	}
 	/*if (pcVar4 == (char *)0x0) {
 		bodylen = 0;

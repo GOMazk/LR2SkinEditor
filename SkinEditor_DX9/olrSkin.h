@@ -114,6 +114,11 @@ struct SEOLRPackageInfo {
     int unresolvedResourceCount = 0;
 };
 
+// True when a projected source atlas can be safely edited by the V0.4 Simple
+// Mode compiler. Legacy LR2 rows outside this contract remain raw compatibility
+// rows and must not prevent the package from importing.
+bool SEIsOLRSimpleSlotCompilable(const SEOLRSimpleSlot& slot);
+
 struct SEOLRLr2ExportInfo {
     int copiedFileCount = 0;
     std::string mainSkinPath;

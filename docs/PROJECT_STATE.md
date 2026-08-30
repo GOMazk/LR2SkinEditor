@@ -58,9 +58,10 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - 여러 Workspace가 열려 있을 때 LR2의 song/text/gameplay core buffer와 critical
   section은 각 `WORKSPACE::g`마다 한 번씩 초기화. 한 Workspace의 재로드에서는
   재사용하지만 새 Workspace가 첫 스킨을 열 때 process 전역 플래그로 생략하지 않음
-- `File > Export OLR package`에서 현재 Object를 의미별로 분류하고 LR2 호환
-  스크립트, 고정 이미지와 해결된 LR2 가상 root를 한 `.olrskin`
-  파일로 묶기
+- `File > Save OLRskin`에서 현재 Object를 의미별로 분류하고 LR2 호환 스크립트,
+  고정 이미지와 해결된 LR2 가상 root를 한 `.olrskin` 파일로 원자 저장. 일반 LR2
+  workspace의 원본은 건드리지 않고, Import한 OLR workspace는 미저장 script를 먼저
+  저장하여 뒤이은 LR2 folder export가 같은 편집 결과를 사용
 - `File > Import OLR package`에서 패키지를 검증한 뒤 V0.7 `objects`의
   Layout/Animation/Condition과 V0.4 `simple_mode` source asset을 LR2 CSV로
   원자적으로 compile하고, 사용자가 고른 새 폴더만 열기
@@ -115,6 +116,12 @@ loaded WORKSPACE
   `-- virtual/export map -> compatibility/path-map.json
 ```
 
+`Save OLRskin`은 이 projection을 호출하는 파일 작업 정책이다. 일반 LR2 workspace는
+원본 CSV를 저장하지 않은 채 package만 만들고, Import한 OLR workspace는 dirty script를
+먼저 추출 workspace에 저장한 뒤 package를 임시 파일과 atomic replace로 갱신한다.
+성공한 Import/Save의 package 경로는 다음 저장 위치 제안에만 쓰는 workspace-local
+상태이며 package나 LR2 export에 기록하지 않는다.
+
 V0.7은 `skin.json.objects`를 첫 지원 `#DST_*` family의 compile authority로,
 `skin.json.simple_mode`를 지원 `#SRC_*` asset authority로 사용한다. Layout은 첫 DST
 rectangle, Animation은 같은 command의 DST frame들, Condition은 첫 frame의
@@ -123,6 +130,9 @@ timer/loop/op1..3이다. 알려진 OP/TIMER는 symbolic name으로 컴파일하�
 editor metadata는 `lr2/main.lr2skin`에서 보존한다. 하나라도 잘못되면 새 import 폴더를
 제거하고 부분 결과를 남기지 않는다. `sections`는 Object id discovery index이며 V0.8의
 1P/2P/DP variant linkage 전까지 값을 컴파일하지 않는다.
+KCOOL처럼 `#SRC_IMAGE`의 `w/h`에 음수 sentinel을 쓰는 legacy crop은 편집 가능한
+Simple Mode rectangle이 아니므로 새 package의 `simple_mode`에서 제외한다. 기존
+package에 이미 들어 있어도 Import를 중단하지 않고 원본 LR2 행을 raw로 보존한다.
 
 Export 전 Workspace row는 include flattening 중 달라질 수 있으므로 Simple Mode의
 `source_row`와 semantic `destination_row`는 `compatibility/source-map.json`을 통해

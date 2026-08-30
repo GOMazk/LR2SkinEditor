@@ -965,11 +965,11 @@ int WORKSPACE::draw() {
                     newPath[0] = '\0';
                     wSaveMenu = true;
                 }
-                if (ImGui::MenuItem("Export OLR package...")) {
+                if (ImGui::MenuItem("Save OLRskin...")) {
                     newPath[0] = '\0';
                     olrPackageMessage.clear();
                     olrPackageState = 0;
-                    wSaveMenu2 = true;
+                    wSaveOlrSkin = true;
                 }
                 if (ImGui::MenuItem("Export LR2 folder...", NULL, false,
                     SEIsOLRVirtualWorkspace(mainpath)))
@@ -1396,7 +1396,7 @@ int WORKSPACE::draw() {
     if (wNewskin) drawNewskin();
 
     if (wSaveMenu) drawSaveMenu();
-    if (wSaveMenu2) drawSaveMenu2();
+    if (wSaveOlrSkin) drawSaveOlrSkin();
 
     if (wTextEdit) drawTextEdit();
 
@@ -2801,6 +2801,7 @@ static bool ResetEditorDerivedContainers(WORKSPACE& workspace) {
 int WORKSPACE::ResetEditorDocumentForLoad() {
     simpleModeProjection.clear();
     InvalidateSimpleModeProjection();
+    olrSourcePackagePath.clear();
 
     for (int row = 0; row < skinfileLines.count; ++row)
         DestroySkinFileLine(((SKINFILELINEREAD*)skinfileLines.data)[row]);
@@ -8806,6 +8807,8 @@ int WORKSPACE::drawSaveMenu() {
                 }
                 strncpy(mainpath, newPath, MAX_PATH - 1);
                 mainpath[MAX_PATH - 1] = '\0';
+                if (!SEIsOLRVirtualWorkspace(mainpath))
+                    olrSourcePackagePath.clear();
             }
             if (success) {
                 MarkDocumentSaved();
@@ -9554,6 +9557,7 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         document.objects.push_back(std::move(semantic));
     }
 
+    int rawCompatibilitySimpleSlotCount = 0;
     for (const SimpleModeSlot& slot : GetSimpleModeSlots()) {
         SEOLRSimpleSlot semanticSlot;
         semanticSlot.id = slot.id;
@@ -9570,6 +9574,10 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         semanticSlot.divX = slot.divX;
         semanticSlot.divY = slot.divY;
         semanticSlot.cycle = slot.cycle;
+        if (!SEIsOLRSimpleSlotCompilable(semanticSlot)) {
+            ++rawCompatibilitySimpleSlotCount;
+            continue;
+        }
         document.simpleSlots.push_back(std::move(semanticSlot));
     }
 
@@ -9748,6 +9756,9 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
     if (packageInfo.assetCount > packageInfo.virtualFileCount)
         summary << " " << packageInfo.assetCount - packageInfo.virtualFileCount
             << " additional fixed images were bundled.";
+    if (rawCompatibilitySimpleSlotCount > 0)
+        summary << " " << rawCompatibilitySimpleSlotCount
+            << " legacy source crop rows stayed raw.";
     if (packageInfo.skippedVirtualFileCount > 0)
         summary << " " << packageInfo.skippedVirtualFileCount
             << " overlong virtual paths were skipped.";
@@ -9758,6 +9769,61 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
         summary << " " << packageInfo.unresolvedResourceCount
             << " LR2-rooted resource declarations remain external.";
     resultMessage = summary.str();
+    return 0;
+}
+
+int WORKSPACE::SaveOlrSkin(const char* packagePath,
+    std::string& resultMessage) {
+    resultMessage.clear();
+    if (!loaded || !mainpath[0]) {
+        resultMessage = "Load a skin before saving an OLRskin package.";
+        lastSaveState = -1;
+        lastSaveMessage = resultMessage;
+        lastSaveMessageAt = GetTickCount64();
+        return -1;
+    }
+    if (!packagePath || !*packagePath) {
+        resultMessage = "Choose an .olrskin destination.";
+        lastSaveState = -1;
+        lastSaveMessage = resultMessage;
+        lastSaveMessageAt = GetTickCount64();
+        return -1;
+    }
+
+    const bool isImportedOlrWorkspace = SEIsOLRVirtualWorkspace(mainpath);
+    bool workspaceScriptSaved = false;
+    if (isImportedOlrWorkspace && IsDocumentDirty()) {
+        if (SaveCurrentSkin() != 0) {
+            resultMessage = "The imported OLR workspace could not be saved before packaging: " +
+                lastSaveMessage;
+            lastSaveState = -1;
+            lastSaveMessage = resultMessage;
+            lastSaveMessageAt = GetTickCount64();
+            return -1;
+        }
+        workspaceScriptSaved = true;
+    }
+
+    std::string packageSummary;
+    if (ExportOlrSkin(packagePath, packageSummary) != 0) {
+        resultMessage = workspaceScriptSaved
+            ? "The workspace script was saved, but the OLRskin package was not replaced: " +
+                packageSummary
+            : packageSummary;
+        lastSaveState = -1;
+        lastSaveMessage = resultMessage;
+        lastSaveMessageAt = GetTickCount64();
+        return -1;
+    }
+
+    olrSourcePackagePath = packagePath;
+    resultMessage = workspaceScriptSaved
+        ? "Saved the imported workspace and OLRskin package. " + packageSummary
+        : packageSummary;
+    lastSaveState = 1;
+    lastSaveMessage = isImportedOlrWorkspace
+        ? "Saved OLRskin and imported workspace" : "Saved OLRskin";
+    lastSaveMessageAt = GetTickCount64();
     return 0;
 }
 
@@ -9840,6 +9906,10 @@ int WORKSPACE::ImportOlrSkinInteractive() {
         return -1;
     }
 
+    // LoadSkin resets document-scoped state, so associate the package only
+    // after the extracted workspace has loaded successfully.
+    olrSourcePackagePath = packagePath;
+
     olrPackageState = 1;
     std::ostringstream result;
     result << "Imported " << packageInfo.objectCount << " semantic objects, "
@@ -9849,6 +9919,11 @@ int WORKSPACE::ImportOlrSkinInteractive() {
     if (packageInfo.formatVersion >= 4)
         result << ". Compiled " << packageInfo.compiledSimpleSlotCount
             << " validated Simple Mode source slots";
+    if (packageInfo.formatVersion >= 4 &&
+        packageInfo.compiledSimpleSlotCount < packageInfo.simpleSlotCount)
+        result << ". " << packageInfo.simpleSlotCount -
+            packageInfo.compiledSimpleSlotCount
+            << " legacy source crop slots stayed raw";
     if (packageInfo.unresolvedImageCount > 0)
         result << ". " << packageInfo.unresolvedImageCount
             << " external image declarations may still require the original LR2 environment";
@@ -9938,24 +10013,33 @@ int WORKSPACE::ExportLr2SkinInteractive() {
     return 1;
 }
 
-int WORKSPACE::drawSaveMenu2() {
+int WORKSPACE::drawSaveOlrSkin() {
     char title[260], input[32], result[32];
-    snprintf(title, sizeof(title), "Export OLR package##%d", num);
-    snprintf(input, sizeof(input), "##olrExportPath%d", num);
-    snprintf(result, sizeof(result), "OLR export result##%d", num);
+    snprintf(title, sizeof(title), "Save OLRskin##%d", num);
+    snprintf(input, sizeof(input), "##olrSavePath%d", num);
+    snprintf(result, sizeof(result), "Save OLRskin result##%d", num);
 
-    const bool visible = ImGui::Begin(title, &wSaveMenu2,
+    const bool visible = ImGui::Begin(title, &wSaveOlrSkin,
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_Modal);
     if (visible) {
         if (newPath[0] == '\0') {
-            std::filesystem::path suggested(mainpath);
-            suggested.replace_extension(".olrskin");
-            strncpy_s(newPath, suggested.string().c_str(), _TRUNCATE);
+            if (!olrSourcePackagePath.empty())
+                strncpy_s(newPath, olrSourcePackagePath.c_str(), _TRUNCATE);
+            else {
+                std::filesystem::path suggested(mainpath);
+                suggested.replace_extension(".olrskin");
+                strncpy_s(newPath, suggested.string().c_str(), _TRUNCATE);
+            }
         }
 
-        ImGui::TextWrapped("Create one portable .olrskin file from the loaded LR2 workspace.");
-        ImGui::TextDisabled("V0.3 writes Simple Mode slots, a merged LR2 script and virtual resource roots.");
+        ImGui::TextWrapped("Save the loaded skin as one portable .olrskin package.");
+        ImGui::TextDisabled("V0.7 writes semantic Layout, Timeline, Conditions, Simple Mode assets and LR2 compatibility data.");
+        if (SEIsOLRVirtualWorkspace(mainpath)) {
+            ImGui::TextWrapped("This imported OLR workspace will save its current LR2 script first, so Export LR2 folder can use the same edits immediately.");
+        } else {
+            ImGui::TextWrapped("The loaded LR2 source files are not modified by this command.");
+        }
         if (ImGui::Button("BROWSE"))
             BrowseOlrSavePath(newPath, newPath, sizeof(newPath));
         ImGui::SameLine();
@@ -9965,24 +10049,24 @@ int WORKSPACE::drawSaveMenu2() {
         exist = IsFileExist(newPath);
         if (exist)
             ImGui::TextColored(SEUI::Colors::Warning(),
-                "The selected package already exists and will be replaced.");
+                "The selected OLRskin already exists and will be replaced atomically.");
 
         ImGui::SeparatorText("Portability boundary");
         ImGui::BulletText("Resolved LR2files roots are bundled below vfs/LR2files with wildcard choices intact.");
         ImGui::BulletText("LR2 commands, comments, timers, conditions and editor metadata are preserved.");
         ImGui::BulletText("Resources outside a resolved LR2 root remain external and are reported.");
-        ImGui::BulletText("After import, File > Export LR2 folder materializes an install-ready tree.");
-        ImGui::BulletText("skin.json is descriptive; lr2/main.lr2skin remains authoritative.");
+        ImGui::BulletText("After import and Save OLRskin, File > Export LR2 folder materializes an install-ready tree.");
+        ImGui::BulletText("V0.7 semantic fields compile into lr2/main.lr2skin; unsupported rows remain raw.");
 
         const bool hasUnsavedImageEdits = !imagePixelPaintDirtyPaths.empty();
         if (hasUnsavedImageEdits) {
             ImGui::TextColored(SEUI::Colors::Danger(),
-                "Save or discard Image Manager pixel edits before exporting.");
+                "Save or discard Image Manager pixel edits before saving OLRskin.");
         }
 
         ImGui::BeginDisabled(newPath[0] == '\0' || hasUnsavedImageEdits);
-        if (ImGui::Button("EXPORT OLR")) {
-            success = ExportOlrSkin(newPath, olrPackageMessage) == 0;
+        if (ImGui::Button("SAVE OLRSKIN")) {
+            success = SaveOlrSkin(newPath, olrPackageMessage) == 0;
             olrPackageState = success ? 1 : -1;
             ImGui::OpenPopup(result);
         }
@@ -9991,11 +10075,11 @@ int WORKSPACE::drawSaveMenu2() {
         if (ImGui::BeginPopupModal(result, NULL,
             ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::TextColored(success ? SEUI::Colors::Success() : SEUI::Colors::Danger(),
-                success ? "OLR package created" : "OLR export failed");
+                success ? "OLRskin saved" : "Save OLRskin failed");
             ImGui::TextWrapped("%s", olrPackageMessage.c_str());
             if (success) ImGui::TextDisabled("%s", newPath);
             if (ImGui::Button("OK")) {
-                wSaveMenu2 = false;
+                wSaveOlrSkin = false;
                 success = 0;
                 ImGui::CloseCurrentPopup();
             }

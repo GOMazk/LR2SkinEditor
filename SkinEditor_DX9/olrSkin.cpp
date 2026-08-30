@@ -473,6 +473,18 @@ std::string LowerPathKey(const std::string& value) {
     return key;
 }
 
+bool IsOLRContainerArtifact(const std::filesystem::path& path) {
+    const std::string filename = LowerPathKey(path.filename().string());
+    const std::string packageSuffix = ".olrskin";
+    const std::string temporarySuffix = ".olrskin.skineditor.tmp";
+    return (filename.size() >= packageSuffix.size() &&
+        filename.compare(filename.size() - packageSuffix.size(),
+            packageSuffix.size(), packageSuffix) == 0) ||
+        (filename.size() >= temporarySuffix.size() &&
+            filename.compare(filename.size() - temporarySuffix.size(),
+                temporarySuffix.size(), temporarySuffix) == 0);
+}
+
 bool AppendVirtualRootEntries(const SEOLRSkinDocument& document,
     std::vector<PackageEntrySource>& assetEntries,
     std::vector<VirtualRootPackageStats>& rootStats,
@@ -510,6 +522,14 @@ bool AppendVirtualRootEntries(const SEOLRSkinDocument& document,
             if (entry.is_symlink(entryError) || entryError ||
                 !entry.is_regular_file(entryError) || entryError)
                 continue;
+            // OLR packages are transport containers, never LR2 runtime assets.
+            // Excluding them prevents Save OLRskin -> import -> Save OLRskin
+            // from recursively embedding the previous package.
+            if (IsOLRContainerArtifact(entry.path())) {
+                ++stats.skippedFileCount;
+                ++skippedVirtualFileCount;
+                continue;
+            }
             const std::filesystem::path relative =
                 entry.path().lexically_relative(sourceRoot);
             const std::string packagePath = "lr2/vfs/" + input.logicalRoot +
@@ -1683,20 +1703,13 @@ bool IsCompilableSimpleModeCommand(const SimpleModeCompileSlot& slot) {
     return false;
 }
 
-bool ValidateSimpleModeAsset(const SimpleModeCompileSlot& slot,
-    std::string& errorMessage) {
-    const std::string label = slot.id.empty() ?
-        std::string("row ") + std::to_string(slot.sourceRow) : slot.id;
-    if (slot.graphicId < 0 || slot.graphicId > 99 || slot.x < 0 || slot.y < 0 ||
-        slot.width <= 0 || slot.height <= 0 || slot.divX <= 0 || slot.divY <= 0 ||
-        slot.cycle < 0 || slot.x > 1000000 || slot.y > 1000000 ||
-        slot.width > 1000000 || slot.height > 1000000 || slot.divX > 100000 ||
-        slot.divY > 100000 || slot.cycle > 1000000000) {
-        errorMessage = "Simple Mode asset values are outside the safe LR2 range: " +
-            label + ".";
-        return false;
-    }
-    return true;
+bool IsSafeSimpleModeAssetValues(int graphicId, int x, int y, int width,
+    int height, int divX, int divY, int cycle) {
+    return graphicId >= 0 && graphicId <= 99 && x >= 0 && y >= 0 &&
+        width > 0 && height > 0 && divX > 0 && divY > 0 && cycle >= 0 &&
+        x <= 1000000 && y <= 1000000 && width <= 1000000 &&
+        height <= 1000000 && divX <= 100000 && divY <= 100000 &&
+        cycle <= 1000000000;
 }
 
 int FindCompilerFieldColumn(const std::string& command, const char* fieldName) {
@@ -1759,6 +1772,8 @@ bool AssignCompiledField(std::vector<std::string>& fields,
         return false;
     }
     if (column >= (int)fields.size()) fields.resize((size_t)column + 1);
+    if (!required && value == 0 && fields[(size_t)column].empty())
+        return true;
     fields[(size_t)column] = std::to_string(value);
     return true;
 }
@@ -1903,6 +1918,11 @@ bool OpenAndValidateArchive(const char* packagePath, FILE*& archive,
 
 }
 
+bool SEIsOLRSimpleSlotCompilable(const SEOLRSimpleSlot& slot) {
+    return IsSafeSimpleModeAssetValues(slot.graphicId, slot.x, slot.y,
+        slot.width, slot.height, slot.divX, slot.divY, slot.cycle);
+}
+
 bool SECompileOLRSimpleMode(const std::string& skinJson,
     const std::string& lr2Script, std::string& compiledScript,
     int& compiledSlotCount, std::string& errorMessage) {
@@ -1926,13 +1946,13 @@ bool SECompileOLRSimpleMode(const std::string& skinJson,
 
     std::vector<PreservedScriptLine> lines = SplitPreservedScriptLines(lr2Script);
     std::set<int> compiledRows;
+    int validatedSlotCount = 0;
     for (const SimpleModeCompileSlot& slot : slots) {
         if (!IsCompilableSimpleModeCommand(slot)) {
             errorMessage = "Simple Mode slot category/command is not compilable: " +
                 slot.category + " / " + slot.sourceCommand + ".";
             return false;
         }
-        if (!ValidateSimpleModeAsset(slot, errorMessage)) return false;
         if (slot.sourceRow <= 0 || slot.sourceRow > (int)lines.size()) {
             errorMessage = "Simple Mode source_row is outside lr2/main.lr2skin: " +
                 std::to_string(slot.sourceRow) + ".";
@@ -1953,6 +1973,12 @@ bool SECompileOLRSimpleMode(const std::string& skinJson,
                 slot.sourceCommand + ".";
             return false;
         }
+        // LR2 skins in the wild use negative source crop sizes as engine-owned
+        // sentinels. After validating their row identity, keep those rows raw
+        // because they are not editable Simple Mode atlas rectangles.
+        if (!IsSafeSimpleModeAssetValues(slot.graphicId, slot.x, slot.y,
+            slot.width, slot.height, slot.divX, slot.divY, slot.cycle))
+            continue;
         const int values[] = { slot.graphicId, slot.x, slot.y, slot.width,
             slot.height, slot.divX, slot.divY, slot.cycle };
         for (int field = 0; field < 8; ++field)
@@ -1963,13 +1989,14 @@ bool SECompileOLRSimpleMode(const std::string& skinJson,
             rebuilt << fields[field];
         }
         line.content = rebuilt.str();
+        ++validatedSlotCount;
     }
 
     std::ostringstream output;
     for (const PreservedScriptLine& line : lines)
         output << line.content << line.ending;
     compiledScript = output.str();
-    compiledSlotCount = (int)slots.size();
+    compiledSlotCount = validatedSlotCount;
     return true;
 }
 

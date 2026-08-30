@@ -196,7 +196,7 @@ Object Inspector Layout / Timeline / Conditions
   -> EditValue / InsertLine / DeleteLine
   -> shared CSV + History
   -> Object model and Preview derived caches
-  -> OLR export projects the same rows into skin.json.objects
+  -> Save OLRskin projects the same rows into skin.json.objects
 ```
 
 Layout is a view of the first supported `#DST_*` rectangle only. Timeline is an
@@ -443,14 +443,6 @@ strings, gameplay buffers and critical sections. A process-wide static flag is
 invalid because the second Workspace owns distinct, otherwise uninitialized
 `game` storage. Reloading the same Workspace reuses its initialized core.
 
-An inactive Preview dock tab returns false from `ImGui::Begin`, but that is
-only presentation state and must not pause the Workspace scene. `drawPreview()`
-calls `WORKSPACE::UpdatePreviewRuntime()` for a running scene before taking the
-inactive-tab early return. Runtime processing remains on the UI thread, and
-each Workspace draw buffer is consumed in the same tick; do not introduce a
-`ProcGameThread` because LR2/DxLib render state is process-wide.
-
-
 The editor may synthesize chart data, but it must not synthesize note screen
 coordinates, judgement state, combo values or effect timers. Those remain
 owned by LR2's PLAY pipeline so a skin preview cannot silently diverge from
@@ -508,12 +500,16 @@ process-wide static flag is invalid here: it would skip initialization for the
 second workspace while its `game` storage is still empty. Same-workspace reload
 reuses the initialized core; a newly created workspace initializes its own.
 
-OLR uses two explicit `WORKSPACE` file flows. `ExportOlrSkin()` reads the same
-expanded CSV rows and per-workspace Object Model used by the editor, then hands
-an `SEOLRSkinDocument` to `olrSkin.cpp`; it does not create another editable
-model. The Export modal blocks while Image Manager has unsaved pixel edits,
-because bundled assets are read from disk. Export does not mark the workspace
-saved and does not change `mainpath`.
+OLR uses three explicit `WORKSPACE` file flows. `ExportOlrSkin()` is the
+low-level projection boundary: it reads the same expanded CSV rows and
+per-workspace Object Model used by the editor, then hands an
+`SEOLRSkinDocument` to `olrSkin.cpp`; it does not create another editable model.
+`SaveOlrSkin()` owns the `File > Save OLRskin` policy. A normal LR2 workspace is
+packaged without changing its source files. An imported OLR workspace saves a
+dirty script first, then atomically replaces the package so the later LR2
+folder export observes the same edit. Unsaved Image Manager pixel edits block
+the command because bundled assets are read from disk. Neither operation
+changes `mainpath`.
 
 `ImportOlrSkinInteractive()` validates the complete archive before creating a
 directory. V0.7 then validates every `skin.json.objects` destination row,
@@ -524,6 +520,16 @@ extracted compatibility script; a mismatch removes the new directory. It reparse
 labels from `compatibility/source-map.json` and never overwrites an existing
 folder. The result popup is presentation state only; the loaded document and
 selection continue to be owned by `WORKSPACE`.
+
+`ExportLr2SkinInteractive()` is the third user-facing flow. It accepts only an
+imported V0.2+ virtual workspace, rejects dirty script or pixel state, and
+materializes a new non-existing install-ready LR2 tree without writing into a
+user's LR2 installation.
+
+After a successful import, the source `.olrskin` path is retained only as local
+Workspace state to suggest the next Save OLRskin destination. The association
+is cleared at the next document-load boundary and is never serialized into the
+portable package or materialized LR2 tree.
 
 ## Debugging checklist
 

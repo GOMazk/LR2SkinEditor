@@ -33,7 +33,9 @@ int CountCsvColumns(CSTR& line) {
 
 int RunWorkspaceReloadLifecycleSelfTest() {
     WORKSPACE workspace{};
+    workspace.olrSourcePackagePath = "stale-source.olrskin";
     if (workspace.ResetEditorDocumentForLoad() != 0) return 1;
+    if (!workspace.olrSourcePackagePath.empty()) return 13;
 
     SKINFILELINEREAD* line =
         (SKINFILELINEREAD*)workspace.skinfileLines.Get_new();
@@ -105,8 +107,14 @@ int RunWorkspaceReloadLifecycleSelfTest() {
     secondLine->line.assign("#IMAGE,second.png");
     secondInclude->assign("parts\\second.csv");
     if (workspace.ResetEditorDocumentForLoad() != 0) return 11;
-    return workspace.skinfileLines.count == 0 && workspace.arr_subpath.count == 0
-        ? 0 : 12;
+    if (workspace.skinfileLines.count != 0 || workspace.arr_subpath.count != 0)
+        return 12;
+    std::string saveError;
+    if (workspace.SaveOlrSkin("unused.olrskin", saveError) == 0 ||
+        workspace.lastSaveState != -1 ||
+        saveError.find("Load a skin") == std::string::npos)
+        return 14;
+    return 0;
 }
 
 int RunWorkspaceRuntimeReloadSmokeTest(const char* firstPath,

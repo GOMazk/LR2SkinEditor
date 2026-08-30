@@ -9,7 +9,8 @@ LR2 without silently deleting commands the editor does not understand.
 V0.7 keeps the V0.4 Simple Mode source compiler and promotes the first supported
 `#DST_*` family for each Object into one destination semantic authority:
 
-- export the currently loaded, fully expanded LR2 document as one ZIP package;
+- save the currently loaded, fully expanded LR2 document as one ZIP package
+  through `File > Save OLRskin`;
 - classify editor Objects into semantic categories in `skin.json`;
 - list number-font, judgement-font, gear, note and gauge source slots with their
   packaged LR2 row, command, graphic crop and animation grid in
@@ -39,6 +40,25 @@ V0.7 keeps the V0.4 Simple Mode source compiler and promotes the first supported
 script remains compatibility authority for unsupported SRC fields, alternate
 DST command families, control flow, events, comments, metadata and unknown
 commands. V0.8 variant linkage is deliberately outside this version.
+
+## Save, import and LR2 export
+
+`Save OLRskin` is deliberately separate from ordinary LR2 `Save`. For a normal
+LR2 workspace it projects the current in-memory document into a package without
+modifying the source CSV files or changing the active script path. For a
+workspace created by OLR import, it first saves dirty script edits into the
+extracted workspace and then writes the package through a temporary file and
+atomic replacement. If package replacement fails after the script save, the UI
+reports the two outcomes separately.
+
+A successful import/save associates that package path with the current
+Workspace only so the next `Save OLRskin` dialog can suggest it. The path is not
+portable data: a new document load clears it, and neither the package nor LR2
+folder export serializes it.
+
+Import still validates the complete archive before creating a new extraction
+folder. `File > Export LR2 folder` remains available only to imported V0.2+
+workspaces and materializes a new non-existing install-ready LR2 tree.
 
 ## Runtime path model
 
@@ -96,7 +116,10 @@ example.olrskin
 
 `lr2/assets/` is optional. It contains fixed images that were resolved outside a
 captured LR2 root. `lr2/vfs/` is optional when no LR2-rooted declaration could
-be resolved.
+be resolved. Existing `.olrskin` containers and interrupted
+`.olrskin.skineditor.tmp` files inside a captured virtual root are transport
+artifacts, not LR2 assets, so export skips and counts them. This prevents a
+save/import/save cycle from recursively embedding the previous package.
 
 All entry names use forward slashes and must be relative. Import rejects an
 absolute path, drive prefix, empty path segment, `.` or `..` segment, backslash,
@@ -151,9 +174,13 @@ expanded row number directly when include flattening omitted rows.
 `simple_mode.authority` remains `lr2-source-v0.4`. Every slot requires `category`,
 `source_command`, positive `source_row`, and all eight asset integers: `gr`, `x`,
 `y`, `width`, `height`, `div_x`, `div_y`, and `cycle`. Import rejects duplicate
-target rows, unsupported category/command pairs, command mismatches, invalid
-ranges and incomplete assets. It assigns compiled output only after every slot
-passes, then replaces the newly extracted script atomically.
+target rows, unsupported category/command pairs, command mismatches and
+incomplete assets. A complete slot whose crop is outside the editable Simple
+Mode range, including legacy LR2 negative `w/h` sentinels, is not compiled; its
+original `#SRC_*` row stays byte-preserved in the compatibility script. Export
+omits these rows from new `simple_mode.slots`. Valid slots are assigned only
+after all structural checks pass, then the newly extracted script is replaced
+atomically.
 
 ### Destination Object contract
 
@@ -204,6 +231,10 @@ match the exact command, and expose the required fields through
 `skinHelper.txt`. The compiler changes only `time/x/y/w/h(or size)/a/angle/blend`
 for each frame and `loop/timer/op1/op2/op3` on frame 0. It preserves acceleration,
 RGB, filter, center, extra columns, unrelated rows and original line endings.
+Optional zero OPs also preserve an originally empty CSV field. The
+`#DST_BARGRAPH` contract includes its leading `(NULL)` field and distinct
+`op1/op2/op3` columns; this is required for M.H-style 1P/2P visibility gates to
+survive import.
 Known semantic names are resolved back to LR2 ids. Raw values are emitted
 verbatim. Validation completes before the extracted script is atomically
 replaced, so an invalid Object cannot leave partial output.
@@ -267,6 +298,8 @@ coverage for every skin:
   original files are also present when they belonged to a captured root;
 - unresolved `LR2files/...` roots remain external and are counted;
 - paths longer than the safe package-entry limit are skipped and counted;
+- nested `.olrskin` containers are skipped and counted instead of recursively
+  becoming LR2 assets;
 - Windows ANSI/`MAX_PATH` constraints still apply to the legacy editor and ZIP
   filename encoding; and
 - only the first supported destination command family per Object is semantic;
@@ -294,8 +327,12 @@ restored script paths, rejects unsafe roots and CRC tampering, and tests
 standalone LR2-root resolution. Its compiler fixture changes all eight supported
 asset fields. Its destination fixture changes Layout, frame time/alpha/geometry,
 a named timer, a known semantic OP and raw OP 948; it preserves raw rows,
-trailing columns and mixed line endings, and rejects Layout/frame-0 divergence
-without returning partial output. Manual verification
+trailing columns, empty optional OP fields and mixed line endings. A dedicated
+M.H regression fixture keeps `#DST_BARGRAPH` loop/timer/op1/op2/op3 in columns
+16-20, and a virtual-root fixture proves that a previous `.olrskin` is not
+embedded. A legacy crop fixture verifies that negative `#SRC_IMAGE` dimensions
+remain raw rather than aborting Import. The test also rejects Layout/frame-0
+divergence without returning partial output. Manual verification
 must additionally open a real standalone M.H/IIDX-style skin, exercise Preview
 wildcards, notes, explosions, judge/combo, gauge and fonts, import the package,
 repeat Preview, and inspect the LR2 export in an actual LR2 installation.

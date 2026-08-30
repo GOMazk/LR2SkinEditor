@@ -297,6 +297,10 @@ typedef struct WORKSPACE {
     int olrPackageState = 0;
     int olrResultKind = 0; // 0: OLR import, 1: LR2 materialization
     bool olrImportResultPopupRequested = false;
+    // Set only after a successful OLR import/save. It is a local Workspace
+    // association used to suggest the next package destination; it is never
+    // embedded into the portable package or LR2 export.
+    std::string olrSourcePackagePath;
     int RefreshPreviewSelectionBounds();
     char mainpath[MAX_PATH];
 
@@ -337,6 +341,7 @@ typedef struct WORKSPACE {
     void MarkDocumentSaved();
     int SaveCurrentSkin();
     int ExportOlrSkin(const char* packagePath, std::string& resultMessage);
+    int SaveOlrSkin(const char* packagePath, std::string& resultMessage);
     int ImportOlrSkinInteractive();
     int ExportLr2SkinInteractive();
     int previewScreen = -1; //DxLib handle
@@ -431,8 +436,8 @@ typedef struct WORKSPACE {
 
     bool wSaveMenu;
     int drawSaveMenu();
-    bool wSaveMenu2;
-    int drawSaveMenu2();
+    bool wSaveOlrSkin;
+    int drawSaveOlrSkin();
 
     //TextEdit
     bool wTextEdit;

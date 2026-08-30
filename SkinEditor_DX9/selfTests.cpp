@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -57,6 +58,17 @@ int RunSchemaContractSelfTest() {
     if (!IsSchemaField("#SRC_BUTTON", 11, "$type")) return 5;
     if (!IsSchemaField("#SRC_BARGRAPH", 11, "$type")) return 6;
     if (!IsSchemaField("#SRC_BGA", 1, "unused")) return 21;
+    // M.H uses BARGRAPH destinations to gate its 1P/2P layout. A missing
+    // leading NULL column or duplicated op1 shifts timer/OP conditions and
+    // makes most of the skin disappear after an OLR round trip.
+    if (!IsSchemaField("#DST_BARGRAPH", 1, "(NULL)") ||
+        !IsSchemaField("#DST_BARGRAPH", 2, "time") ||
+        !IsSchemaField("#DST_BARGRAPH", 16, "loop") ||
+        !IsSchemaField("#DST_BARGRAPH", 17, "$timer") ||
+        !IsSchemaField("#DST_BARGRAPH", 18, "$op1") ||
+        !IsSchemaField("#DST_BARGRAPH", 19, "$op2") ||
+        !IsSchemaField("#DST_BARGRAPH", 20, "$op3"))
+        return 27;
 
     if (GetCommandValueKind("#SRC_NUMBER", "$num") != SE_VALUE_NUMBER)
         return 7;
@@ -243,6 +255,7 @@ int RunOlrPackageSelfTest() {
     const std::string virtualRoot = root + "\\Test";
     const std::string virtualNoteFolder = virtualRoot + "\\note";
     const std::string assetPath = virtualNoteFolder + "\\blue.png";
+    const std::string previousPackagePath = virtualRoot + "\\previous.olrskin";
     const std::string packagePath = root + "\\test.olrskin";
     const std::string tamperedPath = root + "\\tampered.olrskin";
     const std::string extractedPath = root + "\\imported";
@@ -262,6 +275,14 @@ int RunOlrPackageSelfTest() {
                 sizeof(assetBytes))
                 result = 6;
             fclose(assetFile);
+        }
+    }
+    if (result == 0) {
+        FILE* previousPackage = fopen(previousPackagePath.c_str(), "wb");
+        if (!previousPackage) result = 36;
+        else {
+            fputs("nested package must not be copied", previousPackage);
+            fclose(previousPackage);
         }
     }
 
@@ -328,6 +349,11 @@ int RunOlrPackageSelfTest() {
     simpleSlot.graphicId = 0;
     simpleSlot.width = 16;
     simpleSlot.height = 16;
+    if (result == 0 && !SEIsOLRSimpleSlotCompilable(simpleSlot)) result = 40;
+    SEOLRSimpleSlot legacyCropSlot = simpleSlot;
+    legacyCropSlot.width = -1;
+    legacyCropSlot.height = -1;
+    if (result == 0 && SEIsOLRSimpleSlotCompilable(legacyCropSlot)) result = 41;
     document.simpleSlots.push_back(simpleSlot);
     document.assets.push_back({ 2, assetPath, "lr2/assets/simple-note.png" });
     document.sourceMap.push_back({ 0, 0, "main.lr2skin" });
@@ -340,7 +366,8 @@ int RunOlrPackageSelfTest() {
         packageInfo.entries.size() != 8 ||
         packageInfo.objectCount != 1 || packageInfo.simpleSlotCount != 1 ||
         packageInfo.assetCount != 2 ||
-        packageInfo.virtualRootCount != 1 || packageInfo.virtualFileCount != 1))
+        packageInfo.virtualRootCount != 1 || packageInfo.virtualFileCount != 1 ||
+        packageInfo.skippedVirtualFileCount != 1))
         result = 8;
 
     std::string extractedMain;
@@ -370,6 +397,9 @@ int RunOlrPackageSelfTest() {
             std::istreambuf_iterator<char>());
         if (packageBytes.find("raw_only") != std::string::npos)
             result = 35;
+        if (result == 0 &&
+            packageBytes.find("previous.olrskin") != std::string::npos)
+            result = 37;
     }
 
 
@@ -418,6 +448,50 @@ int RunOlrPackageSelfTest() {
             errorMessage)) result = 31;
         if (result == 0 && (!rejected.empty() || simpleCount != 0 ||
             objectCount != 0 || frameCount != 0)) result = 32;
+
+        const std::string bargraphJson =
+            "{\"objects\":{\"authority\":\"lr2-destination-v0.7\",\"items\":[{"
+            "\"id\":\"mh_bargraph\",\"destination_command\":\"#DST_BARGRAPH\","
+            "\"layout\":{\"destination_row\":1,\"transform\":{\"x\":572,\"y\":319,"
+            "\"width\":21,\"height\":0,\"rotation\":0,\"blend\":1}},"
+            "\"animation\":{\"frames\":[{\"destination_row\":1,\"time_ms\":1000,"
+            "\"alpha\":255,\"transform\":{\"x\":572,\"y\":319,\"width\":21,"
+            "\"height\":0,\"rotation\":0,\"blend\":1}}]},"
+            "\"condition\":{\"mode\":\"all\",\"timer\":{\"kind\":\"raw\","
+            "\"lr2_timer\":0},\"loop\":1400,\"all\":["
+            "{\"kind\":\"raw\",\"lr2_op\":32,\"label\":\"Raw LR2 OP 32\"},"
+            "{\"kind\":\"raw\",\"lr2_op\":39,\"label\":\"Raw LR2 OP 39\"}]}}]},"
+            "\"simple_mode\":{\"authority\":\"lr2-source-v0.4\",\"slots\":[]}}";
+        const std::string bargraphInput =
+            "#DST_BARGRAPH,0,1000,572,319,21,0,2,255,255,255,255,1,0,0,0,1400,0,32,39,0,\r\n";
+        std::string bargraphCompiled;
+        simpleCount = objectCount = frameCount = 0;
+        if (result == 0 && (!SECompileOLRSemantics(bargraphJson,
+            bargraphInput, bargraphCompiled, simpleCount, objectCount,
+            frameCount, errorMessage) || bargraphCompiled != bargraphInput ||
+            simpleCount != 0 || objectCount != 1 || frameCount != 1))
+            result = 38;
+
+        const std::string emptyOptionsJson =
+            "{\"objects\":{\"authority\":\"lr2-destination-v0.7\",\"items\":[{"
+            "\"id\":\"no_conditions\",\"destination_command\":\"#DST_IMAGE\","
+            "\"layout\":{\"destination_row\":1,\"transform\":{\"x\":1,\"y\":2,"
+            "\"width\":3,\"height\":4,\"rotation\":0,\"blend\":0}},"
+            "\"animation\":{\"frames\":[{\"destination_row\":1,\"time_ms\":0,"
+            "\"alpha\":255,\"transform\":{\"x\":1,\"y\":2,\"width\":3,"
+            "\"height\":4,\"rotation\":0,\"blend\":0}}]},"
+            "\"condition\":{\"mode\":\"all\",\"timer\":{\"kind\":\"raw\","
+            "\"lr2_timer\":0},\"loop\":0,\"all\":[]}}]},"
+            "\"simple_mode\":{\"authority\":\"lr2-source-v0.4\",\"slots\":[]}}";
+        const std::string emptyOptionsInput =
+            "#DST_IMAGE,0,0,1,2,3,4,0,255,255,255,255,0,0,0,0,0,0,,,\r\n";
+        std::string emptyOptionsCompiled;
+        simpleCount = objectCount = frameCount = 0;
+        if (result == 0 && (!SECompileOLRSemantics(emptyOptionsJson,
+            emptyOptionsInput, emptyOptionsCompiled, simpleCount, objectCount,
+            frameCount, errorMessage) ||
+            emptyOptionsCompiled != emptyOptionsInput))
+            result = 39;
     }
     if (result == 0) {
         std::ifstream asset(extractedPath +
@@ -466,6 +540,22 @@ int RunOlrPackageSelfTest() {
             result = 26;
         if (result == 0 && (!rejectedOutput.empty() || rejectedCount != 0))
             result = 27;
+
+        const std::string legacyCropJson =
+            "{\"simple_mode\":{\"authority\":\"lr2-source-v0.4\",\"slots\":["
+            "{\"id\":\"legacy-crop\",\"category\":\"gear\","
+            "\"source_command\":\"#SRC_IMAGE\",\"source_row\":1,"
+            "\"asset\":{\"gr\":2,\"x\":0,\"y\":0,\"width\":-1,"
+            "\"height\":-1,\"div_x\":1,\"div_y\":1,\"cycle\":0}}]}}";
+        const std::string legacyCropInput =
+            "#SRC_IMAGE,0,2,0,0,-1,-1,1,1,0,0,0,0,0\r\n";
+        std::string legacyCropCompiled;
+        int legacyCropCount = -1;
+        if (result == 0 && (!SECompileOLRSimpleMode(legacyCropJson,
+            legacyCropInput, legacyCropCompiled, legacyCropCount,
+            errorMessage) || legacyCropCount != 0 ||
+            legacyCropCompiled != legacyCropInput))
+            result = 42;
     }
 
     if (result == 0) {
@@ -609,6 +699,20 @@ int RunOlrPackageSelfTest() {
             result = 34;
     }
 
+    // Optional local regression hook for a real user package. CI remains
+    // deterministic because the variable is normally absent; diagnostics can
+    // still exercise the exact archive through the production import core.
+    const char* externalPackage = std::getenv("SKINEDITOR_TEST_OLR_PACKAGE");
+    if (result == 0 && externalPackage && *externalPackage) {
+        const std::string externalImportPath = root + "\\external-import";
+        std::string externalMain;
+        SEOLRPackageInfo externalInfo;
+        if (!SEExtractOLRSkinPackage(externalPackage,
+            externalImportPath.c_str(), externalMain, externalInfo,
+            errorMessage) || externalMain.empty())
+            result = 43;
+    }
+
     std::error_code cleanupError;
     std::filesystem::remove_all(root, cleanupError);
     if (result == 0 && cleanupError) result = 19;
@@ -663,6 +767,13 @@ int RunUiCatalogSelfTest() {
     if (std::strcmp(title, "Timer Control##timer-control-5") != 0) return 18;
     if (std::strcmp(SEUIWindowSpecFor(SEUIWindowId::TimerControl).defaultDock,
         "right-lower") != 0) return 19;
+    const SEUISurfaceSpec& saveOlrSkin =
+        SEUISurfaceSpecFor(SEUISurfaceId::SaveOlrSkin);
+    if (std::strcmp(saveOlrSkin.key, "save-olrskin") != 0 ||
+        std::strcmp(saveOlrSkin.title, "Save OLRskin") != 0 ||
+        std::strcmp(saveOlrSkin.ownerFunction,
+            "WORKSPACE::drawSaveOlrSkin") != 0)
+        return 20;
 
     return 0;
 }

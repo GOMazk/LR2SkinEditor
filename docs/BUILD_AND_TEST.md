@@ -39,7 +39,9 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 - `skin-browser`: 외부 폴더의 대소문자 확장자, 하위 폴더 탐색, 비스킨 파일 제외,
   잘못된 위치 거부
 - `preview-simulator`: PLAY 키 모드별 메모리 chart의 시간순 lane 배치, 동시치기,
-  LN/mine, 2P lane, measure event/sentinel 및 Rhythm 140 시작·리셋 계약
+  LN/mine, 2P lane, Simple sample의 LR2 호환 scratch-side 선택,
+  COURSERESULT에서 PLAY로 전환할 때 course 상태 제거, measure event/sentinel 및
+  Rhythm 140 시작·리셋 계약
 - `resolution-estimator`: `#INFORMATION`/`#RESOLUTION` 우선순위, include가 펼쳐진
   DST 경계 기반 720p/1080p 추정, 화면 밖 전환 frame 내성, 640x480 fallback
 - `olr-package`: stored ZIP 생성/검사/추출, manifest와 semantic object/asset count,
@@ -574,6 +576,10 @@ $test.ExitCode
 - 로드 후 toolbar 해상도 modal에서도 같은 즉시 저장 정책이 적용되고 정상적으로
   재로드되는지
 - PLAY 무음 내장 chart note가 정상적으로 내려오는지
+- 14KEYS Simple Preview가 `sample_14.bme`를 LR2 Skin Select와 같은
+  `scratchSide=0`으로 읽어 1P/2P 샘플 lane이 대칭으로 표시되는지
+- COURSERESULT를 연 뒤 같은 Workspace에서 PLAY Simple Preview를 열어도 로그에
+  빈 `courseFilepath`와 `BMSを開けません`이 나타나지 않는지
 - Start 전 PLAY 정적 Preview에서 LN 몸체 뒤에 가려지는 가운데 단노트가 표시되지
   않고, LN이 없는 lane의 단노트 샘플은 그대로 유지되는지
 

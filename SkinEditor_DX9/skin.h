@@ -42,6 +42,9 @@ struct LR2SEPreviewTimelineEvent {
 
 int LR2SEBuildPreviewChart(int type, LR2SEPreviewChartMode mode,
 	LR2SEPreviewChartNote* notes, int capacity);
+int LR2SEGetSamplePreviewScratchSide(int type, int scratchSide1,
+	int scratchSide2);
+void LR2SEResetPreviewCourseState(gameplay* preview);
 int LR2SEBuildPreviewTimeline(LR2SEPreviewTimelineEvent* events, int capacity);
 bool LR2SEShouldDrawStaticNormalSample(int sampleIndex, bool longNoteVisible);
 

@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -585,6 +586,32 @@ int RunPreviewSimulatorSelfTest() {
         LR2SEShouldDrawStaticNormalSample(-1, false) ||
         LR2SEShouldDrawStaticNormalSample(3, false))
         return 26;
+
+    if (LR2SEGetSamplePreviewScratchSide(SKINTYPE_14KEYS, 0, 1) != 0 ||
+        LR2SEGetSamplePreviewScratchSide(SKINTYPE_14KEYS, 1, 0) != 0 ||
+        LR2SEGetSamplePreviewScratchSide(SKINTYPE_10KEYS, 0, 1) != 0)
+        return 27;
+    if (LR2SEGetSamplePreviewScratchSide(SKINTYPE_5KEYSBATTLE, 1, 0) != 1 ||
+        LR2SEGetSamplePreviewScratchSide(SKINTYPE_5KEYSBATTLE, 0, 1) != 2)
+        return 28;
+
+    std::unique_ptr<gameplay> preview(new gameplay());
+    preview->isCourse = 1;
+    preview->courseType = 0;
+    preview->courseStageCount = 5;
+    preview->courseStageNow = 3;
+    preview->courseFilepath[0].assign("stale-course-stage.bme");
+    preview->courseConnection[0] = 4;
+    LR2SEResetPreviewCourseState(preview.get());
+    if (preview->isCourse != 0 || preview->courseType != -1 ||
+        preview->courseStageCount != 1 || preview->courseStageNow != 0)
+        return 29;
+    for (int stage = 0; stage < 5; ++stage) {
+        if (preview->courseFilepath[stage].length() != 0) return 30;
+    }
+    for (int connection = 0; connection < 10; ++connection) {
+        if (preview->courseConnection[connection] != 0) return 31;
+    }
 
     return 0;
 }

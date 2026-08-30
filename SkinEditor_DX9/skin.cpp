@@ -559,6 +559,17 @@ static bool LR2SEPreviewFileExists(const char* path) {
 	return true;
 }
 
+int LR2SEGetSamplePreviewScratchSide(int type, int scratchSide1,
+	int scratchSide2) {
+	// Match LR2's Skin Select PlayPreviewSample path. Exact 5-key battle is the
+	// only bundled sample preview that inherits the skin's scratch-side flags;
+	// the native 14-key sample is parsed with zero even when the skin declares
+	// its 2P scratch on the right.
+	if (type == SKINTYPE_5KEYSBATTLE)
+		return scratchSide1 + scratchSide2 * 2;
+	return 0;
+}
+
 static int LR2SEPopulateSamplePreviewChart(game* g, int type) {
 	if (!g) return -1;
 	const LR2SEPlayModeInfo playMode = LR2SEGetPlayModeInfo(type);
@@ -579,8 +590,8 @@ static int LR2SEPopulateSamplePreviewChart(game* g, int type) {
 
 	InitGameplay(&g->gameplay, &sampleConfig.play);
 	g->gameplay.isAutoplay = 1;
-	const int scratchSide = g->skstruct.scratchside_1 +
-		g->skstruct.scratchside_2 * 2;
+	const int scratchSide = LR2SEGetSamplePreviewScratchSide(type,
+		g->skstruct.scratchside_1, g->skstruct.scratchside_2);
 	if (ParseBmsFile(&g->gameplay, playMode.samplePath, &g->audio,
 		&sampleConfig, &g->sSelect.metaSelected, 1, scratchSide) < 0)
 		return -1;
@@ -592,8 +603,25 @@ static int LR2SEPopulateSamplePreviewChart(game* g, int type) {
 	return 0;
 }
 
+void LR2SEResetPreviewCourseState(gameplay* preview) {
+	if (!preview) return;
+	preview->isCourse = 0;
+	preview->courseType = -1;
+	preview->courseStageCount = 1;
+	preview->courseStageNow = 0;
+	for (int stage = 0; stage < 5; ++stage)
+		preview->courseFilepath[stage].fillzero();
+	for (int connection = 0; connection < 10; ++connection)
+		preview->courseConnection[connection] = 0;
+}
+
 static void LR2SEInitPlayPreviewState(game* g, int type) {
 	const LR2SEPlayModeInfo mode = LR2SEGetPlayModeInfo(type);
+	// InitGameplay intentionally preserves course progress for real LR2 courses.
+	// A workspace preview can switch from COURSERESULT directly to PLAY, so
+	// clear that inherited state before ParseBmsFile sees the bundled sample.
+	// Otherwise it replaces sample_*.bme with an empty courseFilepath entry.
+	LR2SEResetPreviewCourseState(&g->gameplay);
 	// A PLAY skin normally inherits this information from SELECT.  Populate it
 	// explicitly because the editor can open every PLAY skin in isolation.
 	LR2SEInitSelectPreviewState(g);

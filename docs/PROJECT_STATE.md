@@ -361,6 +361,11 @@ Timer Control의 `Simple / Full`은 CSV에 저장하지 않는 Workspace Preview
 16개짜리 내장 패턴으로 안전하게 대체한다. `Full`은 기존 180개 메모리 패턴으로
 LN, mine, 동시치기와 judge 효과를 집중 검사한다. 모드를 누르면 현재 장면이 즉시
 재시작되며 두 모드 모두 LR2 원본 재생 경로와 Rhythm 140 event를 사용한다.
+Simple의 네이티브 14KEYS `sample_14.bme`는 LR2 Skin Select와 동일하게
+`scratchSide=0`으로 파싱한다. 스킨의 2P scratch 배치값을 parser에 다시 적용하지 않아
+샘플 자체의 좌우 대칭 lane을 바꾸지 않는다.
+COURSERESULT Preview 뒤에 같은 Workspace에서 PLAY를 열어도 이전 `isCourse`, stage와
+`courseFilepath`를 PLAY 초기화에서 제거하므로 sample 경로가 빈 코스 경로로 바뀌지 않는다.
 
 ### 확대/축소
 

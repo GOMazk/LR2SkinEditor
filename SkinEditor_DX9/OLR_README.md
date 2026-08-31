@@ -2,6 +2,9 @@
 
 Purpose: bridge the current LR2 workspace to an AI-readable `.olrskin`
 container without losing commands that do not yet have a semantic model.
+The published format is locked as **OLRskin 0.9**; its JSON integer
+`version: 9` is the established on-disk representation. Version or
+format-feature changes need the user's explicit approval.
 
 Entry points:
 
@@ -30,9 +33,12 @@ Entry points:
   and path rules to every copied `.lr2skin`, `.lr2ss`, and `.csv`; an edited or
   ineligible workspace writes the flattened compatibility script. Both paths
   remove case/slash variants of `vfs/LR2files`, root LR2 process-relative
-  header/custom/help paths, and reject computer-local absolute declarations.
+  image/font/include/header/custom/help paths, and reject computer-local
+  absolute declarations.
   Before writing a compatibility fallback, the materializer turns every
-  `$OLR_FILE start/end` boundary back into a generated CSV `#INCLUDE`. LR2 then
+  `$OLR_FILE start/end` boundary back into a generated CSV `#INCLUDE`. The
+  directive uses its full `LR2files\...` path because LR2 resolves includes
+  from the process root rather than beside the declaring CSV. LR2 then
   evaluates the child with its own IF stack, so an inactive/right parent cannot
   be reactivated by a child `#IF` and overwrite the selected lane-0
   `#DST_NOTE`. This also preserves orphan or unclosed child controls exactly as
@@ -103,7 +109,8 @@ Important invariants:
   flat Objects are never guessed into V0.9 parts.
 - the current package writer serializes supported fields and does not preserve
   unknown manifest or `skin.json` extensions on `Save OLRskin`. Extension
-  namespacing and passthrough are a future format-policy decision.
+  namespacing and passthrough remain outside the locked 0.9 contract unless the
+  user explicitly approves a format change.
 - import never overwrites an existing directory and never uses original owner
   paths from the source map.
 - the source package association is local Workspace state. It is set only after

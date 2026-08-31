@@ -28,7 +28,11 @@ constexpr uint32_t kEndOfCentralDirectorySignature = 0x06054b50u;
 constexpr uint16_t kStoredMethod = 0;
 constexpr uint64_t kMaximumClassicZipSize = 0xFFFFFFFFull;
 constexpr size_t kCopyBufferSize = 64 * 1024;
+// Public name: OLRskin 0.9. The integer 9 is its established JSON encoding.
+// Do not change the version or format contract without explicit user approval.
 constexpr int kOlrFormatVersion = 9;
+static_assert(kOlrFormatVersion == 9,
+    "OLRskin is locked to format 0.9 without explicit user approval.");
 constexpr const char* kSimpleModeAuthority = "lr2-source-v0.4";
 constexpr const char* kLegacySemanticObjectAuthority = "lr2-destination-v0.7";
 constexpr const char* kV8SemanticObjectAuthority = "lr2-destination-parts-v0.8";
@@ -2466,7 +2470,13 @@ int PortableLr2PathFieldIndex(const std::string& command) {
 }
 
 bool RequiresLr2RootedExportPath(const std::string& command) {
+    // LR2 passes the declaring script directory to its file helper, but the
+    // classic helper ignores it. Root every ordinary declaration that LR2
+    // opens from the process directory so the exported tree is relocatable.
     return !_stricmp(command.c_str(), "#INFORMATION") ||
+        !_stricmp(command.c_str(), "#IMAGE") ||
+        !_stricmp(command.c_str(), "#LR2FONT") ||
+        !_stricmp(command.c_str(), "#INCLUDE") ||
         !_stricmp(command.c_str(), "#HELPFILE") ||
         !_stricmp(command.c_str(), "#CUSTOMFILE") ||
         !_stricmp(command.c_str(), "#CUSTOMFOLDER");

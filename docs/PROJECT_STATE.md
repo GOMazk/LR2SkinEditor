@@ -72,8 +72,9 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - Import한 V0.2+ workspace의 `File > Export install-ready LR2 folder`에서
   `vfs/LR2files`와 고정 `assets`를 새 출력 폴더로 풀고 현재 편집 스크립트의
   경로를 명령별로 복원. 대소문자·slash·선행 `.\`가 다른 VFS 경로도 제거하고,
-  `#INFORMATION` thumbnail, `#CUSTOMFILE/#CUSTOMFOLDER`, `#HELPFILE`처럼 LR2가
-  process 기준으로 읽는 상대 경로는 export main의 `LR2files` 위치에 고정한다.
+  `#IMAGE`, `#LR2FONT`, `#INCLUDE`, `#INFORMATION` thumbnail,
+  `#CUSTOMFILE/#CUSTOMFOLDER`, `#HELPFILE`처럼 LR2가 process 기준으로 읽는 상대
+  경로는 각 선언 script의 `LR2files` 위치에 고정한다.
   main은 LR2가 실제 검색하는 `LR2files/Theme|Sound` 아래 `.lr2skin|.lr2ss`만 허용하며
   설치 위치를 적은 `INSTALL.txt`를 함께 만든다. V0.9 무편집 왕복이면 복사된 모든
   main/include script에도 같은 경로 규칙을 적용하고, 편집 또는 고정 asset 재배치가
@@ -195,8 +196,9 @@ authority로 처리한다. legacy flat Object를 V0.9 part로 재해석하지 �
 평탄화된 include 본문은 경로가 없는 `$OLR_FILE start/end`로 감싸 원래 파일별
 IF/ELSE stack을 유지한다. 따라서 include 안의 짝 없는 `#ELSE`가 main의 1P/2P
 wrapper 조건을 소비하거나 반대편 Object를 활성화하지 않는다. LR2 폴더로 내보낸
-compatibility fallback은 marker 본문을 sibling CSV로 쓰고 main에는 실제 `#INCLUDE`를
-복원한다. LR2 parser는 중첩 조건에서 가장 안쪽 IF만 검사하므로, 평탄 script를 그대로
+compatibility fallback은 marker 본문을 sibling CSV로 쓰고 main에는 LR2 root 기준
+전체 경로의 실제 `#INCLUDE`를 복원한다. LR2는 선언 CSV의 폴더가 아니라 process root에서
+include를 찾는다. LR2 parser는 중첩 조건에서 가장 안쪽 IF만 검사하므로, 평탄 script를 그대로
 주면 비활성 2P/Right 분기의 child `#IF`가 다시 활성화되어 뒤쪽 lane 0을 덮을 수 있다.
 생성 include의 독립 IF stack은 이 누출을 원본과 같은 방식으로 차단한다.
 다만 무편집 V0.9 package는 평탄 script를 LR2 main에 덮어쓰지 않는다. package의
@@ -223,8 +225,9 @@ Export는 원본 `.dxa`를 byte-for-byte 보존한다. 따라서 이 구형 font
 따라서 third-party extension은 editor 재저장 뒤에도 유지된다고 가정할 수 없다.
 향후 extension namespace와 passthrough 또는 명시적 rewrite 경계를 별도 정책으로
 정의하기 전까지 이를 V0.9의 알려진 제한으로 둔다. 편집된 flat row를 원래 include
-owner 파일들로 다시 분배하는 일반 compiler는 아직 없으며, 이것이 OLRskin 1.0의
-핵심 잔여 과제다.
+owner 파일들로 다시 분배하는 일반 compiler도 아직 없다. OLRskin 포맷은 0.9로
+고정되어 있으며, 이 제한을 새 포맷 기능으로 바꾸거나 버전을 올리는 작업은 사용자의
+명시적 허가가 있을 때만 시작한다.
 자동 `olr-package` fixture는 이미 part가 구성된 document/JSON의 package 및 compiler
 왕복, 빈 숫자 token 무변경, 원본 main/include materialization, 혼합 표기 VFS 해제와
 이동된 임시 LR2 root에서의 실제 `MakeSkinList()` 인식, M.H 형태의 1P/2P

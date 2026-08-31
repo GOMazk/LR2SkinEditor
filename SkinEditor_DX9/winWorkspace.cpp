@@ -10460,7 +10460,7 @@ int WORKSPACE::drawSaveOlrSkin() {
         }
 
         ImGui::TextWrapped("Save the loaded skin as one portable .olrskin package.");
-        ImGui::TextDisabled("V0.9 preserves unchanged LR2 tokens and the original include-based main, while retaining source-bound Object parts, Simple Mode assets and compatibility data.");
+        ImGui::TextDisabled("OLRskin 0.9 preserves unchanged LR2 tokens and the original include-based main, while retaining source-bound Object parts, Simple Mode assets and compatibility data.");
         if (SEIsOLRVirtualWorkspace(mainpath)) {
             ImGui::TextWrapped("This imported OLR workspace will save its current LR2 script first, so Export install-ready LR2 folder can use the same edits immediately.");
         } else {
@@ -10482,7 +10482,7 @@ int WORKSPACE::drawSaveOlrSkin() {
         ImGui::BulletText("LR2 commands, comments, timers, conditions and editor metadata are preserved.");
         ImGui::BulletText("Resources outside a resolved LR2 root remain external and are reported.");
         ImGui::BulletText("After import and Save OLRskin, File > Export install-ready LR2 folder materializes an install-ready tree.");
-        ImGui::BulletText("V0.9 patches only changed semantic fields; an untouched port installs the original include-based LR2 main.");
+        ImGui::BulletText("OLRskin 0.9 patches only changed semantic fields; an untouched port installs the original include-based LR2 main.");
 
         const bool hasUnsavedImageEdits = !imagePixelPaintDirtyPaths.empty();
         if (hasUnsavedImageEdits) {

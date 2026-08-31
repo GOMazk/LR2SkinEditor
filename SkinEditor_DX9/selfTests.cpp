@@ -1,5 +1,6 @@
 #include "selfTests.h"
 
+#include "../LR2/En_fileutil.h"
 #include "../LR2/En_timer.h"
 #include "../LR2/LR2_skinmanage.h"
 #include "olrSkin.h"
@@ -488,6 +489,21 @@ int RunOlrPackageSelfTest() {
         if (result == 0 &&
             packageBytes.find("previous.olrskin") != std::string::npos)
             result = 37;
+        // OLRskin is a user-approved 0.9 format lock. Pin both serialized
+        // integer versions and the matching profile/authority identities.
+        const std::string lockedVersion = "\"version\": 9";
+        const size_t firstLockedVersion = packageBytes.find(lockedVersion);
+        const size_t secondLockedVersion = firstLockedVersion ==
+            std::string::npos ? std::string::npos : packageBytes.find(
+                lockedVersion, firstLockedVersion + lockedVersion.size());
+        if (result == 0 && (secondLockedVersion == std::string::npos ||
+            packageBytes.find(
+                "\"profile\": \"lr2-semantic-v0.9\"") ==
+                    std::string::npos ||
+            packageBytes.find(
+                "\"authority\": \"lr2-destination-parts-v0.9\"") ==
+                    std::string::npos))
+            result = 109;
     }
 
     if (result == 0) {
@@ -569,6 +585,11 @@ int RunOlrPackageSelfTest() {
         if (result == 0 && versionAt == std::string::npos)
             result = 52;
         if (versionAt != std::string::npos) {
+            std::string version10 = manifestJson;
+            version10.replace(versionAt, version8Token.size(), "\"version\":10");
+            if (result == 0 && SEParseOLRManifestJson(version10, manifestInfo,
+                errorMessage)) result = 110;
+
             std::string version17 = manifestJson;
             version17.replace(versionAt, version8Token.size(), "\"version\":17");
             if (result == 0 && SEParseOLRManifestJson(version17, manifestInfo,
@@ -1011,7 +1032,7 @@ int RunOlrPackageSelfTest() {
             exportInfo, errorMessage)))
         result = 13;
     if (result == 0 && exportInfo.copiedFileCount != 2) result = 14;
-    if (result == 0 && exportInfo.rewrittenVirtualPathCount != 3) result = 94;
+    if (result == 0 && exportInfo.rewrittenVirtualPathCount != 4) result = 94;
     if (result == 0 && std::filesystem::path(exportInfo.mainSkinPath) !=
         std::filesystem::path(materializedPath) /
             "LR2files/Theme/Test/play.lr2skin")
@@ -1033,7 +1054,9 @@ int RunOlrPackageSelfTest() {
                 std::string::npos ||
             compiledBytes.find("LR2files\\Theme\\Test\\note\\blue.png") ==
                 std::string::npos ||
-            compiledBytes.find("assets/simple-note.png") == std::string::npos)
+            compiledBytes.find(
+                "#IMAGE,LR2files\\Theme\\Test\\assets\\simple-note.png") ==
+                    std::string::npos)
             result = 15;
     }
     if (result == 0 && !std::filesystem::is_regular_file(
@@ -1128,7 +1151,7 @@ int RunOlrPackageSelfTest() {
             !preservationExportInfo.preservedOriginalMain))
             result = 89;
         if (result == 0 &&
-            preservationExportInfo.rewrittenVirtualPathCount != 2)
+            preservationExportInfo.rewrittenVirtualPathCount != 3)
             result = 99;
         if (result == 0) {
             std::ifstream preservedMain(preservationExportInfo.mainSkinPath,
@@ -1146,7 +1169,7 @@ int RunOlrPackageSelfTest() {
                 "#RESOLUTION,1\r\n"
                 "#CUSTOMOPTION,PLAY SIDE,900,1P,2P\r\n"
                 "#IF,900\r\n"
-                "#INCLUDE,parts\\play.csv\r\n"
+                "#INCLUDE,LR2files\\Theme\\Test\\parts\\play.csv\r\n"
                 "#ENDIF\r\n";
             std::ifstream preservedPartInput(preservedPart, std::ios::binary);
             const std::string preservedPartBytes(
@@ -1197,6 +1220,8 @@ int RunOlrPackageSelfTest() {
             const std::string scopeScript =
                 "#INFORMATION,0,Scope test,SkinEditor,,,1280,720\r\n"
                 "#CUSTOMOPTION,Scratch,901,Left,Right\r\n"
+                "#LR2FONT,note\\blue.png\r\n"
+                "#IMAGE,CONTINUE\r\n"
                 "#ENDOFHEADER\r\n"
                 "#IF,901\r\n"
                 "$OLR_FILE start\r\n"
@@ -1243,17 +1268,54 @@ int RunOlrPackageSelfTest() {
                 const std::string rightIncludeBytes(
                     (std::istreambuf_iterator<char>(rightInclude)),
                     std::istreambuf_iterator<char>());
+                bool rootedIncludeResolvesFromLr2Root = false;
+                bool bareIncludeFailsFromLr2Root = false;
+                char previousDirectory[MAX_PATH] = {};
+                const bool capturedDirectory = GetCurrentDirectoryA(
+                    MAX_PATH, previousDirectory) != 0;
+                const bool changedDirectory = capturedDirectory &&
+                    SetCurrentDirectoryA(scopeMaterializedPath.c_str()) != FALSE;
+                if (changedDirectory) {
+                    CSTR rootedIncludePath = GetRandomFileNoError(CSTR(
+                        "LR2files\\Theme\\Test\\_olr_include_0001.csv"),
+                        CSTR("LR2files\\Theme\\Test\\"));
+                    CSTR bareIncludePath = GetRandomFileNoError(CSTR(
+                        "_olr_include_0001.csv"),
+                        CSTR("LR2files\\Theme\\Test\\"));
+                    FILE* rootedIncludeFile = fopen(
+                        rootedIncludePath.outstr(), "rb");
+                    FILE* bareIncludeFile = fopen(
+                        bareIncludePath.outstr(), "rb");
+                    rootedIncludeResolvesFromLr2Root =
+                        rootedIncludeFile != nullptr;
+                    bareIncludeFailsFromLr2Root = bareIncludeFile == nullptr;
+                    if (rootedIncludeFile) fclose(rootedIncludeFile);
+                    if (bareIncludeFile) fclose(bareIncludeFile);
+                }
+                if (changedDirectory &&
+                    !SetCurrentDirectoryA(previousDirectory))
+                    result = 108;
                 const size_t leftBranch = scopeBytes.find("#IF,901");
                 const size_t rightBranch = scopeBytes.find("#IF,902");
-                if (!scopeMain || leftBranch == std::string::npos ||
+                if (result == 0 && (!scopeMain ||
+                    !rootedIncludeResolvesFromLr2Root ||
+                    !bareIncludeFailsFromLr2Root ||
+                    leftBranch == std::string::npos ||
                     rightBranch == std::string::npos ||
                     leftBranch >= rightBranch ||
                     scopeBytes.find(
-                        "#INCLUDE,_olr_include_0001.csv\r\n") ==
+                        "#INCLUDE,LR2files\\Theme\\Test\\_olr_include_0001.csv\r\n") ==
                             std::string::npos ||
                     scopeBytes.find(
-                        "#INCLUDE,_olr_include_0002.csv\r\n") ==
+                        "#INCLUDE,LR2files\\Theme\\Test\\_olr_include_0002.csv\r\n") ==
                             std::string::npos ||
+                    scopeBytes.find("#INCLUDE,_olr_include_") !=
+                        std::string::npos ||
+                    scopeBytes.find(
+                        "#LR2FONT,LR2files\\Theme\\Test\\note\\blue.png\r\n") ==
+                            std::string::npos ||
+                    scopeBytes.find("#IMAGE,CONTINUE\r\n") ==
+                        std::string::npos ||
                     scopeBytes.find("$OLR_FILE") != std::string::npos ||
                     scopeBytes.find("#DST_NOTE,0") != std::string::npos ||
                     !leftInclude || !rightInclude ||
@@ -1267,7 +1329,7 @@ int RunOlrPackageSelfTest() {
                             std::string::npos ||
                     rightIncludeBytes.find("#IF,100\r\n") ==
                         std::string::npos ||
-                    rightIncludeBytes.find("#ENDIF") != std::string::npos)
+                    rightIncludeBytes.find("#ENDIF") != std::string::npos))
                     result = 105;
             }
         }
@@ -1444,10 +1506,26 @@ int RunOlrPackageSelfTest() {
                     std::filesystem::path(externalExportInfo.mainSkinPath).
                         parent_path() / "_olr_include_0001.csv";
                 std::error_code includeError;
+                const size_t includeNameAt = lowerExportedBytes.find(
+                    "_olr_include_0001.csv");
+                const size_t includeLineStart = includeNameAt ==
+                    std::string::npos ? std::string::npos :
+                    lowerExportedBytes.rfind('\n', includeNameAt);
+                const size_t includeLineBegin = includeLineStart ==
+                    std::string::npos ? 0 : includeLineStart + 1;
+                const size_t includeLineEnd = includeNameAt ==
+                    std::string::npos ? std::string::npos :
+                    lowerExportedBytes.find_first_of("\r\n", includeNameAt);
+                const std::string includeLine = includeNameAt ==
+                    std::string::npos ? std::string() :
+                    lowerExportedBytes.substr(includeLineBegin,
+                        includeLineEnd == std::string::npos ?
+                            std::string::npos :
+                            includeLineEnd - includeLineBegin);
                 if (exportedBytes.find("$OLR_FILE") != std::string::npos ||
-                    exportedBytes.find(
-                        "#INCLUDE,_olr_include_0001.csv") ==
-                            std::string::npos ||
+                    includeLine.rfind("#include,lr2files\\", 0) != 0 ||
+                    lowerExportedBytes.find(
+                        "#include,_olr_include_") != std::string::npos ||
                     !std::filesystem::is_regular_file(generatedInclude,
                         includeError) || includeError)
                     result = 107;

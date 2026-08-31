@@ -540,7 +540,9 @@ main only while the hidden marker and byte-identical compatibility baseline are
 valid, the original main exists and no fixed asset relocation is required.
 Otherwise it writes the current compatibility script, so semantic or raw edits
 cannot be lost. Before that fallback is written, `$OLR_FILE start/end` markers
-become generated CSV `#INCLUDE` files beside the exported main. This restores
+become generated CSV `#INCLUDE` files beside the exported main. Their directives
+use full `LR2files\...` paths because LR2 ignores the declaring CSV directory
+when opening an include. This restores
 LR2's fresh per-include IF stack instead of relying on its broken nested-IF
 gating: a child `#IF` inside an inactive/right parent can no longer reactivate
 and replace lane 0's `#DST_NOTE`. Orphan and unclosed child controls remain
@@ -550,8 +552,8 @@ Both paths resolve an otherwise unknown OLR canvas to HD
 active `#RESOLUTION` command in the materialized main. The materializer accepts
 only LR2-discoverable mains below `LR2files/Theme|Sound`, rewrites virtual path
 aliases by CSV command field across the selected main/include graph, and roots
-process-relative thumbnail/custom/help declarations to that graph's logical
-LR2 location. Its result popup reports the rewrite count and any reason an
+process-relative image/font/include/thumbnail/custom/help declarations to that
+graph's logical LR2 location. Its result popup reports the rewrite count and any reason an
 original-main attempt fell back to the compatibility script; `INSTALL.txt`
 records how to merge the output beside `LR2.exe`.
 

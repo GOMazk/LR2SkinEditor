@@ -511,9 +511,9 @@ toolbar and Ctrl+S all call `SaveCurrentSkin()`; the bottom status bar derives
 native file picker and must continue switching the active working path after
 success. The loaded-workspace resolution modal is the deliberate exception to
 ordinary undoable editing: after a clean-state guard it atomically changes the
-root `#INFORMATION` resolution, neutralizes active `#RESOLUTION` rows as
-`$OLR_IGNORED_RESOLUTION`, and reloads the workspace. This avoids the legacy LR2
-skin-list parser's next-slot write while keeping physical row addresses stable.
+root `#INFORMATION` resolution, synchronizes one active `#RESOLUTION` row, and
+reloads the workspace. It reuses an existing active or previously inert row;
+only a script with neither form receives a new row after `#INFORMATION`.
 Panel components must not duplicate any of these file operations.
 
 `skinResolution.cpp` owns the loaded canvas resolution decision. `LoadSkin()`
@@ -587,8 +587,10 @@ gating: a child `#IF` inside an inactive/right parent can no longer reactivate
 and replace lane 0's `#DST_NOTE`. Orphan and unclosed child controls remain
 contained by the generated file boundary just like the original include graph.
 Both paths resolve an otherwise unknown OLR canvas to HD
-1280x720, persist the selected canvas in `#INFORMATION` fields 6/7 and leave no
-active `#RESOLUTION` command in the materialized main. The materializer accepts
+1280x720, and persist the selected canvas in both `#INFORMATION` fields 6/7 and
+one active `#RESOLUTION` command in the materialized main. When package creation
+must insert that row, it shifts packaged semantic and source-map addresses at
+the same boundary. The materializer accepts
 only LR2-discoverable mains below `LR2files/Theme|Sound`, rewrites virtual path
 aliases by CSV command field across the selected main/include graph, and roots
 process-relative image/font/include/thumbnail/custom/help declarations to that

@@ -29,14 +29,14 @@ SESkinResolutionDecision SEResolveSkinResolution(
 bool SEResolveSkinResolutionFile(const char* path,
     SESkinResolutionDecision& decision);
 
-// Produces an LR2-safe main script without changing row addresses. LR2 reads
-// the target canvas from #INFORMATION fields 6 and 7; some LR2 builds corrupt
-// the next skin-list slot when a separate #RESOLUTION row is present. This
-// function therefore stores the requested canvas in #INFORMATION and turns
-// active #RESOLUTION rows into inert OLR compatibility comments.
+// Produces a main script whose #INFORMATION fields 6/7 and single active
+// #RESOLUTION row carry the same canvas. Existing active or previously inert
+// rows are reused without changing row addresses; when neither exists, a new
+// row is inserted immediately after #INFORMATION. insertedRow receives that
+// one-based row address, or 0 when no row was inserted.
 bool SEPrepareLr2ExportResolution(const std::string& script,
     int width, int height, std::string& preparedScript,
-    std::string& errorMessage);
+    std::string& errorMessage, int* insertedRow = nullptr);
 
 const char* SESkinResolutionSourceText(SESkinResolutionSource source);
 bool SEIsInferredSkinResolution(SESkinResolutionSource source);

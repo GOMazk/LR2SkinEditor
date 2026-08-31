@@ -272,16 +272,73 @@ bool SEResolveSkinResolutionFile(const char* path,
 
 bool SEPrepareLr2ExportResolution(const std::string& script,
     int width, int height, std::string& preparedScript,
-    std::string& errorMessage) {
+    std::string& errorMessage, int* insertedRow) {
     preparedScript.clear();
     errorMessage.clear();
+    if (insertedRow) *insertedRow = 0;
     if (!IsValidResolution(width, height)) {
         errorMessage = "The LR2 export canvas is outside the supported range.";
         return false;
     }
 
+    const size_t noLine = std::string::npos;
+    size_t informationLine = noLine;
+    size_t activeResolutionLine = noLine;
+    size_t ignoredResolutionLine = noLine;
+    int informationRow = 0;
+    int lineNumber = 1;
+    bool scanningTargetHeader = false;
+    for (size_t lineStart = 0; lineStart <= script.size(); ++lineNumber) {
+        const size_t lineBreak = script.find('\n', lineStart);
+        const size_t fullEnd = lineBreak == std::string::npos
+            ? script.size() : lineBreak + 1;
+        size_t contentEnd = lineBreak == std::string::npos
+            ? script.size() : lineBreak;
+        if (contentEnd > lineStart && script[contentEnd - 1] == '\r')
+            --contentEnd;
+
+        size_t commandStart = lineStart;
+        if (commandStart == 0 && script.size() >= 3 &&
+            (unsigned char)script[0] == 0xEF &&
+            (unsigned char)script[1] == 0xBB &&
+            (unsigned char)script[2] == 0xBF)
+            commandStart = 3;
+        while (commandStart < contentEnd &&
+            (script[commandStart] == ' ' || script[commandStart] == '\t'))
+            ++commandStart;
+
+        if (IsScriptCommand(script, commandStart, contentEnd,
+            "#INFORMATION")) {
+            if (informationLine != noLine) break;
+            informationLine = lineStart;
+            informationRow = lineNumber;
+            scanningTargetHeader = true;
+        }
+        else if (scanningTargetHeader && IsScriptCommand(script, commandStart,
+            contentEnd, "#ENDOFHEADER")) {
+            break;
+        }
+        else if (scanningTargetHeader && IsScriptCommand(script, commandStart,
+            contentEnd, "#RESOLUTION")) {
+            if (activeResolutionLine == noLine)
+                activeResolutionLine = lineStart;
+        }
+        else if (scanningTargetHeader && IsScriptCommand(script, commandStart,
+            contentEnd, "$OLR_IGNORED_RESOLUTION")) {
+            if (ignoredResolutionLine == noLine)
+                ignoredResolutionLine = lineStart;
+        }
+
+        if (lineBreak == std::string::npos) break;
+        lineStart = fullEnd;
+    }
+
+    const size_t resolutionLine = activeResolutionLine != noLine
+        ? activeResolutionLine : ignoredResolutionLine;
     std::ostringstream output;
     bool informationUpdated = false;
+    bool resolutionUpdated = false;
+    bool inTargetHeader = false;
     for (size_t lineStart = 0; lineStart <= script.size();) {
         const size_t lineBreak = script.find('\n', lineStart);
         const size_t fullEnd = lineBreak == std::string::npos
@@ -301,19 +358,32 @@ bool SEPrepareLr2ExportResolution(const std::string& script,
             (script[commandStart] == ' ' || script[commandStart] == '\t'))
             ++commandStart;
 
+        const bool isInformation = IsScriptCommand(script, commandStart,
+            contentEnd, "#INFORMATION");
+        const bool isEndOfHeader = IsScriptCommand(script, commandStart,
+            contentEnd, "#ENDOFHEADER");
+        const bool isResolution = IsScriptCommand(script, commandStart,
+            contentEnd, "#RESOLUTION");
+        const bool isIgnoredResolution = IsScriptCommand(script, commandStart,
+            contentEnd, "$OLR_IGNORED_RESOLUTION");
+
         output.write(script.data() + lineStart,
             static_cast<std::streamsize>(commandStart - lineStart));
-        if (!informationUpdated && IsScriptCommand(script, commandStart,
-            contentEnd, "#INFORMATION")) {
+        if (!informationUpdated && isInformation) {
             const std::string information = script.substr(commandStart,
                 contentEnd - commandStart);
             output << ReplaceInformationResolution(information, width, height);
             informationUpdated = true;
+            inTargetHeader = true;
         }
-        else if (IsScriptCommand(script, commandStart, contentEnd,
-            "#RESOLUTION")) {
-            // Preserve one physical row so semantic/source compiler addresses
-            // remain stable while preventing the LR2 skin-list parser bug.
+        else if (inTargetHeader && lineStart == resolutionLine &&
+            (isResolution || isIgnoredResolution)) {
+            output << "#RESOLUTION," << width << ',' << height;
+            resolutionUpdated = true;
+        }
+        else if (inTargetHeader && isResolution) {
+            // Keep duplicate rows addressable without allowing a later value
+            // to override the single resolution authority.
             output << "$OLR_IGNORED_RESOLUTION,";
             output.write(script.data() + commandStart,
                 static_cast<std::streamsize>(contentEnd - commandStart));
@@ -325,12 +395,28 @@ bool SEPrepareLr2ExportResolution(const std::string& script,
         output.write(script.data() + contentEnd,
             static_cast<std::streamsize>(fullEnd - contentEnd));
 
+        if (informationUpdated && inTargetHeader && isInformation &&
+            resolutionLine == noLine) {
+            const std::string lineEnding = fullEnd > contentEnd
+                ? script.substr(contentEnd, fullEnd - contentEnd) : "\r\n";
+            if (fullEnd == contentEnd) output << lineEnding;
+            output << "#RESOLUTION," << width << ',' << height << lineEnding;
+            resolutionUpdated = true;
+            if (insertedRow) *insertedRow = informationRow + 1;
+        }
+        if (inTargetHeader && isEndOfHeader)
+            inTargetHeader = false;
+
         if (lineBreak == std::string::npos) break;
         lineStart = fullEnd;
     }
 
     if (!informationUpdated) {
         errorMessage = "The LR2 export script has no #INFORMATION row for its canvas.";
+        return false;
+    }
+    if (!resolutionUpdated) {
+        errorMessage = "The LR2 export script could not establish its #RESOLUTION row.";
         return false;
     }
     preparedScript = output.str();

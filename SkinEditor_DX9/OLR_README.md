@@ -13,8 +13,8 @@ Entry points:
   source/path maps, merged LR2 script, captured virtual roots and fixed external
   images. When safe, it also records the unchanged compatibility baseline and
   original-main preservation marker. The package boundary writes the canvas to
-  `#INFORMATION` fields 6/7 and neutralizes active `#RESOLUTION` rows without
-  changing compiler row addresses.
+  `#INFORMATION` fields 6/7 and one active `#RESOLUTION` row. If that row must be
+  inserted, all affected compiler and source-map row addresses move with it.
 - `SEInspectOLRSkinPackage()` validates and lists a package without writing. For
   V0.8+ it cross-checks semantic/Simple Mode counts with `skin.json`, asset/file
   counts with the archive, and the matching versioned document authorities.
@@ -62,10 +62,9 @@ Important invariants:
 - `skinfileLines` and `SEObjectEditorModel` remain authoritative while editing.
 - OLR's unresolved canvas default is HD 1280x720. Explicit or TenRiff-inferred
   SD/HD/FHD remains unchanged. Both package and install-ready LR2 output use
-  `#INFORMATION` fields 6/7 as the active resolution authority; separate
-  `#RESOLUTION` rows are retained only as inert
-  `$OLR_IGNORED_RESOLUTION` compatibility rows because affected LR2 skin-list
-  parsers can corrupt the next slot when they encounter the active command.
+  identical values in `#INFORMATION` fields 6/7 and one active `#RESOLUTION`
+  row. Existing active or `$OLR_IGNORED_RESOLUTION` rows are reused; a missing
+  row is inserted after `#INFORMATION` with compiler addresses adjusted.
 - V0.9 `skin.json.objects` uses authority
   `lr2-destination-parts-v0.9`. Each item owns ordered `parts`; each part records
   exact source rows and independently compiled consecutive destination-command
@@ -132,7 +131,8 @@ edited compatibility script forces the safe fallback. The fallback fixture
 also proves that generated child CSVs isolate an orphan `#ELSE` and an open
 child `#IF` from the parent Scratch side branches. It also feeds an active
 width/height `#RESOLUTION` row through package and original-main materialization
-and verifies that only the `#INFORMATION` canvas remains executable. Mixed-case
+and verifies that it matches the `#INFORMATION` canvas. The main package fixture
+starts without `#RESOLUTION` and verifies row-address correction after insertion. Mixed-case
 virtual paths are removed from the main/include graph, and LR2's own
 `MakeSkinList()` must enumerate the exported main from a relocated temporary
 root. Direct

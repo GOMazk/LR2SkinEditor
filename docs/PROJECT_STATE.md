@@ -88,7 +88,8 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 
 - TenRiff 규칙으로 추정한 해상도는 workspace/Preview에만 적용하며 원본 CSV에는 자동
   기록하지 않는다. toolbar와 status bar의 `inferred` 표시로 명시 해상도와
-  구분하고, 사용자가 해상도 modal의 Apply를 선택했을 때만 `#INFORMATION`에 쓴다.
+  구분하고, 사용자가 해상도 modal의 Apply를 선택했을 때만 `#INFORMATION`과
+  `#RESOLUTION`에 같은 값을 쓴다.
   최종 visible `#DST_NOTE`의 최대 x와 좌상단에 고정된 큰 `#DST_IMAGE` backdrop을
   함께 판정하여 640x480/1280x720/1920x1080 중 하나로 정규화한다. 화면 밖에 둔
   전환 panel은 backdrop으로 보지 않는다. 이 판정은 `skinResolution.cpp`에 격리하며
@@ -96,9 +97,10 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - 해상도 변경의 즉시 저장은 의도된 동작이다. Workspace 해상도 modal은 이 점과
   기존 Object 좌표를 자동 scale하지 않는다는 점을 명시한다. 재로드 중 편집 내용을
   잃지 않도록 일반 script 변경은 먼저 Save해야 하고 미저장 Pixel paint도 정리해야 한다.
-  저장은 `#INFORMATION` 6·7번 칸을 갱신하고, LR2 목록 파서의 다음 slot을 오염시킬 수
-  있는 활성 `#RESOLUTION` 행은 row 수를 유지한 비실행
-  `$OLR_IGNORED_RESOLUTION` 행으로 바꾼다.
+  저장은 `#INFORMATION` 6·7번 칸과 단일 활성 `#RESOLUTION` 행을 같은 값으로
+  갱신한다. 기존 활성 행이나 `$OLR_IGNORED_RESOLUTION` 행은 그 자리에서 재사용하고,
+  둘 다 없을 때만 `#INFORMATION` 바로 뒤에 새 행을 넣는다. 중복 활성 행은 첫 행만
+  실행 상태로 유지한다.
 - Save As는 스크립트 경로를 전환하지만 이미지, 폰트 등 리소스 파일을 복제하지
   않는다. 정상 Save As 흐름이 있으므로 별도 Clone 기능은 현재 필수 기능이 아니다.
 - 실제 스킨별 좌표·경로·조건 조합은 수동 회귀 테스트가 필요하다.
@@ -175,9 +177,9 @@ asset authority다. IF/ELSE, 지원 밖 행/열, comment와 editor metadata는
 결과를 남기지 않는다. `sections`는 Object id discovery index이며 값을 컴파일하지 않는다.
 OLR의 canvas 근거가 없으면 1280x720 HD를 기본으로 하며, explicit 또는 TenRiff
 추정 SD/HD/FHD는 유지한다. package 및 설치용 LR2 main은 항상 첫
-`#INFORMATION`의 6·7번 칸에 이 크기를 기록한다. 별도 `#RESOLUTION`은 LR2 파서의
-stale CSV/다음 slot 기록 결함을 피하도록 같은 행에서
-`$OLR_IGNORED_RESOLUTION`로 무력화한다.
+`#INFORMATION`의 6·7번 칸과 단일 활성 `#RESOLUTION`에 같은 크기를 기록한다.
+기존 해상도 행이 없어 새 행을 삽입하면 OLR package writer가 Simple Mode, Object
+semantic 및 source-map의 packaged row 주소를 함께 한 칸 이동한다.
 KCOOL처럼 `#SRC_IMAGE`의 `w/h`에 음수 sentinel을 쓰는 legacy crop은 편집 가능한
 Simple Mode rectangle이 아니므로 새 package의 `simple_mode`에서 제외한다. 기존
 package에 이미 들어 있어도 Import를 중단하지 않고 원본 LR2 행을 raw로 보존한다.
@@ -255,9 +257,9 @@ New는 `LR2files\Theme` 아래에 새 `.lr2skin`과 알파 채널을 보존하�
 유지할 수 있다. `..`, 드라이브명 같은 범위 이탈 경로는 거부하고 기존 파일은
 덮어쓰지 않는다. `#SCENETIME`은 DECIDE 프리셋에만 생성하며 PLAY, SELECT,
 RESULT, COURSERESULT에는 기록하지 않는다. 생성 header의 해상도는
-`#INFORMATION` 6·7번 칸에만 기록하며 활성 `#RESOLUTION`을 중복 생성하지 않는다.
+`#INFORMATION` 6·7번 칸과 단일 활성 `#RESOLUTION`에 같은 값으로 기록한다.
 
-`preset.bmp`는 선택한 해상도와 Scene에 맞춰 native-size sprite를 동적으로 배치한다.
+`preset.png`는 선택한 해상도와 Scene에 맞춰 native-size sprite를 동적으로 배치한다.
 Raster Object는 `SRC w / div_x`, `SRC h / div_y`가 해당 `DST w`, `DST h`와 같으므로
 초기 상태에서 암묵적인 확대·축소가 없다. BMS가 graph를 공급하는 zero-sized BGA와
 font-backed TEXT/BAR_TITLE은 source crop 크기가 없거나 런타임 소유이므로 이 규칙의

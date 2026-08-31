@@ -244,24 +244,64 @@ int RunResolutionEstimatorSelfTest() {
 
     std::string preparedScript;
     std::string resolutionError;
+    int insertedResolutionRow = -1;
     if (!SEPrepareLr2ExportResolution(
         "#INFORMATION,0,title,maker,,,,\r\n"
-        "#RESOLUTION,1280,720\r\n"
+        "#RESOLUTION,640,480\r\n"
         "#IMAGE,background.png\r\n",
-        1280, 720, preparedScript, resolutionError) ||
+        1280, 720, preparedScript, resolutionError,
+        &insertedResolutionRow) ||
         preparedScript.find(
             "#INFORMATION,0,title,maker,,,1280,720\r\n") != 0 ||
         preparedScript.find(
-            "$OLR_IGNORED_RESOLUTION,#RESOLUTION,1280,720\r\n") ==
-                std::string::npos ||
-        preparedScript.find("\r\n#RESOLUTION,") != std::string::npos)
+            "\r\n#RESOLUTION,1280,720\r\n") == std::string::npos ||
+        insertedResolutionRow != 0)
         return 10;
+
+    if (!SEPrepareLr2ExportResolution(
+        "#INFORMATION,0,title,maker,,,,\r\n"
+        "#ENDOFHEADER\r\n",
+        1920, 1080, preparedScript, resolutionError,
+        &insertedResolutionRow) ||
+        preparedScript.find(
+            "#INFORMATION,0,title,maker,,,1920,1080\r\n"
+            "#RESOLUTION,1920,1080\r\n"
+            "#ENDOFHEADER\r\n") != 0 ||
+        insertedResolutionRow != 2)
+        return 11;
+
+    if (!SEPrepareLr2ExportResolution(
+        "#INFORMATION,0,title,maker,,,640,480\r\n"
+        "$OLR_IGNORED_RESOLUTION,#RESOLUTION,640,480\r\n"
+        "#ENDOFHEADER\r\n",
+        1280, 720, preparedScript, resolutionError,
+        &insertedResolutionRow) ||
+        preparedScript.find(
+            "\r\n#RESOLUTION,1280,720\r\n") == std::string::npos ||
+        preparedScript.find("$OLR_IGNORED_RESOLUTION") != std::string::npos ||
+        insertedResolutionRow != 0)
+        return 12;
+
+    if (!SEPrepareLr2ExportResolution(
+        "#INFORMATION,0,title,maker,,,640,480\r\n"
+        "#RESOLUTION,640,480\r\n"
+        "#RESOLUTION,1920,1080\r\n"
+        "#ENDOFHEADER\r\n",
+        1280, 720, preparedScript, resolutionError,
+        &insertedResolutionRow) ||
+        preparedScript.find(
+            "\r\n#RESOLUTION,1280,720\r\n") == std::string::npos ||
+        preparedScript.find(
+            "$OLR_IGNORED_RESOLUTION,#RESOLUTION,1920,1080\r\n") ==
+                std::string::npos ||
+        insertedResolutionRow != 0)
+        return 13;
 
     preparedScript = "must remain transactional";
     if (SEPrepareLr2ExportResolution("#RESOLUTION,1\r\n",
         1280, 720, preparedScript, resolutionError) ||
         !preparedScript.empty())
-        return 11;
+        return 14;
 
     return 0;
 }
@@ -324,10 +364,9 @@ int RunOlrPackageSelfTest() {
     document.scene = "PLAY 7KEYS";
     document.canvasWidth = 1280;
     document.canvasHeight = 720;
-    document.resolutionSource = "#RESOLUTION";
+    document.resolutionSource = "#INFORMATION";
     document.lr2Script =
         "#INFORMATION,0,OLR self test,SkinEditor,.\\VFS\\lr2files\\Theme\\Test\\note\\blue.png,,1280,720\r\n"
-        "#RESOLUTION,1280,720\r\n"
         "#CUSTOMFILE,NOTE,.\\vFs\\LR2FILES\\Theme\\Test\\note\\*.png,blue\r\n"
         "#IMAGE,VFS/Lr2Files/Theme/Test/note/blue.png\r\n"
         "#IMAGE,assets/simple-note.png\r\n"
@@ -349,11 +388,11 @@ int RunOlrPackageSelfTest() {
     SEOLRSemanticObject::Part semanticPart;
     semanticPart.id = "part_1";
     SEOLRSemanticObject::SourceBinding semanticSource;
-    semanticSource.sourceRow = 6;
+    semanticSource.sourceRow = 5;
     semanticSource.sourceCommand = "#SRC_IMAGE";
     semanticPart.sources.push_back(semanticSource);
     SEOLRSemanticObject::SourceBinding buttonSemanticSource;
-    buttonSemanticSource.sourceRow = 7;
+    buttonSemanticSource.sourceRow = 6;
     buttonSemanticSource.sourceCommand = "#SRC_BUTTON";
     semanticPart.sources.push_back(buttonSemanticSource);
     SEOLRSemanticObject::Destination semanticDestination;
@@ -361,13 +400,13 @@ int RunOlrPackageSelfTest() {
     semanticDestination.destinationCommand = "#DST_IMAGE";
     semanticDestination.layout = { 100, 200, 16, 16, 0, 1 };
     SEOLRSemanticObject::AnimationFrame firstFrame;
-    firstFrame.destinationRow = 8;
+    firstFrame.destinationRow = 7;
     firstFrame.timeMs = 0;
     firstFrame.alpha = 255;
     firstFrame.transform = semanticDestination.layout;
     semanticDestination.animationFrames.push_back(firstFrame);
     SEOLRSemanticObject::AnimationFrame secondFrame;
-    secondFrame.destinationRow = 9;
+    secondFrame.destinationRow = 8;
     secondFrame.timeMs = 100;
     secondFrame.alpha = 0;
     secondFrame.transform = { 110, 210, 20, 18, 15, 1 };
@@ -386,7 +425,7 @@ int RunOlrPackageSelfTest() {
     alternateSemanticDestination.destinationCommand = "#DST_IMAGE";
     alternateSemanticDestination.layout = { 50, 60, 10, 12, 0, 0 };
     SEOLRSemanticObject::AnimationFrame alternateFrame;
-    alternateFrame.destinationRow = 10;
+    alternateFrame.destinationRow = 9;
     alternateFrame.timeMs = 0;
     alternateFrame.alpha = 200;
     alternateFrame.transform = alternateSemanticDestination.layout;
@@ -396,7 +435,7 @@ int RunOlrPackageSelfTest() {
     SEOLRSemanticObject::Part secondSemanticPart;
     secondSemanticPart.id = "part_2";
     SEOLRSemanticObject::SourceBinding secondSemanticSource;
-    secondSemanticSource.sourceRow = 11;
+    secondSemanticSource.sourceRow = 10;
     secondSemanticSource.sourceCommand = "#SRC_IMAGE";
     secondSemanticPart.sources.push_back(secondSemanticSource);
     SEOLRSemanticObject::Destination secondSemanticDestination;
@@ -404,13 +443,13 @@ int RunOlrPackageSelfTest() {
     secondSemanticDestination.destinationCommand = "#DST_IMAGE";
     secondSemanticDestination.layout = { 400, 300, 80, 40, 10, 2 };
     SEOLRSemanticObject::AnimationFrame thirdFrame;
-    thirdFrame.destinationRow = 12;
+    thirdFrame.destinationRow = 11;
     thirdFrame.timeMs = 25;
     thirdFrame.alpha = 128;
     thirdFrame.transform = secondSemanticDestination.layout;
     secondSemanticDestination.animationFrames.push_back(thirdFrame);
     SEOLRSemanticObject::AnimationFrame fourthFrame;
-    fourthFrame.destinationRow = 13;
+    fourthFrame.destinationRow = 12;
     fourthFrame.timeMs = 75;
     fourthFrame.alpha = 64;
     fourthFrame.transform = { 410, 305, 80, 40, 15, 2 };
@@ -429,7 +468,7 @@ int RunOlrPackageSelfTest() {
     simpleSlot.label = "Test image - Gear line";
     simpleSlot.objectId = "obj_test";
     simpleSlot.sourceCommand = "#SRC_IMAGE";
-    simpleSlot.sourceRow = 6;
+    simpleSlot.sourceRow = 5;
     simpleSlot.graphicId = 0;
     simpleSlot.width = 16;
     simpleSlot.height = 16;
@@ -440,7 +479,7 @@ int RunOlrPackageSelfTest() {
     if (result == 0 && SEIsOLRSimpleSlotCompilable(legacyCropSlot)) result = 41;
     document.simpleSlots.push_back(simpleSlot);
     document.assets.push_back({ 2, assetPath, "lr2/assets/simple-note.png" });
-    document.sourceMap.push_back({ 0, 0, "main.lr2skin" });
+    document.sourceMap.push_back({ 5, 5, "main.lr2skin" });
 
     SEOLRPackageInfo packageInfo;
     std::string errorMessage;
@@ -474,7 +513,8 @@ int RunOlrPackageSelfTest() {
         std::string prepareError;
         if (!SEPrepareLr2ExportResolution(document.lr2Script, 1280, 720,
             expectedScript, prepareError) || scriptBytes != expectedScript ||
-            scriptBytes.find("\r\n#RESOLUTION,") != std::string::npos)
+            scriptBytes.find("\r\n#RESOLUTION,1280,720\r\n") ==
+                std::string::npos)
             result = 11;
     }
     if (result == 0) {
@@ -490,6 +530,9 @@ int RunOlrPackageSelfTest() {
         if (result == 0 &&
             packageBytes.find("previous.olrskin") != std::string::npos)
             result = 37;
+        if (result == 0 &&
+            packageBytes.find("\"packaged_row\": 6") == std::string::npos)
+            result = 102;
         // OLRskin is a user-approved 0.9 format lock. Pin both serialized
         // integer versions and the matching profile/authority identities.
         const std::string lockedVersion = "\"version\": 9";
@@ -1179,7 +1222,8 @@ int RunOlrPackageSelfTest() {
             if (!SEPrepareLr2ExportResolution(portableOriginalMain, 1280, 720,
                 expectedOriginalMain, prepareError) || !preservedMain ||
                 preservedBytes != expectedOriginalMain ||
-                preservedBytes.find("\r\n#RESOLUTION,") != std::string::npos ||
+                preservedBytes.find("\r\n#RESOLUTION,1280,720\r\n") ==
+                    std::string::npos ||
                 !std::filesystem::is_regular_file(preservedPart, preserveError) ||
                 preserveError || !preservedPartInput ||
                 preservedPartBytes.find(

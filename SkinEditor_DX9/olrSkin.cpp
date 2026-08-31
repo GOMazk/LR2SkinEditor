@@ -3350,6 +3350,32 @@ bool SECompileOLRSemantics(const std::string& skinJson,
     return true;
 }
 
+static void ShiftOlrCompilerRowsForInsertedResolution(
+    SEOLRSkinDocument& document, int insertedRow) {
+    if (insertedRow <= 0) return;
+    const auto shift = [insertedRow](int& row) {
+        if (row >= insertedRow) ++row;
+    };
+    for (SEOLRSimpleSlot& slot : document.simpleSlots)
+        shift(slot.sourceRow);
+    for (SEOLRSemanticObject& object : document.objects) {
+        for (SEOLRSemanticObject::Part& part : object.parts) {
+            for (SEOLRSemanticObject::SourceBinding& source : part.sources)
+                shift(source.sourceRow);
+            for (SEOLRSemanticObject::Destination& destination :
+                part.destinations) {
+                for (SEOLRSemanticObject::AnimationFrame& frame :
+                    destination.animationFrames)
+                    shift(frame.destinationRow);
+            }
+        }
+    }
+    for (SEOLRSourceMapEntry& source : document.sourceMap)
+        shift(source.packagedRow);
+    for (SEOLRAssetInput& asset : document.assets)
+        shift(asset.declarationRow);
+}
+
 bool SEWriteOLRSkinPackage(const char* packagePath,
     const SEOLRSkinDocument& document, SEOLRPackageInfo& packageInfo,
     std::string& errorMessage) {
@@ -3365,11 +3391,16 @@ bool SEWriteOLRSkinPackage(const char* packagePath,
         errorMessage = "The OLR V0.9 original-main baseline does not match the compatibility script.";
         return false;
     }
+    SEOLRSkinDocument packagedDocument = document;
     std::string lr2ExportScript;
+    int insertedResolutionRow = 0;
     if (!SEPrepareLr2ExportResolution(document.lr2Script,
         document.canvasWidth, document.canvasHeight, lr2ExportScript,
-        errorMessage))
+        errorMessage, &insertedResolutionRow))
         return false;
+    ShiftOlrCompilerRowsForInsertedResolution(packagedDocument,
+        insertedResolutionRow);
+    packagedDocument.lr2Script = lr2ExportScript;
     std::string normalizedExportMain;
     if (!IsLr2DiscoverableExportMainPath(document.lr2ExportMainPath,
         &normalizedExportMain)) {
@@ -3388,19 +3419,19 @@ bool SEWriteOLRSkinPackage(const char* packagePath,
     std::vector<VirtualRootPackageStats> rootStats;
     int virtualFileCount = 0;
     int skippedVirtualFileCount = 0;
-    if (!AppendVirtualRootEntries(document, assetEntries, rootStats,
+    if (!AppendVirtualRootEntries(packagedDocument, assetEntries, rootStats,
         virtualFileCount, skippedVirtualFileCount, errorMessage))
         return false;
 
     std::vector<PackageEntrySource> entries;
     entries.push_back(MemoryEntry("manifest.json",
-        BuildManifestJson(document, (int)assetEntries.size(), virtualFileCount,
+        BuildManifestJson(packagedDocument, (int)assetEntries.size(), virtualFileCount,
             skippedVirtualFileCount)));
-    entries.push_back(MemoryEntry("skin.json", BuildSkinJson(document)));
+    entries.push_back(MemoryEntry("skin.json", BuildSkinJson(packagedDocument)));
     entries.push_back(MemoryEntry("compatibility/source-map.json",
-        BuildSourceMapJson(document)));
+        BuildSourceMapJson(packagedDocument)));
     entries.push_back(MemoryEntry("compatibility/path-map.json",
-        BuildPathMapJson(document, rootStats, normalizedExportMain)));
+        BuildPathMapJson(packagedDocument, rootStats, normalizedExportMain)));
     entries.push_back(MemoryEntry("lr2/main.lr2skin", lr2ExportScript));
     entries.push_back(MemoryEntry("lr2/.olr-export-main.txt",
         normalizedExportMain + "\n"));

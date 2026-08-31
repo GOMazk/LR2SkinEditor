@@ -52,10 +52,10 @@ compiler, then makes LR2 fidelity the release focus:
   `File > Export install-ready LR2 folder` from an imported V0.2+ workspace;
 - use HD 1280x720 as the OLR canvas only when the loaded source has no explicit
   or TenRiff-inferred resolution, and write the selected canvas to LR2's
-  `#INFORMATION` fields 6 and 7;
-- turn every active `#RESOLUTION` row in package/materialized mains into an
-  inert `$OLR_IGNORED_RESOLUTION` row while preserving its physical row address,
-  avoiding the LR2 skin-list parser path that can corrupt the next skin slot;
+  `#INFORMATION` fields 6 and 7 and one active `#RESOLUTION` row;
+- reuse an existing active or `$OLR_IGNORED_RESOLUTION` row when possible,
+  insert a missing row immediately after `#INFORMATION`, and shift packaged
+  semantic/source-map row addresses when that insertion changes them;
 - compare each owned numeric field by its parsed LR2 value before writing, so an
   unchanged empty zero, whitespace or leading-zero spelling is not normalized;
   and
@@ -101,10 +101,11 @@ cannot be silently discarded.
 Resolution is normalized at the package boundary, not by mutating the opened
 source skin. `skin.json.canvas` and `lr2/main.lr2skin` therefore agree. An
 explicit or inferred SD/FHD source keeps that family; only the otherwise
-unresolved OLR default becomes HD. LR2 output has one executable authority:
-`#INFORMATION,...,width,height`. A legacy `#RESOLUTION` row remains visible only
-behind `$OLR_IGNORED_RESOLUTION` so semantic and source-map row numbers do not
-shift.
+unresolved OLR default becomes HD. LR2 output records the same canvas in both
+`#INFORMATION,...,width,height` and one active `#RESOLUTION,width,height` row.
+An existing row is updated in place. If the row is missing, package creation
+inserts it after `#INFORMATION` and shifts every affected Simple Mode source,
+Object source/destination and packaged source-map address together.
 
 ## Runtime path model
 
@@ -400,12 +401,12 @@ physical boundary is required because LR2 checks only its innermost nested
 IF switch; comments alone cannot stop an active child `#IF` from reactivating
 rows inside an inactive parent branch.
 
-The same compatibility main also normalizes resolution without removing a
-physical row. The first `#INFORMATION` receives the OLR canvas in fields 6 and
-7. Every active `#RESOLUTION` becomes
-`$OLR_IGNORED_RESOLUTION,#RESOLUTION,...`. This is deliberate LR2 compatibility:
-the affected legacy parser reads `#INFORMATION` correctly but can reuse stale
-CSV data and write a standalone `#RESOLUTION` into the next skin-list slot.
+The same compatibility main also normalizes resolution. The first
+`#INFORMATION` receives the OLR canvas in fields 6 and 7, and one active
+`#RESOLUTION` row receives the same width and height. Existing active or
+`$OLR_IGNORED_RESOLUTION` rows are reused in place. A missing row is inserted
+after `#INFORMATION`; package construction adjusts all compiler addresses at
+or below that one-based row before writing `skin.json` and the source map.
 
 `compatibility/path-map.json` records:
 
@@ -484,9 +485,9 @@ every edited skin:
 - after a semantic or raw script edit, V0.9 safely falls back to the flattened
   compatibility main. Splitting arbitrary edited rows back into their original
   owner files is deferred to the V1.0 lossless LR2skin compiler;
-- exact main-header bytes are not an invariant: active `#RESOLUTION` rows are
-  intentionally neutralized and `#INFORMATION` fields 6/7 are normalized for
-  LR2 safety. Other original-main rows and the include graph remain preserved;
+- exact main-header bytes are not an invariant: `#INFORMATION` fields 6/7 and
+  one active `#RESOLUTION` row are normalized to the package canvas. Other
+  original-main rows and the include graph remain preserved;
 - unresolved `LR2files/...` roots remain external and are counted;
 - paths longer than the safe package-entry limit are skipped and counted;
 - nested `.olrskin` containers are skipped and counted instead of recursively

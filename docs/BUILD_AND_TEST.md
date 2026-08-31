@@ -47,7 +47,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   Rhythm 140 시작·리셋 계약
 - `resolution-estimator`: `#INFORMATION`/`#RESOLUTION` 우선순위, TenRiff에서 이식한
   lane/backdrop 기반 SD/HD/FHD 판정, 화면 밖 전환 panel 제외, 640x480 Preview
-  fallback, LR2 출력 시 `#INFORMATION` 기록과 활성 `#RESOLUTION` 무력화
+  fallback, LR2 출력 시 `#INFORMATION`과 단일 활성 `#RESOLUTION` 동기화,
+  누락 행 삽입과 기존 비활성 행 복구
 - `olr-package`: 명시적으로 두 part와 여러 source/destination을 구성한 V0.9
   document의 stored ZIP 생성/검사/추출, manifest와 `skin.json`/archive의 구조·asset
   count 일치, nested
@@ -56,7 +57,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   고아 control row 무력화와 열린 child `#IF` 자동 종료, 재저장 시 scope marker 비증식,
   빈 numeric zero token의 무변경 왕복, 원본 main/include graph materialization과
   편집된 compatibility script의 안전한 fallback,
-  OLR HD 기본값 및 package/원본-main의 `#INFORMATION` 해상도 단일화,
+  OLR HD 기본값 및 package/원본-main의 `#INFORMATION`/`#RESOLUTION` 동기화와
+  삽입 시 semantic/source-map row 보정,
   known OP/TIMER와 raw OP 왕복, V0.8/V0.7 authority 호환, LR2·asset byte 보존,
   혼합 대소문자/slash VFS 해제, `#INFORMATION` thumbnail과 custom/help 경로 rooting,
   `Theme|Sound` 밖 main 거부, 이동된 export root에서 LR2 `MakeSkinList()` 인식,
@@ -76,8 +78,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 - `initial-preset`: 공용 atlas의 읽을 수 있는 0~9 NUMBER glyph, PLAY/BATTLE 키 모드별 lane index와 각 lane의
   Normal/Mine/LN/DST_NOTE/Bomb, Measure Line, Judge Line, Gauge, FAST/SLOW,
   플레이어별 NOWJUDGE/NOWCOMBO, RESULT의 label/판정 숫자/chart 및 COURSERESULT의
-  1~5스테이지 제목/레벨과 누적 결과 필수 Object 생성, `#INFORMATION` 해상도와
-  활성 `#RESOLUTION` 비생성
+  1~5스테이지 제목/레벨과 누적 결과 필수 Object 생성, `#INFORMATION`과
+  활성 `#RESOLUTION`의 동일 해상도
 - `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제, graphic ID 배정과 선택
   Object SRC에 대한 원자적 Asset 적용/Undo, `#IMAGE` 경로 교체/Undo, 이미지 상태
   진단, named grid Asset 일괄 등록/단일 Undo
@@ -367,9 +369,9 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
     새 대상으로 실행하면
     `<target>/LR2files/...`가 생겨야 한다. 무편집 V0.9 package는 성공 메시지가 원본
     include-based main 보존을 표시하고, exported main과 include tree가 원본과
-    같아야 한다. 단, main header는 `#INFORMATION` 6·7번 칸이 package canvas와 같고
-    활성 `#RESOLUTION`이 없어야 하며 이 의도된 정규화는 byte-for-byte 비교에서
-    제외한다. 나머지 빈 timer/cycle/angle, `div_x/div_y=0`,
+    같아야 한다. 단, main header는 `#INFORMATION` 6·7번 칸과 단일 활성
+    `#RESOLUTION`이 package canvas와 같아야 하며 이 의도된 정규화는
+    byte-for-byte 비교에서 제외한다. 나머지 빈 timer/cycle/angle, `div_x/div_y=0`,
     `#CUSTOMOPTION`과 `#ENDOFHEADER`도 비교한다. 편집 후에는 compatibility script
     materialization을 표시하고 main/include CSV에 표기 차이와 무관하게 `vfs/`가
     남지 않아야 한다. export root의 `INSTALL.txt`가 `LR2.exe`가 있는 폴더에
@@ -752,7 +754,7 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - 1280x720 이상 HD Preview
 - `#INFORMATION`이 없고 `#RESOLUTION,1280,720`만 있는 스킨이 1280x720으로 열리는지
 - 위 스킨을 해상도 modal로 저장하면 `#INFORMATION` 6·7번 칸이 1280,720이 되고
-  활성 `#RESOLUTION`은 `$OLR_IGNORED_RESOLUTION`로 바뀌는지
+  단일 활성 `#RESOLUTION`도 `1280,720`으로 유지되는지
 - 명시 해상도가 없고 lane은 화면 왼쪽에 있지만 좌상단 1280x720 backdrop이 있는
   스킨이 TenRiff 규칙으로 HD 판정되며 toolbar/status에 `inferred`로 표시되는지
 - 화면 밖 애니메이션/전환 panel이 backdrop으로 오인되어 HD/FHD로 승격되지 않는지
@@ -785,13 +787,13 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
   실제 BMS의 정지 이미지/동영상 BGA가 지정한 영역 안에 표시되는지 확인한다.
 - 생성한 PLAY/BATTLE 스킨을 실제 LR2에서 열고 BMS 재생을 시작했을 때
   Measure Line 누락으로 `ProcI_Play` 접근 위반이 발생하지 않는지 확인한다.
-- 생성한 main에는 해상도가 `#INFORMATION` 6·7번 칸에만 있고 활성
-  `#RESOLUTION`이 없어, LR2 스킨 목록 진입/전환 시 종료되지 않는지 확인한다.
+- 생성한 main의 `#INFORMATION` 6·7번 칸과 단일 활성 `#RESOLUTION`이 선택한
+  해상도로 일치하고, LR2 스킨 목록 진입/전환 시 정상 인식되는지 확인한다.
 - Groove Gauge가 50칸으로 lane 폭을 채우고, gauge 값 변화에 따라 밝은 채움과
   어두운 빈칸 및 80% 경계 색상이 바뀌는지 확인한다.
 - PLAY 생성 직후 첫 Note가 Object Browser에서 자동 선택·스크롤되고 Inspector에
   같은 Note의 Normal/Mine/LN/DST_NOTE 행이 함께 표시되는지 확인한다.
-- 공용 `preset.bmp`의 NUMBER source가 알 수 없는 색/기호가 아니라 또렷한 숫자
+- 공용 `preset.png`의 NUMBER source가 알 수 없는 색/기호가 아니라 또렷한 숫자
   `0~9`로 표시되는지 확인한다. LR2 number frame 대응상 atlas cell 순서는 0부터다.
 - SELECT bar가 NOWJUDGE용 무지개 strip을 늘린 형태가 아니라 어두운 단색 면과 밝은
   테두리로 표시되고, OFF/ON tint와 title이 정상인지 확인한다. DECIDE panel/flash와

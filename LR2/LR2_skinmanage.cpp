@@ -176,6 +176,7 @@ int SetFirstSkins(game *g){
 int InitSkinData(SkinManage *skm){
 	skm->Max = 100;
 	skm->Data = (SkinHeader *)malloc(sizeof(SkinHeader) * 100);
+	if (!skm->Data) return 0;
 	skm->Count = 0;
 	memset(skm->Data, 0, skm->Max * sizeof(SkinHeader));
 	for (int i = 0; i < 100; i++) {
@@ -183,29 +184,73 @@ int InitSkinData(SkinManage *skm){
 			skm->Data[i].customs[j].dst_op_start = 0xffffffff;
 			skm->Data[i].customs[j].labelCapacity = 0;
 			skm->Data[i].customs[j].op_label = (CSTR*)malloc(sizeof(CSTR)*100);
-			memset(skm->Data[i].customs[j].op_label + sizeof(CSTR)*skm->Data[i].customs[j].labelCapacity, 0, sizeof(CSTR) * 100);
+			if (!skm->Data[i].customs[j].op_label) return 0;
+			memset(skm->Data[i].customs[j].op_label, 0, sizeof(CSTR) * 100);
 			skm->Data[i].customs[j].labelCapacity += 100;
 		}
 	}
 	return 1;
 }
 
+// Reuse the large legacy SkinManage allocation when the editor changes scan
+// locations. InitSkinData allocates one label table for every possible custom
+// entry, so calling it for every refresh leaked a substantial block each time.
+int ResetSkinData(SkinManage *skm) {
+	if (!skm || !skm->Data || skm->Max <= 0) return 0;
+	for (int skinIndex = 0; skinIndex < skm->Max; ++skinIndex) {
+		SkinHeader& skin = skm->Data[skinIndex];
+		skin.skinFile.~CSTR(); skin.skinFile.body = NULL;
+		skin.thumbnail.~CSTR(); skin.thumbnail.body = NULL;
+		skin.title.~CSTR(); skin.title.body = NULL;
+		skin.maker.~CSTR(); skin.maker.body = NULL;
+		for (int customIndex = 0; customIndex < 100; ++customIndex) {
+			SkinCustom& custom = skin.customs[customIndex];
+			custom.title.~CSTR(); custom.title.body = NULL;
+			for (int labelIndex = 0; labelIndex < custom.labelCapacity; ++labelIndex) {
+				custom.op_label[labelIndex].~CSTR();
+				custom.op_label[labelIndex].body = NULL;
+			}
+			custom.dst_op_selected = 0;
+			custom.dst_op_start = 0xffffffff;
+			custom.dst_op_count = 0;
+		}
+		skin.custom_count = 0;
+		skin.type = (SKINTYPE)0;
+		skin.unused18 = 0;
+		skin.informationP5 = 0;
+		skin.targetX = 640;
+		skin.targetY = 480;
+	}
+	skm->Count = 0;
+	skm->select = 0;
+	skm->previewID = 0;
+	skm->previewCustomID = 0;
+	memset(skm->skinID, 0, sizeof(skm->skinID));
+	return 1;
+}
+
 //4a7450
 int ExpandSkinMax(SkinManage *skm){
-	skm->Data = (SkinHeader *)realloc(skm->Data, (skm->Max + 100) * 0xb14);
-	memset(skm->Data + skm->Max, 0, sizeof(SkinHeader) * 100);
-	if (skm->Max < skm->Max + 100) {
-		for (int i = skm->Max; i < skm->Max + 100; i++) {
+	const int oldMax = skm->Max;
+	const int newMax = oldMax + 100;
+	SkinHeader* const expanded = static_cast<SkinHeader*>(
+		realloc(skm->Data, sizeof(SkinHeader) * newMax));
+	if (!expanded) return 0;
+	skm->Data = expanded;
+	memset(skm->Data + oldMax, 0, sizeof(SkinHeader) * (newMax - oldMax));
+	if (oldMax < newMax) {
+		for (int i = oldMax; i < newMax; i++) {
 			for (int j = 0; j < 100; j++) {
 				skm->Data[i].customs[j].dst_op_start = 0xffffffff;
 				skm->Data[i].customs[j].labelCapacity = 0;
 				skm->Data[i].customs[j].op_label = (CSTR*)malloc(sizeof(CSTR) * 100);
-				memset(skm->Data[i].customs[j].op_label + sizeof(CSTR)*skm->Data[i].customs[j].labelCapacity, 0, sizeof(CSTR) * 100);
+				if (!skm->Data[i].customs[j].op_label) return 0;
+				memset(skm->Data[i].customs[j].op_label, 0, sizeof(CSTR) * 100);
 				skm->Data[i].customs[j].labelCapacity += 100;
 			}
 		}
 	}
-	skm->Max = skm->Max + 100;
+	skm->Max = newMax;
 	return 1;
 }
 
@@ -245,31 +290,43 @@ int ParseLR2SkinCustom(SkinManage *skm, CSTR filepath) {
 			skm->Data[skm->Count].targetY = csvBuf.val[7] == 0 ? 480: csvBuf.val[7];
 			skm->Count ++;
 			if (skm->Count == skm->Max) {
-				ExpandSkinMax(skm);
+				if (!ExpandSkinMax(skm)) {
+					fclose(pFile);
+					return 0;
+				}
 			}
 		}
 		else if (buffer.left(11).isSame("#RESOLUTION")) {
-
+			// #RESOLUTION belongs to the #INFORMATION row immediately above it.
+			// The legacy implementation reused stale CSV data and wrote to Count
+			// (the next free slot), corrupting skin-list memory and occasionally
+			// crashing while an exported skin was enumerated.
+			SplitCSV(buffer, &csvBuf, ",");
+			if (skm->Count <= 0) continue;
+			SkinHeader &rSkin = skm->Data[skm->Count - 1];
 			switch (csvBuf.val[1]) {
 			case 0:
-				skm->Data[skm->Count].targetX = 640;
-				skm->Data[skm->Count].targetY = 480;
+				rSkin.targetX = 640;
+				rSkin.targetY = 480;
 				break;
 			case 1:
-				skm->Data[skm->Count].targetX = 1280;
-				skm->Data[skm->Count].targetY = 720;
+				rSkin.targetX = 1280;
+				rSkin.targetY = 720;
 				break;
 			case 2:
-				skm->Data[skm->Count].targetX = 1920;
-				skm->Data[skm->Count].targetY = 1080;
+				rSkin.targetX = 1920;
+				rSkin.targetY = 1080;
 				break;
 			case 3:
-				skm->Data[skm->Count].targetX = 3840;
-				skm->Data[skm->Count].targetY = 2160;
-
+				rSkin.targetX = 3840;
+				rSkin.targetY = 2160;
+				break;
 			default:
-				skm->Data[skm->Count].targetX = csvBuf.val[1] >= 640 ? 640 : csvBuf.val[1];
-				skm->Data[skm->Count].targetY = csvBuf.val[2] >= 480 ? 480 : csvBuf.val[2];
+				if (csvBuf.val[1] >= 64 && csvBuf.val[2] >= 64) {
+					rSkin.targetX = csvBuf.val[1];
+					rSkin.targetY = csvBuf.val[2];
+				}
+				break;
 			}
 		}
 		else if (buffer.left(13).isSame("#CUSTOMOPTION")) {

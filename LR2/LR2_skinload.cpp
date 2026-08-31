@@ -172,6 +172,8 @@ int ReadSRC_BAR_TITLE(SRCstruct *src, CSVbuf *csv, skstruct *sk){
 //49ed50 InitSkin
 int InitSkin(skstruct *sk, int p5, char font) {
 	SetTransColor(0, 255, 0);
+	memset(sk->opOverrideEnabled, 0, sizeof(sk->opOverrideEnabled));
+	memset(sk->opOverrideValue, 0, sizeof(sk->opOverrideValue));
 	sk->startinput_start = 0;
 	sk->startinput_rank = 0;
 	sk->startinput_update = 0;
@@ -442,10 +444,18 @@ int InitSkin(skstruct *sk, int p5, char font) {
 	InitDST(&sk->dst_README[1]);
 	for (int i = 0; i < 10; i++) {
 		if (sk->ImageFonts[i].images == NULL) {
-			sk->ImageFonts[i].images = (FontImage*)malloc(1000 * sizeof(FontImage));
+			sk->ImageFonts[i].images = (FontImage*)calloc(1000, sizeof(FontImage));
+			if (sk->ImageFonts[i].images != NULL) {
+				for (int image = 0; image < 1000; ++image)
+					sk->ImageFonts[i].images[image].grHandle = -1;
+			}
 		}
 		if (sk->ImageFonts[i].chars == NULL) {
-			sk->ImageFonts[i].chars = (FontChar*)malloc(0x3bce * sizeof(FontChar));
+			sk->ImageFonts[i].chars = (FontChar*)calloc(0x3bce, sizeof(FontChar));
+			if (sk->ImageFonts[i].chars != NULL) {
+				for (int character = 0; character < 0x3bce; ++character)
+					sk->ImageFonts[i].chars[character].grHandle = -1;
+			}
 		}
 	}
 	sk->count = 0;

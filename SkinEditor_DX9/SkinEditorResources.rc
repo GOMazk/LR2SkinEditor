@@ -1,0 +1,4 @@
+#include "resource.h"
+
+IDR_SKIN_HELPER_TXT RCDATA "skinHelper.txt"
+IDR_SKIN_OBJ_GROUP_TXT RCDATA "skinObjGroup.txt"

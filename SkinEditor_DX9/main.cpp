@@ -22,6 +22,9 @@
 
 #include "winWorkspace.h"
 #include "seHelper.h"
+#include "seUI.h"
+#include "selfTests.h"
+#include "uiCatalog.h"
 
 
 // Data
@@ -37,9 +40,60 @@ void CleanupDeviceD3D();
 void ResetDevice();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+static void DrawHelpWindow(bool* open)
+{
+    char title[64];
+    FormatSEUISurfaceTitle(title, sizeof(title), SEUISurfaceId::Help);
+    if (!ImGui::Begin(title, open, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::End();
+        return;
+    }
+
+    SEUI::SectionHeader("Getting started");
+    ImGui::TextUnformatted("1. Create or open a workspace from the Workspace menu.");
+    ImGui::TextUnformatted("2. Choose an LR2 skin script, then inspect it in Preview.");
+    ImGui::TextUnformatted("3. Select objects in Object Browser and edit them in Object Inspector.");
+    ImGui::TextUnformatted("4. Use Asset Browser and Image Manager for source images.");
+
+    SEUI::SectionHeader("Workspace map");
+    ImGui::TextUnformatted("Left: object navigation and selection");
+    ImGui::TextUnformatted("Center: preview, images, destinations and assets");
+    ImGui::TextUnformatted("Right: options, properties and customization");
+    ImGui::TextDisabled("Window visibility can be changed from Workspace > Windows.");
+
+    ImGui::Separator();
+    if (ImGui::Button("Close"))
+        *open = false;
+    ImGui::End();
+}
+
 // Main code
 int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
 {
+    if (cmdline && strstr(cmdline, "--self-test-schema-contract"))
+        return RunSchemaContractSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-ui-contract"))
+        return RunUiCatalogSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-skin-browser"))
+        return RunSkinBrowserSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-preview-simulator"))
+        return RunPreviewSimulatorSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-resolution-estimator"))
+        return RunResolutionEstimatorSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-olr-package"))
+        return RunOlrPackageSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-simple-mode"))
+        return RunSimpleModeProjectionSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-reload-lifecycle"))
+        return RunWorkspaceReloadLifecycleSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-dst-color"))
+        return RunDstColorSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-object-reorder"))
+        return RunObjectReorderSelfTest();
+
+    if (cmdline && strstr(cmdline, "--self-test-asset-metadata"))
+        return RunAssetMetadataSelfTest();
+
     // Make process DPI aware and obtain main monitor scale
     ImGui_ImplWin32_EnableDpiAwareness();
     float main_scale = ImGui_ImplWin32_GetDpiScaleForMonitor(::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
@@ -47,7 +101,9 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     // Create application window
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr, L"ImGui Example", nullptr };
     ::RegisterClassExW(&wc);
-    HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"LR2SkinEditor_v0.8", WS_OVERLAPPEDWINDOW, 100, 100, (int)(1280 * main_scale), (int)(800 * main_scale), nullptr, nullptr, wc.hInstance, nullptr);
+    HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"LR2SkinEditor_v0.8", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, (int)(1280 * main_scale), (int)(800 * main_scale),
+        nullptr, nullptr, wc.hInstance, nullptr);
 
     // Initialize Direct3D
     if (!CreateDeviceD3D(hwnd))
@@ -57,28 +113,40 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return 1;
     }
 
+    if (cmdline && strstr(cmdline, "--self-test-pixel-paint")) {
+        const int result = RunPixelPaintSelfTest();
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        return result;
+    }
+    if (cmdline && strstr(cmdline, "--self-test-initial-preset")) {
+        const int result = RunInitialPresetSelfTest();
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        return result;
+    }
+
     // Show the window
-    ::ShowWindow(hwnd, SW_SHOWDEFAULT);
+    ::ShowWindow(hwnd, SW_MAXIMIZE);
     ::UpdateWindow(hwnd);
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.IniFilename = NULL;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
+    // Keep all editor tools inside the main workspace.
     //io.ConfigViewportsNoAutoMerge = true;
     //io.ConfigViewportsNoTaskBarIcon = true;
 
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-    //ImGui::StyleColorsLight();
-
-    // Setup scaling
+    // Setup the shared SkinEditor design system before individual windows are drawn.
     ImGuiStyle& style = ImGui::GetStyle();
-    style.ScaleAllSizes(main_scale);        // Bake a fixed style scale. (until we have a solution for dynamic style scaling, changing this requires resetting Style + calling this again)
+    SEUI::ApplyModernTheme(main_scale);
     style.FontScaleDpi = main_scale;        // Set initial font scale. (in docking branch: using io.ConfigDpiScaleFonts=true automatically overrides this for every window depending on the current monitor)
     io.ConfigDpiScaleFonts = true;          // [Experimental] Automatically overwrite style.FontScaleDpi in Begin() when Monitor DPI changes. This will scale fonts but _NOT_ scale sizes/padding for now.
     io.ConfigDpiScaleViewports = true;      // [Experimental] Scale Dear ImGui and Platform Windows when Monitor DPI changes.
@@ -111,12 +179,25 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
     //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
     //IM_ASSERT(font != nullptr);
+    // Segoe UI gives the editor a native, web-like UI face. Japanese and
+    // Korean glyphs are merged into the same font so skin metadata remains
+    // readable without changing widget code.
+    ImFont* uiFont = io.Fonts->AddFontFromFileTTF(
+        "C:\\Windows\\Fonts\\segoeui.ttf", 17.0f, NULL, io.Fonts->GetGlyphRangesDefault());
+    if (uiFont) {
+        ImFontConfig mergeConfig;
+        mergeConfig.MergeMode = true;
+        mergeConfig.PixelSnapH = true;
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\meiryo.ttc", 17.0f,
+            &mergeConfig, io.Fonts->GetGlyphRangesJapanese());
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 17.0f,
+            &mergeConfig, io.Fonts->GetGlyphRangesKorean());
+        io.FontDefault = uiFont;
+    }
 
     // Our state
-    bool show_demo_window = true;
-    bool show_another_window = false;
-    bool show_simple_window = false;
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+    bool show_help_window = false;
+    ImVec4 clear_color = ImVec4(0.035f, 0.043f, 0.060f, 1.00f);
 
     //DxLib init
     ChangeWindowMode(1);
@@ -127,10 +208,36 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     SetMainWindowText("skinPreview2");
     DxLib_Init();
 
+    // Optional real-skin regression probe. It is intentionally not part of CI
+    // because the two paths refer to user-supplied LR2 trees.
+    if (cmdline && (strstr(cmdline, "--skin-reload-smoke") ||
+        strstr(cmdline, "--skin-multi-workspace-smoke"))) {
+        LoadCommandHelp("..\\skinHelper.txt");
+        const bool useSeparateWorkspaces =
+            strstr(cmdline, "--skin-multi-workspace-smoke") != NULL;
+        const int result = useSeparateWorkspaces
+            ? RunWorkspaceRuntimeMultiWorkspaceSmokeTest(
+                getenv("SKINEDITOR_RELOAD_FIRST"),
+                getenv("SKINEDITOR_RELOAD_SECOND"))
+            : RunWorkspaceRuntimeReloadSmokeTest(
+                getenv("SKINEDITOR_RELOAD_FIRST"),
+                getenv("SKINEDITOR_RELOAD_SECOND"));
+        ImGui_ImplDX9_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        if (DxLib_IsInit()) DxLib_End();
+        return result;
+    }
+
     //SE init
-    LoadCommandHelp("skinHelper.txt");
+    // Development builds read the editable source file. Packaged builds fall
+    // back to the RCDATA copy embedded in the executable.
+    LoadCommandHelp("..\\skinHelper.txt");
     makeTransBackground();
-    workspaceList.Alloc(sizeof(WORKSPACE), 1);
+    workspaceList.clear();
 
     // Main loop
     bool done = false;
@@ -177,59 +284,39 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-        if (show_demo_window)
-            ImGui::ShowDemoWindow(&show_demo_window);
-
-        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
-        if (show_simple_window) {
-            static float f = 0.0f;
-            static int counter = 0;
-
-            ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
-
-            ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
-            ImGui::Checkbox("Demo Window", &show_demo_window);      // Edit bools storing our window open/close state
-            ImGui::Checkbox("Another Window", &show_another_window);
-
-            ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-            ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-
-            if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-                counter++;
-            ImGui::SameLine();
-            ImGui::Text("counter = %d", counter);
-
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-            ImGui::End();
-        }
+        if (show_help_window)
+            DrawHelpWindow(&show_help_window);
 
         //MainFrame and menu
         if (ImGui::BeginMainMenuBar()) {
-            if (ImGui::BeginMenu("Workspaces")) {
+            ImGui::TextColored(SEUI::Colors::Accent(), "LR2 Skin Editor");
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Workspace")) {
                 if (ImGui::MenuItem("New Workspace", NULL, false, true)) {
-                    WORKSPACE* work = (WORKSPACE*)(workspaceList.Get_new());
+                    workspaceList.push_back(std::unique_ptr<WORKSPACE>(new WORKSPACE()));
+                    WORKSPACE* work = workspaceList.back().get();
                     work->alive = true;
-                    work->num = workspaceList.count - 1;
-                    snprintf(work->title, 260, "Workspace %d", workspaceList.count - 1);
+                    work->num = (int)workspaceList.size() - 1;
+                    snprintf(work->title, 260, "Workspace %d", (int)workspaceList.size() - 1);
                     //work->init();
                 }
                 ImGui::Separator();
-                for (int i = 0; i < workspaceList.count; i++) {
-                    WORKSPACE* arr = (WORKSPACE*)(workspaceList.data);
-                    ImGui::MenuItem(arr[i].title, NULL, &arr[i].alive);
+                for (int i = 0; i < (int)workspaceList.size(); i++) {
+                    WORKSPACE& workspace = *workspaceList[i];
+                    ImGui::MenuItem(workspace.title, NULL, &workspace.alive);
                 }
                 ImGui::EndMenu();
             }
 
-            ImGui::MenuItem("Help", NULL, &show_simple_window);
+            const SEUISurfaceSpec& helpSpec = SEUISurfaceSpecFor(SEUISurfaceId::Help);
+            ImGui::MenuItem(helpSpec.title, NULL, &show_help_window);
             //ImGui::MenuItem("Info", NULL, );
 
             ImGui::EndMainMenuBar();
         }
 
         //draw workspaces
-        for (int i = 0; i < workspaceList.count; i++) {
+        for (int i = 0; i < (int)workspaceList.size(); i++) {
 
             //char dock[64];
             //snprintf(dock, sizeof(dock), "dock%d", i);
@@ -240,12 +327,12 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
             //style.WindowMinSize.x = minWinSizeX;
 
 
-            WORKSPACE* arr = (WORKSPACE*)(workspaceList.data);
+            WORKSPACE& workspace = *workspaceList[i];
             //if (arr[i].initFlag == 0) {
             //    arr[i].init();
             //}
-            if (arr[i].alive) {
-                arr[i].draw();
+            if (workspace.alive) {
+                workspace.draw();
             }
         }
 
@@ -286,7 +373,7 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
 
     //
     if (DxLib_IsInit()) DxLib_End();
-    workspaceList.Free();
+    workspaceList.clear();
 
     return 0;
 }
@@ -306,10 +393,25 @@ bool CreateDeviceD3D(HWND hWnd)
     g_d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
     g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_ONE;           // Present with vsync
     //g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;   // Present without vsync, maximum unthrottled framerate
-    if (g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice) < 0)
-        return false;
+    if (SUCCEEDED(g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+        hWnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp,
+        &g_pd3dDevice)))
+        return true;
 
-    return true;
+    // Hosted CI and remote Windows sessions may expose Direct3D 9 without
+    // hardware vertex processing. Keep the normal fast path above, then use a
+    // software vertex device so graphics self-tests remain meaningful there.
+    if (SUCCEEDED(g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL,
+        hWnd, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &g_d3dpp,
+        &g_pd3dDevice)))
+        return true;
+
+    if (SUCCEEDED(g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_REF,
+        hWnd, D3DCREATE_SOFTWARE_VERTEXPROCESSING, &g_d3dpp,
+        &g_pd3dDevice)))
+        return true;
+
+    return false;
 }
 
 void CleanupDeviceD3D()

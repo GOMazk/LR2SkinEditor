@@ -796,9 +796,9 @@ CSTR GetRandomFileNoError(CSTR path, CSTR dir) {
 	filepath.assign(GetRandomFile(path, 0));
 	if (filepath.isDiff("ERROR")) return CSTR(filepath);
 	dir.add(&path);
-	filepath.assign(GetRandomFile(path, 0));
+	filepath.assign(GetRandomFile(dir, 0));
 	if (filepath.isDiff("ERROR")) return CSTR(filepath);
-	return CSTR(path);
+	return CSTR(filepath);
 }
 
 //443550 _ need simplification
@@ -833,9 +833,10 @@ void MD5byte(char **iStr, uint len, char *oByte){
 	uVar13 = iVar20 + 0x80 + len;
 	piVar12 = (int *)realloc(*iStr, uVar13);
 	*iStr = (char *)piVar12;
-	memset((undefined *)((int)piVar12 + len), 0, iVar21);
-	piVar16 = (int *)((int)piVar12 + iVar21 + len);
-	*(undefined *)((int)piVar12 + len) = 0x80;
+	undefined* const byteBuffer = reinterpret_cast<undefined*>(piVar12);
+	memset(byteBuffer + len, 0, iVar21);
+	piVar16 = reinterpret_cast<int*>(byteBuffer + iVar21 + len);
+	*(byteBuffer + len) = 0x80;
 	*piVar16 = len * 8;
 	piVar16[1] = len >> 0x1d;
 	iVar20 = 0x67452301;

@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkinEditor UI Map</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0e1117;
+      --surface: #11151b;
+      --surface-2: #1b202a;
+      --surface-3: #252d3a;
+      --border: #29313f;
+      --text: #e8edf5;
+      --muted: #8c9bb2;
+      --accent: #4f9efa;
+      --accent-soft: rgba(79, 158, 250, 0.17);
+      --success: #3dc78c;
+      --warning: #f5b347;
+      --danger: #f25c6b;
+      font-family: Inter, "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); }
+    button, input, select { font: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 2px;
+    }
+    .shell { min-height: 100vh; }
+    .topbar {
+      position: sticky; top: 0; z-index: 10; display: flex; align-items: center;
+      gap: 18px; padding: 14px 20px; background: rgba(14, 17, 23, 0.96);
+      border-bottom: 1px solid var(--border); backdrop-filter: blur(12px);
+    }
+    .brand { min-width: 210px; }
+    .brand strong { display: block; font-size: 15px; font-weight: 600; }
+    .brand span { color: var(--muted); font-size: 12px; }
+    .filters { display: flex; flex: 1; gap: 10px; }
+    .filters input, .filters select {
+      min-height: 38px; padding: 8px 11px; color: var(--text); background: var(--surface-2);
+      border: 1px solid var(--border); border-radius: 6px;
+    }
+    .filters input { flex: 1; min-width: 180px; }
+    .filters select { min-width: 150px; }
+    .copy-button {
+      min-height: 38px; padding: 8px 13px; color: var(--text); background: var(--surface-3);
+      border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+    }
+    .copy-button:hover { background: var(--accent-soft); border-color: var(--accent); }
+    .content { padding: 18px 20px 28px; }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 10px; }
+    .metric { padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; }
+    .metric span { display: block; color: var(--muted); font-size: 12px; }
+    .metric strong { display: block; margin-top: 3px; font-size: 22px; font-weight: 600; }
+    .layout-heading { display: flex; align-items: baseline; justify-content: space-between; margin: 22px 0 9px; }
+    .layout-heading h2, .detail-heading h2 { margin: 0; font-size: 15px; font-weight: 600; }
+    .layout-heading span { color: var(--muted); font-size: 12px; }
+    .layout-board {
+      display: grid; grid-template-columns: 1.15fr 2.7fr 0.9fr;
+      grid-template-rows: minmax(118px, auto) minmax(78px, auto); gap: 7px;
+      grid-template-areas: "leftTop center rightTop" "leftBottom centerBottom rightBottom";
+      min-height: 230px;
+    }
+    .dock-region {
+      display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 9px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
+    }
+    .dock-region[data-region="left-upper"] { grid-area: leftTop; }
+    .dock-region[data-region="left-lower"] { grid-area: leftBottom; }
+    .dock-region[data-region="center-tabs"] { grid-area: center; }
+    .dock-region[data-region="center-bottom"] { grid-area: centerBottom; }
+    .dock-region[data-region="right-upper"] { grid-area: rightTop; }
+    .dock-region[data-region="right-lower"] { grid-area: rightBottom; }
+    .dock-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .dock-window {
+      width: 100%; padding: 7px 8px; text-align: left; color: var(--text);
+      background: var(--surface-2); border: 1px solid transparent; border-radius: 5px; cursor: pointer;
+    }
+    .dock-window:hover, .dock-window[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+    .workspace { display: grid; grid-template-columns: minmax(220px, 0.72fr) minmax(0, 2.28fr); gap: 12px; margin-top: 18px; }
+    .window-list, .detail { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .window-list { padding: 8px; align-self: start; }
+    .nav-label { padding: 8px 10px 5px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .nav-label:not(:first-child) { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 13px; }
+    .window-entry {
+      width: 100%; padding: 9px 10px; color: var(--text); text-align: left; background: transparent;
+      border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+    }
+    .window-entry + .window-entry { margin-top: 2px; }
+    .window-entry:hover { background: var(--surface-2); }
+    .window-entry[aria-pressed="true"] { background: var(--accent-soft); border-color: rgba(79, 158, 250, 0.55); }
+    .window-entry strong { display: flex; justify-content: space-between; gap: 8px; font-weight: 500; }
+    .window-entry small { display: block; margin-top: 3px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+    .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .empty-list { padding: 16px 10px; color: var(--muted); font-size: 13px; }
+    .detail { padding: 16px; }
+    .detail-heading { display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; }
+    .detail-heading p { margin: 5px 0 0; color: var(--muted); max-width: 760px; font-size: 13px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 7px 16px; margin: 14px 0; color: var(--muted); font-size: 12px; }
+    .meta code { color: var(--text); }
+    .table-wrap { overflow-x: auto; border-top: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 9px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid rgba(41, 49, 63, 0.72); }
+    th { color: var(--muted); font-weight: 500; }
+    td:nth-child(1) { width: 140px; color: #b7c7dc; }
+    td:nth-child(3) { width: 42%; }
+    code { font-family: "Cascadia Code", Consolas, monospace; font-size: 0.96em; }
+    .source { color: var(--accent); white-space: nowrap; }
+    .diagnostics { margin-top: 12px; }
+    .diagnostic { padding: 9px 11px; border-left: 3px solid var(--warning); background: rgba(245, 179, 71, 0.08); font-size: 12px; }
+    .diagnostic.error { border-left-color: var(--danger); background: rgba(242, 92, 107, 0.08); }
+    .status { min-width: 1px; color: var(--success); font-size: 12px; }
+    @media (max-width: 900px) {
+      .topbar { align-items: stretch; flex-wrap: wrap; }
+      .brand { min-width: 0; flex: 1; }
+      .filters { order: 3; flex-basis: 100%; }
+      .summary { grid-template-columns: repeat(2, 1fr); }
+      .layout-board { grid-template-columns: 1fr 1fr; grid-template-areas: "leftTop leftBottom" "center center" "centerBottom centerBottom" "rightTop rightBottom"; }
+      .workspace { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .content { padding: 14px 12px 24px; }
+      .filters { flex-direction: column; }
+      .filters select { width: 100%; }
+      .summary { grid-template-columns: 1fr 1fr; }
+      .layout-board { grid-template-columns: 1fr; grid-template-areas: "leftTop" "leftBottom" "center" "centerBottom" "rightTop" "rightBottom"; }
+      .detail-heading { display: block; }
+      .copy-button { margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><strong>SkinEditor UI Map</strong><span>Source-backed workspace design contract</span></div>
+      <div class="filters">
+        <input id="search" type="search" placeholder="Search windows, labels, functions or files" aria-label="Search UI map">
+        <select id="dock-filter" aria-label="Filter by default dock"><option value="all">All dock regions</option></select>
+      </div>
+      <button class="copy-button" id="copy-json" type="button">Copy selected JSON</button>
+      <span class="status" id="status" aria-live="polite"></span>
+    </header>
+    <main class="content">
+      <section class="summary" id="summary" aria-label="UI map summary"></section>
+      <div class="layout-heading"><h2>Default workspace layout</h2><span>Choose a window to inspect its source controls</span></div>
+      <section class="layout-board" id="layout-board" aria-label="Default workspace layout"></section>
+      <section class="workspace">
+        <nav class="window-list" id="window-list" aria-label="Workspace windows"></nav>
+        <article class="detail" id="detail"></article>
+      </section>
+      <section class="diagnostics" id="diagnostics" aria-label="UI contract diagnostics"></section>
+    </main>
+  </div>
+  <script>
+    const uiMap = __UI_MAP_JSON__;
+    const state = { selectedKey: uiMap.windows[0]?.key || "", query: "", dock: "all" };
+    const byId = id => document.getElementById(id);
+    const entries = [
+      ...uiMap.windows.map(item => ({ ...item, entryType: "window" })),
+      ...uiMap.surfaces.map(item => ({ ...item, entryType: "surface" }))
+    ];
+    const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+    })[char]);
+    const entryFor = key => entries.find(entry => entry.key === key);
+    const controlsFor = key => {
+      const entry = entryFor(key);
+      if (!entry) return [];
+      const keyField = entry.entryType === "window" ? "windowKeys" : "surfaceKeys";
+      return uiMap.controls.filter(control => control[keyField].includes(key));
+    };
+    const searchable = entry => {
+      const controls = controlsFor(entry.key);
+      return [entry.title, entry.key, entry.purpose, entry.ownerFunction, entry.group, entry.defaultDock, entry.kind,
+        ...controls.flatMap(control => [control.kind, control.visibleLabel, control.function, control.file])]
+        .join(" ").toLowerCase();
+    };
+    const filteredEntries = () => entries.filter(entry =>
+      (state.dock === "all" || (entry.entryType === "window" && entry.defaultDock === state.dock)) &&
+      (!state.query || searchable(entry).includes(state.query)));
+
+    function selectWindow(key) {
+      state.selectedKey = key;
+      render();
+    }
+
+    function renderSummary() {
+      const metrics = [
+        ["Catalogued windows", uiMap.summary.windowCount],
+        ["Flows and shells", uiMap.summary.surfaceCount],
+        ["Source controls", uiMap.summary.controlCount],
+        ["Unassigned controls", uiMap.summary.unmappedControlCount],
+        ["Contract errors", uiMap.summary.errorCount]
+      ];
+      byId("summary").innerHTML = metrics.map(([label, value]) =>
+        `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
+    }
+
+    function renderDockFilter() {
+      const select = byId("dock-filter");
+      if (select.options.length > 1) return;
+      [...new Set(uiMap.windows.map(window => window.defaultDock))].sort().forEach(dock => {
+        const option = document.createElement("option");
+        option.value = dock;
+        option.textContent = dock;
+        select.appendChild(option);
+      });
+    }
+
+    function renderLayout() {
+      const regions = ["left-upper", "left-lower", "center-tabs", "center-bottom", "right-upper", "right-lower"];
+      byId("layout-board").innerHTML = regions.map(region => {
+        const windows = uiMap.windows.filter(window => window.defaultDock === region);
+        return `<div class="dock-region" data-region="${escapeHtml(region)}">
+          <span class="dock-label">${escapeHtml(region)}</span>
+          ${windows.map(window => `<button type="button" class="dock-window" data-key="${escapeHtml(window.key)}"
+            aria-pressed="${window.key === state.selectedKey}">${escapeHtml(window.title)}</button>`).join("")}
+        </div>`;
+      }).join("");
+      byId("layout-board").querySelectorAll("button").forEach(button =>
+        button.addEventListener("click", () => selectWindow(button.dataset.key)));
+    }
+
+    function renderWindowList() {
+      const visibleEntries = filteredEntries();
+      if (!visibleEntries.some(entry => entry.key === state.selectedKey) && visibleEntries.length) {
+        state.selectedKey = visibleEntries[0].key;
+      }
+      const windowEntries = visibleEntries.filter(entry => entry.entryType === "window");
+      const surfaceEntries = visibleEntries.filter(entry => entry.entryType === "surface");
+      const renderEntries = group => group.map(entry =>
+        `<button type="button" class="window-entry" data-key="${escapeHtml(entry.key)}"
+          aria-pressed="${entry.key === state.selectedKey}">
+          <strong><span>${escapeHtml(entry.title)}</span><span class="count">${entry.controlCount}</span></strong>
+          <small>${escapeHtml(entry.ownerFunction)}</small>
+        </button>`).join("");
+      const windowGroups = ["Workspace", "Assets", "Data", "Advanced"];
+      const windowSections = windowGroups.map(group => {
+        const groupEntries = windowEntries.filter(entry => entry.group === group);
+        return groupEntries.length
+          ? `<div class="nav-label">${escapeHtml(group)}</div>${renderEntries(groupEntries)}`
+          : "";
+      }).join("");
+      byId("window-list").innerHTML = visibleEntries.length ?
+        `${windowSections}
+         ${surfaceEntries.length ? `<div class="nav-label">Flows and shells</div>${renderEntries(surfaceEntries)}` : ""}` :
+        `<div class="empty-list">No matching UI surfaces.</div>`;
+      byId("window-list").querySelectorAll("button").forEach(button =>
+        button.addEventListener("click", () => selectWindow(button.dataset.key)));
+    }
+
+    function renderDetail() {
+      const entry = entryFor(state.selectedKey);
+      if (!entry) {
+        byId("detail").innerHTML = `<div class="empty-list">Select a UI surface to inspect it.</div>`;
+        return;
+      }
+      const controls = controlsFor(entry.key).filter(control => !state.query ||
+        [control.kind, control.visibleLabel, control.function, control.file].join(" ").toLowerCase().includes(state.query));
+      const rows = controls.map(control => `<tr>
+        <td>${escapeHtml(control.namespace)}::${escapeHtml(control.kind)}</td>
+        <td>${escapeHtml(control.visibleLabel)}</td>
+        <td><code>${escapeHtml(control.function)}</code></td>
+        <td><code class="source">${escapeHtml(control.file)}:${escapeHtml(control.line)}</code></td>
+      </tr>`).join("");
+      const placement = entry.entryType === "window" ?
+        `<span>group <code>${escapeHtml(entry.group)}</code></span><span>dock <code>${escapeHtml(entry.defaultDock)}</code></span><span>default ${entry.defaultVisible ? "visible" : "hidden"}</span>` :
+        `<span>kind <code>${escapeHtml(entry.kind)}</code></span>`;
+      byId("detail").innerHTML = `<div class="detail-heading">
+          <div><h2>${escapeHtml(entry.title)}</h2><p>${escapeHtml(entry.purpose)}</p></div>
+        </div>
+        <div class="meta"><span>key <code>${escapeHtml(entry.key)}</code></span>
+          <span>owner <code>${escapeHtml(entry.ownerFunction)}</code></span>
+          ${placement}
+          <span>${controls.length} matching controls</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Kind</th><th>Label</th><th>Function</th><th>Source</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="4">No matching controls.</td></tr>`}</tbody></table></div>`;
+    }
+
+    function renderDiagnostics() {
+      byId("diagnostics").innerHTML = uiMap.diagnostics.map(item =>
+        `<div class="diagnostic ${item.level === "error" ? "error" : ""}">
+          <strong>${escapeHtml(item.code)}</strong> ${escapeHtml(item.message)}</div>`).join("");
+    }
+
+    function render() {
+      renderSummary();
+      renderDockFilter();
+      renderLayout();
+      renderWindowList();
+      renderDetail();
+      renderDiagnostics();
+    }
+
+    byId("search").addEventListener("input", event => {
+      state.query = event.target.value.trim().toLowerCase();
+      render();
+    });
+    byId("dock-filter").addEventListener("change", event => {
+      state.dock = event.target.value;
+      render();
+    });
+    byId("copy-json").addEventListener("click", async () => {
+      const selectedEntry = entryFor(state.selectedKey);
+      if (!selectedEntry) return;
+      const payload = { surface: selectedEntry, controls: controlsFor(selectedEntry.key) };
+      try {
+        await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+        byId("status").textContent = `${selectedEntry.title} JSON copied`;
+      } catch {
+        byId("status").textContent = "Clipboard permission was not available";
+      }
+      globalThis.setTimeout(() => { byId("status").textContent = ""; }, 2400);
+    });
+    render();
+  </script>
+</body>
+</html>

@@ -19,7 +19,7 @@ int ARR::Realloc(int size) { //set new max size
     if (!temp) return -1;
 
     data = temp;
-    memset((void*)((int)data + unitSize * bufSize), 0, unitSize * (size - bufSize));
+    memset(static_cast<unsigned char*>(data) + unitSize * bufSize, 0, unitSize * (size - bufSize));
     bufSize = size;
     return 0;
 }
@@ -34,7 +34,7 @@ int ARR::Free() {
 
 int ARR::push_back(void* newdata) {
     if (count >= bufSize) Realloc(bufSize * 2); //make buffer size double
-    memcpy((void*)((int)data + unitSize * count), newdata, unitSize);
+    memcpy(static_cast<unsigned char*>(data) + unitSize * count, newdata, unitSize);
     count++;
     return 0;
 }
@@ -47,15 +47,16 @@ void* ARR::Get_new() {
     int oldcount = count;
     if (oldcount >= bufSize) Realloc(bufSize * 2); //make buffer size double
     count++;
-    return (void*)((int)data + unitSize * oldcount);
+    return static_cast<unsigned char*>(data) + unitSize * oldcount;
 }
 
 int ARR::InsertAt(int at, void* newdata) {
     if (count+1 >= bufSize) Realloc(bufSize * 2); //make buffer size double
     for (int i = count; i >= at; i--) {
-        memcpy((void*)((int)data + unitSize * (i+1)), (void*)((int)data + unitSize * i), unitSize);
+        memcpy(static_cast<unsigned char*>(data) + unitSize * (i + 1),
+            static_cast<unsigned char*>(data) + unitSize * i, unitSize);
     }
-    memcpy((void*)((int)data + unitSize * at), newdata, unitSize);
+    memcpy(static_cast<unsigned char*>(data) + unitSize * at, newdata, unitSize);
     count++;
     return 0;
 }
@@ -63,17 +64,19 @@ int ARR::InsertAt(int at, void* newdata) {
 void* ARR::Get_newAt(int at) {
     if (count + 1 >= bufSize) Realloc(bufSize * 2); //make buffer size double
     for (int i = count; i >= at; i--) {
-        memcpy((void*)((int)data + unitSize * (i + 1)), (void*)((int)data + unitSize * i), unitSize);
+        memcpy(static_cast<unsigned char*>(data) + unitSize * (i + 1),
+            static_cast<unsigned char*>(data) + unitSize * i, unitSize);
     }
-    memset((void*)((int)data + unitSize * at), 0, unitSize);
+    memset(static_cast<unsigned char*>(data) + unitSize * at, 0, unitSize);
     count++;
-    return (void*)((int)data + unitSize * at);
+    return static_cast<unsigned char*>(data) + unitSize * at;
 }
 
 int ARR::DeleteAt(int at) {
     if (at < 0 || at > count) return -1;
     for (int i = at; i < count-1; i++) {
-        memcpy((void*)((int)data + unitSize * i), (void*)((int)data + unitSize * (i+1)), unitSize);
+        memcpy(static_cast<unsigned char*>(data) + unitSize * i,
+            static_cast<unsigned char*>(data) + unitSize * (i + 1), unitSize);
     }
     count--;
     return 0;
@@ -81,5 +84,5 @@ int ARR::DeleteAt(int at) {
 
 
 void* ARR::Get_last() {
-    return (void*)((int)data + unitSize * (count-1));
+    return static_cast<unsigned char*>(data) + unitSize * (count - 1);
 }

@@ -60,6 +60,15 @@
     <ClCompile Include="seHelper.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="seObjectEditor.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="selfTests.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="seUI.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="..\lib\md5.cpp">
       <Filter>LR2</Filter>
     </ClCompile>
@@ -189,16 +198,28 @@
     <ClCompile Include="op.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="olrSkin.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="..\LR2\En_audio.cpp">
       <Filter>LR2</Filter>
     </ClCompile>
     <ClCompile Include="skin.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="skinPathResolver.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="skinResolution.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="winWorkspace2.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="winWorkspace_save.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="inputwrap.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>
@@ -237,6 +258,15 @@
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="seHelper.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="seObjectEditor.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="seUI.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="skinResolution.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="..\LR2\dbgtool.h">
@@ -362,11 +392,29 @@
     <ClInclude Include="op.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
+    <ClInclude Include="olrSkin.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
     <ClInclude Include="..\LR2\En_audio.h">
       <Filter>LR2</Filter>
     </ClInclude>
     <ClInclude Include="skin.h">
       <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="skinBrowser.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="skinPathResolver.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="inputwrap.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="selfTests.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="uiCatalog.h">
+      <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

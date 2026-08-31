@@ -1,7 +1,7 @@
 #include "op.h"
 
 //dst OP
-const char* dstName(unsigned n, bool skipzero) {
+const char* dstName(unsigned n, bool skipzero) { //$op
 	if (n == 0 && skipzero) return "";
 	switch (n) {
 		case 0: return "AlwaysTrue";
@@ -273,6 +273,9 @@ const char* dstName(unsigned n, bool skipzero) {
 		case 270: return "1P_SUD+Setting";
 		case 271: return "2P_SUD+Setting";
 
+		case 274: return "1pLanecover";
+		case 275: return "2pLanecover";
+
 
 		case 280: return "CourseStage1";
 		case 281: return "CourseStage2";
@@ -440,6 +443,7 @@ const char* dstName(unsigned n, bool skipzero) {
 		case 599: return "CourseSelect_stage10";
 
 
+		case 626: return "ImporteedScoreDisplayed";
 
 		case 700: return "stage1_difficultyNone";
 		case 701: return "stage1_difficulty1";
@@ -517,6 +521,7 @@ const char* dstName(unsigned n, bool skipzero) {
 		case 655: return "D_3/9";
 		case 656: return "E_2/9";
 		case 657: return "F_1/9";
+
 
 		case 900: return "CUSTOM900";
 		case 901: return "CUSTOM901";
@@ -625,8 +630,9 @@ const char* dstName(unsigned n, bool skipzero) {
 	}
 }
 
-const char* buttonName(unsigned n) {
+const char* buttonName(unsigned n) {//$type
 	switch (n) {
+
 
 	case 1: return "PANEL1";
 	case 2: return "PANEL2";
@@ -846,51 +852,61 @@ const char* buttonName(unsigned n) {
 
 	case 268: return "DefaultCourseConnection";
 	case 269: return "DefaultCourseGauge";
+
+	case 331: return "lift";
+
+	case 400: return "scalingFilter";
+	case 401: return "stretch";
+
 	default: return "";
 	}
 }
 
-const char* sliderName(unsigned n) {
+const char* sliderName(unsigned n) { //$type
 	switch (n) {
-	case 1: return "SongSelectPosition";
+		case 1: return "SongSelectPosition";
 
-	case 2: return "HISPEED1P";
-	case 3: return "HISPEED2P";
+		case 2: return "HISPEED1P";
+		case 3: return "HISPEED2P";
 
-	case 4: return "SHUTTER1P";
-	case 5: return "SHUTTER2P";
+		case 4: return "SHUTTER1P";
+		case 5: return "SHUTTER2P";
 
-	case 6: return "SongTime";
+		case 6: return "SongTime";
 
-	case 7: return "SkinCustomScroll";
+		case 7: return "SkinCustomScroll";
 
-	case 8: return "IR_SCROLL_BAR";
+		case 8: return "IR_SCROLL_BAR";
 
-	case 10: return "EQ0";
-	case 11: return "EQ1";
-	case 12: return "EQ2";
-	case 13: return "EQ3";
-	case 14: return "EQ4";
-	case 15: return "EQ5";
-	case 16: return "EQ6";
+		case 10: return "EQ0";
+		case 11: return "EQ1";
+		case 12: return "EQ2";
+		case 13: return "EQ3";
+		case 14: return "EQ4";
+		case 15: return "EQ5";
+		case 16: return "EQ6";
 
-	case 17: return "MASTER_VOLUME";
-	case 18: return "KEY_VOLUME";
-	case 19: return "BGM_VOLUME";
+		case 17: return "MASTER_VOLUME";
+		case 18: return "KEY_VOLUME";
+		case 19: return "BGM_VOLUME";
 
-	case 20: return "MASTER_FX_P1";
-	case 21: return "MASTER_FX_P2";
-	case 22: return "KEY_FX_P1";
-	case 23: return "KEY_FX_P2";
-	case 24: return "BGM_FX_P1";
-	case 25: return "BGM_FX_P2";
+		case 20: return "MASTER_FX_P1";
+		case 21: return "MASTER_FX_P2";
+		case 22: return "KEY_FX_P1";
+		case 23: return "KEY_FX_P2";
+		case 24: return "BGM_FX_P1";
+		case 25: return "BGM_FX_P2";
 
-	case 26: return "PITC";
+		case 26: return "PITCH";
+
+		case 27: return "LIFT1P";
+		case 28: return "LIFT2P";
+
 	default: return "";
 	}
 }
 
-const char* numberName(unsigned n) {
+const char* numberName(unsigned n) { //$num
 	switch (n){
 		case 10: return "HS_1P";
 		case 11: return "HS_2P";
@@ -1064,17 +1080,17 @@ const char* numberName(unsigned n) {
 
 
 		case 200: return "IR_TOTALPLAYER";
-		case 201: return "IR_TOTALPLAYCOUNT!LastHitOffset_P1";
+		case 201: return "IR_TOTALPLAYCOUNT/1pHitOffset";
 
-		case 210: return "FAILED_PLAYER!LastHitFS_P1";
-		case 211: return "FAILED_RATE!LastHitFS_P2";
-		case 212: return "EASY_PLAYER!Fast_P1";
-		case 213: return "EASY_RATE!LastHitOffset_P2";
-		case 214: return "CLEAR_PLAYER!Slow_P1";
+		case 210: return "FAILED_PLAYER/1pFastSlow";
+		case 211: return "FAILED_RATE/2pFastSlow";
+		case 212: return "EASY_PLAYER/fastCount";
+		case 213: return "EASY_RATE/2pHitOffset";
+		case 214: return "CLEAR_PLAYER/slowCount";
 		case 215: return "CLEAR_RATE";
-		case 216: return "HARD_PLAYER!CB";
-		case 217: return "HARD_RATE!NoteTotal";
-		case 218: return "FULLCOMBO_PLAYER!NoteCurrent";
+		case 216: return "HARD_PLAYER/comboBreaks";
+		case 217: return "HARD_RATE/RemainNotes";
+		case 218: return "FULLCOMBO_PLAYER/currentNote";
 		case 219: return "FULLCOMBO_RATE";
 
 		case 220: return "remainIRautoUpdateTime";
@@ -1113,12 +1129,21 @@ const char* numberName(unsigned n) {
 
 		case 292: return "rival_IR_rank";
 		case 293: return "rival_IR_totalplayer";
-		case 294: return "rival_IR_clearrat";
+		case 294: return "rival_IR_clearrate";
+
+		case 295: return "1pRandomPattern";
+
+		case 418: return "2pRandomPattern";
+
+		case 421: return "LIFT_1P";
+		case 422: return "LIFT_2P";
+
+
 		default: return "";
 	}
 }
 
-const char* textName(unsigned n) {
+const char* textName(unsigned n) {//$st
 	switch (n) {
 		case 1: return "TargetName";
 		case 2: return "MyName";
@@ -1134,7 +1159,7 @@ const char* textName(unsigned n) {
 		case 18: return "THISSONG_DIFFICULTYCOUNT";
 
 
-		case 20: return "TAGEDIT_TITLE/IRMESSAGE";
+		case 20: return "TAGEDIT_TITLE";
 		case 21: return "TAGEDIT_SUBTITLE";
 		case 22: return "TAGEDIT_FULLTITLE";
 		case 23: return "TAGEDIT_GENRE";
@@ -1169,7 +1194,7 @@ const char* textName(unsigned n) {
 		case 63: return "RANDOM1P";
 		case 64: return "RANDOM2P";
 		case 65: return "GAUGE1P";
-		case 66: return "GAUGEP";
+		case 66: return "GAUGE2P";
 		case 67: return "ASSIST1P";
 		case 68: return "ASSIST2P";
 		case 69: return "BATTLE";
@@ -1286,6 +1311,13 @@ const char* textName(unsigned n) {
 
 		case 198: return "AllCourseOptionDefaultConnection";
 		case 199: return "AllCourseOptionDefaultGauge";
+
+
+		case 300: return "scalingFilter";
+		case 301: return "stretch";
+		case 302: return "LIFT_ONOFF";
+
+
 		default: return "";
 	}
 }
@@ -1460,12 +1492,13 @@ const char* timerName(unsigned n, bool skipzero) {
 
 
 		case 180: return "CourseEditorStart";
-		case 181: return "CourseEditorEn";
+		case 181: return "CourseEditorEnd";
+
 		default: return "";
 	}
 }
 
-const char* bargraphName(unsigned n) {
+const char* bargraphName(unsigned n) {//$type
 	switch (n){
 	case 1: return "songProgress";
 	case 2: return "songLoaded";
@@ -1511,7 +1544,12 @@ const char* bargraphName(unsigned n) {
 	case 44: return "HIGHSCORE_PR_totalnotes";
 	case 45: return "HIGHSCORE_MAXCOMBO_totalnotes";
 	case 46: return "HIGHSCORE_SCORE_200000";
-	case 47: return "HIGHSCORE_EXSCORE_totalnotes__";
+	case 47: return "HIGHSCORE_EXSCORE_totalnotes__2";
+
+	case 48: return "1P_ratio_slow";
+	case 49: return "1P_ratio_fast";
+	case 58: return "2P_ratio_slow";
+	case 59: return "2P_ratio_slow";
 
 	default: return "";
 	}

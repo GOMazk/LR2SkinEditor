@@ -1,0 +1,61 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Release Win32 build and self-tests
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Generate and validate UI map
+        shell: pwsh
+        run: ./scripts/ui-map.ps1 -Check
+
+      - name: Validate collaboration documentation
+        shell: pwsh
+        run: ./scripts/docs-check.ps1
+
+      - name: Build Release Win32
+        shell: pwsh
+        run: ./scripts/build.ps1
+
+      - name: Run self-tests
+        shell: pwsh
+        run: ./scripts/test.ps1
+
+      - name: Build Release x64
+        shell: pwsh
+        run: ./scripts/build.ps1 -Platform x64
+
+      - name: Build AI collaboration context
+        shell: pwsh
+        run: ./scripts/ai-context.ps1 -Check
+
+      - name: Upload build and test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: skineditor-ci-diagnostics
+          path: |
+            .build/logs/
+            .build/test-results/
+            .build/ui-map/
+            .build/docs-check/
+            .build/ai-context/
+          if-no-files-found: ignore
+          retention-days: 14

@@ -4,6 +4,7 @@
 #include <vfw.h>
 #include <vector>
 #include <array>
+#include <stdint.h>
 #include "FMOD/fmod.h"
 #include "strclass.h"
 typedef unsigned char   undefined;
@@ -826,6 +827,11 @@ struct SkinObject {
 
 struct skstruct {
 	char op[1000];
+	// Optional runtime overrides used by interactive tools. Values in op[] are
+	// still the scene/customization state; these arrays only take precedence
+	// while the corresponding enabled byte is set.
+	unsigned char opOverrideEnabled[1000];
+	unsigned char opOverrideValue[1000];
 	int startinput_start;
 	int startinput_rank;
 	int startinput_update;
@@ -1548,7 +1554,7 @@ struct game {
 	int po4MainMenuCursor;
 	int procSelecter; /* 2:select 3:deciide 4:play 5:result 6:keyconfig 7:skinselect */
 	int procPhase;
-	int hThreadBanner;
+	uintptr_t hThreadBanner;
 	struct gameplay gameplay;
 	CRITICAL_SECTION criticalSection;
 	char is_clicked_screenModeChange;

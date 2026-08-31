@@ -2,6 +2,9 @@
 
 Purpose: bridge the current LR2 workspace to an AI-readable `.olrskin`
 container without losing commands that do not yet have a semantic model.
+The published format is locked as **OLRskin 0.9**; its JSON integer
+`version: 9` is the established on-disk representation. Version or
+format-feature changes need the user's explicit approval.
 
 Entry points:
 
@@ -27,8 +30,19 @@ Entry points:
 - `SEExportOLRWorkspaceToLR2()` materializes an imported workspace into a new
   install-ready `LR2files/` tree. An unchanged V0.9 workspace keeps the copied
   original include-based main after applying the same safe resolution-header
-  rule; an edited or ineligible workspace writes the flattened compatibility
-  script with restored virtual CSV path fields.
+  and path rules to every copied `.lr2skin`, `.lr2ss`, and `.csv`; an edited or
+  ineligible workspace writes the flattened compatibility script. Both paths
+  remove case/slash variants of `vfs/LR2files`, root LR2 process-relative
+  image/font/include/header/custom/help paths, and reject computer-local
+  absolute declarations.
+  Before writing a compatibility fallback, the materializer turns every
+  `$OLR_FILE start/end` boundary back into a generated CSV `#INCLUDE`. The
+  directive uses its full `LR2files\...` path because LR2 resolves includes
+  from the process root rather than beside the declaring CSV. LR2 then
+  evaluates the child with its own IF stack, so an inactive/right parent cannot
+  be reactivated by a child `#IF` and overwrite the selected lane-0
+  `#DST_NOTE`. This also preserves orphan or unclosed child controls exactly as
+  LR2 handled them in the original file graph.
 - `SEResolveSkinResourcePath()` maps LR2-rooted declarations to either a real
   LR2 tree, a standalone theme folder or an imported `vfs/` workspace without
   mutating source rows.
@@ -95,7 +109,8 @@ Important invariants:
   flat Objects are never guessed into V0.9 parts.
 - the current package writer serializes supported fields and does not preserve
   unknown manifest or `skin.json` extensions on `Save OLRskin`. Extension
-  namespacing and passthrough are a future format-policy decision.
+  namespacing and passthrough remain outside the locked 0.9 contract unless the
+  user explicitly approves a format change.
 - import never overwrites an existing directory and never uses original owner
   paths from the source map.
 - the source package association is local Workspace state. It is set only after
@@ -104,16 +119,23 @@ Important invariants:
 - LR2 export accepts only an imported V0.2+ workspace and a non-existing target;
   it copies virtual roots and any fixed `assets/`, selects the safe original or
   compatibility main as described above, and never writes directly into a
-  user's LR2 installation.
+  user's LR2 installation. The recorded main must be an `.lr2skin` or `.lr2ss`
+  below `LR2files/Theme` or `LR2files/Sound`, matching LR2's actual skin-list
+  scan roots. The output includes `INSTALL.txt` with the exact merge location.
 - archive writes use a temporary file followed by atomic replacement.
 
 Tests: run `--self-test-olr-package`, normally through `scripts/test.ps1`. The
 package fixture round-trips an explicitly constructed two-part document and its
 manifest counts, preserves an empty numeric zero token, and proves that an
 unchanged original main plus include file survives LR2 materialization while an
-edited compatibility script forces the safe fallback. It also feeds an active
+edited compatibility script forces the safe fallback. The fallback fixture
+also proves that generated child CSVs isolate an orphan `#ELSE` and an open
+child `#IF` from the parent Scratch side branches. It also feeds an active
 width/height `#RESOLUTION` row through package and original-main materialization
-and verifies that only the `#INFORMATION` canvas remains executable. Direct
+and verifies that only the `#INFORMATION` canvas remains executable. Mixed-case
+virtual paths are removed from the main/include graph, and LR2's own
+`MakeSkinList()` must enumerate the exported main from a relocated temporary
+root. Direct
 compiler fixtures cover explicit multi-source and
 two-part addresses, partial condition ownership and the retained V0.7 flat
 authority. They do not call `WORKSPACE::ExportOlrSkin()`, so real kamh BUTTON

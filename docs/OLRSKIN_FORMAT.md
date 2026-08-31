@@ -4,7 +4,19 @@
 human-facing semantic index next to the compatibility data needed to return to
 LR2 without silently deleting commands the editor does not understand.
 
-## V0.9 scope
+## OLRskin 0.9 format lock
+
+The published format name is **OLRskin 0.9**. Its existing JSON representation
+remains the integer `"version": 9`; this is the on-disk encoding of `0.9`, not a
+separate 9.0 release.
+
+The format is locked at 0.9. Without the user's explicit approval, do not raise
+the version or add, remove, rename, or reinterpret package entries, JSON fields,
+authorities, compiler ownership, import/export semantics, or format features.
+A requested compatibility bug fix may restore the documented 0.9 behavior, but
+must not silently create a new format contract.
+
+## OLRskin 0.9 scope
 
 V0.9 keeps V0.8's source-bound nested Object parts and V0.4 Simple Mode source
 compiler, then makes LR2 fidelity the release focus:
@@ -379,9 +391,14 @@ so repeated Import and Save OLRskin operations do not accumulate markers.
 When flattening, a file-local `#ELSE`, `#ELSEIF` or `#ENDIF` with no matching
 file-local `#IF` is preserved as a non-executable `$OLR_IGNORED_CONTROL`
 comment. Any file-local `#IF` still open at the end marker is closed with a
-synthetic `#ENDIF`. This makes the flat script preserve the same condition
-scope when it is materialized for LR2, where `$OLR_FILE` comments themselves
-have no execution semantics.
+synthetic `#ENDIF`. This keeps the editor's flat Preview stack file-local.
+When a compatibility fallback is materialized for LR2, the marker bodies are
+instead written as generated sibling CSVs and replaced by `#INCLUDE` rows whose
+paths start at `LR2files`. LR2 ignores the declaring CSV directory while opening
+an include, so a bare generated filename would leave the child unloaded. This
+physical boundary is required because LR2 checks only its innermost nested
+IF switch; comments alone cannot stop an active child `#IF` from reactivating
+rows inside an inactive parent branch.
 
 The same compatibility main also normalizes resolution without removing a
 physical row. The first `#INFORMATION` receives the OLR canvas in fields 6 and
@@ -428,18 +445,28 @@ workspace. It:
 1. requires a new, non-existing output directory;
 2. copies `vfs/LR2files/**` to `<output>/LR2files/**` without following
    symlinks;
-3. copies flat `assets/**` beside the compiled main skin so relative fixed-image
-   declarations remain valid;
-4. if the V0.9 marker and byte-identical baseline remain valid, the recorded
+3. copies flat `assets/**` beside the compiled main skin and roots their image
+   declarations to that logical `LR2files` location;
+4. requires the recorded main to be an `.lr2skin` or `.lr2ss` below the only
+   roots LR2 enumerates, `LR2files/Theme` and `LR2files/Sound`;
+5. if the V0.9 marker and byte-identical baseline remain valid, the recorded
    original main exists in the copied tree and no fixed assets require
    relocation, keeps its include/customization structure while normalizing the
-   copied main's resolution header; otherwise
-5. restores virtual CSV fields from `vfs/LR2files/...` to Windows-style
-   `LR2files\...` and writes the current compatibility script to the recorded
-   main-skin location, replacing only the copied file inside the new output tree.
+   copied main's resolution header; otherwise it writes the current
+   compatibility script to the recorded main-skin location; and
+6. rewrites path-bearing CSV fields in the selected main and copied include
+   scripts. `vfs/LR2files` matching is case-insensitive and accepts slash or
+   backslash plus leading `.\`; rooted output uses Windows-style
+   `LR2files\...`. `#IMAGE`, `#LR2FONT`, `#INCLUDE`, `#INFORMATION` thumbnails,
+   `#CUSTOMFILE/#CUSTOMFOLDER`, and `#HELPFILE` are rooted to the declaring
+   script's logical LR2 folder because LR2 consumes them relative to its process
+   directory. Computer-local absolute path fields are rejected instead of
+   producing an export that works only on the source PC.
 
 It never modifies an installed LR2 tree or the original source skin. The
 exported folder can be inspected first and then copied into LR2 by the user.
+`INSTALL.txt` says to merge its `LR2files` directory into the folder containing
+`LR2.exe` and records the normalized main-skin path.
 
 ## Compatibility and lossless boundary
 
@@ -484,15 +511,16 @@ every edited skin:
 
 ## Versioning rules
 
+- The writer and format contract are locked to OLRskin 0.9. Only the user's
+  explicit approval can authorize a version or format-feature change.
 - V0.9 readers must continue to dispatch V0.1-V0.8 packages to their existing
   parser and authority behavior.
 - A V0.2+ package requires both `compatibility/path-map.json` and
   `lr2/.olr-export-main.txt`.
-- A change in which layer is authoritative requires a new format version.
+- If explicitly authorized, a change in which layer is authoritative requires
+  a new format version; it must never be folded silently into 0.9.
 - Unknown-field round trips are not supported by the current writer. A future
-  extension policy must define namespacing and either passthrough preservation
-  or an explicit rewrite boundary before optional third-party fields are treated
-  as portable.
+  extension policy remains out of scope until explicitly authorized.
 
 ## Verification
 
@@ -507,7 +535,9 @@ verifies virtual and fixed asset bytes, preserves an empty numeric zero token,
 materializes both compatibility and unchanged original-include LR2 trees, checks
 that their executable resolution authority is `#INFORMATION`, checks that an
 edited compatibility script disables original-main reuse, checks restored
-script paths, rejects unsafe roots and CRC tampering, and tests
+script paths including mixed-case/slash virtual aliases and direct LR2 path
+fields, enumerates the relocated export through LR2's own `MakeSkinList()`,
+rejects non-discoverable main destinations, unsafe roots and CRC tampering, and tests
 standalone LR2-root resolution. Its compiler fixture changes all eight supported
 asset fields. Direct compiler fixtures validate multiple source bindings in one
 explicit part and an explicitly described two-part structure. Destination

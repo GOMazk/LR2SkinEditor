@@ -578,9 +578,23 @@ user's LR2 installation. For V0.9 it keeps the copied original include-based
 main only while the hidden marker and byte-identical compatibility baseline are
 valid, the original main exists and no fixed asset relocation is required.
 Otherwise it writes the current compatibility script, so semantic or raw edits
-cannot be lost. Both paths resolve an otherwise unknown OLR canvas to HD
+cannot be lost. Before that fallback is written, `$OLR_FILE start/end` markers
+become generated CSV `#INCLUDE` files beside the exported main. Their directives
+use full `LR2files\...` paths because LR2 ignores the declaring CSV directory
+when opening an include. This restores
+LR2's fresh per-include IF stack instead of relying on its broken nested-IF
+gating: a child `#IF` inside an inactive/right parent can no longer reactivate
+and replace lane 0's `#DST_NOTE`. Orphan and unclosed child controls remain
+contained by the generated file boundary just like the original include graph.
+Both paths resolve an otherwise unknown OLR canvas to HD
 1280x720, persist the selected canvas in `#INFORMATION` fields 6/7 and leave no
-active `#RESOLUTION` command in the materialized main.
+active `#RESOLUTION` command in the materialized main. The materializer accepts
+only LR2-discoverable mains below `LR2files/Theme|Sound`, rewrites virtual path
+aliases by CSV command field across the selected main/include graph, and roots
+process-relative image/font/include/thumbnail/custom/help declarations to that
+graph's logical LR2 location. Its result popup reports the rewrite count and any reason an
+original-main attempt fell back to the compatibility script; `INSTALL.txt`
+records how to merge the output beside `LR2.exe`.
 
 After a successful import, the source `.olrskin` path is retained only as local
 Workspace state to suggest the next Save OLRskin destination. The association

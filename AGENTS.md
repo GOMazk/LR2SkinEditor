@@ -42,6 +42,11 @@
 ## 변경 규칙
 
 - 작은 관련 변경으로 끝내고 무관한 refactor와 dependency 추가를 피한다.
+- 공개 포맷 이름은 `OLRskin 0.9`로 고정한다. JSON의 정수 `version: 9`는
+  `0.9`의 기존 직렬화 표현이다. 사용자의 명시적 허가 없이는 포맷 버전을 올리거나,
+  package entry/field, authority, compiler ownership, import/export 의미 또는 OLRskin
+  기능 계약을 추가·삭제·변경하지 않는다. 요청된 호환성 버그 수정도 기존 0.9 계약을
+  복원하는 범위에서만 수행한다.
 - CP932/Shift-JIS 저장, include 파일 소유권, IF/ELSEIF/ELSE 문맥을 보존한다.
 - ImGui `Begin/End`, child/table/tab/popup, ID stack을 모든 분기에서 맞춘다.
 - UI는 intent만 반환하고 CSV/model/selection/history의 별도 사본을 소유하지 않는다.

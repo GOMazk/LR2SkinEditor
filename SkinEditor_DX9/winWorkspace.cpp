@@ -10523,6 +10523,7 @@ std::string OlrWithoutLineEnding(const char* text) {
 
 int OlrPathFieldIndex(const char* command) {
     if (!command) return -1;
+    if (!_stricmp(command, "#INFORMATION")) return 4;
     if (!_stricmp(command, "#IMAGE") || !_stricmp(command, "#LR2FONT") ||
         !_stricmp(command, "#HELPFILE") || !_stricmp(command, "#INCLUDE"))
         return 1;
@@ -10635,19 +10636,29 @@ std::string OlrInferExportMainPath(const char* mainSkinPath,
             stored.pop_back();
         std::string normalized;
         if (SENormalizeLr2RootedPath(stored.c_str(), normalized) &&
-            normalized.find('*') == std::string::npos &&
-            normalized.find('?') == std::string::npos)
+            SEIsLr2DiscoverableExportMainPath(normalized.c_str()))
             return normalized;
     }
     for (const SEOLRVirtualRootInput& root : roots) {
         std::filesystem::path relative;
         if (!OlrPathIsInside(mainFile, root.sourceDirectory, relative)) continue;
-        return root.logicalRoot + "/" + relative.generic_string();
+        const std::string capturedPath = root.logicalRoot + "/" +
+            relative.generic_string();
+        if (SEIsLr2DiscoverableExportMainPath(capturedPath.c_str()))
+            return capturedPath;
     }
     const std::string theme = OlrSafeExportName(
         mainFile.parent_path().filename().string(), "ImportedSkin");
-    const std::string filename = OlrSafeExportName(
+    std::string filename = OlrSafeExportName(
         mainFile.filename().string(), "main.lr2skin");
+    std::string extension = std::filesystem::path(filename).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char ch) { return (char)std::tolower(ch); });
+    if (extension != ".lr2skin" && extension != ".lr2ss") {
+        filename = std::filesystem::path(filename).stem().string();
+        if (filename.empty()) filename = "main";
+        filename += ".lr2skin";
+    }
     return "LR2files/Theme/" + theme + "/" + filename;
 }
 
@@ -11072,7 +11083,8 @@ int WORKSPACE::ExportOlrSkin(const char* packagePath,
             break;
         }
     }
-    if (!capturedOriginalMain.empty() && document.assets.empty()) {
+    if (!capturedOriginalMain.empty() && document.assets.empty() &&
+        document.unresolvedResourceCount == 0) {
         if (SEIsOLRVirtualWorkspace(mainpath)) {
             const std::filesystem::path workspace =
                 std::filesystem::path(mainpath).parent_path();
@@ -11409,12 +11421,17 @@ int WORKSPACE::ExportLr2SkinInteractive() {
     olrPackageState = 1;
     std::ostringstream result;
     result << "Created an install-ready LR2 tree with "
-        << exportInfo.copiedFileCount << " resource files. Main skin: "
+        << exportInfo.copiedFileCount << " resource files and "
+        << exportInfo.rewrittenVirtualPathCount
+        << " portable path rewrites. Main skin: "
         << exportInfo.mainSkinPath;
     if (exportInfo.preservedOriginalMain)
         result << " The original include-based LR2 main was preserved.";
     else
         result << " The compatibility script was materialized because the original-main preservation contract was unavailable or changed.";
+    if (!exportInfo.originalMainFallbackReason.empty())
+        result << " Original-main fallback reason: "
+            << exportInfo.originalMainFallbackReason;
     olrPackageMessage = result.str();
     lastSaveState = 1;
     lastSaveMessage = "LR2 export created";
@@ -11444,7 +11461,7 @@ int WORKSPACE::drawSaveOlrSkin() {
         }
 
         ImGui::TextWrapped("Save the loaded skin as one portable .olrskin package.");
-        ImGui::TextDisabled("V0.9 preserves unchanged LR2 tokens and the original include-based main, while retaining source-bound Object parts, Simple Mode assets and compatibility data.");
+        ImGui::TextDisabled("OLRskin 0.9 preserves unchanged LR2 tokens and the original include-based main, while retaining source-bound Object parts, Simple Mode assets and compatibility data.");
         if (SEIsOLRVirtualWorkspace(mainpath)) {
             ImGui::TextWrapped("This imported OLR workspace will save its current LR2 script first, so Export install-ready LR2 folder can use the same edits immediately.");
         } else {
@@ -11466,7 +11483,7 @@ int WORKSPACE::drawSaveOlrSkin() {
         ImGui::BulletText("LR2 commands, comments, timers, conditions and editor metadata are preserved.");
         ImGui::BulletText("Resources outside a resolved LR2 root remain external and are reported.");
         ImGui::BulletText("After import and Save OLRskin, File > Export install-ready LR2 folder materializes an install-ready tree.");
-        ImGui::BulletText("V0.9 patches only changed semantic fields; an untouched port installs the original include-based LR2 main.");
+        ImGui::BulletText("OLRskin 0.9 patches only changed semantic fields; an untouched port installs the original include-based LR2 main.");
 
         const bool hasUnsavedImageEdits = !imagePixelPaintDirtyPaths.empty();
         if (hasUnsavedImageEdits) {

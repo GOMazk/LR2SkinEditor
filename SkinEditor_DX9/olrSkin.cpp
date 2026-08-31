@@ -1,6 +1,7 @@
 #include "olrSkin.h"
 #include "op.h"
 #include "seHelper.h"
+#include "skinPathResolver.h"
 #include "skinResolution.h"
 
 #include <Windows.h>
@@ -27,7 +28,11 @@ constexpr uint32_t kEndOfCentralDirectorySignature = 0x06054b50u;
 constexpr uint16_t kStoredMethod = 0;
 constexpr uint64_t kMaximumClassicZipSize = 0xFFFFFFFFull;
 constexpr size_t kCopyBufferSize = 64 * 1024;
+// Public name: OLRskin 0.9. The integer 9 is its established JSON encoding.
+// Do not change the version or format contract without explicit user approval.
 constexpr int kOlrFormatVersion = 9;
+static_assert(kOlrFormatVersion == 9,
+    "OLRskin is locked to format 0.9 without explicit user approval.");
 constexpr const char* kSimpleModeAuthority = "lr2-source-v0.4";
 constexpr const char* kLegacySemanticObjectAuthority = "lr2-destination-v0.7";
 constexpr const char* kV8SemanticObjectAuthority = "lr2-destination-parts-v0.8";
@@ -512,11 +517,12 @@ struct VirtualRootPackageStats {
 };
 
 std::string BuildPathMapJson(const SEOLRSkinDocument& document,
-    const std::vector<VirtualRootPackageStats>& rootStats) {
+    const std::vector<VirtualRootPackageStats>& rootStats,
+    const std::string& normalizedExportMain) {
     std::ostringstream json;
     json << "{\n  \"format\": \"olrskin-path-map\",\n  \"version\": 1,\n"
         << "  \"workspace_prefix\": \"vfs/\",\n"
-        << "  \"export_main\": \"" << JsonEscape(document.lr2ExportMainPath)
+        << "  \"export_main\": \"" << JsonEscape(normalizedExportMain)
         << "\",\n  \"roots\": [";
     for (size_t index = 0; index < rootStats.size(); ++index) {
         const VirtualRootPackageStats& root = rootStats[index];
@@ -2338,6 +2344,290 @@ std::vector<std::string> SplitSimpleCsv(const std::string& line) {
     return fields;
 }
 
+void JoinCompiledFields(PreservedScriptLine& line,
+    const std::vector<std::string>& fields);
+
+bool StartsWithIgnoreCaseAscii(const std::string& value, const char* prefix) {
+    const size_t length = prefix ? strlen(prefix) : 0;
+    return prefix && value.size() >= length &&
+        _strnicmp(value.c_str(), prefix, length) == 0;
+}
+
+std::string TrimAsciiWhitespace(const std::string& value) {
+    size_t begin = 0;
+    while (begin < value.size() &&
+        std::isspace(static_cast<unsigned char>(value[begin])))
+        ++begin;
+    size_t end = value.size();
+    while (end > begin &&
+        std::isspace(static_cast<unsigned char>(value[end - 1])))
+        --end;
+    return value.substr(begin, end - begin);
+}
+
+struct PreparedOlrIncludeScope {
+    std::string fileName;
+    std::string script;
+};
+
+struct OlrIncludeScopeFrame {
+    int scopeIndex = -1;
+    std::string script;
+};
+
+bool RestoreOlrIncludeScopesForLr2(const std::string& script,
+    std::string& preparedMain,
+    std::vector<PreparedOlrIncludeScope>& preparedIncludes,
+    std::string& errorMessage) {
+    preparedMain.clear();
+    preparedIncludes.clear();
+    errorMessage.clear();
+
+    // LR2 evaluates every #INCLUDE with a fresh IF stack, and its nested IF
+    // reader checks only the innermost switch. A flattened child #IF can
+    // therefore reactivate rows inside an inactive parent side branch. Restore
+    // real include files so LR2 gates the include call before opening the child
+    // and lane 0 cannot be overwritten by the later/right-side branch.
+    std::vector<OlrIncludeScopeFrame> frames(1);
+    const std::vector<PreservedScriptLine> lines =
+        SplitPreservedScriptLines(script);
+    for (const PreservedScriptLine& sourceLine : lines) {
+        const std::string trimmed = TrimAsciiWhitespace(sourceLine.content);
+        if (!_stricmp(trimmed.c_str(), "$OLR_FILE start")) {
+            char generatedName[64];
+            snprintf(generatedName, sizeof(generatedName),
+                "_olr_include_%04u.csv",
+                static_cast<unsigned int>(preparedIncludes.size() + 1));
+            PreparedOlrIncludeScope includeScope;
+            includeScope.fileName = generatedName;
+            preparedIncludes.push_back(std::move(includeScope));
+
+            frames.back().script += "#INCLUDE,";
+            frames.back().script += generatedName;
+            frames.back().script += sourceLine.ending.empty()
+                ? std::string("\r\n") : sourceLine.ending;
+            OlrIncludeScopeFrame child;
+            child.scopeIndex = static_cast<int>(preparedIncludes.size() - 1);
+            frames.push_back(std::move(child));
+            continue;
+        }
+        if (!_stricmp(trimmed.c_str(), "$OLR_FILE end")) {
+            if (frames.size() <= 1) {
+                errorMessage = "The OLR compatibility script has an unmatched file-scope end marker.";
+                return false;
+            }
+            OlrIncludeScopeFrame completed = std::move(frames.back());
+            frames.pop_back();
+            preparedIncludes[static_cast<size_t>(completed.scopeIndex)].script =
+                std::move(completed.script);
+            continue;
+        }
+        frames.back().script += sourceLine.content;
+        frames.back().script += sourceLine.ending;
+    }
+    if (frames.size() != 1) {
+        errorMessage = "The OLR compatibility script has an unterminated file-scope marker.";
+        return false;
+    }
+    preparedMain = std::move(frames.front().script);
+    return true;
+}
+
+bool IsSafeRelativeLr2Path(const std::string& value) {
+    if (value.empty() || value.front() == '/' || value.find(':') !=
+        std::string::npos)
+        return false;
+    size_t begin = 0;
+    while (begin < value.size()) {
+        const size_t slash = value.find('/', begin);
+        const size_t end = slash == std::string::npos ? value.size() : slash;
+        const std::string segment = value.substr(begin, end - begin);
+        if (segment.empty() || segment == "." || segment == "..") return false;
+        if (slash == std::string::npos) break;
+        begin = slash + 1;
+    }
+    return true;
+}
+
+bool IsAbsoluteWindowsLr2Path(const std::string& value) {
+    if (value.size() >= 2 && value[0] == '/' && value[1] == '/') return true;
+    return value.size() >= 3 &&
+        std::isalpha(static_cast<unsigned char>(value[0])) &&
+        value[1] == ':' && value[2] == '/';
+}
+
+int PortableLr2PathFieldIndex(const std::string& command) {
+    if (!_stricmp(command.c_str(), "#INFORMATION")) return 4;
+    if (!_stricmp(command.c_str(), "#IMAGE") ||
+        !_stricmp(command.c_str(), "#LR2FONT") ||
+        !_stricmp(command.c_str(), "#HELPFILE") ||
+        !_stricmp(command.c_str(), "#INCLUDE"))
+        return 1;
+    if (!_stricmp(command.c_str(), "#CUSTOMFILE") ||
+        !_stricmp(command.c_str(), "#CUSTOMFOLDER"))
+        return 2;
+    return -1;
+}
+
+bool RequiresLr2RootedExportPath(const std::string& command) {
+    // LR2 passes the declaring script directory to its file helper, but the
+    // classic helper ignores it. Root every ordinary declaration that LR2
+    // opens from the process directory so the exported tree is relocatable.
+    return !_stricmp(command.c_str(), "#INFORMATION") ||
+        !_stricmp(command.c_str(), "#IMAGE") ||
+        !_stricmp(command.c_str(), "#LR2FONT") ||
+        !_stricmp(command.c_str(), "#INCLUDE") ||
+        !_stricmp(command.c_str(), "#HELPFILE") ||
+        !_stricmp(command.c_str(), "#CUSTOMFILE") ||
+        !_stricmp(command.c_str(), "#CUSTOMFOLDER");
+}
+
+bool NormalizePortableLr2Field(const std::string& original,
+    const std::string& ownerDirectory, bool rootOrdinaryRelativePath,
+    bool rejectAbsolutePath, std::string& normalized, bool& changed,
+    std::string& errorMessage) {
+    normalized = original;
+    changed = false;
+    const std::string trimmed = TrimAsciiWhitespace(original);
+    if (trimmed.empty() || !_stricmp(trimmed.c_str(), "CONTINUE")) return true;
+
+    std::string candidate = trimmed;
+    std::replace(candidate.begin(), candidate.end(), '\\', '/');
+    while (candidate.rfind("./", 0) == 0) candidate.erase(0, 2);
+
+    bool isVirtualPath = false;
+    if (StartsWithIgnoreCaseAscii(candidate, "vfs/")) {
+        if (!StartsWithIgnoreCaseAscii(candidate, "vfs/LR2files/")) {
+            errorMessage = "An exported LR2 path uses an invalid OLR virtual namespace: " +
+                trimmed;
+            return false;
+        }
+        candidate.erase(0, strlen("vfs/"));
+        isVirtualPath = true;
+    }
+
+    std::string logicalPath;
+    const bool isLr2Rooted = SENormalizeLr2RootedPath(candidate.c_str(),
+        logicalPath);
+    if (isVirtualPath && !isLr2Rooted) {
+        errorMessage = "An exported OLR virtual path is unsafe: " + trimmed;
+        return false;
+    }
+    if (isLr2Rooted) {
+        normalized = logicalPath;
+        std::replace(normalized.begin(), normalized.end(), '/', '\\');
+        changed = normalized != original;
+        return true;
+    }
+
+    if (IsAbsoluteWindowsLr2Path(candidate) ||
+        (!candidate.empty() && candidate.front() == '/') ||
+        candidate.find(':') != std::string::npos) {
+        if (!rejectAbsolutePath) return true;
+        errorMessage = "An exported LR2 path is tied to this computer: " + trimmed;
+        return false;
+    }
+    if (!rootOrdinaryRelativePath) return true;
+    if (!IsSafeRelativeLr2Path(candidate) || ownerDirectory.empty()) {
+        errorMessage = "An exported LR2 path cannot be made portable: " + trimmed;
+        return false;
+    }
+    const std::string rootedCandidate = ownerDirectory + "/" + candidate;
+    if (!SENormalizeLr2RootedPath(rootedCandidate.c_str(), logicalPath)) {
+        errorMessage = "An exported LR2 path cannot be rooted safely: " + trimmed;
+        return false;
+    }
+    normalized = logicalPath;
+    std::replace(normalized.begin(), normalized.end(), '/', '\\');
+    changed = normalized != original;
+    return true;
+}
+
+bool PreparePortableLr2Script(const std::string& script,
+    const std::string& logicalOwnerPath, std::string& preparedScript,
+    int& rewrittenPathCount, std::string& errorMessage) {
+    preparedScript.clear();
+    rewrittenPathCount = 0;
+    errorMessage.clear();
+
+    std::string normalizedOwner;
+    if (!SENormalizeLr2RootedPath(logicalOwnerPath.c_str(), normalizedOwner)) {
+        errorMessage = "The exported LR2 script has no safe logical owner path.";
+        return false;
+    }
+    const size_t ownerSlash = normalizedOwner.find_last_of('/');
+    const std::string ownerDirectory = ownerSlash == std::string::npos
+        ? std::string() : normalizedOwner.substr(0, ownerSlash);
+
+    std::vector<PreservedScriptLine> lines = SplitPreservedScriptLines(script);
+    for (PreservedScriptLine& line : lines) {
+        std::vector<std::string> fields = SplitSimpleCsv(line.content);
+        if (fields.empty()) continue;
+        std::string command = TrimAsciiWhitespace(fields[0]);
+        if (command.size() >= 3 &&
+            static_cast<unsigned char>(command[0]) == 0xEF &&
+            static_cast<unsigned char>(command[1]) == 0xBB &&
+            static_cast<unsigned char>(command[2]) == 0xBF)
+            command.erase(0, 3);
+        if (command.empty() || command.front() != '#') continue;
+
+        const int pathField = PortableLr2PathFieldIndex(command);
+        for (size_t fieldIndex = 1; fieldIndex < fields.size(); ++fieldIndex) {
+            const bool isKnownPathField = static_cast<int>(fieldIndex) == pathField;
+            const std::string fieldCandidate = TrimAsciiWhitespace(fields[fieldIndex]);
+            std::string slashCandidate = fieldCandidate;
+            std::replace(slashCandidate.begin(), slashCandidate.end(), '\\', '/');
+            while (slashCandidate.rfind("./", 0) == 0)
+                slashCandidate.erase(0, 2);
+            const bool isVirtualField = StartsWithIgnoreCaseAscii(
+                slashCandidate, "vfs/");
+            if (!isKnownPathField && !isVirtualField) continue;
+
+            std::string normalizedField;
+            bool changed = false;
+            if (!NormalizePortableLr2Field(fields[fieldIndex], ownerDirectory,
+                isKnownPathField && RequiresLr2RootedExportPath(command),
+                isKnownPathField, normalizedField, changed, errorMessage)) {
+                errorMessage += " (" + normalizedOwner + ", " + command + ")";
+                return false;
+            }
+            if (changed) {
+                fields[fieldIndex] = normalizedField;
+                ++rewrittenPathCount;
+            }
+        }
+        JoinCompiledFields(line, fields);
+    }
+
+    std::ostringstream output;
+    for (const PreservedScriptLine& line : lines)
+        output << line.content << line.ending;
+    preparedScript = output.str();
+    return true;
+}
+
+bool IsLr2DiscoverableExportMainPath(const std::string& path,
+    std::string* normalizedPath) {
+    std::string normalized;
+    if (!SENormalizeLr2RootedPath(path.c_str(), normalized) ||
+        !IsSafeArchivePath(normalized) ||
+        path.find('*') != std::string::npos ||
+        path.find('?') != std::string::npos)
+        return false;
+    const bool isScannedRoot = StartsWithIgnoreCaseAscii(
+        normalized, "LR2files/Theme/") || StartsWithIgnoreCaseAscii(
+            normalized, "LR2files/Sound/");
+    if (!isScannedRoot) return false;
+    const size_t extensionAt = normalized.find_last_of('.');
+    if (extensionAt == std::string::npos) return false;
+    const std::string extension = normalized.substr(extensionAt);
+    if (_stricmp(extension.c_str(), ".lr2skin") &&
+        _stricmp(extension.c_str(), ".lr2ss"))
+        return false;
+    if (normalizedPath) *normalizedPath = normalized;
+    return true;
+}
+
 bool StartsWith(const std::string& value, const char* prefix) {
     return prefix && value.compare(0, strlen(prefix), prefix) == 0;
 }
@@ -2484,6 +2774,82 @@ bool WriteTextFileAtomic(const std::filesystem::path& path,
         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         DeleteFileA(temporary.string().c_str());
         errorMessage = "The OLR compiler could not atomically replace the LR2 script.";
+        return false;
+    }
+    return true;
+}
+
+bool IsPreservedLr2ScriptFile(const std::filesystem::path& path) {
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return extension == ".lr2skin" || extension == ".lr2ss" ||
+        extension == ".csv";
+}
+
+bool PreparePreservedLr2ScriptTree(const std::filesystem::path& target,
+    const std::filesystem::path& mainPath, int canvasWidth, int canvasHeight,
+    int& rewrittenPathCount, std::string& errorMessage) {
+    rewrittenPathCount = 0;
+    errorMessage.clear();
+    std::error_code filesystemError;
+    const std::filesystem::path lr2Root = target / "LR2files";
+    std::vector<std::filesystem::path> scripts;
+    std::filesystem::recursive_directory_iterator iterator(lr2Root,
+        std::filesystem::directory_options::skip_permission_denied,
+        filesystemError);
+    const std::filesystem::recursive_directory_iterator end;
+    while (!filesystemError && iterator != end) {
+        const std::filesystem::directory_entry entry = *iterator;
+        iterator.increment(filesystemError);
+        std::error_code entryError;
+        if (!entry.is_symlink(entryError) && !entryError &&
+            entry.is_regular_file(entryError) && !entryError &&
+            IsPreservedLr2ScriptFile(entry.path()))
+            scripts.push_back(entry.path());
+    }
+    if (filesystemError) {
+        errorMessage = "The preserved LR2 script tree could not be enumerated.";
+        return false;
+    }
+
+    bool preparedMain = false;
+    for (const std::filesystem::path& scriptPath : scripts) {
+        std::ifstream input(scriptPath, std::ios::binary);
+        const std::string source((std::istreambuf_iterator<char>(input)),
+            std::istreambuf_iterator<char>());
+        if (!input) {
+            errorMessage = "A preserved LR2 script could not be read: " +
+                scriptPath.filename().string();
+            return false;
+        }
+        input.close();
+        const std::filesystem::path relative = scriptPath.lexically_relative(target);
+        if (relative.empty() || relative.is_absolute()) {
+            errorMessage = "A preserved LR2 script has no safe export-relative path.";
+            return false;
+        }
+        std::string prepared;
+        int scriptRewriteCount = 0;
+        if (!PreparePortableLr2Script(source, relative.generic_string(),
+            prepared, scriptRewriteCount, errorMessage))
+            return false;
+
+        if (scriptPath.lexically_normal() == mainPath.lexically_normal()) {
+            std::string resolutionPrepared;
+            if (!SEPrepareLr2ExportResolution(prepared, canvasWidth,
+                canvasHeight, resolutionPrepared, errorMessage))
+                return false;
+            prepared = std::move(resolutionPrepared);
+            preparedMain = true;
+        }
+        if (prepared != source &&
+            !WriteTextFileAtomic(scriptPath, prepared, errorMessage))
+            return false;
+        rewrittenPathCount += scriptRewriteCount;
+    }
+    if (!preparedMain) {
+        errorMessage = "The preserved original LR2 main was not found in its copied script graph.";
         return false;
     }
     return true;
@@ -2649,6 +3015,10 @@ bool OpenAndValidateArchive(const char* packagePath, FILE*& archive,
 bool SEParseOLRManifestJson(const std::string& manifestJson,
     SEOLRPackageInfo& packageInfo, std::string& errorMessage) {
     return ParseOLRManifestJson(manifestJson, packageInfo, errorMessage);
+}
+
+bool SEIsLr2DiscoverableExportMainPath(const char* path) {
+    return path && IsLr2DiscoverableExportMainPath(path, nullptr);
 }
 
 bool SEIsOLRSimpleSlotCompilable(const SEOLRSimpleSlot& slot) {
@@ -3000,11 +3370,10 @@ bool SEWriteOLRSkinPackage(const char* packagePath,
         document.canvasWidth, document.canvasHeight, lr2ExportScript,
         errorMessage))
         return false;
-    if (!IsSafeArchivePath(document.lr2ExportMainPath) ||
-        document.lr2ExportMainPath.rfind("LR2files/", 0) != 0 ||
-        document.lr2ExportMainPath.find('*') != std::string::npos ||
-        document.lr2ExportMainPath.find('?') != std::string::npos) {
-        errorMessage = "The OLR package has no safe LR2 export destination for its main skin.";
+    std::string normalizedExportMain;
+    if (!IsLr2DiscoverableExportMainPath(document.lr2ExportMainPath,
+        &normalizedExportMain)) {
+        errorMessage = "The OLR package main skin must be an .lr2skin or .lr2ss file below LR2files/Theme or LR2files/Sound.";
         return false;
     }
 
@@ -3031,10 +3400,10 @@ bool SEWriteOLRSkinPackage(const char* packagePath,
     entries.push_back(MemoryEntry("compatibility/source-map.json",
         BuildSourceMapJson(document)));
     entries.push_back(MemoryEntry("compatibility/path-map.json",
-        BuildPathMapJson(document, rootStats)));
+        BuildPathMapJson(document, rootStats, normalizedExportMain)));
     entries.push_back(MemoryEntry("lr2/main.lr2skin", lr2ExportScript));
     entries.push_back(MemoryEntry("lr2/.olr-export-main.txt",
-        document.lr2ExportMainPath + "\n"));
+        normalizedExportMain + "\n"));
     if (document.preserveOriginalMainWhenUnchanged) {
         entries.push_back(MemoryEntry(kCompatibilityBaselineEntry,
             lr2ExportScript));
@@ -3224,13 +3593,13 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
     while (!exportMain.empty() &&
         (exportMain.back() == '\r' || exportMain.back() == '\n'))
         exportMain.pop_back();
-    if (!marker || !IsSafeArchivePath(exportMain) ||
-        exportMain.rfind("LR2files/", 0) != 0 ||
-        exportMain.find('*') != std::string::npos ||
-        exportMain.find('?') != std::string::npos) {
-        errorMessage = "The OLR workspace has invalid LR2 export metadata.";
+    std::string normalizedExportMain;
+    if (!marker || !IsLr2DiscoverableExportMainPath(exportMain,
+        &normalizedExportMain)) {
+        errorMessage = "The OLR workspace main skin is outside LR2's Theme/Sound scan roots or has an unsupported extension.";
         return false;
     }
+    exportMain = normalizedExportMain;
 
     std::ifstream scriptFile(mainPath, std::ios::binary);
     const std::string script((std::istreambuf_iterator<char>(scriptFile)),
@@ -3246,6 +3615,34 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
     if (!SEPrepareLr2ExportResolution(script, exportResolution.width,
         exportResolution.height, compiledScript, errorMessage))
         return false;
+    std::vector<PreparedOlrIncludeScope> preparedIncludes;
+    std::string includeRestoredMain;
+    if (!RestoreOlrIncludeScopesForLr2(compiledScript, includeRestoredMain,
+        preparedIncludes, errorMessage))
+        return false;
+    compiledScript = std::move(includeRestoredMain);
+    std::string portableCompiledScript;
+    int compiledRewriteCount = 0;
+    if (!PreparePortableLr2Script(compiledScript, exportMain,
+        portableCompiledScript, compiledRewriteCount, errorMessage))
+        return false;
+    compiledScript = std::move(portableCompiledScript);
+    const size_t exportMainSlash = exportMain.find_last_of('/');
+    const std::string exportMainDirectory = exportMainSlash ==
+        std::string::npos ? std::string() :
+        exportMain.substr(0, exportMainSlash);
+    for (PreparedOlrIncludeScope& includeScope : preparedIncludes) {
+        const std::string logicalIncludePath = exportMainDirectory + "/" +
+            includeScope.fileName;
+        std::string portableInclude;
+        int includeRewriteCount = 0;
+        if (!PreparePortableLr2Script(includeScope.script,
+            logicalIncludePath, portableInclude, includeRewriteCount,
+            errorMessage))
+            return false;
+        includeScope.script = std::move(portableInclude);
+        compiledRewriteCount += includeRewriteCount;
+    }
 
     const std::filesystem::path compatibilityBaselinePath = workspace /
         std::filesystem::path(kCompatibilityBaselineEntry).filename();
@@ -3307,24 +3704,7 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
     }
     else filesystemError.clear();
 
-    const auto restoreVirtualPaths = [&](const std::string& virtualPrefix) {
-        const std::string lr2Prefix = "LR2files\\";
-        size_t position = 0;
-        while ((position = compiledScript.find(virtualPrefix, position)) !=
-            std::string::npos) {
-            compiledScript.replace(position, virtualPrefix.size(), lr2Prefix);
-            const size_t pathStart = position + lr2Prefix.size();
-            const size_t pathEnd = compiledScript.find_first_of(",\r\n", pathStart);
-            const size_t stop = pathEnd == std::string::npos ?
-                compiledScript.size() : pathEnd;
-            for (size_t index = pathStart; index < stop; ++index) {
-                if (compiledScript[index] == '/') compiledScript[index] = '\\';
-            }
-            position = stop;
-        }
-    };
-    restoreVirtualPaths("vfs/LR2files/");
-    restoreVirtualPaths("vfs\\LR2files\\");
+    exportInfo.rewrittenVirtualPathCount = compiledRewriteCount;
 
     if (ok) {
         const std::filesystem::path compiledMain = target /
@@ -3376,38 +3756,76 @@ bool SEExportOLRWorkspaceToLR2(const char* mainSkinPath,
                 compiledMain, mainError) && !mainError;
             if (canPreserveOriginalMain && !hasFixedAssets &&
                 originalMainIsAvailable) {
-                std::ifstream originalMainFile(compiledMain, std::ios::binary);
-                const std::string originalMain(
-                    (std::istreambuf_iterator<char>(originalMainFile)),
-                    std::istreambuf_iterator<char>());
-                const bool originalMainRead = originalMainFile.is_open();
-                originalMainFile.close();
-                std::string preparedOriginalMain;
-                std::string originalResolutionError;
-                if (originalMainRead && SEPrepareLr2ExportResolution(
-                    originalMain, exportResolution.width,
-                    exportResolution.height, preparedOriginalMain,
-                    originalResolutionError) && WriteTextFileAtomic(
-                        compiledMain.string(), preparedOriginalMain,
-                        originalResolutionError)) {
+                int preservedRewriteCount = 0;
+                std::string preservationPreparationError;
+                if (PreparePreservedLr2ScriptTree(target, compiledMain,
+                    exportResolution.width, exportResolution.height,
+                    preservedRewriteCount, preservationPreparationError)) {
                     exportInfo.mainSkinPath = compiledMain.string();
                     exportInfo.preservedOriginalMain = true;
+                    exportInfo.rewrittenVirtualPathCount = preservedRewriteCount;
                 }
+                else exportInfo.originalMainFallbackReason =
+                    preservationPreparationError;
             }
             if (!exportInfo.preservedOriginalMain) {
                 std::filesystem::create_directories(compiledMain.parent_path(), filesystemError);
-                FILE* output = filesystemError ? nullptr : OpenFile(compiledMain.string().c_str(), "wb");
-                bool writeOk = output != nullptr;
-                if (writeOk && fwrite(compiledScript.data(), 1, compiledScript.size(), output) !=
-                    compiledScript.size())
-                    writeOk = false;
-                if (output && fclose(output) != 0) writeOk = false;
-                if (!writeOk) {
+                if (filesystemError) {
                     errorMessage = "The compiled LR2 main skin could not be written.";
                     ok = false;
                 }
-                else exportInfo.mainSkinPath = compiledMain.string();
+                for (const PreparedOlrIncludeScope& includeScope :
+                    preparedIncludes) {
+                    if (!ok) break;
+                    const std::filesystem::path includePath =
+                        compiledMain.parent_path() / includeScope.fileName;
+                    std::error_code includeError;
+                    if (std::filesystem::exists(includePath, includeError) ||
+                        includeError) {
+                        errorMessage = "A generated LR2 include would replace an existing skin file: " +
+                            includeScope.fileName;
+                        ok = false;
+                        break;
+                    }
+                }
+                for (const PreparedOlrIncludeScope& includeScope :
+                    preparedIncludes) {
+                    if (!ok) break;
+                    const std::filesystem::path includePath =
+                        compiledMain.parent_path() / includeScope.fileName;
+                    if (!WriteTextFileAtomic(includePath, includeScope.script,
+                        errorMessage)) {
+                        errorMessage = "A generated LR2 include could not be written: " +
+                            includeScope.fileName + ". " + errorMessage;
+                        ok = false;
+                    }
+                }
+                if (ok && !WriteTextFileAtomic(compiledMain, compiledScript,
+                    errorMessage)) {
+                    errorMessage = "The compiled LR2 main skin could not be written. " +
+                        errorMessage;
+                    ok = false;
+                }
+                if (ok) exportInfo.mainSkinPath = compiledMain.string();
             }
+        }
+    }
+
+    if (ok) {
+        const std::filesystem::path installGuide = target / "INSTALL.txt";
+        std::ostringstream instructions;
+        instructions << "OLRskin LR2 export\r\n\r\n"
+            << "Copy or merge the LR2files folder in this directory into "
+            << "the LR2 folder that contains LR2.exe.\r\n"
+            << "Do not copy the outer export directory below LR2files.\r\n\r\n"
+            << "Main skin: ";
+        std::string displayedMain = exportMain;
+        std::replace(displayedMain.begin(), displayedMain.end(), '/', '\\');
+        instructions << displayedMain << "\r\n";
+        std::string guideError;
+        if (!WriteTextFileAtomic(installGuide, instructions.str(), guideError)) {
+            errorMessage = "The LR2 installation guide could not be written.";
+            ok = false;
         }
     }
 

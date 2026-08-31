@@ -1,3 +1,14 @@
+> [!CAUTION]
+> LR2SkinEditor is made with AI.
+
+# LR2 SkinEditor
+<img width="1920" height="1040" alt="image" src="https://github.com/user-attachments/assets/d58eff28-e283-4dd5-8579-be7c8b08bda5" />
+
+now in experimental, issues are welcome
+
+you can drag assets into preview
+
+below is AI slop
 # LR2 SkinEditor
 
 LR2 스킨의 CSV 스크립트, 이미지 소스, 배치 정보와 조건 분기를 한 화면에서

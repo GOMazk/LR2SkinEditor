@@ -33,7 +33,7 @@
 
 | 목적 | 먼저 읽을 것 | 기계용 자료 |
 |---|---|---|
-| 전체 구조 | `README.md`, `PROJECT_STATE.md` | `.build/ai-context/context-manifest.json` |
+| 전체 구조 | `DEVELOPMENT.md`, `PROJECT_STATE.md` | `.build/ai-context/context-manifest.json` |
 | UI 수정 | `UI_ARCHITECTURE.md`, `UI_MAP.md` | `.build/ui-map/ui-map.json` |
 | 빌드/CI | `BUILD_AND_TEST.md` | JUnit, MSBuild binlog |
 | AI_1 Workspace 버그 이식 | `WORKSPACE_MULTI_PREVIEW_FIX.md` | `--skin-multi-workspace-smoke` |

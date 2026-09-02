@@ -35,6 +35,19 @@ WORKSPACE::draw()
 skin model, CSV rows, History and selection synchronization
 ```
 
+The large workspace shell is split by UI ownership, not by duplicated state:
+
+- `winWorkspace.cpp`: workspace shell, menus, docking and remaining dialogs;
+- `winWorkspacePreview.cpp`: Preview runtime presentation and canvas input;
+- `winWorkspaceObjectBrowser.cpp`: Object navigation and selection intents;
+- `winWorkspaceObjectInspector.cpp`: selected Object property presentation;
+- `winWorkspaceObjectCommands.cpp`: copy, paste and duplicate domain commands;
+- `winWorkspaceAssetBrowser.cpp`: asset search, cards and drag source.
+
+All six still operate on the same `WORKSPACE`, CSV rows, stable Object IDs and
+History. A panel source file must not introduce a second document or selection
+store merely because its draw routine is compiled separately.
+
 `seUI` is deliberately stateless. A component may return a click or edited
 value, but it must not load skins, mutate CSV, select objects, or push History.
 Those actions belong to `WORKSPACE` or the existing domain helpers.
@@ -51,6 +64,9 @@ Those actions belong to `WORKSPACE` or the existing domain helpers.
 Fonts are assembled in `main.cpp`: Segoe UI is the base face and Meiryo/Malgun
 glyphs are merged for Japanese and Korean metadata. Font/backend/device setup
 stays outside `seUI` because it is part of application lifetime management.
+`seLocalization.cpp` owns the English/Korean UI preference and stores only the
+language code under `%LOCALAPPDATA%\SkinEditor\settings.ini`. `SEText()` changes
+labels; it never changes schema tokens, CSV content or skin encodings.
 
 Reusable components currently include:
 
@@ -436,11 +452,19 @@ property edit or preview drag
   -> NotifyDocumentChanged(change kind)
   -> editor cache / Object model / Preview rebuild as required
   -> Ctrl+Z or toolbar Undo calls WORKSPACE::UndoLastEdit()
+  -> Ctrl+Y / Ctrl+Shift+Z restores the captured forward document snapshot
 ```
 
-The toolbar does not maintain its own history. If the rectangle and object
+The toolbar does not maintain its own history. A normal edit after Undo clears
+the redo branch. Snapshot restores run at the next frame boundary before any
+texture-backed panel draws. If the rectangle and object
 position separate after Undo, inspect the rebuild/invalidation stage rather
 than the button.
+
+Object copy/paste and duplicate are `WORKSPACE` commands. They copy the selected
+Object rows, generate fresh `$SE_OBJECT_ID` values, preserve names, and write to
+the active target Object's include owner and IF branch. The whole batch records
+one document snapshot, so one Undo/Redo step restores selection and all rows.
 
 ### PLAY preview simulation
 
@@ -502,6 +526,12 @@ The cache may absorb a neighboring Object's destination after an include-file
 reorder, while Inspector still correctly reports one DST row. Cyan shows the
 first Object-owned frame; red is drawn only when the Object has a distinct final
 frame.
+
+Holding Shift while dragging or resizing snaps the live Preview bounds to the
+selected grid interval. Shift+Arrow moves by that interval. The bottom-right
+X/Y meter is screen-space UI: its size and contrast do not change with canvas
+zoom. F11 presents Preview in a temporary undecorated main-viewport window;
+leaving fullscreen returns to the original docked Preview identity.
 
 ### Files
 

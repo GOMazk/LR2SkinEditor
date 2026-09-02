@@ -81,7 +81,16 @@ $tests = @(
 )
 
 $workingDirectory = Split-Path -Parent $ExecutablePath
+$runtimeLogPath = Join-Path $workingDirectory 'Log.txt'
+$runtimeLogExisted = Test-Path -LiteralPath $runtimeLogPath
+$runtimeLogBytes = if ($runtimeLogExisted) {
+    [System.IO.File]::ReadAllBytes($runtimeLogPath)
+}
+else {
+    $null
+}
 $results = @()
+try {
 foreach ($test in $tests) {
     Write-Host "[ RUN      ] $($test.Name)"
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -170,3 +179,12 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host "$($results.Count) self-tests passed."
+}
+finally {
+    if ($runtimeLogExisted) {
+        [System.IO.File]::WriteAllBytes($runtimeLogPath, $runtimeLogBytes)
+    }
+    elseif (Test-Path -LiteralPath $runtimeLogPath) {
+        Remove-Item -LiteralPath $runtimeLogPath -Force
+    }
+}

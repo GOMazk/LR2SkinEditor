@@ -394,11 +394,7 @@ int RunObjectReorderSelfTest() {
 
     if (workspace.UndoLastEdit() != 0 ||
         workspace.pendingHistorySnapshotRestore < 0) return 12;
-    const int snapshot = workspace.pendingHistorySnapshotRestore;
-    workspace.pendingHistorySnapshotRestore = -1;
-    if (snapshot >= (int)workspace.historyDocumentSnapshots.size() ||
-        workspace.RestoreDocumentSnapshot(
-            workspace.historyDocumentSnapshots[snapshot]) != 0) return 13;
+    if (workspace.ApplyPendingHistorySnapshotRestore() != 0) return 13;
     if (workspace.RebuildEditorDerivedState() != 0) return 14;
     workspace.RebuildObjectModel();
     source = findObject("left-object");
@@ -408,6 +404,28 @@ int RunObjectReorderSelfTest() {
         workspace.objectEditorModel.Objects();
     if (restoredObjects[source].ifgroup == restoredObjects[target].ifgroup)
         return 16;
+
+    // Redo restores the complete forward snapshot and creates one matching
+    // undo entry. This covers snapshot-backed Object moves as well as the
+    // primitive line-edit history path used by Inspector and Preview.
+    if (workspace.RedoLastEdit() != 0 ||
+        workspace.ApplyPendingHistorySnapshotRestore() != 0) return 43;
+    if (workspace.RebuildEditorDerivedState() != 0) return 44;
+    workspace.RebuildObjectModel();
+    source = findObject("left-object");
+    target = findObject("right-object");
+    if (source < 0 || target < 0 ||
+        workspace.objectEditorModel.Objects()[source].ifgroup !=
+            workspace.objectEditorModel.Objects()[target].ifgroup) return 45;
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.ApplyPendingHistorySnapshotRestore() != 0) return 46;
+    if (workspace.RebuildEditorDerivedState() != 0) return 47;
+    workspace.RebuildObjectModel();
+    source = findObject("left-object");
+    target = findObject("right-object");
+    if (source < 0 || target < 0 ||
+        workspace.objectEditorModel.Objects()[source].ifgroup ==
+            workspace.objectEditorModel.Objects()[target].ifgroup) return 48;
 
     target = findObject("include-object");
     if (source < 0 || target < 0) return 17;
@@ -490,11 +508,7 @@ int RunObjectReorderSelfTest() {
 
     if (workspace.UndoLastEdit() != 0 ||
         workspace.pendingHistorySnapshotRestore < 0) return 31;
-    const int crossSnapshot = workspace.pendingHistorySnapshotRestore;
-    workspace.pendingHistorySnapshotRestore = -1;
-    if (crossSnapshot >= (int)workspace.historyDocumentSnapshots.size() ||
-        workspace.RestoreDocumentSnapshot(
-            workspace.historyDocumentSnapshots[crossSnapshot]) != 0) return 32;
+    if (workspace.ApplyPendingHistorySnapshotRestore() != 0) return 32;
     if (workspace.RebuildEditorDerivedState() != 0) return 33;
     workspace.RebuildObjectModel();
     source = findObject("left-object");
@@ -510,6 +524,52 @@ int RunObjectReorderSelfTest() {
         if (!line.filename.body ||
             _stricmp(line.filename.body, ownerPath) != 0) return 36;
     }
+
+    const int objectCountBeforeCopy =
+        (int)workspace.objectEditorModel.Objects().size();
+    workspace.SetObjectSelection(std::vector<int>(1, source), source, source,
+        false);
+    if (workspace.CopySelectedObjects() != 1 ||
+        !workspace.HasCopiedObjects()) return 50;
+    if (workspace.PasteCopiedObjects() != 1) return 51;
+    if ((int)workspace.objectEditorModel.Objects().size() !=
+        objectCountBeforeCopy + 1) return 52;
+    const int pastedModel = workspace.preview_selected_object_model_index;
+    if (pastedModel < 0 ||
+        workspace.objectEditorModel.Objects()[pastedModel].editorId.empty() ||
+        workspace.objectEditorModel.Objects()[pastedModel].editorId ==
+            "left-object") return 53;
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.ApplyPendingHistorySnapshotRestore() != 0) return 54;
+    if (workspace.RebuildEditorDerivedState() != 0) return 55;
+    workspace.RebuildObjectModel();
+    if ((int)workspace.objectEditorModel.Objects().size() !=
+        objectCountBeforeCopy) return 56;
+    if (workspace.RedoLastEdit() != 0 ||
+        workspace.ApplyPendingHistorySnapshotRestore() != 0) return 57;
+    if (workspace.RebuildEditorDerivedState() != 0) return 58;
+    workspace.RebuildObjectModel();
+    if ((int)workspace.objectEditorModel.Objects().size() !=
+        objectCountBeforeCopy + 1) return 59;
+
+    // A normal edit after Undo must discard the forward branch.
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.ApplyPendingHistorySnapshotRestore() != 0) return 60;
+    if (workspace.RebuildEditorDerivedState() != 0) return 61;
+    workspace.RebuildObjectModel();
+    source = findObject("left-object");
+    if (source < 0 || workspace.objectEditorModel.Objects()[source].rows.empty())
+        return 62;
+    const int sourceRow = workspace.objectEditorModel.Objects()[source].rows[0];
+    if (workspace.EditValue(sourceRow, 2,
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[sourceRow]
+            .csv.val[2] + 1) != 0) return 63;
+    if (workspace.RedoLastEdit() == 0) return 64;
+    workspace.SetObjectSelection(std::vector<int>(1, source), source, source,
+        false);
+    if (workspace.DuplicateSelectedObjects() != 1 ||
+        (int)workspace.objectEditorModel.Objects().size() !=
+            objectCountBeforeCopy + 1) return 65;
     return 0;
 }
 int RunAssetMetadataSelfTest() {
@@ -2130,6 +2190,10 @@ int WORKSPACE::ApplyPendingObjectReorder() {
 }
 
 void WORKSPACE::NotifyDocumentChanged(unsigned int changes) {
+    // A new user edit starts a new history branch. Undo/redo replays set
+    // replayingHistory so restoring an older document does not discard the
+    // remaining forward states.
+    if (!replayingHistory) redoDocumentSnapshots.clear();
     ++documentRevision;
     InvalidateSimpleModeProjection();
     const unsigned long long now = GetTickCount64();
@@ -2393,7 +2457,8 @@ int WORKSPACE::EditValue(int pos, int column, int newVal) {
     return 0;
 }
 
-int WORKSPACE::UndoLastEdit() {
+static int UndoHistoryEntry(WORKSPACE& workspace) {
+    ARR& arr_history = workspace.arr_history;
     if (arr_history.count <= 0) return -1;
 
     HISTORY& history = ((HISTORY*)arr_history.data)[arr_history.count - 1];
@@ -2408,34 +2473,38 @@ int WORKSPACE::UndoLastEdit() {
     if (operation == group) {
         if (target <= 0 || target > arr_history.count) return -1;
         for (int edit = 0; edit < target; ++edit) {
-            if (UndoLastEdit() != 0) return -1;
+            if (UndoHistoryEntry(workspace) != 0) return -1;
         }
         return 0;
     }
 
-    applyingHistory = true;
+    workspace.applyingHistory = true;
     int result = 0;
     if (operation == overwriteLine) {
-        if (target < 0 || target >= skinfileLines.count) result = -1;
+        if (target < 0 || target >= workspace.skinfileLines.count) result = -1;
         else {
-            CSTR currentLine(((SKINFILELINEREAD*)skinfileLines.data)[target].line);
-            result = EditLine(target, currentLine, oldLine);
+            CSTR currentLine(
+                ((SKINFILELINEREAD*)workspace.skinfileLines.data)[target].line);
+            result = workspace.EditLine(target, currentLine, oldLine);
         }
     } else if (operation == insertLine) {
-        result = DeleteLine(target);
+        result = workspace.DeleteLine(target);
     } else if (operation == removeLine) {
-        result = InsertLine(target);
+        result = workspace.InsertLine(target);
         if (result == 0) {
-            CSTR insertedLine(((SKINFILELINEREAD*)skinfileLines.data)[target].line);
-            result = EditLine(target, insertedLine, oldLine);
+            CSTR insertedLine(
+                ((SKINFILELINEREAD*)workspace.skinfileLines.data)[target].line);
+            result = workspace.EditLine(target, insertedLine, oldLine);
         }
     } else if (operation == moveLine || operation == restoreDocument) {
-        if (target >= 0 && target < (int)historyDocumentSnapshots.size()) {
+        if (target >= 0 &&
+            target < (int)workspace.historyDocumentSnapshots.size()) {
             // Undo can be requested after Preview/ImageManager have already
             // submitted texture commands this frame. Restore at the next
             // frame boundary so the derived texture arrays can be rebuilt
             // before any window draws.
-            pendingHistorySnapshotRestore = target;
+            workspace.pendingHistorySnapshotRestore = target;
+            workspace.pendingHistorySnapshotPreservesRedo = true;
             result = 0;
         } else {
             result = -1;
@@ -2443,10 +2512,64 @@ int WORKSPACE::UndoLastEdit() {
     } else {
         result = -1;
     }
-    applyingHistory = false;
+    workspace.applyingHistory = false;
 
     if (result == 0 && operation != moveLine && operation != restoreDocument)
-        RestoreObjectSelection();
+        workspace.RestoreObjectSelection();
+    return result;
+}
+
+int WORKSPACE::UndoLastEdit() {
+    if (arr_history.count <= 0 || pendingHistorySnapshotRestore >= 0)
+        return -1;
+
+    const SkinDocumentSnapshot redoState = CaptureDocumentSnapshot();
+    const bool previousReplayState = replayingHistory;
+    replayingHistory = true;
+    const int result = UndoHistoryEntry(*this);
+    replayingHistory = previousReplayState;
+    if (result == 0) redoDocumentSnapshots.push_back(redoState);
+    return result;
+}
+
+int WORKSPACE::RedoLastEdit() {
+    if (redoDocumentSnapshots.empty() || pendingHistorySnapshotRestore >= 0)
+        return -1;
+
+    const SkinDocumentSnapshot undoState = CaptureDocumentSnapshot();
+    const SkinDocumentSnapshot redoState = redoDocumentSnapshots.back();
+    redoDocumentSnapshots.pop_back();
+
+    const int undoSnapshotIndex = (int)historyDocumentSnapshots.size();
+    historyDocumentSnapshots.push_back(undoState);
+    HISTORY* history = (HISTORY*)arr_history.Get_new();
+    if (!history) {
+        redoDocumentSnapshots.push_back(redoState);
+        historyDocumentSnapshots.pop_back();
+        return -1;
+    }
+    history->op = restoreDocument;
+    history->target = undoSnapshotIndex;
+
+    pendingHistorySnapshotRestore = (int)historyDocumentSnapshots.size();
+    historyDocumentSnapshots.push_back(redoState);
+    pendingHistorySnapshotPreservesRedo = true;
+    return 0;
+}
+
+int WORKSPACE::ApplyPendingHistorySnapshotRestore() {
+    if (pendingHistorySnapshotRestore < 0) return -1;
+    const int snapshotIndex = pendingHistorySnapshotRestore;
+    const bool preserveRedo = pendingHistorySnapshotPreservesRedo;
+    pendingHistorySnapshotRestore = -1;
+    pendingHistorySnapshotPreservesRedo = false;
+    if (snapshotIndex >= (int)historyDocumentSnapshots.size()) return -1;
+
+    const bool previousReplayState = replayingHistory;
+    if (preserveRedo) replayingHistory = true;
+    const int result = RestoreDocumentSnapshot(
+        historyDocumentSnapshots[snapshotIndex]);
+    replayingHistory = previousReplayState;
     return result;
 }
 

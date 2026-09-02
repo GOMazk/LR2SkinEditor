@@ -326,8 +326,11 @@ typedef struct WORKSPACE {
     // Snapshot history entries point into this vector. Object reorders and
     // Simple Mode batch replacements can touch non-contiguous document rows.
     std::vector<SkinDocumentSnapshot> historyDocumentSnapshots;
+    std::vector<SkinDocumentSnapshot> redoDocumentSnapshots;
     int pendingHistorySnapshotRestore = -1;
+    bool pendingHistorySnapshotPreservesRedo = false;
     bool applyingHistory = false;
+    bool replayingHistory = false;
     // A ColorEdit gesture may update several ARGB columns over many frames.
     // Keep one live history entry for the gesture instead of recording every
     // component and mouse movement as a separate undo step.
@@ -336,6 +339,8 @@ typedef struct WORKSPACE {
     int ApplyDstArgbEdit(int row, const int argb[4]);
     void EndDstArgbEdit();
     int UndoLastEdit();
+    int RedoLastEdit();
+    int ApplyPendingHistorySnapshotRestore();
     void NotifyDocumentChanged(unsigned int changes);
     bool IsDocumentDirty() const;
     void MarkDocumentSaved();
@@ -371,6 +376,10 @@ typedef struct WORKSPACE {
     void RebuildObjectModel();
     int SetObjectName(int modelIndex, const char* name);
     int DeleteObject(int modelIndex);
+    int CopySelectedObjects();
+    int PasteCopiedObjects();
+    int DuplicateSelectedObjects();
+    bool HasCopiedObjects() const;
     SkinDocumentSnapshot CaptureDocumentSnapshot() const;
     int RestoreDocumentSnapshot(const SkinDocumentSnapshot& snapshot);
     bool CanReorderObject(int sourceModelIndex, int targetModelIndex) const;
@@ -703,7 +712,8 @@ typedef struct WORKSPACE {
     std::string pendingObjectReorderTargetOwner;
     bool objectDeleteDialogRequested = false;
     SEObjectSelectionKey pendingObjectDelete;
-    int drawObjectEditor();
+    int drawObjectBrowser();
+    int drawObjectInspector();
     int selected_obj;
 
 
@@ -725,6 +735,8 @@ typedef struct WORKSPACE {
     int preview_selection_anchor_model_index = -1;
     bool preview_object_dragging = false;
     bool preview_object_resizing = false;
+    bool previewCanvasFullscreen = false;
+    int previewSnapGridSize = 8;
     ImVec2 preview_drag_mouse_start = {};
     float preview_drag_object_start_x = 0.0f;
     float preview_drag_object_start_y = 0.0f;

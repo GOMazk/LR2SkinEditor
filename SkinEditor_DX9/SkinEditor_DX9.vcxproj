@@ -213,6 +213,7 @@
     <ClCompile Include="op.cpp" />
     <ClCompile Include="olrSkin.cpp" />
     <ClCompile Include="seHelper.cpp" />
+    <ClCompile Include="seLocalization.cpp" />
     <ClCompile Include="seObjectEditor.cpp" />
     <ClCompile Include="selfTests.cpp" />
     <ClCompile Include="seUI.cpp" />
@@ -221,6 +222,11 @@
     <ClCompile Include="skinResolution.cpp" />
     <ClCompile Include="winWorkspace.cpp" />
     <ClCompile Include="winWorkspace2.cpp" />
+    <ClCompile Include="winWorkspaceAssetBrowser.cpp" />
+    <ClCompile Include="winWorkspaceObjectBrowser.cpp" />
+    <ClCompile Include="winWorkspaceObjectInspector.cpp" />
+    <ClCompile Include="winWorkspaceObjectCommands.cpp" />
+    <ClCompile Include="winWorkspacePreview.cpp" />
     <ClCompile Include="winWorkspace_save.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -280,6 +286,7 @@
     <ClInclude Include="olrSkin.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="seHelper.h" />
+    <ClInclude Include="seLocalization.h" />
     <ClInclude Include="seObjectEditor.h" />
     <ClInclude Include="selfTests.h" />
     <ClInclude Include="seUI.h" />
@@ -289,6 +296,7 @@
     <ClInclude Include="skinResolution.h" />
     <ClInclude Include="uiCatalog.h" />
     <ClInclude Include="winWorkspace.h" />
+    <ClInclude Include="winWorkspaceUiHelpers.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="SkinEditorResources.rc" />

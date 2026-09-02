@@ -35,10 +35,13 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 런타임과 실행 파일을 `SkinEditor_DX9\Release-x64`에 분리한다. 중간 생성물은
 `.build\obj`, 텍스트/binlog는 `.build\logs`에 둔다.
 
-`test.ps1`은 다음 계약 테스트를 각각 별도 프로세스로 실행한다.
+`test.ps1`은 다음 계약 테스트를 각각 별도 프로세스로 실행한다. 각 프로세스가
+DxLib의 `SkinEditor_DX9\Release\Log.txt`를 다시 쓰더라도 실행 전 바이트를 마지막에
+복원하므로, 검증 자체가 작업 트리의 기존 런타임 로그를 변경하지 않는다.
 
 - `schema-contract`: 실행 파일에 포함된 command/object 스키마와 symbolic field
 - `ui-contract`: 창 카탈로그의 고유 key/title, owner, dock, workspace별 ImGui ID
+  및 English/Korean label 선택 계약
 - `skin-browser`: 외부 폴더의 대소문자 확장자, 하위 폴더 탐색, 비스킨 파일 제외,
   잘못된 위치 거부, 100개를 넘는 등록 스킨 목록의 구조체 크기 기반 안전 확장
 - `preview-simulator`: PLAY 키 모드별 메모리 chart의 시간순 lane 배치, 동시치기,
@@ -84,7 +87,8 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   Object SRC에 대한 원자적 Asset 적용/Undo, `#IMAGE` 경로 교체/Undo, 이미지 상태
   진단, named grid Asset 일괄 등록/단일 Undo
 - `object-reorder`: 같은 파일 안의 IF/ELSEIF/ELSE 간 Object 이동과 확인 후 서로
-  다른 include 파일 간 소유권 이전, metadata/선택 보존 및 단일 Undo
+  다른 include 파일 간 소유권 이전, metadata/선택 보존, Undo/Redo, 새 편집의 Redo
+  branch 제거, Object Copy/Paste/Duplicate의 새 ID와 단일 snapshot History
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
 
 결과는 `.build\test-results\skineditor-self-tests.xml` JUnit 파일로 남는다. 테스트

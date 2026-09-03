@@ -358,6 +358,10 @@ Object Inspector는 이 네 숫자 입력을 `ARGB` 색상 선택기 하나로 �
   원본 Object 안으로 합쳐지지 않는다. 이전 동작으로 한 ID 아래
   `SRC/DST/.../SRC/DST`가 반복된 경우도 DST 뒤 같은 SRC가 다시 시작되는 지점에서
   별도 Object로 복구해 표시한다.
+- Object Inspector에서 indexed Object의 `index`를 바꾸면 해당 Object에 속한
+  SRC와 모든 DST frame의 `index`를 한 번의 History 작업으로 함께 바꾼다. 이전
+  버전에서 SRC만 변경되어 이미 분리된 블록도 SRC 바로 뒤의 같은 command group
+  DST run을 다시 연결해 편집한다.
 - NOTE 계열처럼 도움말이 불완전해도 여러 SRC/DST 명령 종류가 동일 숫자 인덱스를
   공유하면 indexed group으로 취급한다.
 - index가 없는 그룹은 각 SRC부터 다음 SRC 전까지의 DST를 한 Object로 묶는다.

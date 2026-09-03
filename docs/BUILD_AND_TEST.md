@@ -584,6 +584,9 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
   한 묶음으로 들어가는지. `object-reorder` self-test는 같은 index와 서로 다른
   `$SE_OBJECT_ID`를 가진 NOWCOMBO 두 블록 및 한 ID 아래 반복된 두 SRC/DST 묶음이
   각각 합쳐지지 않는지 확인한다.
+- 복제한 indexed Object의 SRC `index`를 변경해도 같은 Object의 모든 DST
+  `index`가 함께 바뀌고 Browser/Inspector에서 한 Object로 남는지. Ctrl+Z 한
+  번으로 SRC와 모든 DST 값이 함께 복원되는지 (`object-reorder` self-test 포함).
 - 다른 include 파일의 Object에 drop할 때 주황색 삽입선과 확인창이 표시되는지.
   Cancel하면 문서가 바뀌지 않고, 승인하면 SRC/DST와 `$SE_OBJECT_ID/NAME`의 파일
   소유권이 대상 include로 바뀌는지

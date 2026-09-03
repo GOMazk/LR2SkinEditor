@@ -291,6 +291,7 @@ int RunSimpleModeProjectionSelfTest() {
 
 
 int RunObjectReorderSelfTest() {
+    if (arr_CommandHelp.count <= 0 && LoadCommandHelp(nullptr) != 0) return 66;
     char tempDirectory[MAX_PATH] = {};
     if (!GetTempPathA(MAX_PATH, tempDirectory)) return 1;
     char ownerPath[MAX_PATH] = {};
@@ -455,6 +456,89 @@ int RunObjectReorderSelfTest() {
         if (sourceCount != 1 || destinationCount != 2) return 48;
     }
     if (nowComboObjectCount != 4) return 49;
+
+    // Editing the shared key of an indexed Object must keep its SRC and every
+    // DST animation row together. This is especially important after Clone:
+    // the duplicate deliberately keeps the same LR2 index but has a distinct
+    // editor ID, so a one-line edit would split it on the next model rebuild.
+    workspace.SetObjectSelection(std::vector<int>(1, duplicatedCombo),
+        duplicatedCombo, duplicatedCombo, false);
+    int duplicatedComboSourceRow = -1;
+    for (int row : duplicateObjects[duplicatedCombo].rows) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.str[0].body &&
+            strcmp(line.csv.str[0].body, "#SRC_NOWCOMBO_1P") == 0) {
+            duplicatedComboSourceRow = row;
+            break;
+        }
+    }
+    if (duplicatedComboSourceRow < 0 ||
+        workspace.EditValue(duplicatedComboSourceRow, 1, "3") != 0)
+        return 67;
+    if (workspace.arr_history.count != 4) return 68;
+    workspace.RebuildObjectModel();
+    int editedCombo = findObject("combo-duplicate");
+    if (editedCombo < 0 ||
+        workspace.objectEditorModel.Objects()[editedCombo].rows.size() != 3 ||
+        workspace.ResolveObjectSelectionKey(workspace.objectSelection.active) !=
+            editedCombo)
+        return 69;
+    for (int row : workspace.objectEditorModel.Objects()[editedCombo].rows) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.val[1] != 3) return 70;
+    }
+    if (workspace.UndoLastEdit() != 0) return 71;
+    workspace.RebuildObjectModel();
+    editedCombo = findObject("combo-duplicate");
+    if (editedCombo < 0 ||
+        workspace.objectEditorModel.Objects()[editedCombo].rows.size() != 3 ||
+        workspace.arr_history.count != 0)
+        return 72;
+    for (int row : workspace.objectEditorModel.Objects()[editedCombo].rows) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.val[1] != 5) return 73;
+    }
+
+    // Simulate a file saved by the old one-line editor and make sure the next
+    // SRC index edit also picks up its physically adjacent orphaned DST run.
+    SKINFILELINEREAD& legacySplitSource =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)
+            [duplicatedComboSourceRow];
+    legacySplitSource.csv.str[1].assign("3");
+    legacySplitSource.csv.val[1] = 3;
+    workspace.CsvToLine(duplicatedComboSourceRow);
+    workspace.RebuildObjectModel();
+    editedCombo = findObject("combo-duplicate");
+    if (editedCombo < 0 ||
+        workspace.objectEditorModel.Objects()[editedCombo].rows.size() != 1)
+        return 74;
+    if (workspace.EditValue(duplicatedComboSourceRow, 1, "4") != 0 ||
+        workspace.arr_history.count != 4)
+        return 75;
+    workspace.RebuildObjectModel();
+    editedCombo = findObject("combo-duplicate");
+    if (editedCombo < 0 ||
+        workspace.objectEditorModel.Objects()[editedCombo].rows.size() != 3)
+        return 76;
+    for (int row : workspace.objectEditorModel.Objects()[editedCombo].rows) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.val[1] != 4) return 77;
+    }
+    if (workspace.UndoLastEdit() != 0 || workspace.arr_history.count != 0)
+        return 78;
+    legacySplitSource.csv.str[1].assign("5");
+    legacySplitSource.csv.val[1] = 5;
+    workspace.CsvToLine(duplicatedComboSourceRow);
+    workspace.RebuildObjectModel();
+    editedCombo = findObject("combo-duplicate");
+    if (editedCombo < 0 ||
+        workspace.objectEditorModel.Objects()[editedCombo].rows.size() != 3)
+        return 79;
+
     const std::vector<SEObjectInstance>& initialObjects =
         workspace.objectEditorModel.Objects();
     if (initialObjects[source].drawOrder < 0 ||
@@ -2649,57 +2733,149 @@ int WORKSPACE::EditLine(int pos, CSTR oldlinebody, CSTR newlinebody) {
     return 0;
 }
 
+namespace {
+
+bool IsCommandIndexField(const char* command, int column) {
+    if (!command || !*command || column <= 0 || column >= 30) return false;
+    CSTR help = GetCommandHelp(command, column);
+    help.trimWhiteSpace();
+    const char* label = help.body ? help.outstr() : "";
+    if (*label == '$') ++label;
+    return _stricmp(label, "index") == 0;
+}
+
+int FindCommandIndexColumn(const char* command) {
+    for (int column = 1; column < 30; ++column)
+        if (IsCommandIndexField(command, column)) return column;
+    return -1;
+}
+
+bool CommandBelongsToObjectGroup(const SEObjectGroupDef* group,
+    const char* command) {
+    if (!group || !command || !*command) return false;
+    return std::find(group->commands.begin(), group->commands.end(),
+        command) != group->commands.end();
+}
+
+void CollectLinkedObjectIndexTargets(WORKSPACE& workspace, int sourceRow,
+    int sourceColumn, std::vector<std::pair<int, int> >& targets) {
+    targets.clear();
+    targets.push_back(std::make_pair(sourceRow, sourceColumn));
+
+    SKINFILELINEREAD& source =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[sourceRow];
+    const char* sourceCommand = source.csv.str[0].body
+        ? source.csv.str[0].outstr() : "";
+    if (!IsCommandIndexField(sourceCommand, sourceColumn)) return;
+
+    const std::vector<SEObjectInstance>& objects =
+        workspace.objectEditorModel.Objects();
+    const int modelIndex = SEFindObjectForRow(objects, sourceRow);
+    if (modelIndex < 0 || modelIndex >= (int)objects.size()) return;
+
+    const SEObjectInstance& object = objects[modelIndex];
+    const auto appendTarget = [&](int row) {
+        if (row < 0 || row >= workspace.skinfileLines.count) return;
+        SKINFILELINEREAD& candidate =
+            ((SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        const char* command = candidate.csv.str[0].body
+            ? candidate.csv.str[0].outstr() : "";
+        const int indexColumn = FindCommandIndexColumn(command);
+        if (indexColumn < 0) return;
+        const std::pair<int, int> target(row, indexColumn);
+        if (std::find(targets.begin(), targets.end(), target) == targets.end())
+            targets.push_back(target);
+    };
+    for (int row : object.rows) appendTarget(row);
+
+    // A document edited by an older build may already have a SRC index which
+    // no longer matches its following DST rows. In that state the Object model
+    // necessarily exposes a source-only instance. Recover the immediately
+    // following destination run from the same command group so changing the
+    // SRC index again repairs, rather than further splits, the copied Object.
+    if (targets.size() == 1 && strncmp(sourceCommand, "#SRC", 4) == 0) {
+        const SEObjectGroupDef* group =
+            workspace.objectEditorModel.Group(object.group);
+        const std::string owner = source.filename.body
+            ? source.filename.outstr() : "";
+        for (int row = sourceRow + 1; row < workspace.skinfileLines.count;
+            ++row) {
+            SKINFILELINEREAD& candidate =
+                ((SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+            const std::string candidateOwner = candidate.filename.body
+                ? candidate.filename.outstr() : "";
+            if (_stricmp(owner.c_str(), candidateOwner.c_str()) != 0 ||
+                candidate.ifgroup != source.ifgroup)
+                break;
+
+            const char* text = candidate.line.body
+                ? candidate.line.outstr() : "";
+            const char* command = candidate.csv.str[0].body
+                ? candidate.csv.str[0].outstr() : "";
+            if (!*text || strncmp(text, "//", 2) == 0) continue;
+            if (strncmp(text, "$SE_OBJECT_ID,", 14) == 0 ||
+                strncmp(text, "$SE_OBJECT_NAME,", 16) == 0)
+                break;
+            if (!CommandBelongsToObjectGroup(group, command)) break;
+            if (strncmp(command, "#SRC", 4) == 0) break;
+            if (strncmp(command, "#DST", 4) != 0) break;
+            appendTarget(row);
+        }
+    }
+}
+
+} // namespace
+
 int WORKSPACE::EditValue(int pos, int column, const char* newVal) {
+    if (pos < 0 || pos >= skinfileLines.count || column < 0 || column >= 30 ||
+        newVal == NULL)
+        return -1;
 
-    if (pos < 0 || pos >= skinfileLines.count || column < 0 || column >= 30 || newVal == NULL) return -1;
+    std::vector<std::pair<int, int> > targets;
+    CollectLinkedObjectIndexTargets(*this, pos, column, targets);
+    int historyEditCount = 0;
+    bool structuralChange = false;
+    for (const std::pair<int, int>& target : targets) {
+        SKINFILELINEREAD& line =
+            ((SKINFILELINEREAD*)skinfileLines.data)[target.first];
+        CSTR oldLine(line.line);
 
-    SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[pos];
-    CSTR oldLine(line.line);
+        line.csv.str[target.second].assign(newVal);
+        line.csv.val[target.second] = atol(newVal);
+        if (line.csvColumnCount < target.second + 1)
+            line.csvColumnCount = target.second + 1;
+        line.modified = true;
+        CsvToLine(target.first);
 
-    line.csv.str[column].assign(newVal);
-    line.csv.val[column] = atol(newVal);
-    if (line.csvColumnCount < column + 1) line.csvColumnCount = column + 1;
-    line.modified = true;
-    CsvToLine(pos);
-
-    if (!applyingHistory) {
-        HISTORY* hs = (HISTORY*)arr_history.Get_new();
-        hs->op = overwriteLine;
-        hs->target = pos;
-        hs->older.line.assign(oldLine);
-        hs->newer.line.assign(line.line);
+        if (!applyingHistory) {
+            HISTORY* history = (HISTORY*)arr_history.Get_new();
+            if (history) {
+                history->op = overwriteLine;
+                history->target = target.first;
+                history->older.line.assign(oldLine);
+                history->newer.line.assign(line.line);
+                ++historyEditCount;
+            }
+        }
+        if (target.second == 0) structuralChange = true;
+    }
+    if (!applyingHistory && historyEditCount > 1) {
+        HISTORY* grouped = (HISTORY*)arr_history.Get_new();
+        if (grouped) {
+            grouped->op = group;
+            grouped->target = historyEditCount;
+        }
     }
 
-    NotifyDocumentChanged(column == 0
+    NotifyDocumentChanged(structuralChange
         ? DOCUMENT_CHANGE_STRUCTURE : DOCUMENT_CHANGE_VALUE);
-
     return 0;
 }
+
 int WORKSPACE::EditValue(int pos, int column, int newVal) {
-
-    if (pos < 0 || pos >= skinfileLines.count || column < 0 || column >= 30) return -1;
-
-    SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[pos];
-    CSTR oldLine(line.line);
-    line.csv.str[column].resize(12);
-    ltoa(newVal, line.csv.str[column], 10);
-    line.csv.val[column] = newVal;
-    if (line.csvColumnCount < column + 1) line.csvColumnCount = column + 1;
-    line.modified = true;
-    CsvToLine(pos);
-
-    if (!applyingHistory) {
-        HISTORY* hs = (HISTORY*)arr_history.Get_new();
-        hs->op = overwriteLine;
-        hs->target = pos;
-        hs->older.line.assign(oldLine);
-        hs->newer.line.assign(line.line);
-    }
-
-    NotifyDocumentChanged(column == 0
-        ? DOCUMENT_CHANGE_STRUCTURE : DOCUMENT_CHANGE_VALUE);
-
-    return 0;
+    char value[16];
+    _snprintf_s(value, sizeof(value), _TRUNCATE, "%d", newVal);
+    return EditValue(pos, column, value);
 }
 
 static int UndoHistoryEntry(WORKSPACE& workspace) {

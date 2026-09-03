@@ -434,7 +434,7 @@ DST View는 조건 Branch 활성 여부와 무관하게 선택한 SRC/DST의 텍
 기존 Object Editor의 좌우 영역은 독립 도킹 창으로 분리되었다.
 
 - **Object Browser**: Type/사용자 그룹/Search/활성 Object 필터, 조건 트리,
-  다중 선택, 생성·삭제 Context menu
+  다중 선택, 생성·삭제와 Copy/Paste/Duplicate Context menu
 - **Object Inspector**: Name, Tagged image, SRC와 semantic Layout/Timeline/Conditions
   편집. `Advanced LR2`는 지원 범위 밖 필드의 compatibility escape hatch
 
@@ -462,6 +462,10 @@ Browser 선택:
 - 우클릭 `Create Object (duplicate)`는 선택 Object의 SRC와 모든 DST 행을 한 번에
   복사하고 새 `$SE_OBJECT_ID`를 붙인다. indexed Object도 이 ID 경계로 원본과
   복제본을 각각 한 Object로 유지한다.
+- Ctrl+C는 선택 Object 행을 앱 내부 clipboard에 복사하고, Ctrl+V는 활성 Object의
+  include owner와 IF Branch 뒤에 새 `$SE_OBJECT_ID`로 붙여넣는다. Ctrl+D는 clipboard를
+  바꾸지 않고 현재 선택을 복제한다. 다중 선택은 문서 행 순서를 유지하며 전체 작업은
+  한 번의 Undo/Redo 문서 snapshot이다.
 
 Browser 순서 변경:
 
@@ -570,8 +574,20 @@ Ctrl+MouseWheel로 확대/축소한다.
 - 한 Object를 선택하면 첫 DST 우하단에 흰 handle이 나타난다. handle drag는 첫
   destination rectangle의 `w/h(or size)`만 바꾸며 최소 절대 크기 1을 유지한다.
 - 방향키 이동도 동일 CSV 편집/History 경로를 사용한다.
+- Shift를 누른 drag/resize는 Preview toolbar에서 고른 1/2/4/8/10/16/32px grid에
+  맞춘다. Shift+방향키는 같은 간격만큼 이동한다.
+- 선택 좌표는 Preview 오른쪽 아래의 고정 화면 크기 X/Y meter로 표시한다. 반투명
+  암색 배경, 검은 외곽과 밝은 안쪽 테두리를 함께 사용해 스킨 색과 무관하게 보인다.
+- F11은 Preview canvas를 main viewport 전체화면으로 전환하고 F11 또는 Escape로
+  원래 dock layout에 돌아온다.
 - Ctrl+Z 후 Preview object와 점멸 사각형이 어긋나지 않도록 모델과 Preview의
   파생 데이터를 함께 invalidate/rebuild한다.
+
+History는 Ctrl+Z Undo와 Ctrl+Y/Ctrl+Shift+Z Redo를 제공한다. 새 편집을 시작하면
+Redo branch를 버리며, 복합 Object/Preview 작업은 한 번의 사용자 작업으로 묶는다.
+상단 Settings > Language에서 English/Korean을 선택할 수 있고 선택값은 사용자별
+설정 파일에 저장된다. 이 설정은 UI label만 바꾸며 LR2 CSV/CP932 데이터에는 영향을
+주지 않는다.
 
 Preview 캔버스에는 Object 확인·선택·배치 기능만 둔다. scene restart와 timer 조작은
 독립된 **Timer Control** 도킹 창에 둔다. 이 창은 scene runtime

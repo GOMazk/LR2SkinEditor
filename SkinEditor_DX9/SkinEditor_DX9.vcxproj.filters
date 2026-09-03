@@ -54,10 +54,28 @@
     <ClCompile Include="winWorkspace.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="winWorkspaceAssetBrowser.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="winWorkspaceObjectBrowser.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="winWorkspaceObjectInspector.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="winWorkspaceObjectCommands.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="winWorkspacePreview.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="imageLoader.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="seHelper.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="seLocalization.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
     <ClCompile Include="seObjectEditor.cpp">
@@ -254,10 +272,16 @@
     <ClInclude Include="winWorkspace.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
+    <ClInclude Include="winWorkspaceUiHelpers.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
     <ClInclude Include="ImageLoader.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="seHelper.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="seLocalization.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="seObjectEditor.h">

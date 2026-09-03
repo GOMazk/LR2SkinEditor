@@ -19,10 +19,12 @@
 #include "olrSkin.h"
 #include "arr.hpp"
 #include "seHelper.h"
+#include "seLocalization.h"
 #include "seUI.h"
 #include "skinBrowser.h"
 #include "skinPathResolver.h"
 #include "uiCatalog.h"
+#include "winWorkspaceUiHelpers.h"
 #include "inputwrap.h"
 #include "imgui/imgui_internal.h"
 #include <algorithm>
@@ -336,7 +338,7 @@ static bool ContainsAsciiInsensitive(const std::string& text,
         }) != text.end();
 }
 
-static bool DrawCommandValueCombo(const char* label, const char* command,
+bool DrawCommandValueCombo(const char* label, const char* command,
     const char* columnHelp, int current, int& selected) {
     const SECommandValueKind kind = GetCommandValueKind(command, columnHelp);
     const int itemCount = GetCommandValueItemCount(kind);
@@ -459,7 +461,7 @@ static bool ReadNonEmptyCommandField(CSVbuf& values, const char* command,
     return false;
 }
 
-static bool ResolveDstArgbColumns(const char* command, int columns[4]) {
+bool ResolveDstArgbColumns(const char* command, int columns[4]) {
     if (!command || strncmp(command, "#DST", 4) != 0 || !columns) return false;
     columns[0] = columns[1] = columns[2] = columns[3] = -1;
     const char* names[4] = { "a", "r", "g", "b" };
@@ -642,12 +644,34 @@ static std::string CommandFieldKey(const char* command, int column) {
     return key;
 }
 
-static int FindCommandFieldColumn(const char* command, const char* fieldName) {
+int FindCommandFieldColumn(const char* command, const char* fieldName) {
     if (!command || !fieldName) return -1;
     for (int column = 1; column < 30; ++column)
         if (_stricmp(CommandFieldKey(command, column).c_str(), fieldName) == 0)
             return column;
     return -1;
+}
+
+std::string FormatObjectConditionHeader(SKINFILELINEREAD& row) {
+    std::string result = row.csv.str[0].body
+        ? row.csv.str[0].outstr() : "#IF";
+    const char* command = row.csv.str[0].body
+        ? row.csv.str[0].outstr() : "";
+    if (strcmp(command, "#IF") != 0 && strcmp(command, "#ELSEIF") != 0)
+        return result;
+
+    for (int column = 1; column < 30; ++column) {
+        if (!row.csv.str[column].body || row.csv.str[column].length() == 0)
+            continue;
+        const int option = row.csv.val[column];
+        const int optionId = option < 0 ? -option : option;
+        const char* optionName = dstName(optionId);
+        char label[160];
+        snprintf(label, sizeof(label), option < 0 ? " !%03d:%s" : " %03d:%s",
+            optionId, optionName ? optionName : "");
+        result += label;
+    }
+    return result;
 }
 
 static bool IsAssetBaseField(const std::string& field) {
@@ -750,7 +774,7 @@ static void AppendOlrConditionalClosures(int& conditionalDepth,
     }
 }
 
-static void AssignRootFileOwner(ARR& skinfileLines, const char* fallback,
+void AssignRootFileOwner(ARR& skinfileLines, const char* fallback,
     CSTR& owner) {
     owner.assign(fallback && *fallback ? fallback : "");
     for (int row = 0; row < skinfileLines.count; ++row) {
@@ -766,7 +790,7 @@ static void AssignRootFileOwner(ARR& skinfileLines, const char* fallback,
     }
 }
 
-static int FindOwnerFileEndRow(ARR& skinfileLines, const char* owner) {
+int FindOwnerFileEndRow(ARR& skinfileLines, const char* owner) {
     if (!owner || !*owner) return skinfileLines.count;
     for (int row = skinfileLines.count - 1; row >= 0; --row) {
         SKINFILELINEREAD& candidate =
@@ -975,7 +999,7 @@ static std::string MakeUniqueGeneratedImagePath(const char* selectedImagePath,
 // Change a canvas scale while keeping the image point below the mouse at the
 // same screen position. This must be called from the scrolling window/child
 // that directly owns the canvas.
-static bool ApplyMouseCenteredWheelZoom(float& scale, float minimum, float maximum,
+bool ApplyMouseCenteredWheelZoom(float& scale, float minimum, float maximum,
     const ImVec2& canvasOrigin, const ImVec2& canvasSize) {
     ImGuiIO& io = ImGui::GetIO();
     if (!io.KeyCtrl || io.MouseWheel == 0.0f ||
@@ -1019,13 +1043,13 @@ static void SetCanvasLinearSampling(const ImDrawList*, const ImDrawCmd*) {
     g_pd3dDevice->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
 }
 
-static bool BeginSharpMagnifiedCanvas(float scale) {
+bool BeginSharpMagnifiedCanvas(float scale) {
     if (scale <= 1.0f) return false;
     ImGui::GetWindowDrawList()->AddCallback(SetCanvasPointSampling, NULL);
     return true;
 }
 
-static void EndSharpMagnifiedCanvas(bool sharp) {
+void EndSharpMagnifiedCanvas(bool sharp) {
     if (sharp)
         ImGui::GetWindowDrawList()->AddCallback(SetCanvasLinearSampling, NULL);
 }
@@ -1111,10 +1135,7 @@ int WORKSPACE::init() {
 int WORKSPACE::draw() {
     if (initFlag == 0) init();
     if (loaded && pendingHistorySnapshotRestore >= 0) {
-        const int snapshotIndex = pendingHistorySnapshotRestore;
-        pendingHistorySnapshotRestore = -1;
-        if (snapshotIndex < (int)historyDocumentSnapshots.size())
-            RestoreDocumentSnapshot(historyDocumentSnapshots[snapshotIndex]);
+        ApplyPendingHistorySnapshotRestore();
     }
     // A drop is queued by Object Browser after it has already submitted this
     // frame. Apply it at the next frame boundary, before any texture-backed
@@ -1196,7 +1217,7 @@ int WORKSPACE::draw() {
     };
 
     if (ImGui::BeginMenuBar()) {
-        if (ImGui::BeginMenu("File")) {
+        if (ImGui::BeginMenu(SEText("File", u8"\uD30C\uC77C"))) {
             if (ImGui::MenuItem("New", NULL, &wNewskin)) {
                 //
             }
@@ -1227,7 +1248,25 @@ int WORKSPACE::draw() {
             ImGui::EndMenu();
         }
         if (loaded) {
-            if (ImGui::BeginMenu("Layout")) {
+            if (ImGui::BeginMenu(SEText("Edit", u8"\uD3B8\uC9D1"))) {
+                if (ImGui::MenuItem(SEText("Undo", u8"\uC2E4\uD589 \uCDE8\uC18C"), "Ctrl+Z", false,
+                    arr_history.count > 0 && pendingHistorySnapshotRestore < 0))
+                    UndoLastEdit();
+                if (ImGui::MenuItem(SEText("Redo", u8"\uB2E4\uC2DC \uC2E4\uD589"), "Ctrl+Y / Ctrl+Shift+Z", false,
+                    !redoDocumentSnapshots.empty() &&
+                    pendingHistorySnapshotRestore < 0))
+                    RedoLastEdit();
+                ImGui::Separator();
+                if (ImGui::MenuItem(SEText("Copy Object", u8"\uC624\uBE0C\uC81D\uD2B8 \uBCF5\uC0AC"), "Ctrl+C"))
+                    CopySelectedObjects();
+                if (ImGui::MenuItem(SEText("Paste Object", u8"\uC624\uBE0C\uC81D\uD2B8 \uBD99\uC5EC\uB123\uAE30"), "Ctrl+V", false,
+                    HasCopiedObjects()))
+                    PasteCopiedObjects();
+                if (ImGui::MenuItem(SEText("Duplicate Object", u8"\uC624\uBE0C\uC81D\uD2B8 \uBCF5\uC81C"), "Ctrl+D"))
+                    DuplicateSelectedObjects();
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu(SEText("Layout", u8"\uB808\uC774\uC544\uC6C3"))) {
                 if (ImGui::MenuItem("Balanced workspace")) {
                     for (const WindowToggle& tool : windowToggles)
                         *tool.visible = SEUIWindowSpecFor(tool.id).defaultVisible;
@@ -1258,7 +1297,7 @@ int WORKSPACE::draw() {
                 if (ImGui::MenuItem("Rebuild current docking")) dockLayoutBuilt = false;
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("Windows")) {
+            if (ImGui::BeginMenu(SEText("Windows", u8"\uCC3D"))) {
                 const char* groups[] = { "Workspace", "Assets", "Data", "Advanced" };
                 for (const char* group : groups) {
                     if (!ImGui::BeginMenu(group)) continue;
@@ -1312,18 +1351,35 @@ int WORKSPACE::draw() {
     // It only emits intent; existing WORKSPACE methods remain the single source
     // of truth for loading, saving and history behavior.
     if (SEUI::BeginToolbar("##WorkspaceToolbar")) {
-        if (SEUI::ActionButton("New", "Create a skin from an initial preset")) wNewskin = true;
+        if (SEUI::ActionButton(SEText("New", u8"\uC0C8\uB85C \uB9CC\uB4E4\uAE30"),
+            SEText("Create a skin from an initial preset",
+                u8"\uCD08\uAE30 \uD504\uB9AC\uC14B\uC73C\uB85C \uC2A4\uD0A8\uC744 \uB9CC\uB4ED\uB2C8\uB2E4"))) wNewskin = true;
         ImGui::SameLine();
-        if (SEUI::ActionButton("Open", "Open a skin registered in LR2")) {
+        if (SEUI::ActionButton(SEText("Open", u8"\uC5F4\uAE30"),
+            SEText("Open a skin registered in LR2",
+                u8"LR2\uC5D0 \uB4F1\uB85D\uB41C \uC2A4\uD0A8\uC744 \uC5FD\uB2C8\uB2E4"))) {
             ScanSkins();
             wSkinList = true;
         }
         ImGui::SameLine();
-        if (SEUI::ActionButton("Save", "Save changes to the current skin (Ctrl+S)", loaded))
+        if (SEUI::ActionButton(SEText("Save", u8"\uC800\uC7A5"),
+            SEText("Save changes to the current skin (Ctrl+S)",
+                u8"\uD604\uC7AC \uC2A4\uD0A8\uC5D0 \uBCC0\uACBD \uB0B4\uC6A9\uC744 \uC800\uC7A5\uD569\uB2C8\uB2E4 (Ctrl+S)"), loaded))
             SaveCurrentSkin();
         ImGui::SameLine();
-        if (SEUI::ActionButton("Undo", "Undo the last Object Editor change (Ctrl+Z)", loaded))
+        if (SEUI::ActionButton(SEText("Undo", u8"\uC2E4\uD589 \uCDE8\uC18C"),
+            SEText("Undo the last Object Editor change (Ctrl+Z)",
+                u8"\uB9C8\uC9C0\uB9C9 \uC624\uBE0C\uC81D\uD2B8 \uD3B8\uC9D1\uC744 \uCDE8\uC18C\uD569\uB2C8\uB2E4 (Ctrl+Z)"),
+            loaded && arr_history.count > 0 &&
+                pendingHistorySnapshotRestore < 0))
             UndoLastEdit();
+        ImGui::SameLine();
+        if (SEUI::ActionButton(SEText("Redo", u8"\uB2E4\uC2DC \uC2E4\uD589"),
+            SEText("Redo the last undone change (Ctrl+Y)",
+                u8"\uB9C8\uC9C0\uB9C9\uC73C\uB85C \uCDE8\uC18C\uD55C \uBCC0\uACBD\uC744 \uB2E4\uC2DC \uC2E4\uD589\uD569\uB2C8\uB2E4 (Ctrl+Y)"),
+            loaded && !redoDocumentSnapshots.empty() &&
+                pendingHistorySnapshotRestore < 0))
+            RedoLastEdit();
         SEUI::ToolbarSeparator();
         char resolutionLabel[48];
         char resolutionTooltip[192];
@@ -1738,38 +1794,47 @@ int WORKSPACE::draw() {
     if (wSaveMenu) drawSaveMenu();
     if (wSaveOlrSkin) drawSaveOlrSkin();
 
-    if (wTextEdit) drawTextEdit();
-
-    if (wPreview) drawPreview();
-    // Runtime timers only exist after a skin has initialized its scene.
-    if (loaded && wTimerControl) drawTimerControl();
-    if (wCustomize) drawCustomize();
-    if (wImgManager) drawImgManager();
-    if (wAssetBrowser) drawAssetBrowser();
-    if (wFileManager) drawFileManager();
-    if (wSimpleMode) drawSimpleMode();
-    if (wDstView) drawDstView();
-    // Older call sites use wObjectEditor as an "open the editor" command.
-    // Translate it into the two independently dockable panes.
-    if (wObjectEditor) {
-        wObjectBrowser = true;
-        wObjectInspector = true;
-        wObjectEditor = false;
+    if (previewCanvasFullscreen) {
+        if (wPreview) drawPreview();
+    } else {
+        if (wTextEdit) drawTextEdit();
+        if (wPreview) drawPreview();
+        // Runtime timers only exist after a skin has initialized its scene.
+        if (loaded && wTimerControl) drawTimerControl();
+        if (wCustomize) drawCustomize();
+        if (wImgManager) drawImgManager();
+        if (wAssetBrowser) drawAssetBrowser();
+        if (wFileManager) drawFileManager();
+        if (wSimpleMode) drawSimpleMode();
+        if (wDstView) drawDstView();
+        // Older call sites use wObjectEditor as an "open the editor" command.
+        // Translate it into the two independently dockable panes.
+        if (wObjectEditor) {
+            wObjectBrowser = true;
+            wObjectInspector = true;
+            wObjectEditor = false;
+        }
+        if (wObjectBrowser) drawObjectBrowser();
+        if (wObjectInspector) drawObjectInspector();
+        if (wObjectManager) drawObjectManager();
+        if (wObjectManagerTest) drawObjectManagerTest();
+        if (wProperty) drawProperty();
+        if (wOpList) drawOpList();
+        if (wHistory) drawHistory();
     }
-    if (wObjectBrowser || wObjectInspector) {
-        drawObjectEditor();
-    }
-    if (wObjectManager) drawObjectManager();
-    if (wObjectManagerTest) drawObjectManagerTest();
-    if (wProperty) drawProperty();
-    if (wOpList) drawOpList();
-    if (wHistory) drawHistory();
 
     if (wNewObject) drawNewObject();
 
     ImGuiIO& shortcutIO = ImGui::GetIO();
     if (loaded && shortcutIO.KeyCtrl && !shortcutIO.WantTextInput) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) UndoLastEdit();
+        if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+            if (shortcutIO.KeyShift) RedoLastEdit();
+            else UndoLastEdit();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) RedoLastEdit();
+        if (ImGui::IsKeyPressed(ImGuiKey_C, false)) CopySelectedObjects();
+        if (ImGui::IsKeyPressed(ImGuiKey_V, false)) PasteCopiedObjects();
+        if (ImGui::IsKeyPressed(ImGuiKey_D, false)) DuplicateSelectedObjects();
         if (ImGui::IsKeyPressed(ImGuiKey_S, false)) {
             if (shortcutIO.KeyShift) {
                 newPath[0] = '\0';
@@ -3220,7 +3285,9 @@ int WORKSPACE::ResetEditorDocumentForLoad() {
     const bool historyReady = ResetArrayStorage(arr_history, sizeof(HISTORY), 1);
 
     historyDocumentSnapshots.clear();
+    redoDocumentSnapshots.clear();
     pendingHistorySnapshotRestore = -1;
+    pendingHistorySnapshotPreservesRedo = false;
     pendingObjectReorder = false;
     pendingObjectReorderSource = SEObjectSelectionKey();
     pendingObjectReorderTarget = SEObjectSelectionKey();
@@ -3342,7 +3409,9 @@ int WORKSPACE::LoadSkin(char* path) {
     arr_history.Free();
     arr_history.Alloc(sizeof(HISTORY), 1);
     historyDocumentSnapshots.clear();
+    redoDocumentSnapshots.clear();
     pendingHistorySnapshotRestore = -1;
+    pendingHistorySnapshotPreservesRedo = false;
     CancelPendingObjectReorder();
     objectDeleteDialogRequested = false;
     pendingObjectDelete = SEObjectSelectionKey();
@@ -7690,603 +7759,6 @@ bool WORKSPACE::OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY) {
     newObjectFocusRequest = true;
     wNewObject = true;
     return true;
-}
-
-int WORKSPACE::drawAssetBrowser() {
-    char title[64];
-    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::AssetBrowser, num);
-    if (!ImGui::Begin(title, &wAssetBrowser)) {
-        ImGui::End();
-        return 0;
-    }
-
-    if (arr_IMG.count <= 0) {
-        SEUI::EmptyState("No image crops",
-            "Image crops parsed from #SRC commands will appear here as reusable assets.");
-        ImGui::End();
-        return 0;
-    }
-
-    const std::vector<std::vector<int>>& assetUsage = ImageAssetUsage();
-    const std::vector<SEObjectInstance>& usageObjects =
-        objectEditorModel.Objects();
-    auto selectUsageObject = [&](int modelIndex) {
-        if (modelIndex < 0 || modelIndex >= (int)usageObjects.size()) return;
-        wObjectBrowser = true;
-        wObjectInspector = true;
-        SetObjectSelection(std::vector<int>(1, modelIndex), modelIndex,
-            modelIndex, true);
-        preview_object_dragging = false;
-        preview_selected_obj_valid = false;
-        preview_selected_obj_last_valid = false;
-    };
-    const int activeObjectIndex =
-        ResolveObjectSelectionKey(objectSelection.active);
-    std::vector<int> activeSourceRows;
-    CollectImageAssignableSourceRows(activeObjectIndex, activeSourceRows);
-    const bool hasAssignableObject = activeObjectIndex >= 0 &&
-        !activeSourceRows.empty();
-    auto requestAssetApply = [&](int imageIndex) {
-        const int modelIndex = ResolveObjectSelectionKey(objectSelection.active);
-        std::vector<int> sourceRows;
-        CollectImageAssignableSourceRows(modelIndex, sourceRows);
-        if (imageIndex < 0 || imageIndex >= arr_IMG.count ||
-            modelIndex < 0 || sourceRows.empty()) return false;
-        if (sourceRows.size() == 1) {
-            return ApplyImageAssetToObjectSource(imageIndex, modelIndex,
-                sourceRows.front(), assetApplyCopyAnimation);
-        }
-        assetApplyAssetIndex = imageIndex;
-        assetApplyObject = MakeObjectSelectionKey(modelIndex);
-        assetApplyDialogRequested = true;
-        return true;
-    };
-    auto requestAssetDelete = [&](int imageIndex) {
-        std::string reason;
-        if (!CanDeleteIMG(imageIndex, &reason)) {
-            assetDeleteStatus = reason;
-            return false;
-        }
-        assetDeleteAssetIndex = imageIndex;
-        assetDeleteDialogRequested = true;
-        assetDeleteStatus.clear();
-        return true;
-    };
-    char applyAssetPopup[96];
-    snprintf(applyAssetPopup, sizeof(applyAssetPopup),
-        "Apply Asset to Object##%d", num);
-    auto drawAssetApplyDialog = [&]() {
-        if (assetApplyDialogRequested) {
-            assetApplyDialogRequested = false;
-            ImGui::OpenPopup(applyAssetPopup);
-        }
-        ImGui::SetNextWindowSize(ImVec2(500.0f, 0.0f), ImGuiCond_Appearing);
-        if (!ImGui::BeginPopupModal(applyAssetPopup, NULL,
-            ImGuiWindowFlags_AlwaysAutoResize)) return;
-
-        const int modelIndex = ResolveObjectSelectionKey(assetApplyObject);
-        std::vector<int> sourceRows;
-        CollectImageAssignableSourceRows(modelIndex, sourceRows);
-        const bool validAsset = assetApplyAssetIndex >= 0 &&
-            assetApplyAssetIndex < arr_IMG.count;
-        const bool validObject = modelIndex >= 0 && !sourceRows.empty();
-        if (!validAsset || !validObject) {
-            ImGui::TextWrapped("The selected Asset or Object is no longer available.");
-            if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-            return;
-        }
-
-        IMG& asset = ((IMG*)arr_IMG.data)[assetApplyAssetIndex];
-        const SEObjectInstance& object = usageObjects[modelIndex];
-        const std::string objectName = Cp932ToUtf8(
-            object.name.empty() ? "(unnamed)" : object.name.c_str());
-        ImGui::Text("Asset %03d  gr %d", assetApplyAssetIndex, asset.gr);
-        ImGui::Text("Object %03d  %s", modelIndex, objectName.c_str());
-        ImGui::Checkbox("Copy SRC animation fields", &assetApplyCopyAnimation);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-            ImGui::SetTooltip("Also replace div_x, div_y, cycle and timer. Object-specific fields remain unchanged.");
-        ImGui::Separator();
-        ImGui::TextDisabled("Choose the SRC row to replace:");
-        for (int sourceRow : sourceRows) {
-            SKINFILELINEREAD& line =
-                ((SKINFILELINEREAD*)skinfileLines.data)[sourceRow];
-            const char* command = line.csv.str[0].body
-                ? line.csv.str[0].outstr() : "#SRC";
-            int columns[5];
-            if (!ResolveImageCropColumns(command, columns)) continue;
-            char rowLabel[320];
-            snprintf(rowLabel, sizeof(rowLabel),
-                "Line %d  %s   gr %d  (%d, %d, %d, %d)",
-                sourceRow + 1, command, line.csv.val[columns[0]],
-                line.csv.val[columns[1]], line.csv.val[columns[2]],
-                line.csv.val[columns[3]], line.csv.val[columns[4]]);
-            ImGui::PushID(sourceRow);
-            if (ImGui::Selectable(rowLabel)) {
-                ApplyImageAssetToObjectSource(assetApplyAssetIndex,
-                    modelIndex, sourceRow, assetApplyCopyAnimation);
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::PopID();
-        }
-        ImGui::Separator();
-        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    };
-    char deleteAssetPopup[96];
-    snprintf(deleteAssetPopup, sizeof(deleteAssetPopup),
-        "Delete Asset##%d", num);
-    auto drawAssetDeleteDialog = [&]() {
-        bool deleted = false;
-        if (assetDeleteDialogRequested) {
-            assetDeleteDialogRequested = false;
-            ImGui::OpenPopup(deleteAssetPopup);
-        }
-        ImGui::SetNextWindowSize(ImVec2(480.0f, 0.0f), ImGuiCond_Appearing);
-        if (!ImGui::BeginPopupModal(deleteAssetPopup, NULL,
-            ImGuiWindowFlags_AlwaysAutoResize)) return deleted;
-
-        std::string reason;
-        const bool canDelete = CanDeleteIMG(assetDeleteAssetIndex, &reason);
-        if (!canDelete) {
-            ImGui::TextWrapped("%s", reason.c_str());
-            if (ImGui::Button("Close", ImVec2(100.0f, 0.0f)))
-                ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-            return deleted;
-        }
-
-        IMG& asset = ((IMG*)arr_IMG.data)[assetDeleteAssetIndex];
-        const std::string assetName = Cp932ToUtf8(
-            asset.name.body ? asset.name.outstr() : "(unnamed)");
-        ImGui::Text("Asset %03d  gr %d", assetDeleteAssetIndex, asset.gr);
-        ImGui::TextWrapped("%s", assetName.c_str());
-        ImGui::Text("Crop: x %d  y %d  w %d  h %d",
-            asset.x, asset.y, asset.w, asset.h);
-        ImGui::Separator();
-        ImGui::TextWrapped(
-            "Remove this unused crop from the skin? The texture file on disk will not be deleted.");
-        ImGui::Spacing();
-        if (ImGui::Button("Delete", ImVec2(100.0f, 0.0f))) {
-            const int deletedIndex = assetDeleteAssetIndex;
-            if (DeleteIMG(deletedIndex) == 0) {
-                assetDeleteStatus = "Deleted Asset " +
-                    std::to_string(deletedIndex) + ".";
-                assetDeleteAssetIndex = -1;
-                imageManagerFocusRequest = -1;
-                assetBrowserFocusRequest = -1;
-                if (arr_IMG.count > 0) {
-                    SelectIMGAsset((std::min)(deletedIndex,
-                        arr_IMG.count - 1), false);
-                } else {
-                    src_selected = -1;
-                    gr_selected = -1;
-                    grID_selected = -1;
-                }
-                deleted = true;
-                ImGui::CloseCurrentPopup();
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(100.0f, 0.0f)))
-            ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-        return deleted;
-    };
-
-    ImGui::SetNextItemWidth((std::min)(260.0f,
-        (std::max)(120.0f, ImGui::GetContentRegionAvail().x * 0.42f)));
-    ImGui::InputTextWithHint("##AssetSearch", "Search asset, gr or command...",
-        assetSearch, sizeof(assetSearch));
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(150.0f);
-    ImGui::SliderFloat("Thumbnail", &assetThumbnailSize, 48.0f, 192.0f, "%.0f px");
-    assetThumbnailSize = (std::max)(48.0f, (std::min)(192.0f, assetThumbnailSize));
-    ImGui::SameLine();
-    ImGui::Checkbox("Animate SRC", &assetAnimateSrc);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-        ImGui::SetTooltip("Preview div_x/div_y frames using the SRC cycle value.");
-    ImGui::SameLine();
-    ImGui::Checkbox("Unused only", &assetShowUnusedOnly);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-        ImGui::SetTooltip("Show crops that are not referenced by any Object SRC command.");
-    ImGui::Spacing();
-    ImGui::BeginDisabled(src_selected < 0 || src_selected >= arr_IMG.count ||
-        !hasAssignableObject);
-    if (ImGui::Button("Use in selected Object"))
-        requestAssetApply(src_selected);
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled |
-        ImGuiHoveredFlags_DelayNormal)) {
-        if (activeObjectIndex < 0)
-            ImGui::SetTooltip("Select an Object first.");
-        else if (activeSourceRows.empty())
-            ImGui::SetTooltip("The selected Object has no image-backed SRC row.");
-        else
-            ImGui::SetTooltip("Replace the selected Object SRC crop in one undoable edit.");
-    }
-    ImGui::SameLine();
-    ImGui::Checkbox("Copy animation", &assetApplyCopyAnimation);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-        ImGui::SetTooltip("Also copy div_x, div_y, cycle and timer from the Asset SRC.");
-    if (!assetDeleteStatus.empty()) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", assetDeleteStatus.c_str());
-    }
-
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-        !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive() &&
-        ImGui::IsKeyPressed(ImGuiKey_Delete, false) &&
-        src_selected >= 0 && src_selected < arr_IMG.count) {
-        requestAssetDelete(src_selected);
-    }
-
-    auto lowercase = [](std::string value) {
-        std::transform(value.begin(), value.end(), value.begin(),
-            [](unsigned char c) { return (char)std::tolower(c); });
-        return value;
-    };
-    const std::string query = lowercase(assetSearch);
-    std::vector<int> filteredAssets;
-    filteredAssets.reserve(arr_IMG.count);
-    for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
-        IMG& tag = ((IMG*)arr_IMG.data)[imageIndex];
-        const std::vector<int>& users = assetUsage[imageIndex];
-        if (assetShowUnusedOnly && !users.empty()) continue;
-        if (query.empty()) {
-            filteredAssets.push_back(imageIndex);
-            continue;
-        }
-        const std::string tagName = Cp932ToUtf8(tag.name.body ? tag.name.outstr() : "");
-        char metadata[256];
-        snprintf(metadata, sizeof(metadata),
-            "%03d asset %d gr %d g%02d if %d %s %s",
-            imageIndex, imageIndex, tag.gr, tag.gr, tag.ifGroup,
-            tagName.c_str(), users.empty() ? "unused" : "used");
-        if (query.empty() || lowercase(metadata).find(query) != std::string::npos)
-            filteredAssets.push_back(imageIndex);
-    }
-
-    ImGui::SameLine();
-    ImGui::TextDisabled("%d / %d", (int)filteredAssets.size(), arr_IMG.count);
-    ImGui::Separator();
-
-    if (filteredAssets.empty()) {
-        SEUI::EmptyState("No matching assets", "Clear the search text to show every crop.");
-        if (drawAssetDeleteDialog()) {
-            ImGui::End();
-            return 0;
-        }
-        drawAssetApplyDialog();
-        ImGui::End();
-        return 0;
-    }
-
-    if (ImGui::BeginChild("##AssetGrid", ImVec2(0.0f, 0.0f),
-        ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
-        const ImGuiStyle& style = ImGui::GetStyle();
-        const float padding = 7.0f;
-        const float spacing = (std::max)(6.0f, style.ItemSpacing.x);
-        const float cardWidth = assetThumbnailSize + padding * 2.0f;
-        const float cardHeight = assetThumbnailSize + padding * 2.0f +
-            ImGui::GetTextLineHeight() * 3.0f + 5.0f;
-        const float itemStepX = cardWidth + spacing;
-        const float itemStepY = cardHeight + spacing;
-        const float availableWidth = ImGui::GetContentRegionAvail().x;
-        const int columnCount = (std::max)(1,
-            (int)((availableWidth + spacing) / itemStepX));
-        const int rowCount = ((int)filteredAssets.size() + columnCount - 1) / columnCount;
-        if (assetBrowserFocusRequest >= 0) {
-            const std::vector<int>::const_iterator requested = std::find(
-                filteredAssets.begin(), filteredAssets.end(), assetBrowserFocusRequest);
-            if (requested != filteredAssets.end()) {
-                const int requestedCard = (int)(requested - filteredAssets.begin());
-                const int requestedRow = requestedCard / columnCount;
-                ImGui::SetScrollY((std::max)(0.0f,
-                    requestedRow * itemStepY - itemStepY));
-            }
-            assetBrowserFocusRequest = -1;
-        }
-        const ImVec2 gridStart = ImGui::GetCursorScreenPos();
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        std::map<std::pair<int, int>, int> visibleTextureCache;
-
-        // Follow imgui_demo's asset-browser pattern: clip whole rows, position
-        // a real Selectable for every visible card, then paint the thumbnail
-        // into that item's rectangle. The Selectable is important; extending
-        // the parent only with SetCursorPos triggers an ImGui assertion and
-        // also breaks hit testing.
-        ImGuiListClipper clipper;
-        clipper.Begin(rowCount, itemStepY);
-        while (clipper.Step()) {
-            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-                const int rowStart = row * columnCount;
-                const int rowEnd = (std::min)(rowStart + columnCount,
-                    (int)filteredAssets.size());
-                for (int filteredIndex = rowStart; filteredIndex < rowEnd; ++filteredIndex) {
-                    const int column = filteredIndex - rowStart;
-                    const int imageIndex = filteredAssets[filteredIndex];
-                    IMG& tag = ((IMG*)arr_IMG.data)[imageIndex];
-                    const std::vector<int>& users = assetUsage[imageIndex];
-                    const ImVec2 cardPos(gridStart.x + column * itemStepX,
-                        gridStart.y + row * itemStepY);
-
-                    ImGui::SetCursorScreenPos(cardPos);
-                    ImGui::PushID(imageIndex);
-                    const bool selected = imageIndex == src_selected;
-                    const bool activated = ImGui::Selectable("##AssetCard", selected,
-                        ImGuiSelectableFlags_None, ImVec2(cardWidth, cardHeight));
-                    const bool hovered = ImGui::IsItemHovered();
-                    if (activated) SelectIMGAsset(imageIndex, true);
-
-                    char managerTitle[64];
-                    FormatSEUIWindowTitle(managerTitle, sizeof(managerTitle),
-                        SEUIWindowId::ImageManager, num);
-                    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                        SelectIMGAsset(imageIndex, true);
-                        ImGui::SetWindowFocus(managerTitle);
-                    }
-
-                    const ImVec2 cardMin = ImGui::GetItemRectMin();
-                    const ImVec2 cardMax = ImGui::GetItemRectMax();
-                    const ImVec2 thumbMin(cardMin.x + padding, cardMin.y + padding);
-                    const ImVec2 thumbMax(thumbMin.x + assetThumbnailSize,
-                        thumbMin.y + assetThumbnailSize);
-                    drawList->AddRectFilled(thumbMin, thumbMax,
-                        ImGui::GetColorU32(ImGuiCol_FrameBg));
-                    if (transBackground) {
-                        drawList->AddImage(transBackground, thumbMin, thumbMax, ImVec2(0, 0),
-                            ImVec2(assetThumbnailSize / 32.0f, assetThumbnailSize / 32.0f));
-                    }
-
-                    const std::pair<int, int> textureKey(tag.gr, tag.ifGroup);
-                    std::map<std::pair<int, int>, int>::iterator cachedTexture =
-                        visibleTextureCache.find(textureKey);
-                    int textureIndex = -1;
-                    if (cachedTexture != visibleTextureCache.end()) {
-                        textureIndex = cachedTexture->second;
-                    } else {
-                        textureIndex = ResolveIMGTextureIndex(imageIndex);
-                        visibleTextureCache[textureKey] = textureIndex;
-                    }
-                    SRCGR* source = textureIndex >= 0 && textureIndex < arr_SRCGR.count
-                        ? &((SRCGR*)arr_SRCGR.data)[textureIndex] : NULL;
-                    const int sourceIndex = ResolveIMGSourceIndex(imageIndex);
-                    const SRC* animationSource = sourceIndex >= 0 && sourceIndex < arr_SRC.count
-                        ? &((SRC*)arr_SRC.data)[sourceIndex] : NULL;
-                    int animationFrame = 0;
-                    int animationFrames = 1;
-                    bool validCrop = false;
-                    if (source && source->texture && source->sizeX > 0 && source->sizeY > 0) {
-                        const int requestedW = tag.w == -1 ? source->sizeX - tag.x : tag.w;
-                        const int requestedH = tag.h == -1 ? source->sizeY - tag.y : tag.h;
-                        int requestedX0 = tag.x;
-                        int requestedY0 = tag.y;
-                        int requestedX1 = tag.x + requestedW;
-                        int requestedY1 = tag.y + requestedH;
-                        if (assetAnimateSrc && animationSource &&
-                            animationSource->cycle > 0) {
-                            const int divX = (std::max)(1,
-                                (std::min)(4096, animationSource->div_x));
-                            const int divY = (std::max)(1,
-                                (std::min)(4096, animationSource->div_y));
-                            const long long frameCount64 =
-                                (long long)divX * (long long)divY;
-                            if (frameCount64 > 1 && frameCount64 <= INT_MAX) {
-                                animationFrames = (int)frameCount64;
-                                const long long elapsedMs =
-                                    (long long)(ImGui::GetTime() * 1000.0);
-                                const long long cyclePosition = elapsedMs %
-                                    (long long)animationSource->cycle;
-                                animationFrame = (int)((cyclePosition * animationFrames) /
-                                    animationSource->cycle);
-                                if (animationFrame >= animationFrames)
-                                    animationFrame = animationFrames - 1;
-                                const int frameX = animationFrame % divX;
-                                const int frameY = animationFrame / divX;
-                                requestedX0 = tag.x + (requestedW * frameX) / divX;
-                                requestedX1 = tag.x + (requestedW * (frameX + 1)) / divX;
-                                requestedY0 = tag.y + (requestedH * frameY) / divY;
-                                requestedY1 = tag.y + (requestedH * (frameY + 1)) / divY;
-                            }
-                        }
-                        const int cropX0 = (std::max)(0,
-                            (std::min)(source->sizeX, requestedX0));
-                        const int cropY0 = (std::max)(0,
-                            (std::min)(source->sizeY, requestedY0));
-                        const int cropX1 = (std::max)(0,
-                            (std::min)(source->sizeX, requestedX1));
-                        const int cropY1 = (std::max)(0,
-                            (std::min)(source->sizeY, requestedY1));
-                        const int cropW = cropX1 - cropX0;
-                        const int cropH = cropY1 - cropY0;
-                        if (cropW > 0 && cropH > 0) {
-                            const float imageScale = (std::min)(assetThumbnailSize / cropW,
-                                assetThumbnailSize / cropH);
-                            const ImVec2 displaySize(cropW * imageScale, cropH * imageScale);
-                            const ImVec2 imageMin(thumbMin.x +
-                                (assetThumbnailSize - displaySize.x) * 0.5f,
-                                thumbMin.y + (assetThumbnailSize - displaySize.y) * 0.5f);
-                            const ImVec2 imageMax(imageMin.x + displaySize.x,
-                                imageMin.y + displaySize.y);
-                            const ImVec2 uv0(cropX0 / (float)source->sizeX,
-                                cropY0 / (float)source->sizeY);
-                            const ImVec2 uv1(cropX1 / (float)source->sizeX,
-                                cropY1 / (float)source->sizeY);
-                            const bool sharp = BeginSharpMagnifiedCanvas(imageScale);
-                            drawList->AddImage(source->texture, imageMin, imageMax, uv0, uv1);
-                            EndSharpMagnifiedCanvas(sharp);
-                            validCrop = true;
-                        }
-                    }
-                    if (!validCrop) {
-                        const char* missing = "Missing crop";
-                        const ImVec2 textSize = ImGui::CalcTextSize(missing);
-                        drawList->AddText(ImVec2(
-                            thumbMin.x + (assetThumbnailSize - textSize.x) * 0.5f,
-                            thumbMin.y + (assetThumbnailSize - textSize.y) * 0.5f),
-                            ImGui::GetColorU32(ImGuiCol_TextDisabled), missing);
-                    }
-                    drawList->AddRect(thumbMin, thumbMax,
-                        ImGui::GetColorU32(ImGuiCol_Border));
-
-                    char primaryLabel[64];
-                    snprintf(primaryLabel, sizeof(primaryLabel), "%03d   gr %d",
-                        imageIndex, tag.gr);
-                    const std::string tagName = Cp932ToUtf8(
-                        tag.name.body ? tag.name.outstr() : "(unnamed)");
-                    drawList->PushClipRect(cardMin, cardMax, true);
-                    drawList->AddText(ImVec2(cardMin.x + padding, thumbMax.y + 4.0f),
-                        ImGui::GetColorU32(ImGuiCol_Text), primaryLabel);
-                    drawList->AddText(ImVec2(cardMin.x + padding,
-                        thumbMax.y + 4.0f + ImGui::GetTextLineHeight()),
-                        ImGui::GetColorU32(ImGuiCol_TextDisabled), tagName.c_str());
-                    char usageLabel[64];
-                    if (users.empty()) {
-                        snprintf(usageLabel, sizeof(usageLabel), "Unused");
-                    } else {
-                        snprintf(usageLabel, sizeof(usageLabel), "%d Object%s",
-                            (int)users.size(), users.size() == 1 ? "" : "s");
-                    }
-                    drawList->AddText(ImVec2(cardMin.x + padding,
-                        thumbMax.y + 4.0f + ImGui::GetTextLineHeight() * 2.0f),
-                        users.empty() ? ImGui::GetColorU32(SEUI::Colors::Warning())
-                            : ImGui::GetColorU32(SEUI::Colors::Success()),
-                        usageLabel);
-                    drawList->PopClipRect();
-                    if (selected)
-                        drawList->AddRect(cardMin, cardMax,
-                            ImGui::GetColorU32(ImGuiCol_NavHighlight), 0.0f, 0, 2.0f);
-
-                    if (ImGui::BeginPopupContextItem("##AssetContext")) {
-                        if (ImGui::MenuItem("Open in Image Manager")) {
-                            SelectIMGAsset(imageIndex, true);
-                            ImGui::SetWindowFocus(managerTitle);
-                        }
-                        if (ImGui::MenuItem("Pixel paint in Image Manager")) {
-                            SelectIMGAsset(imageIndex, true);
-                            imagePixelPaintMode = true;
-                            imagePixelPaintLastX = -1;
-                            imagePixelPaintLastY = -1;
-                            imagePixelPaintLastButton = -1;
-                            ImGui::SetWindowFocus(managerTitle);
-                        }
-                        if (ImGui::MenuItem("Use in selected Object", NULL,
-                            false, hasAssignableObject)) {
-                            requestAssetApply(imageIndex);
-                        }
-                        ImGui::Separator();
-                        if (ImGui::MenuItem("Select first using Object", NULL,
-                            false, !users.empty())) {
-                            selectUsageObject(users.front());
-                        }
-                        char usageMenuLabel[64];
-                        snprintf(usageMenuLabel, sizeof(usageMenuLabel),
-                            "Used by Objects (%d)", (int)users.size());
-                        if (ImGui::BeginMenu(usageMenuLabel, !users.empty())) {
-                            const int shownUsers = (std::min)(32,
-                                (int)users.size());
-                            for (int userIndex = 0; userIndex < shownUsers;
-                                ++userIndex) {
-                                const int modelIndex = users[userIndex];
-                                if (modelIndex < 0 ||
-                                    modelIndex >= (int)usageObjects.size()) continue;
-                                const SEObjectInstance& object =
-                                    usageObjects[modelIndex];
-                                const std::string objectName = Cp932ToUtf8(
-                                    object.name.empty() ? "(unnamed)" :
-                                        object.name.c_str());
-                                char objectLabel[320];
-                                snprintf(objectLabel, sizeof(objectLabel),
-                                    "%03d  %s", modelIndex,
-                                    objectName.c_str());
-                                if (ImGui::MenuItem(objectLabel))
-                                    selectUsageObject(modelIndex);
-                            }
-                            if ((int)users.size() > shownUsers)
-                                ImGui::TextDisabled("... %d more",
-                                    (int)users.size() - shownUsers);
-                            ImGui::EndMenu();
-                        }
-                        ImGui::Separator();
-                        std::string deleteReason;
-                        const bool canDeleteAsset =
-                            CanDeleteIMG(imageIndex, &deleteReason);
-                        if (ImGui::MenuItem("Delete Asset...", "Delete", false,
-                            canDeleteAsset)) {
-                            requestAssetDelete(imageIndex);
-                        }
-                        if (!canDeleteAsset && ImGui::IsItemHovered(
-                            ImGuiHoveredFlags_AllowWhenDisabled |
-                            ImGuiHoveredFlags_DelayNormal)) {
-                            ImGui::SetTooltip("%s", deleteReason.c_str());
-                        }
-                        ImGui::EndPopup();
-                    }
-                    if (ImGui::BeginDragDropSource()) {
-                        ImGui::SetDragDropPayload("SKINEDITOR_IMG_ASSET", &imageIndex,
-                            sizeof(imageIndex), ImGuiCond_Once);
-                        ImGui::Text("Asset %03d  gr %d", imageIndex, tag.gr);
-                        ImGui::TextDisabled("%s", tagName.c_str());
-                        ImGui::Separator();
-                        ImGui::TextDisabled("Drop on Preview to configure a new Object.");
-                        ImGui::EndDragDropSource();
-                    }
-                    if (hovered && !ImGui::IsMouseDragging(ImGuiMouseButton_Left) &&
-                        ImGui::BeginTooltip()) {
-                        ImGui::Text("Asset %03d", imageIndex);
-                        ImGui::Text("%s", tagName.c_str());
-                        ImGui::Text("gr %d  x %d  y %d  w %d  h %d",
-                            tag.gr, tag.x, tag.y, tag.w, tag.h);
-                        ImGui::Text("IF branch %d", tag.ifGroup);
-                        ImGui::Text("Usage: %s", usageLabel);
-                        const int tooltipUsers = (std::min)(3,
-                            (int)users.size());
-                        for (int userIndex = 0; userIndex < tooltipUsers;
-                            ++userIndex) {
-                            const int modelIndex = users[userIndex];
-                            if (modelIndex < 0 ||
-                                modelIndex >= (int)usageObjects.size()) continue;
-                            const std::string objectName = Cp932ToUtf8(
-                                usageObjects[modelIndex].name.empty()
-                                    ? "(unnamed)"
-                                    : usageObjects[modelIndex].name.c_str());
-                            ImGui::BulletText("%03d  %s", modelIndex,
-                                objectName.c_str());
-                        }
-                        if ((int)users.size() > tooltipUsers)
-                            ImGui::TextDisabled("... %d more",
-                                (int)users.size() - tooltipUsers);
-                        if (animationSource) {
-                            ImGui::Text("SRC div %d x %d  cycle %d ms",
-                                (std::max)(1, animationSource->div_x),
-                                (std::max)(1, animationSource->div_y),
-                                animationSource->cycle);
-                            if (animationFrames > 1)
-                                ImGui::Text("Animation frame %d / %d",
-                                    animationFrame + 1, animationFrames);
-                        }
-                        if (source && source->filename.body)
-                            ImGui::Text("Texture: %s",
-                                Cp932ToUtf8(source->filename.outstr()).c_str());
-                        ImGui::Separator();
-                        ImGui::TextDisabled("Click to select; double-click to open in Image Manager.");
-                        ImGui::EndTooltip();
-                    }
-                    ImGui::PopID();
-                }
-            }
-        }
-        clipper.End();
-    }
-    ImGui::EndChild();
-    if (drawAssetDeleteDialog()) {
-        ImGui::End();
-        return 0;
-    }
-    drawAssetApplyDialog();
-    ImGui::End();
-    return 0;
 }
 
 int WORKSPACE::drawImgManager() {
@@ -15401,6 +14873,7 @@ std::vector<std::unique_ptr<WORKSPACE> > workspaceList;
 // Data-driven Object Editor.  The schema comes from skinObjGroup.txt and
 // argument names from skinHelper.txt.  The editor works directly on
 // skinfileLines so the existing CSV/table/save path remains authoritative.
+
 int WORKSPACE::drawObjectEditor() {
     char browserTitle[128];
     char inspectorTitle[128];

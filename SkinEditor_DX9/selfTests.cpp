@@ -5,6 +5,7 @@
 #include "../LR2/LR2_skinmanage.h"
 #include "olrSkin.h"
 #include "seHelper.h"
+#include "seLocalization.h"
 #include "seObjectEditor.h"
 #include "skin.h"
 #include "skinBrowser.h"
@@ -1324,9 +1325,12 @@ int RunOlrPackageSelfTest() {
                     CSTR rootedIncludePath = GetRandomFileNoError(CSTR(
                         "LR2files\\Theme\\Test\\_olr_include_0001.csv"),
                         CSTR("LR2files\\Theme\\Test\\"));
-                    CSTR bareIncludePath = GetRandomFileNoError(CSTR(
-                        "_olr_include_0001.csv"),
-                        CSTR("LR2files\\Theme\\Test\\"));
+                    // Probe the process directory directly. The production
+                    // helper intentionally falls back to the declaring CSV
+                    // directory, which would make this negative assertion
+                    // pass for the wrong reason.
+                    CSTR bareIncludePath = GetRandomFile(CSTR(
+                        "_olr_include_0001.csv"), 0);
                     FILE* rootedIncludeFile = fopen(
                         rootedIncludePath.outstr(), "rb");
                     FILE* bareIncludeFile = fopen(
@@ -1639,6 +1643,20 @@ int RunUiCatalogSelfTest() {
         std::strcmp(saveOlrSkin.ownerFunction,
             "WORKSPACE::drawSaveOlrSkin") != 0)
         return 20;
+
+    const SEUILanguage originalLanguage = SEGetUILanguage();
+    SESetUILanguage(SEUILanguage::Korean, false);
+    if (std::strcmp(SEText("File", u8"\uD30C\uC77C"),
+        reinterpret_cast<const char*>(u8"\uD30C\uC77C")) != 0) {
+        SESetUILanguage(originalLanguage, false);
+        return 21;
+    }
+    SESetUILanguage(SEUILanguage::English, false);
+    if (std::strcmp(SEText("File", u8"\uD30C\uC77C"), "File") != 0) {
+        SESetUILanguage(originalLanguage, false);
+        return 22;
+    }
+    SESetUILanguage(originalLanguage, false);
 
     return 0;
 }

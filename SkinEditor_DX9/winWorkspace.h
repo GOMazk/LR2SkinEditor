@@ -190,6 +190,15 @@ typedef struct DST_ANIMATION{
     int center; //angle axis, numpad
 }DST_ANIMATION;
 
+struct SEPreviewObjectDestination {
+    int firstRow = -1;
+    int lastRow = -1;
+    DST_ANIMATION frame = {};
+    int op1 = 0;
+    int op2 = 0;
+    int op3 = 0;
+};
+
 typedef struct SKINUNIT {
     int ID;
     int type; //0:text 1:buttoon 2:slider 3:onmouse 4:BGA 5:bargraph 6:number 7:mask //10:img
@@ -302,6 +311,10 @@ typedef struct WORKSPACE {
     // embedded into the portable package or LR2 export.
     std::string olrSourcePackagePath;
     int RefreshPreviewSelectionBounds();
+    void CollectPreviewObjectDestinations(const SEObjectInstance& object,
+        std::vector<SEPreviewObjectDestination>& destinations);
+    void ResolvePreviewObjectFrameBounds(const SEObjectInstance& object,
+        const DST_ANIMATION& frame, float& x, float& y, float& w, float& h);
     char mainpath[MAX_PATH];
 
     byte* filedata = NULL;
@@ -679,6 +692,7 @@ typedef struct WORKSPACE {
     bool wObjectBrowser = false;
     bool wObjectInspector = false;
     bool objectBrowserActiveOnly = false;
+    bool objectBrowserDrawOrder = false;
     int selected_object_editor = 0;
     int selected_object_group = -1;
     int selected_user_object_group = -1;
@@ -772,6 +786,7 @@ int makeTransBackground();
 int AutoSRCObjectPos(SRCGR* gr, int* x, int* y, int* w, int* h);
 int CsvToCSTR(CSVbuf& csv, CSTR& line);
 int CountCsvColumns(CSTR& line);
+bool SEIsDirectAssetDropObjectCommand(const char* command);
 int RunAssetMetadataSelfTest();
 int RunSimpleModeProjectionSelfTest();
 int RunSimpleModeScopeRuleSelfTest();

@@ -141,6 +141,14 @@ Clicking an Object Browser row keeps the matching DST index synchronized for
 DST View, but it focuses the Preview dock tab so the user immediately sees the
 selected Object highlight. DST View must not steal focus from a Browser click.
 
+Object Browser layer labels use the first expanded `#DST` row, matching LR2's
+monotonically assigned `sortID`: lower `z` is drawn first (behind), and higher
+`z` is drawn later (in front). This order is derived after Object ownership is
+built, never from `skinObjGroup.txt` group order or the current filter index.
+`Draw order` presents the filtered Objects as one flat back-to-front list;
+turning it off restores the IF/ELSEIF/ELSE context tree without changing the
+shared selection, History or CSV model.
+
 Object Browser and Object Inspector are independent dockable windows, but only
 their visibility is independent. They must not acquire separate selection
 variables. The legacy `wObjectEditor` flag is a compatibility request that
@@ -164,6 +172,12 @@ global Object model or function-local `static` state for a per-workspace pane.
 Model indices may change after any CSV rebuild; store `$SE_OBJECT_ID` plus the
 legacy group/anchor-row fallback in `SEObjectSelectionState`, then resolve the
 current indices through `RestoreObjectSelection()`.
+
+For indexed command families, untagged legacy rows still group by IF branch and
+numeric index. Once an Object has `$SE_OBJECT_ID`, that ID is also a grouping
+boundary. The Object Browser duplicate action can therefore copy one SRC plus
+all of its DST rows with a fresh ID without the rebuild merging the copy back
+into the original same-index Object.
 
 `SetObjectSelection()`과 `RestoreObjectSelection()`은 active Object의 첫 SRC
 command를 `GetCommandHelp()` schema로 해석해 동일 `arr_IMG` crop을 선택한다.
@@ -214,6 +228,13 @@ V0.9 package projection serializes every supported source-bound destination
 run. These tabs never retain their own Object, frame or condition copies; ImGui
 values are rebuilt from Workspace rows on each draw.
 
+`#DST_NOWCOMBO_1P/2P` is a deliberate coordinate exception. Its `x/y` values
+are offsets from the matching player and judgement-index `DST_NOWJUDGE`, after
+which LR2 applies judgement adjustment and digit alignment. The schema and CSV
+remain unchanged, but Inspector identifies the fields as `Offset X/Y`, uses
+`dX/dY` in Timeline, and keeps a visible warning plus field tooltips above all
+property tabs. Other DST commands continue to show absolute canvas X/Y.
+
 Preview movement translates every selected destination frame. The white
 bottom-right handle is intentionally single-selection only and changes only the
 first destination's width/height (or text size), matching V0.5 static Layout
@@ -253,6 +274,13 @@ at the corresponding atlas position. Cards expose the stable
 `SKINEDITOR_IMG_ASSET` drag/drop payload containing one `int` IMG index so the
 Preview drop target can consume assets without depending on Asset Browser
 rendering code.
+
+The drop modal discovers its direct-create Object types from command schema:
+the SRC must expose `gr/x/y/w/h`, belong to an Object group, and have one
+same-suffix DST command. This covers the common image-backed families without
+duplicating a UI-only command list. Multi-DST and shared-DST families such as
+BAR_BODY, EVENT_MODE_CURSOR and NOTE remain excluded until they have explicit
+creation recipes.
 
 `BuildImageAssetUsage()` derives reverse usage from `IMG::sourceDeclare` or
 `editorDeclare` to the rows held by each `SEObjectInstance`; legacy rows use the
@@ -502,6 +530,22 @@ The cache may absorb a neighboring Object's destination after an include-file
 reorder, while Inspector still correctly reports one DST row. Cyan shows the
 first Object-owned frame; red is drawn only when the Object has a distinct final
 frame.
+
+`ResolvePreviewObjectFrameBounds()` is the shared geometry source for selection
+outlines, Preview context-menu hit testing and menu-hover outlines. NUMBER uses
+the full `DST w * keta` field while keeping DST x as its left edge; TEXT uses
+its rendered string width and its distinct left/middle/right anchor rules. If
+font or string metrics are not available yet, TEXT falls back to DST w but must
+still apply the anchor shift. GROOVEGAUGE uses the union of all 50 LR2 cells,
+including positive or negative `SRC add_x/add_y` displacement.
+Do not reintroduce a raw one-cell `DST w/h` hit rectangle in the context menu.
+
+Preview context-menu candidates come from each `SEObjectInstance::rows` via
+`CollectPreviewObjectDestinations()`. They must not be enumerated from the
+legacy sequential `arr_DST` cache: `#DST_BGA` is deliberately absent there and
+special/indexed source families can associate the following cache entry with a
+neighboring Object. The Object-owned path keeps BGA/background and GROOVEGAUGE
+hit testing synchronized with Browser and Inspector ownership.
 
 ### Files
 

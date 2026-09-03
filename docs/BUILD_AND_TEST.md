@@ -80,7 +80,7 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   플레이어별 NOWJUDGE/NOWCOMBO, RESULT의 label/판정 숫자/chart 및 COURSERESULT의
   1~5스테이지 제목/레벨과 누적 결과 필수 Object 생성, `#INFORMATION`과
   활성 `#RESOLUTION`의 동일 해상도
-- `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제, graphic ID 배정과 선택
+- `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제 후 재생성 시 문자열 소유권, graphic ID 배정과 선택
   Object SRC에 대한 원자적 Asset 적용/Undo, `#IMAGE` 경로 교체/Undo, 이미지 상태
   진단, named grid Asset 일괄 등록/단일 Undo
 - `object-reorder`: 같은 파일 안의 IF/ELSEIF/ELSE 간 Object 이동과 확인 후 서로
@@ -505,6 +505,9 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 
 - IF/ELSEIF/ELSE가 한 ConditionBlock의 sibling인지
 - IF와 ELSEIF 뒤에 각각 `293`, `294`가 표시되는지
+- Object Browser의 `z` 번호가 Type/Group/Search filter와 무관하게 유지되고, 작은
+  번호가 뒤쪽, 큰 번호가 앞쪽인지. `Draw order`를 켜면 IF tree 대신 전체 Object가
+  위(뒤)에서 아래(앞) 순서로 표시되며 끄면 기존 branch 문맥이 복원되는지
 - ELSE는 불필요한 파라미터 없이 표시되는지
 - `Active objects only`에서 ELSE만 남았을 때 ELSE 툴팁에 그 체인의 원래
   IF/ELSEIF 조건이 모두 표시되는지
@@ -549,14 +552,34 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - NUMBER `align=0/1/2`를 각각 선택해도 점멸 사각형의 왼쪽은 DST `x`이고,
   숫자 glyph만 그 필드 안에서 right/left/middle로 배치되는지. 특히 right에서
   사각형 전체가 DST `x` 왼쪽으로 이동하면 안 된다.
+- `keta > 1`인 NUMBER의 첫 glyph 바깥, 나머지 숫자 영역에서 Preview를 우클릭해도
+  해당 Object가 메뉴에 나타나고, 메뉴 hover 사각형도 `DST w * keta` 전체를
+  표시하는지. `object-reorder` self-test는 공용 계산의 4자리 폭을 확인한다.
 - TEXT는 NUMBER와 다른 `align` 순서인 `0=left`, `1=middle`, `2=right`를
   사용하는지. 점멸 사각형은 실제 렌더링된 문자열 폭을 사용하고 middle은 그 폭의
-  절반, right는 전체 폭만큼 DST `x` 왼쪽에 표시되는지
+  절반, right는 전체 폭만큼 DST `x` 왼쪽에 표시되는지. 문자열/글꼴 폭을 아직
+  얻지 못한 경우에도 DST w 대체 폭으로 세 align의 x가 각각 100/80/60이 되는지를
+  `object-reorder` self-test가 확인한다.
+- GROOVEGAUGE의 첫 칸이 아닌 뒤쪽 칸을 우클릭해도 Object 후보에 나타나는지.
+  점멸/hover 사각형은 `SRC add_x/add_y`로 배치되는 50칸 전체를 감싸야 하며,
+  `object-reorder` self-test는 양수 X/음수 Y 간격의 외곽 영역도 확인한다.
+- BGA/배경의 보이는 영역을 우클릭하면 Object 후보에 나타나는지. 우클릭 후보는
+  `arr_DST`가 아니라 Object 소유 CSV 행에서 만들어야 하며, `object-reorder`
+  self-test는 `arr_DST`에 없는 `#DST_BGA`도 수집되는지 확인한다.
 - PLAY의 `NOWJUDGE_1P/2P`, `NOWCOMBO_1P/2P`를 선택했을 때도 점멸
   사각형이 표시되고 DST 프레임 위치를 따라가는지
+- `NOWCOMBO_1P/2P` Inspector 상단에 상대좌표 안내가 표시되고 Layout은
+  `Offset X/Y`, Timeline은 `dX/dY`로 보이는지. 각 좌표 input hover tooltip이
+  같은 player/judgement index의 NOWJUDGE 기준임을 설명하며 다른 DST의 X/Y label은
+  바뀌지 않는지
 - Object Browser에서 같은 파일의 Object를 같은 Branch 또는 다른
   IF/ELSEIF/ELSE Branch의 Object 위/아래로 drag하면 SRC/DST와
   `$SE_OBJECT_NAME/$SE_OBJECT_ID`가 함께 이동하는지
+- indexed Object의 `Create Object (duplicate)`를 한 번 실행했을 때 원본과
+  복제본이 각각 별도 Object로 남고, 복제본 안에 SRC 1개와 원본의 모든 DST가
+  한 묶음으로 들어가는지. `object-reorder` self-test는 같은 index와 서로 다른
+  `$SE_OBJECT_ID`를 가진 NOWCOMBO 두 블록 및 한 ID 아래 반복된 두 SRC/DST 묶음이
+  각각 합쳐지지 않는지 확인한다.
 - 다른 include 파일의 Object에 drop할 때 주황색 삽입선과 확인창이 표시되는지.
   Cancel하면 문서가 바뀌지 않고, 승인하면 SRC/DST와 `$SE_OBJECT_ID/NAME`의 파일
   소유권이 대상 include로 바뀌는지
@@ -681,8 +704,12 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
   drag하는 동안 `div_x/div_y` 한 frame 크기와 UV의 반투명 ghost가 표시되는지
 - Drop 시 New Object 창이 열리고 `#SRC_IMAGE`의 gr/crop, `#DST_IMAGE`의 x/y/w/h,
   현재 선택 Object의 IF branch가 미리 채워지는지
-- Drop modal에서 IMAGE/NUMBER/SLIDER/BUTTON을 바꿔도 gr/crop/div/cycle/timer와
-  DST Drop 위치가 유지되고 선택한 command 쌍으로 생성되는지
+- Drop modal에 BARGRAPH, ONMOUSE, MOUSECURSOR, BAR 표시 계열, LINE/JUDGELINE,
+  NOWJUDGE/NOWCOMBO, GROOVEGAUGE와 CHART 계열이 표시되는지. 선택한 타입과 같은
+  이름의 SRC/DST 한 쌍이 생성되고 gr/crop/div/cycle/timer와 DST Drop 위치가
+  유지되는지
+- BAR_BODY, EVENT_MODE_CURSOR, NOTE/MINE/LN, TEXT와 BGA는 이 1차 직접 생성
+  목록에 나타나지 않는지
 - 기존 `#SRC_NUMBER`에서 나온 Asset을 NUMBER로 선택하면 `num/align/keta`가
   그대로 복사되는지. SLIDER/BUTTON도 같은 command-specific 복사 규칙을 따르는지
 - 분할 SRC Drop 시 New Object의 `div_x/div_y/cycle/timer`가 원본과 같고 DST w/h가

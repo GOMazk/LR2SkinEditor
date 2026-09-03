@@ -33,7 +33,7 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - Object/Command 생성, 이름 지정, SRC/DST 속성 편집
 - FAST/SLOW를 특별 예외가 아닌 NUMBER Object로 취급
 - `$num/$type/$timer/$op/$st` 이름을 ID 또는 이름으로 검색하는 ComboBox
-- Asset crop을 Preview에 놓은 뒤 IMAGE/NUMBER/SLIDER/BUTTON 중 Object 종류 선택
+- Asset crop을 Preview에 놓은 뒤 schema-compatible image Object 종류 선택
 - Preview에서 선택 Object 이동, 키보드 미세 이동 및 첫 DST rectangle resize
 - Object Inspector의 Layout / Timeline / Conditions semantic 편집과 DST 프레임 증감
 - Ctrl+Z 기반 CSV/구조 편집 복구
@@ -352,8 +352,12 @@ Object Inspector는 이 네 숫자 입력을 `ARGB` 색상 선택기 하나로 �
 
 주요 규칙:
 
-- 명령 도움말에서 1번 열이 명시적으로 `index`인 그룹은 `(ifgroup, index)`로
-  행을 묶는다.
+- 명령 도움말에서 1번 열이 명시적으로 `index`인 legacy 그룹은
+  `(ifgroup, index)`로 행을 묶는다. `$SE_OBJECT_ID`가 붙은 블록은 ID도 묶음
+  경계로 사용하므로 같은 index의 Object를 복제해도 복제본의 SRC와 전체 DST가
+  원본 Object 안으로 합쳐지지 않는다. 이전 동작으로 한 ID 아래
+  `SRC/DST/.../SRC/DST`가 반복된 경우도 DST 뒤 같은 SRC가 다시 시작되는 지점에서
+  별도 Object로 복구해 표시한다.
 - NOTE 계열처럼 도움말이 불완전해도 여러 SRC/DST 명령 종류가 동일 숫자 인덱스를
   공유하면 indexed group으로 취급한다.
 - index가 없는 그룹은 각 SRC부터 다음 SRC 전까지의 DST를 한 Object로 묶는다.
@@ -455,6 +459,9 @@ Browser 선택:
 - Delete: 활성 Object의 종류와 이름을 확인하는 modal을 거친 뒤 삭제한다. 입력
   field나 다른 modal이 활성화된 동안에는 Delete shortcut을 받지 않는다.
 - 우클릭 `Remove Object`도 같은 확인 modal과 CSV/History 삭제 경로를 사용한다.
+- 우클릭 `Create Object (duplicate)`는 선택 Object의 SRC와 모든 DST 행을 한 번에
+  복사하고 새 `$SE_OBJECT_ID`를 붙인다. indexed Object도 이 ID 경계로 원본과
+  복제본을 각각 한 Object로 유지한다.
 
 Browser 순서 변경:
 
@@ -556,6 +563,8 @@ Ctrl+MouseWheel로 확대/축소한다.
 - TEXT의 `align`은 NUMBER와 달리 `0=left`, `1=middle`, `2=right`이며 DST `x`를
   문자열 anchor로 사용한다. 경계는 LR2가 폰트와 DST `w/h`에서 계산하는 실제 출력
   폭으로 맞추고, middle/right에서는 각각 그 폭의 절반/전체만큼 왼쪽으로 이동한다.
+- GROOVEGAUGE의 경계는 첫 DST 한 칸이 아니라 LR2가 `SRC add_x/add_y` 간격으로
+  반복 출력하는 50칸 전체의 외곽 영역이다. 음수 간격도 같은 방식으로 포함한다.
 - 선택한 Object 위에서 좌클릭 drag하면 해당 Object의 모든 선택 대상 DST 좌표를
   이동한다.
 - 한 Object를 선택하면 첫 DST 우하단에 흰 handle이 나타난다. handle drag는 첫
@@ -594,7 +603,15 @@ Object만 목록에 표시한다. 각 항목은 Object 모델의 대응 SRC 명�
 thumbnail을 만든다. 항목 hover 시 얇은 노란 점멸 사각형으로 위치를 표시하고,
 클릭 시 Browser/Inspector/DST View 선택을 동기화한다. LR2는 뒤쪽 CSV DST를 나중에
 그려 앞에 배치하므로, 겹친 후보 목록도 이 순서를 뒤집어 가장 앞에 보이는 Object부터
-표시한다.
+표시한다. 후보와 DST frame은 순차 `arr_DST`가 아니라 각 Object 모델이 직접 소유한
+CSV 행에서 만든다. 따라서 해당 cache에서 제외되는 BGA 배경과 특수/indexed SRC 뒤의
+GROOVEGAUGE도 다른 Object로 잘못 연결되지 않는다. hit-test와 hover 사각형은 선택
+점멸 사각형과 같은 frame 영역 계산을
+사용하므로 NUMBER는 한 glyph의 `DST w`가 아니라 `DST w * keta` 전체를 검사하고,
+TEXT는 실제 문자열 폭과 전용 align 보정을 반영한다. 글꼴이나 문자열 폭을 아직
+계산할 수 없는 frame도 DST w를 대체 폭으로 삼아 `0=left`, `1=middle`,
+`2=right` anchor 보정은 유지한다. GROOVEGAUGE도 `add_x/add_y`로 배치되는 50칸
+전체를 검사한다.
 
 ### 이미지 번호와 텍스처 선택
 
@@ -686,11 +703,17 @@ LR2의 전체 cycle 시간에 맞춰 분할 frame을 행 우선 순서로 재생
 Asset card를 Preview로 drag하면 Preview 확대율/스크롤을 반영한 스킨 좌표에
 반투명 crop ghost가 표시된다. SRC에 `div_x/div_y`가 있으면 전체 sheet가 아니라
 현재 animation frame 한 칸의 UV와 크기를 ghost에 사용한다. Drop 시 CSV를 즉시
-추가하지 않고 기존 New Object 창을 연다. 이 modal의 Object type은
-IMAGE/NUMBER/SLIDER/BUTTON 네 가지이며, 종류를 바꿔도 Asset의 `gr/x/y/w/h`와
-`div_x/div_y/cycle/timer`, Drop 위치가 유지된다. 대응하는 SRC/DST command를
+추가하지 않고 기존 New Object 창을 연다. 이 modal은 `gr/x/y/w/h` crop schema와
+같은 이름의 단일 DST 명령을 가진 Object type을 자동으로 표시한다.
+IMAGE/NUMBER/SLIDER/BUTTON뿐 아니라 BARGRAPH, ONMOUSE, MOUSECURSOR, BAR 표시 계열,
+LINE/JUDGELINE, NOWJUDGE/NOWCOMBO, GROOVEGAUGE와 CHART 계열을 선택할 수 있다.
+종류를 바꿔도 Asset의 `gr/x/y/w/h`와 `div_x/div_y/cycle/timer`, Drop 위치가
+유지된다. 대응하는 SRC/DST command를
 만들고 현재 선택 Object의 IF branch를 사용한다. New Object의 SRC에는 원본
 분할/animation 값을 유지하고 DST 크기는 한 frame 크기로 초기화한다.
+여러 DST가 필요하거나 공용 DST를 쓰는 BAR_BODY, EVENT_MODE_CURSOR, NOTE/MINE/LN
+계열은 전용 생성 recipe가 필요하므로 이 직접 생성 목록에서 제외한다. TEXT/BGA처럼
+이미지 crop을 SRC로 소비하지 않는 타입도 표시하지 않는다.
 Asset이 실제 SRC 선언에서 만들어졌고 새 Object type도 같은 command라면 공통
 crop뿐 아니라 command-specific 필드도 schema 이름으로 복사한다. 따라서 기존
 NUMBER Asset은 `num/align/keta`, SLIDER/BUTTON Asset은 각 type 관련 값을 유지한다.

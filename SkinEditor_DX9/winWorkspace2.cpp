@@ -302,7 +302,7 @@ int RunObjectReorderSelfTest() {
         GetCurrentProcessId());
 
     WORKSPACE workspace;
-    workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 24);
+    workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 32);
     workspace.arr_CustomFile.Alloc(sizeof(CSTR), 2);
     workspace.arr_SRCGR.Alloc(sizeof(SRCGR), 2);
     workspace.arr_IMG.Alloc(sizeof(IMG), 4);
@@ -346,6 +346,40 @@ int RunObjectReorderSelfTest() {
     appendLine("#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0,0,0,0", ownerPath);
     appendLine("#DST_IMAGE,0,0,3,4,1,1,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
     appendLine("#ENDIF", ownerPath);
+    appendLine("$SE_OBJECT_ID,front-number", ownerPath);
+    appendLine("$SE_OBJECT_NAME,Front Number", ownerPath);
+    appendLine("#SRC_NUMBER,0,0,0,0,100,20,10,1,0,0,101,0,4", ownerPath);
+    appendLine("#DST_NUMBER,0,0,7,8,10,20,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("$SE_OBJECT_ID,front-text", ownerPath);
+    appendLine("$SE_OBJECT_NAME,Front Text", ownerPath);
+    appendLine("#SRC_TEXT,0,0,10,0,0,0", ownerPath);
+    appendLine("#DST_TEXT,0,0,100,30,40,20,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("$SE_OBJECT_ID,front-groove-gauge", ownerPath);
+    appendLine("$SE_OBJECT_NAME,Front Groove Gauge", ownerPath);
+    appendLine("#SRC_GROOVEGAUGE,0,0,0,0,40,16,4,1,0,0,5,-2", ownerPath);
+    appendLine("#DST_GROOVEGAUGE,0,0,100,200,10,4,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("$SE_OBJECT_ID,front-bga", ownerPath);
+    appendLine("$SE_OBJECT_NAME,Front BGA", ownerPath);
+    appendLine("#SRC_BGA,0,0,0,0,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("#DST_BGA,0,0,11,12,320,180,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("$SE_OBJECT_ID,combo-original", ownerPath);
+    appendLine("#SRC_NOWCOMBO_1P,5,0,0,0,80,16,10,1,0,46,0,1,7", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,0,10,20,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,500,10,20,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("$SE_OBJECT_ID,combo-duplicate", ownerPath);
+    appendLine("#SRC_NOWCOMBO_1P,5,0,0,0,80,16,10,1,0,46,0,1,7", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,0,30,40,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,500,30,40,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    // Older duplicate behavior could copy an already merged Object, leaving
+    // repeated SRC/DST bundles beneath one ID. Rebuild must split those runs
+    // instead of presenting every SRC in one Inspector Object.
+    appendLine("$SE_OBJECT_ID,combo-packed-copy", ownerPath);
+    appendLine("#SRC_NOWCOMBO_1P,5,0,0,0,80,16,10,1,0,46,0,1,7", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,0,50,60,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,500,50,60,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("#SRC_NOWCOMBO_1P,5,0,0,0,80,16,10,1,0,46,0,1,7", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,0,70,80,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,500,70,80,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
     appendLine(includeStart.c_str(), otherOwnerPath);
     appendLine("#IF,901", otherOwnerPath);
     appendLine("$SE_OBJECT_ID,include-object", otherOwnerPath);
@@ -371,11 +405,152 @@ int RunObjectReorderSelfTest() {
 
     int source = findObject("left-object");
     int target = findObject("right-object");
-    if (source < 0 || target < 0) return 4;
+    const int frontNumber = findObject("front-number");
+    const int frontText = findObject("front-text");
+    const int frontGrooveGauge = findObject("front-groove-gauge");
+    const int frontBga = findObject("front-bga");
+    if (source < 0 || target < 0 || frontNumber < 0 || frontText < 0 ||
+        frontGrooveGauge < 0 || frontBga < 0)
+        return 4;
+    const int originalCombo = findObject("combo-original");
+    const int duplicatedCombo = findObject("combo-duplicate");
+    if (originalCombo < 0 || duplicatedCombo < 0 ||
+        originalCombo == duplicatedCombo) return 45;
+    const std::vector<SEObjectInstance>& duplicateObjects =
+        workspace.objectEditorModel.Objects();
+    if (duplicateObjects[originalCombo].rows.size() != 3 ||
+        duplicateObjects[duplicatedCombo].rows.size() != 3)
+        return 46;
+    for (int modelIndex : { originalCombo, duplicatedCombo }) {
+        int sourceCount = 0;
+        int destinationCount = 0;
+        for (int row : duplicateObjects[modelIndex].rows) {
+            const SKINFILELINEREAD& line =
+                ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+            const char* command = line.csv.str[0].body
+                ? line.csv.str[0].body : "";
+            if (strcmp(command, "#SRC_NOWCOMBO_1P") == 0)
+                ++sourceCount;
+            else if (strcmp(command, "#DST_NOWCOMBO_1P") == 0)
+                ++destinationCount;
+        }
+        if (sourceCount != 1 || destinationCount != 2) return 47;
+    }
+    int nowComboObjectCount = 0;
+    for (const SEObjectInstance& object : duplicateObjects) {
+        int sourceCount = 0;
+        int destinationCount = 0;
+        for (int row : object.rows) {
+            const SKINFILELINEREAD& line =
+                ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+            const char* command = line.csv.str[0].body
+                ? line.csv.str[0].body : "";
+            if (strcmp(command, "#SRC_NOWCOMBO_1P") == 0)
+                ++sourceCount;
+            else if (strcmp(command, "#DST_NOWCOMBO_1P") == 0)
+                ++destinationCount;
+        }
+        if (sourceCount == 0 && destinationCount == 0) continue;
+        ++nowComboObjectCount;
+        if (sourceCount != 1 || destinationCount != 2) return 48;
+    }
+    if (nowComboObjectCount != 4) return 49;
     const std::vector<SEObjectInstance>& initialObjects =
         workspace.objectEditorModel.Objects();
+    if (initialObjects[source].drawOrder < 0 ||
+        initialObjects[target].drawOrder <= initialObjects[source].drawOrder ||
+        initialObjects[frontNumber].drawOrder <= initialObjects[target].drawOrder ||
+        initialObjects[source].firstDstRow >= initialObjects[target].firstDstRow ||
+        initialObjects[target].firstDstRow >= initialObjects[frontNumber].firstDstRow)
+        return 43;
+    if (!(source < target && target < frontNumber)) return 44;
     if (initialObjects[source].ifgroup == initialObjects[target].ifgroup)
         return 5;
+    DST_ANIMATION numberFrame = {};
+    numberFrame.x = 7.0f;
+    numberFrame.y = 8.0f;
+    numberFrame.w = 10.0f;
+    numberFrame.h = 20.0f;
+    float numberX = 0.0f, numberY = 0.0f;
+    float numberWidth = 0.0f, numberHeight = 0.0f;
+    workspace.ResolvePreviewObjectFrameBounds(initialObjects[frontNumber],
+        numberFrame, numberX, numberY, numberWidth, numberHeight);
+    if (std::abs(numberX - 7.0f) >= 0.5f ||
+        std::abs(numberY - 8.0f) >= 0.5f ||
+        std::abs(numberWidth - 40.0f) >= 0.5f ||
+        std::abs(numberHeight - 20.0f) >= 0.5f)
+        return 50;
+
+    int textSourceRow = -1;
+    for (int row : initialObjects[frontText].rows) {
+        SKINFILELINEREAD& line =
+            ((SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.str[0].isSame("#SRC_TEXT")) {
+            textSourceRow = row;
+            break;
+        }
+    }
+    if (textSourceRow < 0) return 51;
+    DST_ANIMATION textFrame = {};
+    textFrame.x = 100.0f;
+    textFrame.y = 30.0f;
+    textFrame.w = 40.0f;
+    textFrame.h = 20.0f;
+    const float expectedTextX[] = { 100.0f, 80.0f, 60.0f };
+    for (int align = 0; align < 3; ++align) {
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[textSourceRow]
+            .csv.val[4] = align;
+        float textX = 0.0f, textY = 0.0f;
+        float textWidth = 0.0f, textHeight = 0.0f;
+        workspace.ResolvePreviewObjectFrameBounds(initialObjects[frontText],
+            textFrame, textX, textY, textWidth, textHeight);
+        if (std::abs(textX - expectedTextX[align]) >= 0.5f ||
+            std::abs(textY - 30.0f) >= 0.5f ||
+            std::abs(textWidth - 40.0f) >= 0.5f ||
+            std::abs(textHeight - 20.0f) >= 0.5f)
+            return 52 + align;
+    }
+    ((SKINFILELINEREAD*)workspace.skinfileLines.data)[textSourceRow]
+        .csv.val[4] = 0;
+    DST_ANIMATION grooveGaugeFrame = {};
+    grooveGaugeFrame.x = 100.0f;
+    grooveGaugeFrame.y = 200.0f;
+    grooveGaugeFrame.w = 10.0f;
+    grooveGaugeFrame.h = 4.0f;
+    float grooveGaugeX = 0.0f, grooveGaugeY = 0.0f;
+    float grooveGaugeWidth = 0.0f, grooveGaugeHeight = 0.0f;
+    workspace.ResolvePreviewObjectFrameBounds(
+        initialObjects[frontGrooveGauge], grooveGaugeFrame,
+        grooveGaugeX, grooveGaugeY, grooveGaugeWidth, grooveGaugeHeight);
+    if (std::abs(grooveGaugeX - 100.0f) >= 0.5f ||
+        std::abs(grooveGaugeY - 102.0f) >= 0.5f ||
+        std::abs(grooveGaugeWidth - 255.0f) >= 0.5f ||
+        std::abs(grooveGaugeHeight - 102.0f) >= 0.5f)
+        return 55;
+    std::vector<SEPreviewObjectDestination> grooveDestinations;
+    workspace.CollectPreviewObjectDestinations(
+        initialObjects[frontGrooveGauge], grooveDestinations);
+    if (grooveDestinations.size() != 1 ||
+        grooveDestinations[0].lastRow < 0 ||
+        std::abs(grooveDestinations[0].frame.x - 100.0f) >= 0.5f ||
+        std::abs(grooveDestinations[0].frame.y - 200.0f) >= 0.5f)
+        return 56;
+    std::vector<SEPreviewObjectDestination> bgaDestinations;
+    workspace.CollectPreviewObjectDestinations(
+        initialObjects[frontBga], bgaDestinations);
+    if (bgaDestinations.size() != 1 ||
+        bgaDestinations[0].lastRow < 0 ||
+        std::abs(bgaDestinations[0].frame.x - 11.0f) >= 0.5f ||
+        std::abs(bgaDestinations[0].frame.y - 12.0f) >= 0.5f ||
+        std::abs(bgaDestinations[0].frame.w - 320.0f) >= 0.5f ||
+        std::abs(bgaDestinations[0].frame.h - 180.0f) >= 0.5f)
+        return 57;
+    for (int dstIndex = 0; dstIndex < workspace.arr_DST.count; ++dstIndex) {
+        const DST& cachedDestination =
+            ((const DST*)workspace.arr_DST.data)[dstIndex];
+        if (cachedDestination.declare == bgaDestinations[0].lastRow)
+            return 58;
+    }
     if (!workspace.CanReorderObject(source, target)) return 6;
 
     if (!workspace.QueueObjectReorder(source, target, true) ||
@@ -517,6 +692,50 @@ int RunAssetMetadataSelfTest() {
     if (gifLayoutResult != 0) return 105 + gifLayoutResult;
     if (arr_CommandHelp.count <= 0 &&
         LoadCommandHelp("..\\skinHelper.txt") != 0) return 9;
+    const char* directAssetDropCommands[] = {
+        "#SRC_IMAGE", "#SRC_NUMBER", "#SRC_SLIDER", "#SRC_BUTTON",
+        "#SRC_BARGRAPH", "#SRC_ONMOUSE", "#SRC_MOUSECURSOR",
+        "#SRC_BAR_FLASH", "#SRC_BAR_LEVEL", "#SRC_BAR_LAMP",
+        "#SRC_BAR_MY_LAMP", "#SRC_BAR_RIVAL_LAMP", "#SRC_BAR_RANK",
+        "#SRC_BAR_RIVAL", "#SRC_LINE", "#SRC_JUDGELINE",
+        "#SRC_NOWJUDGE_1P", "#SRC_NOWCOMBO_1P", "#SRC_NOWJUDGE_2P",
+        "#SRC_NOWCOMBO_2P", "#SRC_GROOVEGAUGE", "#SRC_GAUGECHART_1P",
+        "#SRC_GAUGECHART_2P", "#SRC_SCORECHART"
+    };
+    for (const char* command : directAssetDropCommands)
+        if (!SEIsDirectAssetDropObjectCommand(command)) return 130;
+    const char* deferredAssetDropCommands[] = {
+        "#SRC_TEXT", "#SRC_BAR_BODY", "#SRC_EVENT_MODE_CURSOR",
+        "#SRC_NOTE", "#SRC_MINE", "#SRC_LN_START", "#SRC_AUTO_NOTE",
+        "#SRC_BGA", "#SRC_MASK"
+    };
+    for (const char* command : deferredAssetDropCommands)
+        if (SEIsDirectAssetDropObjectCommand(command)) return 131;
+
+    // Exercise the Image Manager failure sequence: delete a non-last crop,
+    // then reuse the vacant tail for a new crop. ARR byte-relocates records,
+    // so the survivor and the new entry must still own distinct CSTR buffers.
+    std::unique_ptr<WORKSPACE> reuseWorkspace(new WORKSPACE());
+    reuseWorkspace->arr_IMG.Alloc(sizeof(IMG), 4);
+    if (reuseWorkspace->NewIMG(0, 0, 0, 1, 1, 0) != 0 ||
+        reuseWorkspace->NewIMG(0, 1, 0, 1, 1, 0) != 1)
+        return 132;
+    ((IMG*)reuseWorkspace->arr_IMG.data)[1].name.assign("survivor");
+    if (reuseWorkspace->DeleteIMG(0) != 0 ||
+        reuseWorkspace->NewIMG(0, 2, 0, 1, 1, 0) != 1)
+        return 133;
+    IMG* reusedImages = (IMG*)reuseWorkspace->arr_IMG.data;
+    if (!reusedImages[0].name.isSame("survivor") ||
+        !reusedImages[1].name.isSame("manual crop") ||
+        reusedImages[0].name.body == reusedImages[1].name.body)
+        return 134;
+    for (int imageIndex = 0; imageIndex < reuseWorkspace->arr_IMG.count;
+        ++imageIndex) {
+        reusedImages[imageIndex].name.~CSTR();
+        reusedImages[imageIndex].name.body = NULL;
+    }
+    reuseWorkspace->arr_IMG.Free();
+
     char tempDirectory[MAX_PATH] = {};
     if (!GetTempPathA(MAX_PATH, tempDirectory)) return 10;
     char outputPath[MAX_PATH] = {};
@@ -1366,13 +1585,19 @@ int WORKSPACE::DeleteIMG(int pos) {
         const char* text = metadata.line.body ? metadata.line.outstr() : "";
         if (strncmp(text, "$SRC_IMAGE,", 11) == 0) {
             DeleteLine(metadataRow);
-            for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
-                IMG& image = ((IMG*)arr_IMG.data)[imageIndex];
-                if (image.editorDeclare > metadataRow) --image.editorDeclare;
-            }
         }
     }
-    arr_IMG.DeleteAt(pos);
+
+    // ARR relocates entries with memcpy. Release only the removed CSTR, then
+    // clear the duplicate tail slot after the surviving entries have moved.
+    // Without clearing it, Delete(non-last) followed by NewIMG() reuses a
+    // shallow copy of the last surviving name and corrupts the heap.
+    IMG* images = (IMG*)arr_IMG.data;
+    images[pos].name.~CSTR();
+    images[pos].name.body = NULL;
+    if (arr_IMG.DeleteAt(pos) != 0) return -1;
+    if (arr_IMG.data && arr_IMG.count >= 0 && arr_IMG.count < arr_IMG.bufSize)
+        memset(&((IMG*)arr_IMG.data)[arr_IMG.count], 0, sizeof(IMG));
 
     //TODO:history here
 
@@ -1654,6 +1879,14 @@ int WORKSPACE::InsertLine(int pos) {
         if (((SRC*)arr_SRC.data)[i].declare >= pos) ++((SRC*)arr_SRC.data)[i].declare;
     for (int i = 0; i < arr_DST.count; ++i)
         if (((DST*)arr_DST.data)[i].declare >= pos) ++((DST*)arr_DST.data)[i].declare;
+    for (int i = 0; i < arr_SRCGR.count; ++i)
+        if (((SRCGR*)arr_SRCGR.data)[i].declare >= pos)
+            ++((SRCGR*)arr_SRCGR.data)[i].declare;
+    for (int i = 0; i < arr_IMG.count; ++i) {
+        IMG& image = ((IMG*)arr_IMG.data)[i];
+        if (image.sourceDeclare >= pos) ++image.sourceDeclare;
+        if (image.editorDeclare >= pos) ++image.editorDeclare;
+    }
 
     NotifyDocumentChanged(DOCUMENT_CHANGE_STRUCTURE);
 
@@ -2298,6 +2531,18 @@ int WORKSPACE::DeleteLine(int pos) {
         DST& dst = ((DST*)arr_DST.data)[i];
         if (dst.declare == pos) dst.declare = -1;
         else if (dst.declare > pos) --dst.declare;
+    }
+    for (int i = 0; i < arr_SRCGR.count; ++i) {
+        SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[i];
+        if (graphic.declare == pos) graphic.declare = -1;
+        else if (graphic.declare > pos) --graphic.declare;
+    }
+    for (int i = 0; i < arr_IMG.count; ++i) {
+        IMG& image = ((IMG*)arr_IMG.data)[i];
+        if (image.sourceDeclare == pos) image.sourceDeclare = -1;
+        else if (image.sourceDeclare > pos) --image.sourceDeclare;
+        if (image.editorDeclare == pos) image.editorDeclare = -1;
+        else if (image.editorDeclare > pos) --image.editorDeclare;
     }
     NotifyDocumentChanged(DOCUMENT_CHANGE_STRUCTURE);
 

@@ -535,25 +535,74 @@ void WORKSPACE::EndDstArgbEdit() {
     objectColorEditHistoryIndex = -1;
 }
 
-static bool IsAssetBackedObjectCommand(const char* command) {
-    return command && (!strcmp(command, "#SRC_IMAGE") ||
-        !strcmp(command, "#SRC_NUMBER") ||
-        !strcmp(command, "#SRC_SLIDER") ||
-        !strcmp(command, "#SRC_BUTTON"));
+static bool HasAssetCropFields(const char* command) {
+    if (!command || _strnicmp(command, "#SRC_", 5) != 0) return false;
+    const char* requiredFields[] = { "gr", "x", "y", "w", "h" };
+    bool found[IM_ARRAYSIZE(requiredFields)] = {};
+    for (int column = 1; column < 30; ++column) {
+        CSTR help = GetCommandHelp(command, column);
+        help.trimWhiteSpace();
+        const char* label = help.body ? help.outstr() : "";
+        if (*label == '$') ++label;
+        for (int field = 0; field < IM_ARRAYSIZE(requiredFields); ++field)
+            if (_stricmp(label, requiredFields[field]) == 0)
+                found[field] = true;
+    }
+    for (bool present : found)
+        if (!present) return false;
+    return true;
 }
 
-static const char* AssetBackedObjectTypeName(const char* command) {
-    if (!command) return "Unknown";
-    if (!strcmp(command, "#SRC_IMAGE")) return "Image";
-    if (!strcmp(command, "#SRC_NUMBER")) return "Number";
-    if (!strcmp(command, "#SRC_SLIDER")) return "Slider";
-    if (!strcmp(command, "#SRC_BUTTON")) return "Button";
-    return command;
+static bool IsNowComboDestinationCommand(const char* command) {
+    return command &&
+        (_stricmp(command, "#DST_NOWCOMBO_1P") == 0 ||
+            _stricmp(command, "#DST_NOWCOMBO_2P") == 0);
+}
+
+static bool IsNowComboRelativeField(const char* command,
+    const char* fieldName) {
+    return IsNowComboDestinationCommand(command) && fieldName &&
+        (_stricmp(fieldName, "x") == 0 || _stricmp(fieldName, "y") == 0);
+}
+
+static const char* NowComboCoordinateHelp() {
+    return "DST_NOWCOMBO X/Y are offsets from the matching DST_NOWJUDGE "
+        "player and judgement index, not absolute canvas coordinates. "
+        "LR2 then applies judgement adjustment and digit alignment.";
+}
+
+static bool IsDeferredAssetDropSource(const char* command) {
+    if (!command) return false;
+    return _stricmp(command, "#SRC_NOTE") == 0 ||
+        _stricmp(command, "#SRC_MINE") == 0 ||
+        _strnicmp(command, "#SRC_LN_", 8) == 0 ||
+        _strnicmp(command, "#SRC_AUTO_", 10) == 0;
+}
+
+bool SEIsDirectAssetDropObjectCommand(const char* command) {
+    if (!HasAssetCropFields(command) || IsDeferredAssetDropSource(command))
+        return false;
+
+    std::string destination = "#DST_";
+    destination += command + 5;
+    CSTR definition = GetCommandHelp(destination.c_str(), 0);
+    definition.trimWhiteSpace();
+    return definition.body &&
+        _stricmp(definition.outstr(), destination.c_str()) == 0;
+}
+
+static std::string AssetBackedObjectTypeName(const char* command) {
+    if (!command || !*command) return "Unknown";
+    const char* name = _strnicmp(command, "#SRC_", 5) == 0
+        ? command + 5 : command;
+    std::string displayName(name);
+    std::replace(displayName.begin(), displayName.end(), '_', ' ');
+    return displayName;
 }
 
 static void InitializeAssetBackedSource(CSVbuf& values, const char* command,
     const IMG& asset, int divX, int divY, int cycle, int timer) {
-    if (!IsAssetBackedObjectCommand(command)) return;
+    if (!SEIsDirectAssetDropObjectCommand(command)) return;
     AssignCommandField(values, command, "(NULL)", 0);
     AssignCommandField(values, command, "index", 0);
     AssignCommandField(values, command, "gr", asset.gr);
@@ -572,6 +621,7 @@ static void InitializeAssetBackedSource(CSVbuf& values, const char* command,
     AssignCommandField(values, command, "op3", 0);
     AssignCommandField(values, command, "num", 0);
     AssignCommandField(values, command, "align(0right1left2middle)", 0);
+    AssignCommandField(values, command, "align", 0);
     AssignCommandField(values, command, "keta", 1);
     AssignCommandField(values, command, "muki", 0);
     AssignCommandField(values, command, "range", 0);
@@ -5103,6 +5153,177 @@ int WORKSPACE::drawCustomize() {
     return 0;
 }
 
+void WORKSPACE::CollectPreviewObjectDestinations(
+    const SEObjectInstance& object,
+    std::vector<SEPreviewObjectDestination>& destinations) {
+    destinations.clear();
+    std::string activeCommand;
+    int activeIndex = 0;
+    bool hasActiveDestination = false;
+
+    for (int objectRow : object.rows) {
+        if (objectRow < 0 || objectRow >= skinfileLines.count) continue;
+        SKINFILELINEREAD& line =
+            ((SKINFILELINEREAD*)skinfileLines.data)[objectRow];
+        const char* command = line.csv.str[0].body
+            ? line.csv.str[0].outstr() : "";
+        if (!strncmp(command, "#SRC_", 5)) {
+            // A repeated command/index after another SRC is a separate visual
+            // state, not another animation frame of the preceding destination.
+            hasActiveDestination = false;
+            activeCommand.clear();
+            continue;
+        }
+        if (strncmp(command, "#DST_", 5)) continue;
+
+        const int destinationIndex = line.csv.val[1];
+        if (!hasActiveDestination || activeCommand != command ||
+            activeIndex != destinationIndex) {
+            destinations.push_back(SEPreviewObjectDestination());
+            SEPreviewObjectDestination& destination = destinations.back();
+            destination.firstRow = objectRow;
+            destination.op1 = line.csv.val[18];
+            destination.op2 = line.csv.val[19];
+            destination.op3 = line.csv.val[20];
+            activeCommand = command;
+            activeIndex = destinationIndex;
+            hasActiveDestination = true;
+        }
+
+        SEPreviewObjectDestination& destination = destinations.back();
+        destination.lastRow = objectRow;
+        destination.frame.time = line.csv.val[2];
+        destination.frame.x = line.csv.val[3];
+        destination.frame.y = line.csv.val[4];
+        destination.frame.w = line.csv.val[5];
+        destination.frame.h = line.csv.val[6];
+        destination.frame.acc = line.csv.val[7];
+        destination.frame.a = line.csv.val[8];
+        destination.frame.r = line.csv.val[9];
+        destination.frame.g = line.csv.val[10];
+        destination.frame.b = line.csv.val[11];
+        destination.frame.blend = line.csv.val[12];
+        destination.frame.filter = line.csv.val[13];
+        destination.frame.angle = (float)line.csv.val[14];
+        destination.frame.center = line.csv.val[15];
+    }
+}
+
+void WORKSPACE::ResolvePreviewObjectFrameBounds(
+    const SEObjectInstance& object, const DST_ANIMATION& frame,
+    float& x, float& y, float& w, float& h) {
+    x = frame.x;
+    y = frame.y;
+    w = frame.w;
+    h = frame.h;
+
+    int textAlign = 0;
+    int textFontIndex = -1;
+    int textStringIndex = -1;
+    int numberKeta = 1;
+    int grooveGaugeAddX = 0;
+    int grooveGaugeAddY = 0;
+    bool isTextObject = false;
+    bool isNumberObject = false;
+    bool isGrooveGaugeObject = false;
+    for (int objectRow : object.rows) {
+        if (objectRow < 0 || objectRow >= skinfileLines.count) continue;
+        SKINFILELINEREAD& sourceLine =
+            ((SKINFILELINEREAD*)skinfileLines.data)[objectRow];
+        if (sourceLine.csv.str[0].isSame("#SRC_TEXT")) {
+            isTextObject = true;
+            textFontIndex = sourceLine.csv.val[2];
+            textStringIndex = sourceLine.csv.val[3];
+            textAlign = sourceLine.csv.val[4];
+        } else if (sourceLine.csv.str[0].isSame("#SRC_NUMBER")) {
+            isNumberObject = true;
+            numberKeta = (std::max)(1, sourceLine.csv.val[13]);
+        } else if (sourceLine.csv.str[0].isSame("#SRC_GROOVEGAUGE")) {
+            isGrooveGaugeObject = true;
+            grooveGaugeAddX = sourceLine.csv.val[11];
+            grooveGaugeAddY = sourceLine.csv.val[12];
+        }
+    }
+
+    if (isNumberObject) {
+        // LR2 advances by one DST width per configured digit. NUMBER align
+        // changes glyph placement inside this field, not the field's x origin.
+        w = frame.w * numberKeta;
+        return;
+    }
+    if (isGrooveGaugeObject) {
+        // LR2 draws 50 gauge cells, advancing by SRC add_x/add_y after each
+        // cell. Return the union of those visible cells rather than only the
+        // first DST rectangle so Preview selection matches the rendered bar.
+        const float lastX = frame.x + grooveGaugeAddX * 49.0f;
+        const float lastY = frame.y + grooveGaugeAddY * 49.0f;
+        const float firstRight = frame.x + frame.w;
+        const float firstBottom = frame.y + frame.h;
+        const float lastRight = lastX + frame.w;
+        const float lastBottom = lastY + frame.h;
+        x = (std::min)((std::min)(frame.x, firstRight),
+            (std::min)(lastX, lastRight));
+        y = (std::min)((std::min)(frame.y, firstBottom),
+            (std::min)(lastY, lastBottom));
+        const float right = (std::max)((std::max)(frame.x, firstRight),
+            (std::max)(lastX, lastRight));
+        const float bottom = (std::max)((std::max)(frame.y, firstBottom),
+            (std::max)(lastY, lastBottom));
+        w = right - x;
+        h = bottom - y;
+        return;
+    }
+    if (!isTextObject) return;
+
+    auto applyTextAlignment = [&]() {
+        // TEXT uses 0=left, 1=middle and 2=right around the DST x anchor.
+        if (textAlign == 1) x -= (float)(int)(w * 0.5f);
+        else if (textAlign == 2) x -= (float)(int)w;
+    };
+    if (textFontIndex < 0 || textFontIndex >= 10 ||
+        textStringIndex < 0 || textStringIndex >= 300 ||
+        frame.w == 0.0f || frame.h == 0.0f) {
+        applyTextAlignment();
+        return;
+    }
+
+    CSTR& text = g.txtStruct.objectStr[textStringIndex];
+    if (!text.body || text.length() < 1) {
+        applyTextAlignment();
+        return;
+    }
+
+    float naturalWidth = 0.0f;
+    float naturalHeight = 0.0f;
+    ImageFont& imageFont = g.skstruct.ImageFonts[textFontIndex];
+    if (imageFont.size > 0) {
+        naturalWidth = (float)GetTextGraphLength(&text, &imageFont);
+        naturalHeight = (float)imageFont.size;
+    } else {
+        const int fontHandle = g.skstruct.fontHandle[textFontIndex];
+        int fontSize = 0;
+        int fontThickness = 0;
+        if (fontHandle != -1 &&
+            GetFontStateToHandle(NULL, &fontSize, &fontThickness,
+                fontHandle) == 0) {
+            naturalWidth = (float)GetDrawStringWidthToHandle(
+                text.outstr(), text.length(), fontHandle, 0);
+            naturalHeight = (float)fontSize;
+        }
+    }
+    if (naturalWidth <= 0.0f || naturalHeight <= 0.0f) {
+        applyTextAlignment();
+        return;
+    }
+
+    // LRDrawText caps natural width by DST w, then applies the DST h scale.
+    const float widthScale = naturalWidth > frame.w
+        ? frame.w / naturalWidth : 1.0f;
+    const float heightScale = frame.h / naturalHeight;
+    w = naturalWidth * widthScale * heightScale;
+    applyTextAlignment();
+}
+
 int WORKSPACE::RefreshPreviewSelectionBounds() {
     bool firstBounds = true;
     bool lastBounds = true;
@@ -5176,25 +5397,11 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
             }
         }
 
-        int textAlign = 0;
-        int textFontIndex = -1;
-        int textStringIndex = -1;
-        int numberKeta = 1;
-        bool isTextObject = false;
-        bool isNumberObject = false;
         SRC* editorSlider = NULL;
         for (int objectRow : object.rows) {
             if (objectRow < 0 || objectRow >= skinfileLines.count) continue;
             SKINFILELINEREAD& sourceLine = ((SKINFILELINEREAD*)skinfileLines.data)[objectRow];
-            if (sourceLine.csv.str[0].isSame("#SRC_TEXT")) {
-                isTextObject = true;
-                textFontIndex = sourceLine.csv.val[2];
-                textStringIndex = sourceLine.csv.val[3];
-                textAlign = sourceLine.csv.val[4];
-            } else if (sourceLine.csv.str[0].isSame("#SRC_NUMBER")) {
-                isNumberObject = true;
-                numberKeta = (std::max)(1, sourceLine.csv.val[13]);
-            } else if (sourceLine.csv.str[0].isSame("#SRC_SLIDER")) {
+            if (sourceLine.csv.str[0].isSame("#SRC_SLIDER")) {
                 for (int srcIndex = 0; srcIndex < arr_SRC.count; ++srcIndex) {
                     SRC& candidate = ((SRC*)arr_SRC.data)[srcIndex];
                     if (candidate.declare == objectRow) {
@@ -5204,62 +5411,6 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
                 }
             }
         }
-        auto alignedX = [&](float x, float w) {
-            if (isTextObject) {
-                // TEXT uses 0=left, 1=middle and 2=right. Unlike NUMBER,
-                // LR2 treats DST x as an anchor and shifts by the rendered
-                // string width (LRDrawText), not by the configured DST width.
-                if (textAlign == 1) return x - (float)(int)(w * 0.5f);
-                if (textAlign == 2) return x - (float)(int)w;
-            }
-            // NUMBER align controls digit placement inside the keta-wide
-            // field. LR2 always advances from the DST x coordinate, so x is
-            // the field's left edge for right, left and middle alignment.
-            return x;
-        };
-        auto textFrameWidth = [&](const DST_ANIMATION& frame) {
-            if (!isTextObject || textFontIndex < 0 || textFontIndex >= 10 ||
-                textStringIndex < 0 || textStringIndex >= 300 ||
-                frame.w == 0.0f || frame.h == 0.0f)
-                return frame.w;
-
-            CSTR& text = g.txtStruct.objectStr[textStringIndex];
-            if (!text.body || text.length() < 1) return frame.w;
-
-            float naturalWidth = 0.0f;
-            float naturalHeight = 0.0f;
-            ImageFont& imageFont = g.skstruct.ImageFonts[textFontIndex];
-            if (imageFont.size > 0) {
-                naturalWidth = (float)GetTextGraphLength(&text, &imageFont);
-                naturalHeight = (float)imageFont.size;
-            } else {
-                const int fontHandle = g.skstruct.fontHandle[textFontIndex];
-                int fontSize = 0;
-                int fontThickness = 0;
-                if (fontHandle != -1 &&
-                    GetFontStateToHandle(NULL, &fontSize, &fontThickness, fontHandle) == 0) {
-                    naturalWidth = (float)GetDrawStringWidthToHandle(
-                        text.outstr(), text.length(), fontHandle, 0);
-                    naturalHeight = (float)fontSize;
-                }
-            }
-            if (naturalWidth <= 0.0f || naturalHeight <= 0.0f) return frame.w;
-
-            // Keep the same order as LRDrawText: cap the natural width by
-            // DST w first, then apply the scale selected by DST h.
-            const float widthScale = naturalWidth > frame.w
-                ? frame.w / naturalWidth : 1.0f;
-            const float heightScale = frame.h / naturalHeight;
-            return naturalWidth * widthScale * heightScale;
-        };
-        auto objectFrameWidth = [&](const DST_ANIMATION& frame) {
-            // LR2 draws NUMBER by advancing one DST width per configured
-            // digit. Keep the selection rectangle on the same keta-wide
-            // field instead of highlighting only a single glyph cell.
-            if (isNumberObject) return frame.w * numberKeta;
-            if (isTextObject) return textFrameWidth(frame);
-            return frame.w;
-        };
 
         // SliderByTime renders the knob at the animated DST position plus
         // SRCstruct::sx/sy. Highlight that current rectangle, not the raw
@@ -5299,14 +5450,18 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
         if (includedRuntimeSlider) continue;
 
         const DST_ANIMATION& firstFrame = editorFrames.front();
-        const float firstFrameWidth = objectFrameWidth(firstFrame);
-        includeBounds(alignedX(firstFrame.x, firstFrameWidth), firstFrame.y,
-            firstFrameWidth, firstFrame.h,
+        float firstX = 0.0f, firstY = 0.0f;
+        float firstWidth = 0.0f, firstHeight = 0.0f;
+        ResolvePreviewObjectFrameBounds(object, firstFrame,
+            firstX, firstY, firstWidth, firstHeight);
+        includeBounds(firstX, firstY, firstWidth, firstHeight,
             firstBounds, minX, minY, maxX, maxY);
         const DST_ANIMATION& lastFrame = editorFrames.back();
-        const float lastFrameWidth = objectFrameWidth(lastFrame);
-        includeBounds(alignedX(lastFrame.x, lastFrameWidth), lastFrame.y,
-            lastFrameWidth, lastFrame.h, lastBounds,
+        float lastX = 0.0f, lastY = 0.0f;
+        float lastWidth = 0.0f, lastHeight = 0.0f;
+        ResolvePreviewObjectFrameBounds(object, lastFrame,
+            lastX, lastY, lastWidth, lastHeight);
+        includeBounds(lastX, lastY, lastWidth, lastHeight, lastBounds,
             lastMinX, lastMinY, lastMaxX, lastMaxY);
     }
 
@@ -5867,40 +6022,59 @@ int WORKSPACE::drawPreview() {
 
             ImGui::TextDisabled("Front-most Object first");
             ImGui::Separator();
-            std::vector<int> listedObjectModels;
-            // LR2 sorts draw commands by the source CSV order: later DST rows
-            // are drawn over earlier ones. Walk the editor DST cache backwards
-            // so the context menu presents the visible/front-most Object first.
-            for (int i = arr_DST.count - 1; i >= 0; --i) {
-                DST& dst = ((DST*)arr_DST.data)[i];
-                if (dst.arr_animation.count <= 0 ||
-                    !GetOptionFlag_dst(&g, dst.op1) ||
-                    !GetOptionFlag_dst(&g, dst.op2) ||
-                    !GetOptionFlag_dst(&g, dst.op3)) continue;
-                DST_ANIMATION& dstd = ((DST_ANIMATION*)dst.arr_animation.data)[dst.arr_animation.count - 1];
-                const float hitScale = 1.0f / zoom;
-                float hitX1 = dstd.x, hitY1 = dstd.y;
-                float hitX2 = dstd.x + dstd.w, hitY2 = dstd.y + dstd.h;
-                if (hitX1 > hitX2) std::swap(hitX1, hitX2);
-                if (hitY1 > hitY2) std::swap(hitY1, hitY2);
-                ImVec2 dstposLU = { p.x + hitX1 * hitScale, p.y + hitY1 * hitScale };
-                ImVec2 dstposRB = { p.x + hitX2 * hitScale, p.y + hitY2 * hitScale };
-                
-                if (dstposLU.x <= clickPos.x && clickPos.x <= dstposRB.x && dstposLU.y <= clickPos.y && clickPos.y <= dstposRB.y) {
-                    int objectModelIndex = -1;
-                    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
-                    for (int modelIndex = 0; modelIndex < (int)objects.size(); ++modelIndex) {
-                        if (std::find(objects[modelIndex].rows.begin(), objects[modelIndex].rows.end(),
-                            dst.declare) != objects[modelIndex].rows.end()) {
-                            objectModelIndex = modelIndex;
-                            break;
-                        }
+            const std::vector<SEObjectInstance>& objects =
+                objectEditorModel.Objects();
+            // Use Object-owned CSV rows here, not the legacy sequential
+            // arr_DST cache. #DST_BGA is intentionally absent from arr_DST,
+            // and special/indexed SRC families can otherwise make a DST point
+            // at a neighboring Object. The Object model is the same authority
+            // used by Inspector and selection bounds.
+            for (int objectModelIndex = (int)objects.size() - 1;
+                objectModelIndex >= 0; --objectModelIndex) {
+                const SEObjectInstance& object = objects[objectModelIndex];
+                if (object.drawOrder < 0 || !branchIsActive(object.ifgroup))
+                    continue;
+
+                std::vector<SEPreviewObjectDestination> destinations;
+                CollectPreviewObjectDestinations(object, destinations);
+                int hitDstRow = -1;
+                float hitX = 0.0f, hitY = 0.0f;
+                float hitWidth = 0.0f, hitHeight = 0.0f;
+                for (auto destination = destinations.rbegin();
+                    destination != destinations.rend(); ++destination) {
+                    if (!GetOptionFlag_dst(&g, destination->op1) ||
+                        !GetOptionFlag_dst(&g, destination->op2) ||
+                        !GetOptionFlag_dst(&g, destination->op3))
+                        continue;
+
+                    float candidateX = 0.0f, candidateY = 0.0f;
+                    float candidateWidth = 0.0f, candidateHeight = 0.0f;
+                    ResolvePreviewObjectFrameBounds(object, destination->frame,
+                        candidateX, candidateY, candidateWidth, candidateHeight);
+                    float candidateX2 = candidateX + candidateWidth;
+                    float candidateY2 = candidateY + candidateHeight;
+                    if (candidateX > candidateX2) std::swap(candidateX, candidateX2);
+                    if (candidateY > candidateY2) std::swap(candidateY, candidateY2);
+                    const float hitScale = 1.0f / zoom;
+                    const ImVec2 dstposLU = {
+                        p.x + candidateX * hitScale,
+                        p.y + candidateY * hitScale
+                    };
+                    const ImVec2 dstposRB = {
+                        p.x + candidateX2 * hitScale,
+                        p.y + candidateY2 * hitScale
+                    };
+                    if (dstposLU.x <= clickPos.x && clickPos.x <= dstposRB.x &&
+                        dstposLU.y <= clickPos.y && clickPos.y <= dstposRB.y) {
+                        hitDstRow = destination->lastRow;
+                        hitX = candidateX;
+                        hitY = candidateY;
+                        hitWidth = candidateX2 - candidateX;
+                        hitHeight = candidateY2 - candidateY;
+                        break;
                     }
-                    if (objectModelIndex < 0 ||
-                        !branchIsActive(objects[objectModelIndex].ifgroup)) continue;
-                    if (std::find(listedObjectModels.begin(), listedObjectModels.end(), objectModelIndex) !=
-                        listedObjectModels.end()) continue;
-                    listedObjectModels.push_back(objectModelIndex);
+                }
+                if (hitDstRow < 0) continue;
 
                     // Resolve the thumbnail from this Object's matching SRC
                     // row, rather than trusting DST::src's parser-global
@@ -5908,7 +6082,7 @@ int WORKSPACE::drawPreview() {
                     // several SRC/DST command pairs, so also match the command
                     // suffix and index column.
                     int thumbnailSrc = -1;
-                    const int dstRow = dst.declare;
+                    const int dstRow = hitDstRow;
                     SKINFILELINEREAD* dstLine = dstRow >= 0 && dstRow < skinfileLines.count
                         ? &((SKINFILELINEREAD*)skinfileLines.data)[dstRow] : NULL;
                     std::string wantedSrcCommand;
@@ -5950,8 +6124,6 @@ int WORKSPACE::drawPreview() {
                         }
                     }
                     if (thumbnailSrc < 0) thumbnailSrc = fallbackSrc;
-                    if (thumbnailSrc < 0 && dst.src >= 0 && dst.src < arr_SRC.count)
-                        thumbnailSrc = dst.src;
 
                     char hitLabel[256];
                     const std::string hitName = Cp932ToUtf8(objects[objectModelIndex].name.c_str());
@@ -5980,7 +6152,9 @@ int WORKSPACE::drawPreview() {
                     ImGui::SetCursorScreenPos(ImVec2(hitRowStart.x, hitRowStart.y + 66.0f));
                     ImGui::Dummy(ImVec2(0.0f, 0.0f));
                     if (hoverObject) {
-                        preview_hover_obj = { dstd.x, dstd.y, dstd.w, dstd.h };
+                        preview_hover_obj = {
+                            hitX, hitY, hitWidth, hitHeight
+                        };
                         preview_hover_obj_valid = true;
                     }
                     if (chooseObject && objectModelIndex >= 0) {
@@ -5996,7 +6170,6 @@ int WORKSPACE::drawPreview() {
                         RefreshPreviewSelectionBounds();
                         ImGui::CloseCurrentPopup();
                     }
-                }
             }
 
             ImGui::EndPopup();
@@ -6775,7 +6948,7 @@ bool WORKSPACE::ApplyImageAssetToObjectSource(int imageIndex, int modelIndex,
 
 bool WORKSPACE::InitializeAssetBackedObjectSource(CSVbuf& values,
     const char* command, int imageIndex) {
-    if (!IsAssetBackedObjectCommand(command) || imageIndex < 0 ||
+    if (!SEIsDirectAssetDropObjectCommand(command) || imageIndex < 0 ||
         imageIndex >= arr_IMG.count) return false;
 
     IMG& asset = ((IMG*)arr_IMG.data)[imageIndex];
@@ -7031,11 +7204,6 @@ int WORKSPACE::RegisterExistingImageAsset(int declarationRow,
         errorText = "The full-size Asset row could not be inserted.";
         return -1;
     }
-    for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
-        IMG& shifted = ((IMG*)arr_IMG.data)[imageIndex];
-        if (shifted.sourceDeclare >= insertAt) ++shifted.sourceDeclare;
-        if (shifted.editorDeclare >= insertAt) ++shifted.editorDeclare;
-    }
     SKINFILELINEREAD& metadata =
         ((SKINFILELINEREAD*)skinfileLines.data)[insertAt];
     metadata.filename.assign(owner);
@@ -7218,11 +7386,6 @@ bool WORKSPACE::RegisterImageAssetGrid(int imageIndex, int columns, int rows,
             if (InsertLine(insertAt) != 0) {
                 errorText = "A grid Asset row could not be inserted.";
                 break;
-            }
-            for (int existing = 0; existing < arr_IMG.count; ++existing) {
-                IMG& shifted = ((IMG*)arr_IMG.data)[existing];
-                if (shifted.sourceDeclare >= insertAt) ++shifted.sourceDeclare;
-                if (shifted.editorDeclare >= insertAt) ++shifted.editorDeclare;
             }
             SKINFILELINEREAD& metadata =
                 ((SKINFILELINEREAD*)skinfileLines.data)[insertAt];
@@ -8657,9 +8820,16 @@ int WORKSPACE::drawImgManager() {
             ImGui::Text("selected : %03d", src_selected);
             
             ImGui::Separator();
-            if (ImGui::MenuItem("Delete")) {
+            std::string deleteReason;
+            const bool canDeleteImage = CanDeleteIMG(src_selected,
+                &deleteReason);
+            if (ImGui::MenuItem("Delete", NULL, false, canDeleteImage)) {
                 deleteImageRequest = src_selected;
             }
+            if (!canDeleteImage && ImGui::IsItemHovered(
+                ImGuiHoveredFlags_AllowWhenDisabled |
+                ImGuiHoveredFlags_DelayNormal))
+                ImGui::SetTooltip("%s", deleteReason.c_str());
             ImGui::Separator();
             if(ImGui::MenuItem("New")) {
                 //mosue drag
@@ -8671,16 +8841,30 @@ int WORKSPACE::drawImgManager() {
     }
     ImGui::EndChild();
     if (deleteImageRequest >= 0) {
-        DeleteIMG(deleteImageRequest);
-        if (arr_IMG.count <= 0) {
-            ImGui::EndGroup();
-            ImGui::End();
-            return 0;
+        const int deletedIndex = deleteImageRequest;
+        if (DeleteIMG(deletedIndex) != 0) {
+            imageToolStatus = "The selected Asset could not be deleted.";
+        } else {
+            imageManagerHoveredAssetIndex = -1;
+            imageManagerHoveredAssetFrame = -1;
+            imageManagerFocusRequest = -1;
+            assetBrowserFocusRequest = -1;
+            imageGridAssetIndex = -1;
+            assetApplyAssetIndex = -1;
+            newObjectAssetIndex = -1;
+            if (arr_IMG.count <= 0) {
+                src_selected = -1;
+                gr_selected = -1;
+                grID_selected = -1;
+                ImGui::EndGroup();
+                ImGui::End();
+                return 0;
+            }
+            src_selected = (std::max)(0,
+                (std::min)(deletedIndex, arr_IMG.count - 1));
+            SelectIMGAsset(src_selected, false);
+            clicked = true;
         }
-        src_selected = (std::max)(0,
-            (std::min)(src_selected, arr_IMG.count - 1));
-        SelectIMGAsset(src_selected, false);
-        clicked = true;
     }
     //left bottom
     ImGui::Separator();
@@ -14359,7 +14543,8 @@ int WORKSPACE::drawNewObject() {
         };
         auto isSelectableCommand = [&](const char* command) {
             if (!command || command[0] != '#') return false;
-            if (assetDropModal) return IsAssetBackedObjectCommand(command);
+            if (assetDropModal) return isCreatableObjectCommand(command) &&
+                SEIsDirectAssetDropObjectCommand(command);
             return newCommandIncludeAll || isCreatableObjectCommand(command);
         };
         if (arr_CommandHelp.count <= 0) {
@@ -14383,9 +14568,11 @@ int WORKSPACE::drawNewObject() {
         if (assetDropModal)
             ImGui::TextDisabled("Choose how the dropped crop will be used.");
         const char* commandComboLabel = assetDropModal ? "Object type" : "command";
-        const char* commandPreview = assetDropModal
+        const std::string assetCommandPreview = assetDropModal
             ? AssetBackedObjectTypeName(csv[selected_command].str[0].outstr())
-            : csv[selected_command].str[0].outstr();
+            : std::string();
+        const char* commandPreview = assetDropModal
+            ? assetCommandPreview.c_str() : csv[selected_command].str[0].outstr();
         if (ImGui::BeginCombo(commandComboLabel, commandPreview, ImGuiComboFlags_None)) {
             for (int op = 0; op < arr_CommandHelp.count; op++) {
                 if (!csv[op].str[0].body ||
@@ -14400,8 +14587,10 @@ int WORKSPACE::drawNewObject() {
                         !strcmp(cmd, "#ENDOFHEADER")) ? "Header" :
                     ((!strcmp(cmd, "#IF") || !strcmp(cmd, "#ELSEIF") ||
                         !strcmp(cmd, "#ELSE") || !strcmp(cmd, "#ENDIF")) ? "Condition" : "Setting"));
-                if (assetDropModal)
-                    sprintf(opname, "%s  (%s)", AssetBackedObjectTypeName(cmd), cmd);
+                if (assetDropModal) {
+                    const std::string typeName = AssetBackedObjectTypeName(cmd);
+                    sprintf(opname, "%s  (%s)", typeName.c_str(), cmd);
+                }
                 else
                     sprintf(opname, "[%s] %s", category, csv[op].str[0].body);
 
@@ -14421,7 +14610,7 @@ int WORKSPACE::drawNewObject() {
             SplitCSV("", &nCsv, ",");
             nCsv.str[0].assign(csv[selected_command].str[0].outstr());
             if (newObjectAssetIndex >= 0 && newObjectAssetIndex < arr_IMG.count &&
-                IsAssetBackedObjectCommand(nCsv.str[0].outstr())) {
+                SEIsDirectAssetDropObjectCommand(nCsv.str[0].outstr())) {
                 InitializeAssetBackedObjectSource(nCsv,
                     nCsv.str[0].outstr(), newObjectAssetIndex);
             }
@@ -14618,7 +14807,7 @@ int WORKSPACE::drawNewObject() {
                 SplitCSV("", &dstCsv, ",");
                 dstCsv.str[0].assign(dstCommand.c_str());
                 if (newObjectAssetIndex >= 0 && newObjectAssetIndex < arr_IMG.count &&
-                    IsAssetBackedObjectCommand(selectedCommand)) {
+                    SEIsDirectAssetDropObjectCommand(selectedCommand)) {
                     AssignCommandField(dstCsv, dstCommand.c_str(), "(NULL)", 0);
                     AssignCommandField(dstCsv, dstCommand.c_str(), "time", 0);
                     AssignCommandField(dstCsv, dstCommand.c_str(), "x", newObjectDropX);
@@ -15340,7 +15529,11 @@ int WORKSPACE::drawObjectEditor() {
 
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##ObjectSearch", "Search objects...", objectSearch, sizeof(objectSearch));
-        ImGui::Checkbox("Active objects only", &objectBrowserActiveOnly);
+        ImGui::Checkbox("Draw order", &objectBrowserDrawOrder);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Show one flat list in LR2 layer order.\nTop is back; bottom is front.");
+        ImGui::SameLine();
+        ImGui::Checkbox("Active only", &objectBrowserActiveOnly);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
             ImGui::SetTooltip("Show objects whose IF branch and DST options are currently enabled.");
 
@@ -15790,6 +15983,34 @@ int WORKSPACE::drawObjectEditor() {
             return a.rootIfgroup < b.rootIfgroup;
         });
 
+        // The condition tree intentionally groups sibling branches, so its
+        // vertical position cannot express a global z-order. Draw-order mode
+        // flattens only the presentation; selection, History and branch/file
+        // ownership still use the same Object model and reorder path.
+        if (objectBrowserDrawOrder) {
+            std::vector<int> visibleObjectIndices;
+            for (const ConditionBlock& condition : conditions)
+                for (const BranchBlock& branch : condition.branches)
+                    visibleObjectIndices.insert(visibleObjectIndices.end(),
+                        branch.localObjectIndices.begin(),
+                        branch.localObjectIndices.end());
+            std::sort(visibleObjectIndices.begin(), visibleObjectIndices.end());
+            visibleObjectIndices.erase(std::unique(visibleObjectIndices.begin(),
+                visibleObjectIndices.end()), visibleObjectIndices.end());
+            conditions.clear();
+            ConditionBlock layers;
+            layers.rootIfgroup = 0;
+            layers.depth = 0;
+            layers.label = "DRAW ORDER";
+            BranchBlock branch;
+            branch.ifgroup = 0;
+            branch.order = 0;
+            branch.label = "BACK TO FRONT";
+            branch.localObjectIndices.swap(visibleObjectIndices);
+            layers.branches.push_back(branch);
+            conditions.push_back(layers);
+        }
+
         if (objectBranchTreeIfCount != arr_ifunit.count) {
             objectBranchTreeOpen.clear();
             objectBranchTreeIfCount = arr_ifunit.count;
@@ -15935,14 +16156,19 @@ int WORKSPACE::drawObjectEditor() {
 
                     const SEObjectGroupDef* objectTypeDef = objectEditorModel.Group(o.group);
                     const char* objectTypeName = objectTypeDef ? objectTypeDef->name.c_str() : "OBJECT";
-                    if (key >= 0 && !approximateName.empty())
-                        snprintf(label, sizeof(label), "%03d  [%s]  #%d  %s", oi, objectTypeName, key, approximateName.c_str());
-                    else if (key >= 0)
-                        snprintf(label, sizeof(label), "%03d  [%s]  #%d", oi, objectTypeName, key);
-                    else if (!approximateName.empty())
-                        snprintf(label, sizeof(label), "%03d  [%s]  %s", oi, objectTypeName, approximateName.c_str());
+                    char layerLabel[16];
+                    if (o.drawOrder >= 0)
+                        snprintf(layerLabel, sizeof(layerLabel), "z%04d", o.drawOrder);
                     else
-                        snprintf(label, sizeof(label), "%03d  [%s]", oi, objectTypeName);
+                        snprintf(layerLabel, sizeof(layerLabel), "z----");
+                    if (key >= 0 && !approximateName.empty())
+                        snprintf(label, sizeof(label), "%s  [%s]  #%d  %s", layerLabel, objectTypeName, key, approximateName.c_str());
+                    else if (key >= 0)
+                        snprintf(label, sizeof(label), "%s  [%s]  #%d", layerLabel, objectTypeName, key);
+                    else if (!approximateName.empty())
+                        snprintf(label, sizeof(label), "%s  [%s]  %s", layerLabel, objectTypeName, approximateName.c_str());
+                    else
+                        snprintf(label, sizeof(label), "%s  [%s]", layerLabel, objectTypeName);
                     bool hasDst = false;
                     for (int rowIndex = 0; rowIndex < (int)o.rows.size(); ++rowIndex) {
                         int row = o.rows[rowIndex];
@@ -15987,6 +16213,17 @@ int WORKSPACE::drawObjectEditor() {
                         SetImageManagerHoveredObject(
                             isMultiSelected ? -1 : modelIndex,
                             ImGui::GetFrameCount());
+                        if (ImGui::BeginTooltip()) {
+                            if (o.drawOrder >= 0) {
+                                ImGui::Text("Layer z%04d", o.drawOrder);
+                                ImGui::TextDisabled("Higher layer is drawn later and appears in front.");
+                                if (o.firstDstRow >= 0)
+                                    ImGui::TextDisabled("First DST: expanded CSV row %d", o.firstDstRow + 1);
+                            } else {
+                                ImGui::TextDisabled("No DST: this Object has no draw layer.");
+                            }
+                            ImGui::EndTooltip();
+                        }
                     }
                     const ImVec2 reorderRowMin = ImGui::GetItemRectMin();
                     const ImVec2 reorderRowMax = ImGui::GetItemRectMax();
@@ -16097,7 +16334,10 @@ int WORKSPACE::drawObjectEditor() {
                         ImGui::EndDragDropTarget();
                     }
                     if (ImGui::BeginPopupContextItem("ObjectContext")) {
-                        ImGui::TextDisabled("Object %03d", oi);
+                        if (o.drawOrder >= 0)
+                            ImGui::TextDisabled("Object layer z%04d", o.drawOrder);
+                        else
+                            ImGui::TextDisabled("Object without DST");
                         if (ImGui::MenuItem("Create Object (new)")) {
                             AssignRootFileOwner(skinfileLines, mainpath, newObjectOwner);
                             newObjectInsertPosition = o.rows.empty()
@@ -16150,7 +16390,11 @@ int WORKSPACE::drawObjectEditor() {
                 // Unconditional objects are not part of a condition block.
                 if (requestedObjectModel >= 0 && requestedIfgroup == 0)
                     ImGui::SetNextItemOpen(true, ImGuiCond_Always);
-                bool open = ImGui::TreeNodeEx("always", ImGuiTreeNodeFlags_DefaultOpen, "ALWAYS");
+                const char* rootId = objectBrowserDrawOrder ? "draw_order" : "always";
+                const char* rootLabel = objectBrowserDrawOrder
+                    ? "DRAW ORDER  (BACK -> FRONT)" : "ALWAYS";
+                bool open = ImGui::TreeNodeEx(rootId,
+                    ImGuiTreeNodeFlags_DefaultOpen, "%s", rootLabel);
                 if (open) {
                     for (int bi = 0; bi < (int)cond.branches.size(); ++bi)
                         drawBranchObjects(cond.branches[bi]);
@@ -16557,7 +16801,13 @@ int WORKSPACE::drawObjectEditor() {
                             ImGui::PushID(col);
                             const bool isDstColor = hasDstColor &&
                                 col == dstColorColumns[0];
-                            const char* displayLabel = isDstColor ? "ARGB" : label;
+                            const bool isRelativeCoordinate =
+                                IsNowComboRelativeField(command, label);
+                            const char* displayLabel = isDstColor ? "ARGB" :
+                                (isRelativeCoordinate
+                                    ? (_stricmp(label, "x") == 0
+                                        ? "Offset X" : "Offset Y")
+                                    : label);
                             const char* widgetLabel = displayLabel;
                             if (compactDst) {
                                 if (compactDstIndex == 0) {
@@ -16585,6 +16835,9 @@ int WORKSPACE::drawObjectEditor() {
                                     }
                                 }
                             }
+                            if (isRelativeCoordinate &&
+                                ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                                ImGui::SetTooltip("%s", NowComboCoordinateHelp());
                             ImGui::PopID();
                         }
                     }
@@ -16651,6 +16904,9 @@ int WORKSPACE::drawObjectEditor() {
                     ImGui::PushID(column);
                     const bool changed = ImGui::InputInt(label, &value);
                     if (changed) EditValue(row, column, value);
+                    if (IsNowComboRelativeField(command, fieldName) &&
+                        ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                        ImGui::SetTooltip("%s", NowComboCoordinateHelp());
                     ImGui::PopID();
                     ImGui::PopID();
                     return true;
@@ -16674,9 +16930,25 @@ int WORKSPACE::drawObjectEditor() {
                     ImGui::SetNextItemWidth(76.0f);
                     if (ImGui::InputInt("##semantic", &value, 0, 0))
                         EditValue(row, column, value);
+                    if (IsNowComboRelativeField(command, fieldName) &&
+                        ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                        ImGui::SetTooltip("%s", NowComboCoordinateHelp());
                     ImGui::PopID();
                     ImGui::PopID();
                 };
+
+                const bool hasRelativeNowComboCoordinates =
+                    IsNowComboDestinationCommand(
+                        semanticDestinationCommand.c_str());
+                if (hasRelativeNowComboCoordinates) {
+                    ImGui::TextColored(SEUI::Colors::Warning(),
+                        "Relative NOWCOMBO position");
+                    ImGui::SameLine();
+                    SEUI::HelpMarker(NowComboCoordinateHelp());
+                    ImGui::TextWrapped(
+                        "Offset X/Y are added to the matching NOWJUDGE position; they are not canvas X/Y.");
+                    ImGui::Separator();
+                }
 
                 if (ImGui::BeginTabBar("ObjectPropertyTabs")) {
                     if (ImGui::BeginTabItem("SRC")) {
@@ -16695,7 +16967,10 @@ int WORKSPACE::drawObjectEditor() {
                             const int firstDestinationRow = semanticDstRows.front();
                             if (ImGui::BeginTable("SemanticLayout", 2,
                                 ImGuiTableFlags_SizingStretchSame)) {
-                                const char* labels[] = { "X", "Y", "Width", "Height", "Rotation", "Blend" };
+                                const char* absoluteLabels[] = { "X", "Y", "Width", "Height", "Rotation", "Blend" };
+                                const char* relativeLabels[] = { "Offset X", "Offset Y", "Width", "Height", "Rotation", "Blend" };
+                                const char** labels = hasRelativeNowComboCoordinates
+                                    ? relativeLabels : absoluteLabels;
                                 const char* fields[] = { "x", "y", "w", "h", "angle", "blend" };
                                 for (int field = 0; field < 6; ++field) {
                                     ImGui::TableNextColumn();
@@ -16727,10 +17002,16 @@ int WORKSPACE::drawObjectEditor() {
                             ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                             ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingFixedFit)) {
                             ImGui::TableSetupScrollFreeze(1, 1);
-                            const char* headings[] = { "Frame", "ms", "X", "Y", "W", "H", "Alpha", "Rotation", "Blend" };
-                            for (const char* heading : headings)
+                            const char* absoluteHeadings[] = { "Frame", "ms", "X", "Y", "W", "H", "Alpha", "Rotation", "Blend" };
+                            const char* relativeHeadings[] = { "Frame", "ms", "dX", "dY", "W", "H", "Alpha", "Rotation", "Blend" };
+                            const char** headings = hasRelativeNowComboCoordinates
+                                ? relativeHeadings : absoluteHeadings;
+                            for (int headingIndex = 0; headingIndex < 9;
+                                ++headingIndex) {
+                                const char* heading = headings[headingIndex];
                                 ImGui::TableSetupColumn(heading, ImGuiTableColumnFlags_WidthFixed,
                                     !strcmp(heading, "Frame") ? 62.0f : 92.0f);
+                            }
                             ImGui::TableHeadersRow();
                             for (int frameIndex = 0; frameIndex < (int)semanticDstRows.size(); ++frameIndex) {
                                 ImGui::TableNextRow();
@@ -16824,6 +17105,10 @@ int WORKSPACE::drawObjectEditor() {
                     snprintf(dstTabLabel, sizeof(dstTabLabel), "Advanced LR2###ObjectDstTab");
                     if (ImGui::BeginTabItem(dstTabLabel)) {
                         ImGui::TextDisabled("Raw LR2 fields for compatibility and unsupported commands.");
+                        if (hasRelativeNowComboCoordinates) {
+                            ImGui::SameLine();
+                            SEUI::HelpMarker(NowComboCoordinateHelp());
+                        }
                         ImGui::SeparatorText(dstRows.size() > 1 ? "animation frames" : "basic");
                         if (dstRows.empty()) {
                             ImGui::TextDisabled("No DST properties.");

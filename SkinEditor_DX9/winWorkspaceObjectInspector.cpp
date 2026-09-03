@@ -259,7 +259,13 @@ int WORKSPACE::drawObjectInspector() {
                             ImGui::PushID(col);
                             const bool isDstColor = hasDstColor &&
                                 col == dstColorColumns[0];
-                            const char* displayLabel = isDstColor ? "ARGB" : label;
+                            const bool isRelativeCoordinate =
+                                IsNowComboRelativeField(command, label);
+                            const char* displayLabel = isDstColor ? "ARGB" :
+                                (isRelativeCoordinate
+                                    ? (_stricmp(label, "x") == 0
+                                        ? "Offset X" : "Offset Y")
+                                    : label);
                             const char* widgetLabel = displayLabel;
                             if (compactDst) {
                                 if (compactDstIndex == 0) {
@@ -287,6 +293,9 @@ int WORKSPACE::drawObjectInspector() {
                                     }
                                 }
                             }
+                            if (isRelativeCoordinate &&
+                                ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                                ImGui::SetTooltip("%s", NowComboCoordinateHelp());
                             ImGui::PopID();
                         }
                     }
@@ -353,6 +362,9 @@ int WORKSPACE::drawObjectInspector() {
                     ImGui::PushID(column);
                     const bool changed = ImGui::InputInt(label, &value);
                     if (changed) EditValue(row, column, value);
+                    if (IsNowComboRelativeField(command, fieldName) &&
+                        ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                        ImGui::SetTooltip("%s", NowComboCoordinateHelp());
                     ImGui::PopID();
                     ImGui::PopID();
                     return true;
@@ -376,9 +388,25 @@ int WORKSPACE::drawObjectInspector() {
                     ImGui::SetNextItemWidth(76.0f);
                     if (ImGui::InputInt("##semantic", &value, 0, 0))
                         EditValue(row, column, value);
+                    if (IsNowComboRelativeField(command, fieldName) &&
+                        ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                        ImGui::SetTooltip("%s", NowComboCoordinateHelp());
                     ImGui::PopID();
                     ImGui::PopID();
                 };
+
+                const bool hasRelativeNowComboCoordinates =
+                    IsNowComboDestinationCommand(
+                        semanticDestinationCommand.c_str());
+                if (hasRelativeNowComboCoordinates) {
+                    ImGui::TextColored(SEUI::Colors::Warning(),
+                        "Relative NOWCOMBO position");
+                    ImGui::SameLine();
+                    SEUI::HelpMarker(NowComboCoordinateHelp());
+                    ImGui::TextWrapped(
+                        "Offset X/Y are added to the matching NOWJUDGE position; they are not canvas X/Y.");
+                    ImGui::Separator();
+                }
 
                 if (ImGui::BeginTabBar("ObjectPropertyTabs")) {
                     if (ImGui::BeginTabItem("SRC")) {
@@ -397,7 +425,10 @@ int WORKSPACE::drawObjectInspector() {
                             const int firstDestinationRow = semanticDstRows.front();
                             if (ImGui::BeginTable("SemanticLayout", 2,
                                 ImGuiTableFlags_SizingStretchSame)) {
-                                const char* labels[] = { "X", "Y", "Width", "Height", "Rotation", "Blend" };
+                                const char* absoluteLabels[] = { "X", "Y", "Width", "Height", "Rotation", "Blend" };
+                                const char* relativeLabels[] = { "Offset X", "Offset Y", "Width", "Height", "Rotation", "Blend" };
+                                const char** labels = hasRelativeNowComboCoordinates
+                                    ? relativeLabels : absoluteLabels;
                                 const char* fields[] = { "x", "y", "w", "h", "angle", "blend" };
                                 for (int field = 0; field < 6; ++field) {
                                     ImGui::TableNextColumn();
@@ -429,10 +460,16 @@ int WORKSPACE::drawObjectInspector() {
                             ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                             ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingFixedFit)) {
                             ImGui::TableSetupScrollFreeze(1, 1);
-                            const char* headings[] = { "Frame", "ms", "X", "Y", "W", "H", "Alpha", "Rotation", "Blend" };
-                            for (const char* heading : headings)
+                            const char* absoluteHeadings[] = { "Frame", "ms", "X", "Y", "W", "H", "Alpha", "Rotation", "Blend" };
+                            const char* relativeHeadings[] = { "Frame", "ms", "dX", "dY", "W", "H", "Alpha", "Rotation", "Blend" };
+                            const char** headings = hasRelativeNowComboCoordinates
+                                ? relativeHeadings : absoluteHeadings;
+                            for (int headingIndex = 0; headingIndex < 9;
+                                ++headingIndex) {
+                                const char* heading = headings[headingIndex];
                                 ImGui::TableSetupColumn(heading, ImGuiTableColumnFlags_WidthFixed,
                                     !strcmp(heading, "Frame") ? 62.0f : 92.0f);
+                            }
                             ImGui::TableHeadersRow();
                             for (int frameIndex = 0; frameIndex < (int)semanticDstRows.size(); ++frameIndex) {
                                 ImGui::TableNextRow();
@@ -526,6 +563,10 @@ int WORKSPACE::drawObjectInspector() {
                     snprintf(dstTabLabel, sizeof(dstTabLabel), "Advanced LR2###ObjectDstTab");
                     if (ImGui::BeginTabItem(dstTabLabel)) {
                         ImGui::TextDisabled("Raw LR2 fields for compatibility and unsupported commands.");
+                        if (hasRelativeNowComboCoordinates) {
+                            ImGui::SameLine();
+                            SEUI::HelpMarker(NowComboCoordinateHelp());
+                        }
                         ImGui::SeparatorText(dstRows.size() > 1 ? "animation frames" : "basic");
                         if (dstRows.empty()) {
                             ImGui::TextDisabled("No DST properties.");

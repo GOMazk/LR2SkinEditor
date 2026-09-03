@@ -130,7 +130,11 @@ int WORKSPACE::drawObjectBrowser() {
 
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##ObjectSearch", "Search objects...", objectSearch, sizeof(objectSearch));
-        ImGui::Checkbox("Active objects only", &objectBrowserActiveOnly);
+        ImGui::Checkbox("Draw order", &objectBrowserDrawOrder);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Show one flat list in LR2 layer order.\nTop is back; bottom is front.");
+        ImGui::SameLine();
+        ImGui::Checkbox("Active only", &objectBrowserActiveOnly);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
             ImGui::SetTooltip("Show objects whose IF branch and DST options are currently enabled.");
 
@@ -582,6 +586,34 @@ int WORKSPACE::drawObjectBrowser() {
             return a.rootIfgroup < b.rootIfgroup;
         });
 
+        // The condition tree intentionally groups sibling branches, so its
+        // vertical position cannot express a global z-order. Draw-order mode
+        // flattens only the presentation; selection, History and branch/file
+        // ownership still use the same Object model and reorder path.
+        if (objectBrowserDrawOrder) {
+            std::vector<int> visibleObjectIndices;
+            for (const ConditionBlock& condition : conditions)
+                for (const BranchBlock& branch : condition.branches)
+                    visibleObjectIndices.insert(visibleObjectIndices.end(),
+                        branch.localObjectIndices.begin(),
+                        branch.localObjectIndices.end());
+            std::sort(visibleObjectIndices.begin(), visibleObjectIndices.end());
+            visibleObjectIndices.erase(std::unique(visibleObjectIndices.begin(),
+                visibleObjectIndices.end()), visibleObjectIndices.end());
+            conditions.clear();
+            ConditionBlock layers;
+            layers.rootIfgroup = 0;
+            layers.depth = 0;
+            layers.label = "DRAW ORDER";
+            BranchBlock branch;
+            branch.ifgroup = 0;
+            branch.order = 0;
+            branch.label = "BACK TO FRONT";
+            branch.localObjectIndices.swap(visibleObjectIndices);
+            layers.branches.push_back(branch);
+            conditions.push_back(layers);
+        }
+
         if (objectBranchTreeIfCount != arr_ifunit.count) {
             objectBranchTreeOpen.clear();
             objectBranchTreeIfCount = arr_ifunit.count;
@@ -727,14 +759,19 @@ int WORKSPACE::drawObjectBrowser() {
 
                     const SEObjectGroupDef* objectTypeDef = objectEditorModel.Group(o.group);
                     const char* objectTypeName = objectTypeDef ? objectTypeDef->name.c_str() : "OBJECT";
-                    if (key >= 0 && !approximateName.empty())
-                        snprintf(label, sizeof(label), "%03d  [%s]  #%d  %s", oi, objectTypeName, key, approximateName.c_str());
-                    else if (key >= 0)
-                        snprintf(label, sizeof(label), "%03d  [%s]  #%d", oi, objectTypeName, key);
-                    else if (!approximateName.empty())
-                        snprintf(label, sizeof(label), "%03d  [%s]  %s", oi, objectTypeName, approximateName.c_str());
+                    char layerLabel[16];
+                    if (o.drawOrder >= 0)
+                        snprintf(layerLabel, sizeof(layerLabel), "z%04d", o.drawOrder);
                     else
-                        snprintf(label, sizeof(label), "%03d  [%s]", oi, objectTypeName);
+                        snprintf(layerLabel, sizeof(layerLabel), "z----");
+                    if (key >= 0 && !approximateName.empty())
+                        snprintf(label, sizeof(label), "%s  [%s]  #%d  %s", layerLabel, objectTypeName, key, approximateName.c_str());
+                    else if (key >= 0)
+                        snprintf(label, sizeof(label), "%s  [%s]  #%d", layerLabel, objectTypeName, key);
+                    else if (!approximateName.empty())
+                        snprintf(label, sizeof(label), "%s  [%s]  %s", layerLabel, objectTypeName, approximateName.c_str());
+                    else
+                        snprintf(label, sizeof(label), "%s  [%s]", layerLabel, objectTypeName);
                     bool hasDst = false;
                     for (int rowIndex = 0; rowIndex < (int)o.rows.size(); ++rowIndex) {
                         int row = o.rows[rowIndex];
@@ -779,6 +816,17 @@ int WORKSPACE::drawObjectBrowser() {
                         SetImageManagerHoveredObject(
                             isMultiSelected ? -1 : modelIndex,
                             ImGui::GetFrameCount());
+                        if (ImGui::BeginTooltip()) {
+                            if (o.drawOrder >= 0) {
+                                ImGui::Text("Layer z%04d", o.drawOrder);
+                                ImGui::TextDisabled("Higher layer is drawn later and appears in front.");
+                                if (o.firstDstRow >= 0)
+                                    ImGui::TextDisabled("First DST: expanded CSV row %d", o.firstDstRow + 1);
+                            } else {
+                                ImGui::TextDisabled("No DST: this Object has no draw layer.");
+                            }
+                            ImGui::EndTooltip();
+                        }
                     }
                     const ImVec2 reorderRowMin = ImGui::GetItemRectMin();
                     const ImVec2 reorderRowMax = ImGui::GetItemRectMax();
@@ -889,7 +937,10 @@ int WORKSPACE::drawObjectBrowser() {
                         ImGui::EndDragDropTarget();
                     }
                     if (ImGui::BeginPopupContextItem("ObjectContext")) {
-                        ImGui::TextDisabled("Object %03d", oi);
+                        if (o.drawOrder >= 0)
+                            ImGui::TextDisabled("Object layer z%04d", o.drawOrder);
+                        else
+                            ImGui::TextDisabled("Object without DST");
                         if (ImGui::MenuItem("Create Object (new)")) {
                             AssignRootFileOwner(skinfileLines, mainpath, newObjectOwner);
                             newObjectInsertPosition = o.rows.empty()
@@ -949,7 +1000,11 @@ int WORKSPACE::drawObjectBrowser() {
                 // Unconditional objects are not part of a condition block.
                 if (requestedObjectModel >= 0 && requestedIfgroup == 0)
                     ImGui::SetNextItemOpen(true, ImGuiCond_Always);
-                bool open = ImGui::TreeNodeEx("always", ImGuiTreeNodeFlags_DefaultOpen, "ALWAYS");
+                const char* rootId = objectBrowserDrawOrder ? "draw_order" : "always";
+                const char* rootLabel = objectBrowserDrawOrder
+                    ? "DRAW ORDER  (BACK -> FRONT)" : "ALWAYS";
+                bool open = ImGui::TreeNodeEx(rootId,
+                    ImGuiTreeNodeFlags_DefaultOpen, "%s", rootLabel);
                 if (open) {
                     for (int bi = 0; bi < (int)cond.branches.size(); ++bi)
                         drawBranchObjects(cond.branches[bi]);

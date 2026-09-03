@@ -119,25 +119,11 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
             }
         }
 
-        int textAlign = 0;
-        int textFontIndex = -1;
-        int textStringIndex = -1;
-        int numberKeta = 1;
-        bool isTextObject = false;
-        bool isNumberObject = false;
         SRC* editorSlider = NULL;
         for (int objectRow : object.rows) {
             if (objectRow < 0 || objectRow >= skinfileLines.count) continue;
             SKINFILELINEREAD& sourceLine = ((SKINFILELINEREAD*)skinfileLines.data)[objectRow];
-            if (sourceLine.csv.str[0].isSame("#SRC_TEXT")) {
-                isTextObject = true;
-                textFontIndex = sourceLine.csv.val[2];
-                textStringIndex = sourceLine.csv.val[3];
-                textAlign = sourceLine.csv.val[4];
-            } else if (sourceLine.csv.str[0].isSame("#SRC_NUMBER")) {
-                isNumberObject = true;
-                numberKeta = (std::max)(1, sourceLine.csv.val[13]);
-            } else if (sourceLine.csv.str[0].isSame("#SRC_SLIDER")) {
+            if (sourceLine.csv.str[0].isSame("#SRC_SLIDER")) {
                 for (int srcIndex = 0; srcIndex < arr_SRC.count; ++srcIndex) {
                     SRC& candidate = ((SRC*)arr_SRC.data)[srcIndex];
                     if (candidate.declare == objectRow) {
@@ -147,62 +133,6 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
                 }
             }
         }
-        auto alignedX = [&](float x, float w) {
-            if (isTextObject) {
-                // TEXT uses 0=left, 1=middle and 2=right. Unlike NUMBER,
-                // LR2 treats DST x as an anchor and shifts by the rendered
-                // string width (LRDrawText), not by the configured DST width.
-                if (textAlign == 1) return x - (float)(int)(w * 0.5f);
-                if (textAlign == 2) return x - (float)(int)w;
-            }
-            // NUMBER align controls digit placement inside the keta-wide
-            // field. LR2 always advances from the DST x coordinate, so x is
-            // the field's left edge for right, left and middle alignment.
-            return x;
-        };
-        auto textFrameWidth = [&](const DST_ANIMATION& frame) {
-            if (!isTextObject || textFontIndex < 0 || textFontIndex >= 10 ||
-                textStringIndex < 0 || textStringIndex >= 300 ||
-                frame.w == 0.0f || frame.h == 0.0f)
-                return frame.w;
-
-            CSTR& text = g.txtStruct.objectStr[textStringIndex];
-            if (!text.body || text.length() < 1) return frame.w;
-
-            float naturalWidth = 0.0f;
-            float naturalHeight = 0.0f;
-            ImageFont& imageFont = g.skstruct.ImageFonts[textFontIndex];
-            if (imageFont.size > 0) {
-                naturalWidth = (float)GetTextGraphLength(&text, &imageFont);
-                naturalHeight = (float)imageFont.size;
-            } else {
-                const int fontHandle = g.skstruct.fontHandle[textFontIndex];
-                int fontSize = 0;
-                int fontThickness = 0;
-                if (fontHandle != -1 &&
-                    GetFontStateToHandle(NULL, &fontSize, &fontThickness, fontHandle) == 0) {
-                    naturalWidth = (float)GetDrawStringWidthToHandle(
-                        text.outstr(), text.length(), fontHandle, 0);
-                    naturalHeight = (float)fontSize;
-                }
-            }
-            if (naturalWidth <= 0.0f || naturalHeight <= 0.0f) return frame.w;
-
-            // Keep the same order as LRDrawText: cap the natural width by
-            // DST w first, then apply the scale selected by DST h.
-            const float widthScale = naturalWidth > frame.w
-                ? frame.w / naturalWidth : 1.0f;
-            const float heightScale = frame.h / naturalHeight;
-            return naturalWidth * widthScale * heightScale;
-        };
-        auto objectFrameWidth = [&](const DST_ANIMATION& frame) {
-            // LR2 draws NUMBER by advancing one DST width per configured
-            // digit. Keep the selection rectangle on the same keta-wide
-            // field instead of highlighting only a single glyph cell.
-            if (isNumberObject) return frame.w * numberKeta;
-            if (isTextObject) return textFrameWidth(frame);
-            return frame.w;
-        };
 
         // SliderByTime renders the knob at the animated DST position plus
         // SRCstruct::sx/sy. Highlight that current rectangle, not the raw
@@ -242,14 +172,18 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
         if (includedRuntimeSlider) continue;
 
         const DST_ANIMATION& firstFrame = editorFrames.front();
-        const float firstFrameWidth = objectFrameWidth(firstFrame);
-        includeBounds(alignedX(firstFrame.x, firstFrameWidth), firstFrame.y,
-            firstFrameWidth, firstFrame.h,
+        float firstX = 0.0f, firstY = 0.0f;
+        float firstWidth = 0.0f, firstHeight = 0.0f;
+        ResolvePreviewObjectFrameBounds(object, firstFrame,
+            firstX, firstY, firstWidth, firstHeight);
+        includeBounds(firstX, firstY, firstWidth, firstHeight,
             firstBounds, minX, minY, maxX, maxY);
         const DST_ANIMATION& lastFrame = editorFrames.back();
-        const float lastFrameWidth = objectFrameWidth(lastFrame);
-        includeBounds(alignedX(lastFrame.x, lastFrameWidth), lastFrame.y,
-            lastFrameWidth, lastFrame.h, lastBounds,
+        float lastX = 0.0f, lastY = 0.0f;
+        float lastWidth = 0.0f, lastHeight = 0.0f;
+        ResolvePreviewObjectFrameBounds(object, lastFrame,
+            lastX, lastY, lastWidth, lastHeight);
+        includeBounds(lastX, lastY, lastWidth, lastHeight, lastBounds,
             lastMinX, lastMinY, lastMaxX, lastMaxY);
     }
 
@@ -928,40 +862,59 @@ int WORKSPACE::drawPreview() {
 
             ImGui::TextDisabled("Front-most Object first");
             ImGui::Separator();
-            std::vector<int> listedObjectModels;
-            // LR2 sorts draw commands by the source CSV order: later DST rows
-            // are drawn over earlier ones. Walk the editor DST cache backwards
-            // so the context menu presents the visible/front-most Object first.
-            for (int i = arr_DST.count - 1; i >= 0; --i) {
-                DST& dst = ((DST*)arr_DST.data)[i];
-                if (dst.arr_animation.count <= 0 ||
-                    !GetOptionFlag_dst(&g, dst.op1) ||
-                    !GetOptionFlag_dst(&g, dst.op2) ||
-                    !GetOptionFlag_dst(&g, dst.op3)) continue;
-                DST_ANIMATION& dstd = ((DST_ANIMATION*)dst.arr_animation.data)[dst.arr_animation.count - 1];
-                const float hitScale = 1.0f / zoom;
-                float hitX1 = dstd.x, hitY1 = dstd.y;
-                float hitX2 = dstd.x + dstd.w, hitY2 = dstd.y + dstd.h;
-                if (hitX1 > hitX2) std::swap(hitX1, hitX2);
-                if (hitY1 > hitY2) std::swap(hitY1, hitY2);
-                ImVec2 dstposLU = { p.x + hitX1 * hitScale, p.y + hitY1 * hitScale };
-                ImVec2 dstposRB = { p.x + hitX2 * hitScale, p.y + hitY2 * hitScale };
+            const std::vector<SEObjectInstance>& objects =
+                objectEditorModel.Objects();
+            // Use Object-owned CSV rows here, not the legacy sequential
+            // arr_DST cache. #DST_BGA is intentionally absent from arr_DST,
+            // and special/indexed SRC families can otherwise make a DST point
+            // at a neighboring Object. The Object model is the same authority
+            // used by Inspector and selection bounds.
+            for (int objectModelIndex = (int)objects.size() - 1;
+                objectModelIndex >= 0; --objectModelIndex) {
+                const SEObjectInstance& object = objects[objectModelIndex];
+                if (object.drawOrder < 0 || !branchIsActive(object.ifgroup))
+                    continue;
 
-                if (dstposLU.x <= clickPos.x && clickPos.x <= dstposRB.x && dstposLU.y <= clickPos.y && clickPos.y <= dstposRB.y) {
-                    int objectModelIndex = -1;
-                    const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
-                    for (int modelIndex = 0; modelIndex < (int)objects.size(); ++modelIndex) {
-                        if (std::find(objects[modelIndex].rows.begin(), objects[modelIndex].rows.end(),
-                            dst.declare) != objects[modelIndex].rows.end()) {
-                            objectModelIndex = modelIndex;
-                            break;
-                        }
+                std::vector<SEPreviewObjectDestination> destinations;
+                CollectPreviewObjectDestinations(object, destinations);
+                int hitDstRow = -1;
+                float hitX = 0.0f, hitY = 0.0f;
+                float hitWidth = 0.0f, hitHeight = 0.0f;
+                for (auto destination = destinations.rbegin();
+                    destination != destinations.rend(); ++destination) {
+                    if (!GetOptionFlag_dst(&g, destination->op1) ||
+                        !GetOptionFlag_dst(&g, destination->op2) ||
+                        !GetOptionFlag_dst(&g, destination->op3))
+                        continue;
+
+                    float candidateX = 0.0f, candidateY = 0.0f;
+                    float candidateWidth = 0.0f, candidateHeight = 0.0f;
+                    ResolvePreviewObjectFrameBounds(object, destination->frame,
+                        candidateX, candidateY, candidateWidth, candidateHeight);
+                    float candidateX2 = candidateX + candidateWidth;
+                    float candidateY2 = candidateY + candidateHeight;
+                    if (candidateX > candidateX2) std::swap(candidateX, candidateX2);
+                    if (candidateY > candidateY2) std::swap(candidateY, candidateY2);
+                    const float hitScale = 1.0f / zoom;
+                    const ImVec2 dstposLU = {
+                        p.x + candidateX * hitScale,
+                        p.y + candidateY * hitScale
+                    };
+                    const ImVec2 dstposRB = {
+                        p.x + candidateX2 * hitScale,
+                        p.y + candidateY2 * hitScale
+                    };
+                    if (dstposLU.x <= clickPos.x && clickPos.x <= dstposRB.x &&
+                        dstposLU.y <= clickPos.y && clickPos.y <= dstposRB.y) {
+                        hitDstRow = destination->lastRow;
+                        hitX = candidateX;
+                        hitY = candidateY;
+                        hitWidth = candidateX2 - candidateX;
+                        hitHeight = candidateY2 - candidateY;
+                        break;
                     }
-                    if (objectModelIndex < 0 ||
-                        !branchIsActive(objects[objectModelIndex].ifgroup)) continue;
-                    if (std::find(listedObjectModels.begin(), listedObjectModels.end(), objectModelIndex) !=
-                        listedObjectModels.end()) continue;
-                    listedObjectModels.push_back(objectModelIndex);
+                }
+                if (hitDstRow < 0) continue;
 
                     // Resolve the thumbnail from this Object's matching SRC
                     // row, rather than trusting DST::src's parser-global
@@ -969,7 +922,7 @@ int WORKSPACE::drawPreview() {
                     // several SRC/DST command pairs, so also match the command
                     // suffix and index column.
                     int thumbnailSrc = -1;
-                    const int dstRow = dst.declare;
+                    const int dstRow = hitDstRow;
                     SKINFILELINEREAD* dstLine = dstRow >= 0 && dstRow < skinfileLines.count
                         ? &((SKINFILELINEREAD*)skinfileLines.data)[dstRow] : NULL;
                     std::string wantedSrcCommand;
@@ -1011,8 +964,6 @@ int WORKSPACE::drawPreview() {
                         }
                     }
                     if (thumbnailSrc < 0) thumbnailSrc = fallbackSrc;
-                    if (thumbnailSrc < 0 && dst.src >= 0 && dst.src < arr_SRC.count)
-                        thumbnailSrc = dst.src;
 
                     char hitLabel[256];
                     const std::string hitName = Cp932ToUtf8(objects[objectModelIndex].name.c_str());
@@ -1041,7 +992,9 @@ int WORKSPACE::drawPreview() {
                     ImGui::SetCursorScreenPos(ImVec2(hitRowStart.x, hitRowStart.y + 66.0f));
                     ImGui::Dummy(ImVec2(0.0f, 0.0f));
                     if (hoverObject) {
-                        preview_hover_obj = { dstd.x, dstd.y, dstd.w, dstd.h };
+                        preview_hover_obj = {
+                            hitX, hitY, hitWidth, hitHeight
+                        };
                         preview_hover_obj_valid = true;
                     }
                     if (chooseObject && objectModelIndex >= 0) {
@@ -1057,7 +1010,6 @@ int WORKSPACE::drawPreview() {
                         RefreshPreviewSelectionBounds();
                         ImGui::CloseCurrentPopup();
                     }
-                }
             }
 
             ImGui::EndPopup();

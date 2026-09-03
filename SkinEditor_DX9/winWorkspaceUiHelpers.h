@@ -12,6 +12,9 @@ bool DrawCommandValueCombo(const char* label, const char* command,
     const char* columnHelp, int current, int& selected);
 bool ResolveDstArgbColumns(const char* command, int columns[4]);
 int FindCommandFieldColumn(const char* command, const char* fieldName);
+bool IsNowComboDestinationCommand(const char* command);
+bool IsNowComboRelativeField(const char* command, const char* fieldName);
+const char* NowComboCoordinateHelp();
 
 bool ApplyMouseCenteredWheelZoom(float& scale, float minimum, float maximum,
     const ImVec2& canvasOrigin, const ImVec2& canvasSize);

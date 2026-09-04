@@ -132,7 +132,7 @@ namespace SEUI {
         if (!enabled) ImGui::BeginDisabled();
         const bool clicked = ImGui::Button(label);
         if (!enabled) ImGui::EndDisabled();
-        if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", tooltip);
         return clicked && enabled;
     }

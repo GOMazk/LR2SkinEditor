@@ -12,6 +12,7 @@
 #include "skinPathResolver.h"
 #include "skinResolution.h"
 #include "uiCatalog.h"
+#include "winWorkspaceUiHelpers.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -1657,6 +1658,25 @@ int RunUiCatalogSelfTest() {
         return 22;
     }
     SESetUILanguage(originalLanguage, false);
+
+    if (!ObjectBrowserTextMatchesSearch("Judge_LINE", "judge_line")) return 23;
+    if (ObjectBrowserTextMatchesSearch("Judge", "Judge_LINE")) return 24;
+    if (!ObjectBrowserTextMatchesSearch("", "")) return 25;
+    if (ObjectBrowserTextMatchesSearch(nullptr, "note")) return 26;
+    // CP932 bytes for Japanese 'judgment': the browser receives a UTF-8 query.
+    const char* japaneseQuery = reinterpret_cast<const char*>(u8"\u5224\u5b9a");
+    if (!ObjectBrowserTextMatchesSearch("NOW_\x94\xBB\x92\xE8_LINE", japaneseQuery)) return 27;
+    if (ObjectBrowserTextMatchesSearch("NOW_\x94\xBB\x92\xE8_LINE",
+        reinterpret_cast<const char*>(u8"\u80cc\u666f"))) return 28;
+
+    if (CalculatePreviewFitScale(1280.0f, 720.0f, ImVec2(960.0f, 600.0f)) != 0.75f) return 29;
+    if (CalculatePreviewFitScale(720.0f, 1280.0f, ImVec2(960.0f, 640.0f)) != 0.5f) return 30;
+    if (CalculatePreviewFitScale(640.0f, 480.0f, ImVec2(1280.0f, 960.0f)) != 1.0f) return 31;
+    if (CalculatePreviewFitScale(0.0f, 720.0f, ImVec2(960.0f, 600.0f)) != 1.0f) return 32;
+    if (CalculatePreviewFitScale(1280.0f, 720.0f, ImVec2(0.0f, 600.0f)) != 1.0f) return 33;
+    const float smallDockScale = CalculatePreviewFitScale(3840.0f, 2160.0f, ImVec2(320.0f, 180.0f));
+    if (smallDockScale <= 0.0f || smallDockScale * 3840.0f > 320.01f ||
+        smallDockScale * 2160.0f > 180.01f) return 34;
 
     return 0;
 }

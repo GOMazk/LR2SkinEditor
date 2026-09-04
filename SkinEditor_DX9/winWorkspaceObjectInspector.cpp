@@ -13,6 +13,7 @@
 #include "skin.h"
 #include "op.h"
 #include "seHelper.h"
+#include "seLocalization.h"
 #include "seUI.h"
 #include "skinPathResolver.h"
 #include "inputwrap.h"
@@ -745,7 +746,12 @@ int WORKSPACE::drawObjectInspector() {
                 }
             }
         } else {
-            ImGui::Text("No object.");
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", SEText("Select an object to edit", u8"\uD3B8\uC9D1\uD560 \uC624\uBE0C\uC81D\uD2B8\uB97C \uC120\uD0DD\uD558\uC138\uC694"));
+            ImGui::Separator();
+            ImGui::TextWrapped("%s", SEText(
+                "Click an object in Preview or choose a row in Object Browser. Its properties will appear here.",
+                u8"Preview\uC5D0\uC11C \uC624\uBE0C\uC81D\uD2B8\uB97C \uD074\uB9AD\uD558\uAC70\uB098 Object Browser\uC5D0\uC11C \uD589\uC744 \uC120\uD0DD\uD558\uBA74 \uC774\uACF3\uC5D0 \uC18D\uC131\uC774 \uD45C\uC2DC\uB429\uB2C8\uB2E4."));
         }
     }
     ImGui::EndChild();

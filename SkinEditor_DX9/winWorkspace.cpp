@@ -1077,6 +1077,7 @@ int WORKSPACE::init() {
     ImGui::SetNextWindowSize(viewport->WorkSize);
 
     zoom = 1.0f;
+    previewAutoFit = true;
     ImageManagerZoom = 0.0f;
     imagePixelPaintMode = false;
     imagePixelPaintLastX = -1;
@@ -1669,16 +1670,16 @@ int WORKSPACE::draw() {
             // part of the compact right column.
             ImGuiID objectBrowserDock = 0;
             ImGuiID remainingDock = dockspaceId;
-            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.19f,
+            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.17f,
                 &objectBrowserDock, &remainingDock);
 
             ImGuiID objectInspectorDock = 0;
-            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.235f,
+            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.205f,
                 &objectInspectorDock, &remainingDock);
 
             ImGuiID opListDock = 0;
             ImGuiID centerDock = remainingDock;
-            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Right, 0.21f,
+            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Right, 0.18f,
                 &opListDock, &centerDock);
 
             ImGuiID rightLowerDock = 0;
@@ -1689,7 +1690,7 @@ int WORKSPACE::draw() {
 
             ImGuiID assetBrowserDock = 0;
             ImGuiID previewDock = centerDock;
-            ImGui::DockBuilderSplitNode(centerDock, ImGuiDir_Down, 0.30f,
+            ImGui::DockBuilderSplitNode(centerDock, ImGuiDir_Down, 0.23f,
                 &assetBrowserDock, &previewDock);
 
             char previewTitle[64];
@@ -3548,6 +3549,7 @@ int WORKSPACE::LoadSkin(char* path) {
     //previewScreen = MakeARGB8ColorSoftImage(skinSizeX, skinSizeY); //for SDL3
 
     wPreview = 1;
+    previewAutoFit = true;
     wObjectEditor = true;
     ClearObjectSelection();
     wImgManager = true;
@@ -5072,6 +5074,7 @@ int WORKSPACE::ReadSkinSE() {
 
 int WORKSPACE::SeInit() {
     zoom = 1.0f;
+    previewAutoFit = true;
     ImageManagerZoom = 0.0f;
     DstViewZoom = 0.0f;
 }

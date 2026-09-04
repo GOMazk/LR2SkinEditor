@@ -487,6 +487,7 @@ typedef struct WORKSPACE {
     ImVec2 clickPos;
     bool drawRightClick;
     float zoom = 1.0f;
+    bool previewAutoFit = true;
 
     bool wCustomize;
     int drawCustomize();

@@ -38,7 +38,7 @@ struct SEUIWindowSpec {
 };
 
 inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
-    { SEUIWindowId::Preview, "preview", "Preview", "Render and directly manipulate the loaded skin canvas.", "WORKSPACE::drawPreview", "Workspace", "center-tabs", true },
+    { SEUIWindowId::Preview, "preview", "Preview", "Fit, zoom and directly manipulate the loaded skin in a scrollable canvas beneath fixed controls.", "WORKSPACE::drawPreview", "Workspace", "center-tabs", true },
     { SEUIWindowId::TimerControl, "timer-control", "Timer Control", "Restart the scene runtime and inspect or override LR2 timers.", "WORKSPACE::drawTimerControl", "Workspace", "right-lower", true },
     { SEUIWindowId::Customize, "customize", "Customize", "Choose skin-defined customization options.", "WORKSPACE::drawCustomize", "Data", "right-lower", true },
     { SEUIWindowId::ImageManager, "image-manager", "Image Manager", "Inspect source atlases and register, edit or generate image files.", "WORKSPACE::drawImgManager", "Assets", "center-tabs", true },
@@ -47,7 +47,7 @@ inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
     { SEUIWindowId::FileManager, "file-manager", "File Manager", "Inspect scripts and images referenced by the workspace.", "WORKSPACE::drawFileManager", "Data", "center-bottom", false },
     { SEUIWindowId::SimpleMode, "simple-mode", "Simple Mode", "Replace number fonts, judgement art, gear parts and note shapes through semantic component groups.", "WORKSPACE::drawSimpleMode", "Workspace", "center-tabs", true },
     { SEUIWindowId::DstView, "dst-view", "DST View", "Inspect destination rows and preview their animation frames.", "WORKSPACE::drawDstView", "Assets", "center-tabs", true },
-    { SEUIWindowId::ObjectBrowser, "object-browser", "Object Browser", "Filter, group, select and reorder parsed skin objects.", "WORKSPACE::drawObjectBrowser", "Workspace", "left-browser", true },
+    { SEUIWindowId::ObjectBrowser, "object-browser", "Object Browser", "Search, reset filters and count matching objects; group, select and reorder them.", "WORKSPACE::drawObjectBrowser", "Workspace", "left-browser", true },
     { SEUIWindowId::ObjectInspector, "object-inspector", "Object Inspector", "Edit properties of the shared Object Browser selection.", "WORKSPACE::drawObjectInspector", "Workspace", "left-inspector", true },
     { SEUIWindowId::ObjectManager, "object-manager", "Object Manager", "Inspect the legacy object list and property editor.", "WORKSPACE::drawObjectManager", "Advanced", "left-browser", false },
     { SEUIWindowId::ObjectManagerTest, "object-manager-test", "Object Manager Test", "Exercise the legacy runtime object model for development.", "WORKSPACE::drawObjectManagerTest", "Advanced", "left-browser", false },

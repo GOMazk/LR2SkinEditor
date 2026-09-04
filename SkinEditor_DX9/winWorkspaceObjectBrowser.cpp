@@ -27,6 +27,27 @@
 #include <set>
 #include <string>
 #include <vector>
+
+bool ObjectBrowserTextMatchesSearch(const char* cp932Text, const char* utf8Query) {
+    if (!utf8Query || !*utf8Query) return true;
+    if (!cp932Text) return false;
+    const std::string textUtf8 = Cp932ToUtf8(cp932Text);
+    const size_t queryLength = strlen(utf8Query);
+    for (size_t offset = 0; offset + queryLength <= textUtf8.size(); ++offset) {
+        bool matches = true;
+        for (size_t index = 0; index < queryLength; ++index) {
+            unsigned char textByte = (unsigned char)textUtf8[offset + index];
+            unsigned char queryByte = (unsigned char)utf8Query[index];
+            // Fold ASCII only; locale-dependent byte folding corrupts UTF-8.
+            if (textByte >= 'A' && textByte <= 'Z') textByte += 'a' - 'A';
+            if (queryByte >= 'A' && queryByte <= 'Z') queryByte += 'a' - 'A';
+            if (textByte != queryByte) { matches = false; break; }
+        }
+        if (matches) return true;
+    }
+    return false;
+}
+
 int WORKSPACE::drawObjectBrowser() {
     char browserTitle[128];
     FormatSEUIWindowTitle(browserTitle, sizeof(browserTitle), SEUIWindowId::ObjectBrowser, num);
@@ -60,32 +81,41 @@ int WORKSPACE::drawObjectBrowser() {
     };
 
     const int requestedObjectModel = object_editor_select_request;
-    if (requestedObjectModel >= 0) {
-        // A Preview hit must remain reachable even when the Object Editor was
-        // showing a type/user-group/search filter that excludes it.
+    const auto clearFilters = [&]() {
         selected_object_group = -1;
         selected_user_object_group = -1;
         objectBrowserActiveOnly = false;
         objectSearch[0] = '\0';
+    };
+    if (requestedObjectModel >= 0) {
+        // A Preview hit must remain reachable even when the Object Editor was
+        // showing a type/user-group/search filter that excludes it.
+        clearFilters();
     }
     // Object Browser: filters on top, condition/object list below.
     if (drawBrowser) {
         // Image Manager is drawn before Object Browser, so it consumes the
         // previous frame's hover and this frame refreshes or clears it.
         SetImageManagerHoveredObject(-1, ImGui::GetFrameCount());
-        const float filterPanelHeight = ImGui::GetFrameHeightWithSpacing() * 4.0f +
-            ImGui::GetStyle().WindowPadding.y * 2.0f + 18.0f;
+        const bool focusSearch = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) &&
+            ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F, false);
+        const float fullFilterHeight = ImGui::GetFrameHeightWithSpacing() * 6.0f +
+            ImGui::GetStyle().WindowPadding.y * 2.0f;
+        // Leave room for objects in short docks; filters can scroll independently.
+        const float filterPanelHeight = (std::min)(fullFilterHeight,
+            (std::max)(ImGui::GetFrameHeightWithSpacing() * 2.0f,
+                ImGui::GetContentRegionAvail().y * 0.45f));
         const bool drawFilters = ImGui::BeginChild("ObjectFilters",
-            ImVec2(0, filterPanelHeight), true,
-            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            ImVec2(0, filterPanelHeight), true);
         if (drawFilters) {
-        ImGui::TextDisabled("Type");
+        ImGui::TextDisabled("%s", SEText("Type", u8"종류"));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-FLT_MIN);
         const char* typePreview = selected_user_object_group < 0 && selected_object_group >= 0
-            ? groups[selected_object_group].name.c_str() : "All Objects";
+            ? groups[selected_object_group].name.c_str() : SEText("All Objects", u8"모든 오브젝트");
         if (ImGui::BeginCombo("##ObjectTypeFilter", typePreview)) {
-            if (ImGui::Selectable("All Objects", selected_user_object_group < 0 && selected_object_group < 0)) {
+            if (ImGui::Selectable(SEText("All Objects", u8"모든 오브젝트"), selected_user_object_group < 0 && selected_object_group < 0)) {
                 selected_object_group = -1;
                 selected_user_object_group = -1;
                 selected_object_editor = 0;
@@ -105,14 +135,14 @@ int WORKSPACE::drawObjectBrowser() {
         }
 
         const std::vector<SEUserObjectGroup>& userGroups = objectEditorModel.UserGroups();
-        ImGui::TextDisabled("Group");
+        ImGui::TextDisabled("%s", SEText("Group", u8"그룹"));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-FLT_MIN);
         const std::string groupPreviewUtf8 = selected_user_object_group >= 0 &&
             selected_user_object_group < (int)userGroups.size()
-            ? Cp932ToUtf8(userGroups[selected_user_object_group].name.c_str()) : "No My Group";
+            ? Cp932ToUtf8(userGroups[selected_user_object_group].name.c_str()) : SEText("All groups", u8"모든 그룹");
         if (ImGui::BeginCombo("##ObjectUserGroupFilter", groupPreviewUtf8.c_str())) {
-            if (ImGui::Selectable("No My Group", selected_user_object_group < 0))
+            if (ImGui::Selectable(SEText("All groups", u8"모든 그룹"), selected_user_object_group < 0))
                 selected_user_object_group = -1;
             for (int gidx = 0; gidx < (int)userGroups.size(); ++gidx) {
                 std::vector<int> members = objectEditorModel.ObjectsForUserGroup(gidx);
@@ -129,14 +159,26 @@ int WORKSPACE::drawObjectBrowser() {
         }
 
         ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::InputTextWithHint("##ObjectSearch", "Search objects...", objectSearch, sizeof(objectSearch));
-        ImGui::Checkbox("Draw order", &objectBrowserDrawOrder);
+        if (focusSearch) ImGui::SetKeyboardFocusHere();
+        ImGui::InputTextWithHint("##ObjectSearch", SEText("Search objects... (Ctrl+F)", u8"오브젝트 검색... (Ctrl+F)"),
+            objectSearch, sizeof(objectSearch), ImGuiInputTextFlags_EscapeClearsAll);
+        if (focusSearch) ImGui::SetScrollHereY();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("%s", SEText("Search name, ID, type or source text. Esc clears the search.",
+                u8"이름, ID, 종류, 원문을 검색합니다. Esc로 검색어를 지웁니다."));
+        ImGui::Checkbox(SEText("Draw order###ObjectDrawOrder", u8"그리기 순서###ObjectDrawOrder"), &objectBrowserDrawOrder);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
             ImGui::SetTooltip("Show one flat list in LR2 layer order.\nTop is back; bottom is front.");
-        ImGui::SameLine();
-        ImGui::Checkbox("Active only", &objectBrowserActiveOnly);
+        ImGui::Checkbox(SEText("Active only###ObjectActiveOnly", u8"활성 오브젝트만###ObjectActiveOnly"), &objectBrowserActiveOnly);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
             ImGui::SetTooltip("Show objects whose IF branch and DST options are currently enabled.");
+
+        const bool hasFilters = selected_object_group >= 0 || selected_user_object_group >= 0 ||
+            objectBrowserActiveOnly || objectSearch[0];
+        if (SEUI::ActionButton(SEText("Clear filters###ClearObjectFilters", u8"필터 초기화###ClearObjectFilters"),
+            SEText("Show all objects. Keep the current selection and draw-order view.",
+                u8"모든 오브젝트를 표시합니다. 현재 선택과 그리기 순서는 유지합니다."), hasFilters))
+            clearFilters();
 
         if (requestCreateGroupPopup) {
             ImGui::OpenPopup("Create Object Group");
@@ -278,25 +320,18 @@ int WORKSPACE::drawObjectBrowser() {
     }
 
     if (objectSearch[0]) {
-        auto containsText = [](const char* text, const char* query) {
-            if (!text || !query || !*query) return true;
-            const size_t queryLength = strlen(query);
-            for (const char* cursor = text; *cursor; ++cursor)
-                if (_strnicmp(cursor, query, queryLength) == 0) return true;
-            return false;
-        };
         const std::vector<SEObjectInstance>& allObjects = objectEditorModel.Objects();
         groupObjects.erase(std::remove_if(groupObjects.begin(), groupObjects.end(), [&](int objectIndex) {
             if (objectIndex < 0 || objectIndex >= (int)allObjects.size()) return true;
             const SEObjectInstance& object = allObjects[objectIndex];
-            if (containsText(object.name.c_str(), objectSearch) ||
-                containsText(object.editorId.c_str(), objectSearch)) return false;
+            if (ObjectBrowserTextMatchesSearch(object.name.c_str(), objectSearch) ||
+                ObjectBrowserTextMatchesSearch(object.editorId.c_str(), objectSearch)) return false;
             const SEObjectGroupDef* def = objectEditorModel.Group(object.group);
-            if (def && containsText(def->name.c_str(), objectSearch)) return false;
+            if (def && ObjectBrowserTextMatchesSearch(def->name.c_str(), objectSearch)) return false;
             for (int row : object.rows) {
                 if (row < 0 || row >= skinfileLines.count) continue;
                 SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
-                if (line.line.body && containsText(line.line.outstr(), objectSearch)) return false;
+                if (line.line.body && ObjectBrowserTextMatchesSearch(line.line.outstr(), objectSearch)) return false;
             }
             return true;
         }), groupObjects.end());
@@ -482,9 +517,11 @@ int WORKSPACE::drawObjectBrowser() {
             return hasDst && allDstEnabled && conditionActive;
         };
 
+        int matchingObjectCount = 0;
         for (int oi = 0; oi < (int)groupObjects.size(); ++oi) {
             const SEObjectInstance& o = objectEditorModel.Objects()[groupObjects[oi]];
             if (objectBrowserActiveOnly && !objectIsActive(o)) continue;
+            ++matchingObjectCount;
             int ifgroup = o.ifgroup;
             if (ifgroup == 0 && !o.rows.empty())
                 ifgroup = ((SKINFILELINEREAD*)skinfileLines.data)[o.rows[0]].ifgroup;
@@ -542,6 +579,16 @@ int WORKSPACE::drawObjectBrowser() {
             }
             conditions[ci].branches[bi].localObjectIndices.push_back(oi);
         }
+
+        ImGui::TextDisabled(SEText("%d / %d objects", u8"오브젝트 %d / %d개"),
+            matchingObjectCount, (int)objectEditorModel.Objects().size());
+        if (matchingObjectCount == 0) {
+            ImGui::TextWrapped("%s", objectEditorModel.Objects().empty()
+                ? SEText("This skin has no parsed objects.", u8"이 스킨에는 해석된 오브젝트가 없습니다.")
+                : SEText("No objects match. Change the search or clear the filters above.",
+                    u8"일치하는 오브젝트가 없습니다. 검색어를 바꾸거나 위의 필터를 초기화하세요."));
+        }
+        ImGui::Separator();
 
         // A condition containing only nested conditions has no direct object,
         // so the object-driven pass above cannot discover it. Add every

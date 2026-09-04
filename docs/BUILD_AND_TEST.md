@@ -41,7 +41,9 @@ DxLib의 `SkinEditor_DX9\Release\Log.txt`를 다시 쓰더라도 실행 전 바�
 
 - `schema-contract`: 실행 파일에 포함된 command/object 스키마와 symbolic field
 - `ui-contract`: 창 카탈로그의 고유 key/title, owner, dock, workspace별 ImGui ID
-  및 English/Korean label 선택 계약
+  및 English/Korean label 선택 계약, Object Browser의 CP932 이름/UTF-8 검색,
+  ASCII 대소문자, 빈 검색어와 일치하지 않는 검색어, Preview의 가로/세로 화면 맞춤,
+  작은 스킨의 비확대, 잘못된 크기와 작은 4K viewport
 - `skin-browser`: 외부 폴더의 대소문자 확장자, 하위 폴더 탐색, 비스킨 파일 제외,
   잘못된 위치 거부, 100개를 넘는 등록 스킨 목록의 구조체 크기 기반 안전 확장
 - `preview-simulator`: PLAY 키 모드별 메모리 chart의 시간순 lane 배치, 동시치기,
@@ -120,6 +122,28 @@ JUnit, UI 지도, 문서 검사와 AI 인계 자료는 실패 여부와 관계�
 artifact로 보존한다. 러너는 현재 프로젝트의 Visual Studio 2022/`v143`
 기준을 지키기 위해 `windows-2022`로 고정하고, checkout과 artifact action은 현행
 major version을 사용한다.
+
+## Object Browser 검색/필터 수동 확인
+
+- 1280x720 및 세로형 스킨을 열어 Preview 전체가 잘리지 않는지 확인한다.
+  창 크기 변경과 F11 전환에서 화면 맞춤이 유지되어야 한다. `100%`/배율/Ctrl+휠로
+  수동 전환 후 도킹 크기를 바꿔도 배율을 유지하며, `화면 맞춤`으로 복귀한다.
+- 확대/스크롤 중 Preview 도구 모음이 고정되어 있고, 작은 폭에서는 줄바꿈되는지
+  확인한다. 중앙 정렬 상태와 확대 상태에서 Object 선택/드래그/크기 변경 및
+  Asset drop 위치가 같은 스킨 좌표를 가리키는지 확인한다.
+- 스킨 로드 또는 `Rebuild current docking`으로 기본 비율을 확인한다. 빈 Inspector는
+  선택 안내를 표시하고, 기존 수동 도킹 변경은 일반 프레임에서 유지되어야 한다.
+
+- Browser를 좁고 낮게 도킹해 두 체크박스가 별도 행에 표시되고 필터를 스크롤할
+  수 있는지 확인한다. English/Korean 양쪽 설정에서 확인한다.
+- Browser에 포커스가 있을 때 `Ctrl+F`로 검색하고 `Esc`로 검색어를 지운다.
+  다른 Workspace/Inspector 입력 또는 modal을 사용 중이면 검색 포커스를 빼앗지 않는다.
+- 일본어 이름과 원문, ASCII 대소문자를 검색하고 Type/Group/Active only를 조합한다.
+  표시 개수는 접힌 Branch 수와 무관하게 필터에 일치하는 Object 수여야 한다.
+- 결과가 없을 때 안내를 확인하고 `필터 초기화`를 누른다. 선택 Object와 그리기
+  순서는 유지되며, Preview에서 새 Object를 선택하면 기존 선택 복원 경로로 찾아간다.
+
+이 항목은 자동 `ui-contract`의 문자열 검색 검사와 별도의 네이티브 GUI 확인이다.
 
 ## 저장소 배치
 

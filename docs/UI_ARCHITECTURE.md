@@ -116,6 +116,20 @@ stays organized instead of creating floating panels. `Layout > Balanced
 workspace` restores default visibility; `Rebuild current docking` preserves
 visibility and only repairs placement.
 
+The initial layout assigns about 17% each to Browser and Inspector, 54% to the
+center and 12% to the right column. Assets take the lower 23% of the center,
+leaving 77% for Preview. These ratios apply on load or an explicit layout
+rebuild; normal frames do not override user-adjusted splits.
+
+Preview starts in auto-fit mode when a skin is loaded. `CalculatePreviewFitScale`
+fits both dimensions into the actual canvas viewport without enlarging small
+skins. Fit follows dock/fullscreen resizing; the zoom slider, Ctrl+wheel and
+`100%` switch to manual zoom until `Fit` is chosen again. Only the canvas child
+scrolls, so its wrapping toolbar remains visible. Image placement, hit tests,
+asset drops and selection overlays all use the same centered canvas origin and
+scale. Empty Inspector content explains how to select an object without
+creating a synthetic selection on load.
+
 Browser and Inspector use the full workspace height. ImageManager and dstView
 share Preview's tab node in the center. Asset Browser occupies the lower center
 node so Preview remains visible while an asset is dragged upward. The right
@@ -141,6 +155,18 @@ updates cannot diverge.
 ## State flows that must remain intact
 
 ### Object selection
+
+Object Browser filters use separate rows for draw order and active-only mode so
+narrow docks do not clip one checkbox behind the other. In short docks, the
+filter child scrolls independently and leaves room for the object list.
+`Ctrl+F` focuses search only in the focused Browser workspace; `Esc` clears its
+text. Search compares UTF-8 input with CP932 names/source rows converted for
+display, with ASCII case folding. `Clear filters` resets Type, Group, Active
+only and Search while preserving shared selection and the draw-order view.
+The list reports matching/total objects after the active predicate, independently
+of collapsed branches, and explains an empty result. These controls use the
+existing English/Korean preference and stable ImGui IDs. Disabled action buttons
+retain their explanatory tooltips.
 
 ```text
 Preview / right-click / DST View / Text Editor Object row

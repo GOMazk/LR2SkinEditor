@@ -29,6 +29,14 @@
 #include <string>
 #include <vector>
 
+float CalculatePreviewFitScale(float skinWidth, float skinHeight, const ImVec2& available) {
+    if (!std::isfinite(skinWidth) || !std::isfinite(skinHeight) ||
+        !std::isfinite(available.x) || !std::isfinite(available.y) ||
+        skinWidth <= 0.0f || skinHeight <= 0.0f || available.x <= 0.0f || available.y <= 0.0f)
+        return 1.0f;
+    return (std::min)(1.0f, (std::min)(available.x / skinWidth, available.y / skinHeight));
+}
+
 namespace {
 
 float SnapPreviewCoordinate(float value, int gridSize) {
@@ -254,7 +262,7 @@ int WORKSPACE::drawPreview() {
     if (previewCanvasFullscreen && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         previewCanvasFullscreen = false;
 
-    ImGuiWindowFlags previewWindowFlags = ImGuiWindowFlags_HorizontalScrollbar;
+    ImGuiWindowFlags previewWindowFlags = ImGuiWindowFlags_None;
     if (previewCanvasFullscreen) {
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
@@ -280,20 +288,42 @@ int WORKSPACE::drawPreview() {
 
     float previewCanvasScale = 1.0f / zoom;
     float zoomPercent = previewCanvasScale * 100.0f;
-    ImGui::SetNextItemWidth(210.0f);
-    if (ImGui::SliderFloat(SEText("Zoom##zoom", u8"\uD655\uB300/\uCD95\uC18C##zoom"),
-        &zoomPercent, 25.0f, 1600.0f,
+    // Wrap controls in narrow docks; scrolling belongs only to the canvas below.
+    const auto nextToolbarItem = [](float width) {
+        ImGui::SameLine();
+        if (ImGui::GetContentRegionAvail().x < width) ImGui::NewLine();
+    };
+    const auto buttonWidth = [](const char* label) {
+        return ImGui::CalcTextSize(label, nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    };
+    ImGui::SetNextItemWidth((std::min)(160.0f, ImGui::GetContentRegionAvail().x));
+    if (ImGui::SliderFloat("##PreviewZoom",
+        &zoomPercent, 1.0f, 1600.0f,
         "%.0f%%", ImGuiSliderFlags_Logarithmic)) {
         if (zoomPercent < 1.0f) zoomPercent = 1.0f;
         previewCanvasScale = zoomPercent / 100.0f;
         zoom = 1.0f / previewCanvasScale;
+        previewAutoFit = false;
     }
-    ImGui::SameLine();
-    if (ImGui::Button(previewCanvasFullscreen
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("%s", SEText("Zoom. Ctrl+wheel zooms at the pointer.",
+            u8"\uBC30\uC728. Ctrl+\uD720\uB85C \uD3EC\uC778\uD130 \uC704\uCE58\uB97C \uD655\uB300\uD569\uB2C8\uB2E4."));
+    const char* fitLabel = SEText("Fit###PreviewFit", u8"\uD654\uBA74 \uB9DE\uCDA4###PreviewFit");
+    nextToolbarItem(buttonWidth(fitLabel));
+    if (ImGui::Button(fitLabel)) previewAutoFit = true;
+    nextToolbarItem(buttonWidth("100%"));
+    if (ImGui::Button("100%")) {
+        previewAutoFit = false;
+        previewCanvasScale = 1.0f;
+        zoom = 1.0f;
+    }
+    const char* fullscreenLabel = previewCanvasFullscreen
         ? SEText("Exit Fullscreen (F11)", u8"\uC804\uCCB4\uD654\uBA74 \uC885\uB8CC (F11)")
-        : SEText("Fullscreen (F11)", u8"\uC804\uCCB4\uD654\uBA74 (F11)")))
+        : SEText("Fullscreen (F11)", u8"\uC804\uCCB4\uD654\uBA74 (F11)");
+    nextToolbarItem(buttonWidth(fullscreenLabel));
+    if (ImGui::Button(fullscreenLabel))
         previewCanvasFullscreen = !previewCanvasFullscreen;
-    ImGui::SameLine();
+    nextToolbarItem(110.0f);
     ImGui::SetNextItemWidth(110.0f);
     char snapLabel[32];
     snprintf(snapLabel, sizeof(snapLabel),
@@ -314,14 +344,46 @@ int WORKSPACE::drawPreview() {
         ImGui::SetTooltip("%s", SEText(
             "Hold Shift while moving or resizing to snap to this grid.",
             u8"\uC774\uB3D9\uD558\uAC70\uB098 \uD06C\uAE30\uB97C \uBC14\uAFC0 \uB54C Shift\uB97C \uB204\uB974\uBA74 \uC774 \uAC04\uACA9\uC5D0 \uB9DE\uCDB0\uC9D1\uB2C8\uB2E4."));
+    const ImGuiWindowFlags canvasFlags = previewAutoFit
+        ? ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+        : ImGuiWindowFlags_HorizontalScrollbar;
+    if (!ImGui::BeginChild("##PreviewCanvasRegion", ImVec2(0, 0), false, canvasFlags)) {
+        ImGui::EndChild();
+        ImGui::End();
+        return 0;
+    }
+    const ImVec2 available = ImGui::GetContentRegionAvail();
+    const ImVec2 canvasStart = ImGui::GetCursorPos();
+    if (previewAutoFit) {
+        previewCanvasScale = CalculatePreviewFitScale((float)skinSizeX, (float)skinSizeY, available);
+        zoom = 1.0f / previewCanvasScale;
+        ImGui::SetScrollX(0.0f);
+        ImGui::SetScrollY(0.0f);
+    }
+    const auto centeredOffset = [&](float scale) {
+        return ImVec2((std::max)(0.0f, (available.x - skinSizeX * scale) * 0.5f),
+            (std::max)(0.0f, (available.y - skinSizeY * scale) * 0.5f));
+    };
+    const ImVec2 oldOffset = centeredOffset(previewCanvasScale);
+    ImGui::SetCursorPos(ImVec2(canvasStart.x + oldOffset.x, canvasStart.y + oldOffset.y));
     ImVec2 p = ImGui::GetCursorScreenPos();
+    const float oldScale = previewCanvasScale;
     const ImVec2 oldPreviewCanvasSize(skinSizeX * previewCanvasScale,
         skinSizeY * previewCanvasScale);
-    if (ApplyMouseCenteredWheelZoom(previewCanvasScale, 0.25f, 16.0f,
-        p, oldPreviewCanvasSize))
+    if (ApplyMouseCenteredWheelZoom(previewCanvasScale, 0.01f, 16.0f,
+        p, oldPreviewCanvasSize)) {
+        previewAutoFit = false;
         zoom = 1.0f / previewCanvasScale;
-    //TODO init zoom value
-    //TODO support HD skins
+        // Centering changes as an image grows past the viewport. Account for
+        // that offset as well as scale to keep Ctrl+wheel anchored at the pointer.
+        const ImVec2 newOffset = centeredOffset(previewCanvasScale);
+        const float ratio = previewCanvasScale / oldScale;
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        ImGui::SetScrollX(ImGui::GetScrollX() + (mouse.x - p.x) * (ratio - 1.0f) + newOffset.x - oldOffset.x);
+        ImGui::SetScrollY(ImGui::GetScrollY() + (mouse.y - p.y) * (ratio - 1.0f) + newOffset.y - oldOffset.y);
+        ImGui::SetCursorPos(ImVec2(canvasStart.x + newOffset.x, canvasStart.y + newOffset.y));
+        p = ImGui::GetCursorScreenPos();
+    }
 
     void* previewPixels = NULL;
     if (previewTextureDirty || !texture_preview)
@@ -1031,6 +1093,7 @@ int WORKSPACE::drawPreview() {
             IM_COL32(255, 230, 40, 235), 0.0f, ImDrawFlags_Closed, 1.0f);
     }
 
+    ImGui::EndChild();
     ImGui::End();
 
     if (!wPreview) SetWindowVisibleFlag(0);

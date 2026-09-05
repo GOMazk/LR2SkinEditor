@@ -55,6 +55,10 @@ $tests = @(
         Argument = '--self-test-simple-mode'
     },
     [pscustomobject]@{
+        Name = 'font-atlas'
+        Argument = '--self-test-font-atlas'
+    },
+    [pscustomobject]@{
         Name = 'reload-lifecycle'
         Argument = '--self-test-reload-lifecycle'
     },

@@ -88,6 +88,7 @@ enum class SEUISurfaceId {
     NewSkin,
     NewObject,
     ObjectMoveConfirmation,
+    SimpleFontTools,
     Help,
     Count
 };
@@ -111,6 +112,7 @@ inline constexpr SEUISurfaceSpec kSEUISurfaceSpecs[] = {
     { SEUISurfaceId::NewSkin, "new-skin", "New Skin", "Create a protected initial skin preset for a scene and resolution.", "WORKSPACE::drawNewskin", "dialog" },
     { SEUISurfaceId::NewObject, "new-object", "New Object", "Create an Object or raw command in the selected file and branch.", "WORKSPACE::drawNewObject", "dialog" },
     { SEUISurfaceId::ObjectMoveConfirmation, "object-move-confirmation", "Move Object to another file?", "Confirm moving an Object and its editor metadata between include files.", "WORKSPACE::draw", "dialog" },
+    { SEUISurfaceId::SimpleFontTools, "simple-font-tools", "Simple Font Tools", "Generate and preview TTF number, combo and judgement atlases; apply existing PNG/CSV with Undo.", "WORKSPACE::drawSimpleModeFontTools", "flow" },
     { SEUISurfaceId::Help, "help", "Help", "Explain the editor workflow and the role of each primary workspace panel.", "DrawHelpWindow", "dialog" }
 };
 

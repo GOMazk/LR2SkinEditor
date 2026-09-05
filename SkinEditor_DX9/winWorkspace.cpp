@@ -3261,6 +3261,10 @@ static bool ResetEditorDerivedContainers(WORKSPACE& workspace) {
 }
 
 int WORKSPACE::ResetEditorDocumentForLoad() {
+    simpleFontTexture.reset();
+    simpleFontBitmap = SEFontAtlasBitmap();
+    simpleFontSlotId.clear();
+    simpleFontPreparedGeneration = 0;
     simpleModeProjection.clear();
     InvalidateSimpleModeProjection();
     olrSourcePackagePath.clear();
@@ -8921,8 +8925,10 @@ bool SimpleModeSlotMatchesScope(const SimpleModeSlot& candidate,
     }
     if (target.category == SimpleModeCategory::NumberFonts ||
         target.category == SimpleModeCategory::JudgementFonts)
-        return SimpleModeCommandFamily(candidate.command) ==
-            SimpleModeCommandFamily(target.command);
+        return candidate.command != target.command &&
+            SimpleModeCommandFamily(candidate.command) == SimpleModeCommandFamily(target.command) &&
+            candidate.sourceIndex == target.sourceIndex && candidate.ifgroup == target.ifgroup &&
+            candidate.owner == target.owner;
     return candidate.command == target.command;
 }
 
@@ -9079,6 +9085,8 @@ std::vector<SimpleModeSlot> BuildSimpleModeSlots(WORKSPACE& workspace) {
         slot.objectId = objectId;
         slot.command = command;
         slot.row = rowIndex;
+        slot.ifgroup = row.ifgroup;
+        slot.owner = row.filename.body ? row.filename.outstr() : workspace.mainpath;
         slot.label = objectNameUtf8.empty() ? SimpleModeCommandLabel(command) :
             objectNameUtf8 + " - " + SimpleModeCommandLabel(command);
         const std::string occurrenceKey = objectId + "\n" + command;
@@ -9129,6 +9137,24 @@ bool WriteSimpleModeAssetFields(WORKSPACE& workspace,
     std::string& errorMessage) {
     changedSlotCount = 0;
     errorMessage.clear();
+    // Check the complete font batch before any EditValue can change the document.
+    if (target.category == SimpleModeCategory::NumberFonts ||
+        target.category == SimpleModeCategory::JudgementFonts) {
+        if (target.category == SimpleModeCategory::NumberFonts &&
+            (divX < 1 || divY < 1 || divX > 256 || divY > 256 ||
+                !SEFontNumberFrameCount(divX * divY))) {
+            errorMessage = "Number fonts require a 10, 11 or 24-cell frame layout.";
+            return false;
+        }
+        for (const SimpleModeSlot& slot : slots) {
+            if (SimpleModeSlotMatchesScope(slot, target, applyScope) &&
+                (slot.divX != divX || slot.divY != divY)) {
+                errorMessage = "A target uses a different font grid (row " +
+                    std::to_string(slot.row + 1) + "). Replace that component separately.";
+                return false;
+            }
+        }
+    }
     const char* fieldNames[] = {
         "gr", "x", "y", "w", "h", "div_x", "div_y", "cycle"
     };
@@ -9486,7 +9512,27 @@ int RunSimpleModeScopeRuleSelfTest() {
     judge2p.row = 11;
     if (!SimpleModeSlotMatchesScope(judge2p, judge1p, 1) ||
         SimpleModeSlotMatchesScope(judge2p, judge1p, 2)) return 2;
+    judge2p.sourceIndex = 3;
+    if (SimpleModeSlotMatchesScope(judge2p, judge1p, 1)) return 3;
+    judge2p.sourceIndex = judge1p.sourceIndex;
+    judge2p.ifgroup = 8;
+    if (SimpleModeSlotMatchesScope(judge2p, judge1p, 1)) return 4;
+    judge2p.ifgroup = judge1p.ifgroup;
+    judge2p.owner = "other.lr2skin";
+    if (SimpleModeSlotMatchesScope(judge2p, judge1p, 1)) return 5;
     return 0;
+}
+
+std::vector<SESimpleModeSlot> WORKSPACE::GetSimpleModeApplyTargets(
+    const std::string& slotId, int applyScope) {
+    const std::vector<SESimpleModeSlot>& slots = GetSimpleModeSlots();
+    const auto target = std::find_if(slots.begin(), slots.end(),
+        [&](const SESimpleModeSlot& slot) { return slot.id == slotId; });
+    std::vector<SESimpleModeSlot> targets;
+    if (target != slots.end())
+        for (const SESimpleModeSlot& slot : slots)
+            if (SimpleModeSlotMatchesScope(slot, *target, applyScope)) targets.push_back(slot);
+    return targets;
 }
 
 const std::vector<SESimpleModeSlot>& WORKSPACE::GetSimpleModeSlots() {
@@ -12227,6 +12273,156 @@ int WORKSPACE::drawNewskin() {
     return 0;
 }
 
+int WORKSPACE::ApplySimpleModeFontBitmap(const std::string& slotId,
+    const SEFontAtlasBitmap& bitmap, int applyScope, std::string& resultMessage) {
+    resultMessage.clear();
+    // Snapshot projection values before registration shifts expanded source rows.
+    const std::vector<SESimpleModeSlot> slots = GetSimpleModeSlots();
+    const auto target = std::find_if(slots.begin(), slots.end(),
+        [&](const SESimpleModeSlot& slot) { return slot.id == slotId; });
+    if (target == slots.end() || !mainpath[0] || applyScope < 0 || applyScope > 3 ||
+        (target->category != SESimpleModeCategory::NumberFonts &&
+            target->category != SESimpleModeCategory::JudgementFonts)) {
+        resultMessage = "Select a number/combo/judgement component and its optional matching player pair.";
+        return -1;
+    }
+    if (bitmap.width < 1 || bitmap.height < 1 || bitmap.width > 4096 || bitmap.height > 4096 ||
+        bitmap.pixels.size() != (size_t)bitmap.width * bitmap.height ||
+        bitmap.width % target->divX || bitmap.height % target->divY) {
+        resultMessage = "Generate a font preview compatible with this component first.";
+        return -1;
+    }
+    for (const SESimpleModeSlot& slot : slots) {
+        if (SimpleModeSlotMatchesScope(slot, *target, applyScope) &&
+            (slot.divX != target->divX || slot.divY != target->divY)) {
+            resultMessage = "The player pair uses different grids. Apply to each component separately.";
+            return -1;
+        }
+    }
+    // LR2 loads image handles in source order. Reserve slot zero before all
+    // original declarations, then shift ordinary graphic references together.
+    // Special handles (100+) and negative handles are not #IMAGE indices.
+    std::vector<std::pair<int, int>> graphicFields;
+    int imageDeclarations = 0;
+    int insertAt = 0;
+    for (int row = 0; row < skinfileLines.count; ++row) {
+        SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        const char* command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+        if (line.csv.str[0].isSame("#IMAGE")) {
+            ++imageDeclarations;
+            if (line.csv.str[1].isSame("CONTINUE")) {
+                resultMessage = "This skin inherits CONTINUE graphics. Replace its source skin's font instead.";
+                return -1;
+            }
+        }
+        if (!strncmp(command, "#SRC_", 5) && GetCommandHelp(command, 0).isSame("WIP")) {
+            resultMessage = "Cannot safely update graphic references for unknown command: " + std::string(command);
+            return -1;
+        }
+        const char* graphicSchema = !strcmp(command, "$SRC_IMAGE") ? "#SRC_IMAGE" : command;
+        const int column = FindCommandFieldColumn(graphicSchema, "gr");
+        if (column >= 0 && line.csv.val[column] >= 0 && line.csv.val[column] < 100) {
+            if (line.csv.val[column] == 99) {
+                resultMessage = "Graphic 99 is already referenced; inserting another font would exceed LR2's limit.";
+                return -1;
+            }
+            graphicFields.emplace_back(row, column);
+        }
+    }
+    if (imageDeclarations >= 100) {
+        resultMessage = "There is no safely reservable graphic slot across this skin's branches.";
+        return -1;
+    }
+    // Keep the leading root marker and information header ahead of the image,
+    // but never cross an include, condition or existing resource declaration.
+    while (insertAt < skinfileLines.count) {
+        SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[insertAt];
+        const bool rootStart = insertAt == 0 && line.line.body &&
+            !strncmp(line.line.outstr(), "$FILE ", 6) && strstr(line.line.outstr(), " start");
+        if (!rootStart && !line.csv.str[0].isSame("#INFORMATION") &&
+            !line.csv.str[0].isSame("#RESOLUTION")) break;
+        ++insertAt;
+    }
+    std::error_code fileError;
+    const auto folder = std::filesystem::path(mainpath).parent_path() / "simple-assets";
+    std::filesystem::create_directories(folder, fileError);
+    if (fileError) { resultMessage = "Could not create the skin's simple-assets folder: " + fileError.message(); return -1; }
+    std::filesystem::path outputPath;
+    for (int suffix = 0; suffix < 10000; ++suffix) {
+        outputPath = folder / ("font_" + std::to_string(GetTickCount64()) + "_" + std::to_string(suffix) + ".png");
+        if (!std::filesystem::exists(outputPath, fileError) && !fileError) break;
+        if (fileError) { resultMessage = "Could not inspect the generated font path: " + fileError.message(); return -1; }
+    }
+    char imageError[512] = {};
+    if (!CreateArgbImageFileAtomic(outputPath.string().c_str(), bitmap.width, bitmap.height,
+        reinterpret_cast<const D3DCOLOR*>(bitmap.pixels.data()), bitmap.pixels.size(), imageError, sizeof(imageError))) {
+        resultMessage = imageError; return -1;
+    }
+    const SkinDocumentSnapshot before = CaptureDocumentSnapshot();
+    const bool previousApplyingHistory = applyingHistory;
+    applyingHistory = true;
+    int changedCount = 0;
+    bool changed = true;
+    for (const auto& field : graphicFields) {
+        SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[field.first];
+        const int value = line.csv.val[field.second];
+        if (line.csv.str[0].isSame("$SRC_IMAGE")) {
+            // CsvToLine intentionally skips editor comments. Change this
+            // metadata token through EditLine and refresh its parsed cache.
+            const std::string updated = OlrReplaceCsvField(line.line.outstr(), field.second, std::to_string(value + 1));
+            if (EditLine(field.first, CSTR(line.line), CSTR(updated.c_str())) != 0) { changed = false; break; }
+            SplitCSV(line.line, &line.csv, ",");
+            line.csvColumnCount = CountCsvColumns(line.line);
+        } else if (EditValue(field.first, field.second, value + 1) != 0) { changed = false; break; }
+    }
+    if (changed) changed = WriteSimpleModeAssetFields(*this, slots, *target, applyScope,
+        0, 0, 0, bitmap.width, bitmap.height, target->divX, target->divY,
+        target->cycle, changedCount, resultMessage);
+    const std::string storedPath = MakePortableGeneratedImagePath(outputPath.string().c_str(), mainpath);
+    if (storedPath.empty() || storedPath.find(',') != std::string::npos) changed = false;
+    char assetLine[256] = {};
+    snprintf(assetLine, sizeof(assetLine), "$SRC_IMAGE,0,0,0,0,%d,%d,%d,%d,%d,0,0,0,0",
+        bitmap.width, bitmap.height, target->divX, target->divY, target->cycle);
+    const std::string declarations[] = { "#IMAGE," + storedPath, assetLine };
+    CSTR rootOwner(mainpath);
+    AssignRootFileOwner(skinfileLines, mainpath, rootOwner);
+    for (int index = 0; changed && index < 2; ++index) {
+        const int row = insertAt + index;
+        changed = InsertLine(row) == 0;
+        if (!changed) break;
+        SKINFILELINEREAD& inserted = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        inserted.filename.assign(rootOwner);
+        inserted.ifgroup = 0;
+        CSTR previous(inserted.line);
+        changed = EditLine(row, previous, CSTR(declarations[index].c_str())) == 0;
+        if (changed) {
+            SplitCSV(inserted.line, &inserted.csv, ",");
+            inserted.csvColumnCount = CountCsvColumns(inserted.line);
+        }
+    }
+    applyingHistory = previousApplyingHistory;
+    HISTORY* history = nullptr;
+    if (changed) {
+        historyDocumentSnapshots.push_back(before);
+        history = (HISTORY*)arr_history.Get_new();
+        if (!history) historyDocumentSnapshots.pop_back();
+    }
+    if (!changed || !history) {
+        RestoreDocumentSnapshot(before);
+        std::filesystem::remove(outputPath, fileError);
+        if (resultMessage.empty()) resultMessage = "The font replacement could not be registered in History.";
+        if (fileError) resultMessage += " The unused PNG could not be removed: " + outputPath.string();
+        return -1;
+    }
+    history->op = restoreDocument;
+    history->target = (int)historyDocumentSnapshots.size() - 1;
+    imageManagerGeneratedGrFocusRequest = 0;
+    simpleModeCandidateAsset = -1;
+    resultMessage = "Applied the font to " + std::to_string(changedCount) +
+        " component(s). Placement and conditions were preserved. Undo restores the previous sources.";
+    return 0;
+}
+
 int WORKSPACE::ApplySimpleModeAsset(int targetRow, int imageIndex,
     int applyScope, std::string& resultMessage) {
     resultMessage.clear();
@@ -12255,6 +12451,20 @@ int WORKSPACE::ApplySimpleModeAsset(int targetRow, int imageIndex,
             std::to_string(target->divX) + "x" +
             std::to_string(target->divY) + ".";
         return -1;
+    }
+    if (target->category == SimpleModeCategory::NumberFonts || target->category == SimpleModeCategory::JudgementFonts) {
+        if (divX != target->divX || divY != target->divY) {
+            resultMessage = "The font image and target must use the same frame grid."; return -1;
+        }
+        const std::string targetId = target->id;
+        const int textureIndex = ResolveIMGTextureIndex(imageIndex);
+        if (textureIndex < 0 || textureIndex >= arr_SRCGR.count || !EnsureSRCGRTexture(textureIndex)) {
+            resultMessage = "The selected font Asset texture is unavailable."; return -1;
+        }
+        SEFontAtlasBitmap bitmap;
+        if (!ReadSEFontImage(((SRCGR*)arr_SRCGR.data)[textureIndex].texture,
+            asset.x, asset.y, asset.w, asset.h, bitmap, resultMessage)) return -1;
+        return ApplySimpleModeFontBitmap(targetId, bitmap, applyScope, resultMessage);
     }
     const SkinDocumentSnapshot before = CaptureDocumentSnapshot();
     const bool previousApplyingHistory = applyingHistory;
@@ -12308,6 +12518,14 @@ int WORKSPACE::ImportSimpleModeImage(int targetRow, const char* sourcePath,
     if (!LoadTextureFromFile(sourcePath, &probeTexture, &imageWidth, &imageHeight)) {
         resultMessage = "The selected file is not a supported image.";
         return -1;
+    }
+    if (target->category == SimpleModeCategory::NumberFonts || target->category == SimpleModeCategory::JudgementFonts) {
+        const std::string targetId = target->id;
+        SEFontAtlasBitmap bitmap;
+        const bool copied = ReadSEFontImage(probeTexture, 0, 0, imageWidth, imageHeight, bitmap, resultMessage);
+        if (probeTexture) probeTexture->Release();
+        if (!copied) return -1;
+        return ApplySimpleModeFontBitmap(targetId, bitmap, applyScope, resultMessage);
     }
     if (probeTexture) probeTexture->Release();
     const int targetDivX = useTargetAtlasGrid ? target->divX : 1;
@@ -12457,6 +12675,12 @@ int WORKSPACE::GenerateSimpleModeColorVariant(int targetRow, int applyScope,
         return -1;
     }
 
+    if (target->category == SimpleModeCategory::NumberFonts || target->category == SimpleModeCategory::JudgementFonts) {
+        const int result = ImportSimpleModeImage(targetRow, generatedPath.string().c_str(), applyScope, true, resultMessage);
+        std::filesystem::remove(generatedPath, filesystemError);
+        if (filesystemError) resultMessage += " The intermediate color PNG remains: " + generatedPath.string();
+        return result;
+    }
     const SkinDocumentSnapshot before = CaptureDocumentSnapshot();
     const bool previousApplyingHistory = applyingHistory;
     applyingHistory = true;
@@ -12584,8 +12808,23 @@ int WORKSPACE::drawSimpleMode() {
                 selectedSlot->divY, selectedSlot->cycle);
             ImGui::Separator();
 
+            bool showImageTools = true;
+            const bool isFontComponent = selectedSlot->category == SimpleModeCategory::NumberFonts ||
+                selectedSlot->category == SimpleModeCategory::JudgementFonts;
+            if (isFontComponent) {
+                simpleModeOnlyCompatibleGrid = true;
+                simpleModeUseTargetAtlasGrid = true;
+                ImGui::RadioButton(SEText("Image replacement", u8"\uC774\uBBF8\uC9C0 \uAD50\uCCB4"), &simpleFontSourceMode, 0);
+                ImGui::SameLine();
+                ImGui::RadioButton(SEText("TTF font", u8"TTF \uAE00\uAF34"), &simpleFontSourceMode, 1);
+                showImageTools = simpleFontSourceMode == 0;
+                if (!showImageTools) drawSimpleModeFontTools(*selectedSlot);
+            }
+            if (showImageTools) {
+            ImGui::BeginDisabled(isFontComponent);
             ImGui::Checkbox("Only show matching atlas grids",
                 &simpleModeOnlyCompatibleGrid);
+            ImGui::EndDisabled();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
                 ImGui::SetTooltip("Require the candidate div_x/div_y to match %dx%d.",
                     selectedSlot->divX, selectedSlot->divY);
@@ -12655,6 +12894,14 @@ int WORKSPACE::drawSimpleMode() {
                 ImGui::EndCombo();
             }
 
+            const auto imageTargets = GetSimpleModeApplyTargets(selectedSlot->id, simpleModeApplyScope);
+            ImGui::Text("Replacement targets: %d", (int)imageTargets.size());
+            if (ImGui::TreeNode("Review replacement targets")) {
+                for (const SESimpleModeSlot& affected : imageTargets)
+                    ImGui::BulletText("%s | index %d | branch %d | row %d",
+                        affected.command.c_str(), affected.sourceIndex, affected.ifgroup, affected.row + 1);
+                ImGui::TreePop();
+            }
             ImGui::BeginDisabled(simpleModeCandidateAsset < 0 ||
                 simpleModeCandidateAsset >= arr_IMG.count);
             if (ImGui::Button("Apply compatible art", ImVec2(190.0f, 0.0f))) {
@@ -12673,8 +12920,10 @@ int WORKSPACE::drawSimpleMode() {
                         simpleModeStatus) == 0 ? 1 : -1;
                 }
             }
+            ImGui::BeginDisabled(isFontComponent);
             ImGui::Checkbox("Auto-slice with selected atlas grid",
                 &simpleModeUseTargetAtlasGrid);
+            ImGui::EndDisabled();
             ImGui::TextDisabled("Imported image grid: %dx%d%s",
                 simpleModeUseTargetAtlasGrid ? selectedSlot->divX : 1,
                 simpleModeUseTargetAtlasGrid ? selectedSlot->divY : 1,
@@ -12719,6 +12968,7 @@ int WORKSPACE::drawSimpleMode() {
                 ImGui::TextDisabled("Writes a new simple-assets PNG; the source atlas is untouched.");
             }
 
+            }
             if (ImGui::Button("Undo last edit (Ctrl+Z)")) {
                 if (UndoLastEdit() == 0) {
                     simpleModeStatusState = 1;

@@ -74,6 +74,10 @@ DxLib의 `SkinEditor_DX9\Release\Log.txt`를 다시 쓰더라도 실행 전 바�
   도출은 아래 수동 항목 15의 검증 범위다.
 - `simple-mode`: Object Editor 그룹이 없는 기존 LR2 행에서도 숫자/콤보 폰트,
   판정 폰트, 기어 라인, 일반·롱·마인·AUTO 노트를 직접 분류하는 투영 계약
+- `font-atlas`: 실제 TTF 숫자/판정 래스터화, 10/11/24칸 순서와 빈칸/부호, 투명도,
+  잘못된 파일/크기 거부, PNG 적용과 graphic 선언 순서, 다른 판정의 원본 이미지
+  유지, 단일 Undo/Redo, 이미지 import 및 기존 OLRskin 0.9 packager 검증.
+  수동 항목과 제한은 [폰트 교체 문서](SIMPLE_FONT_REPLACEMENT.md)를 따른다.
 - `reload-lifecycle`: 중첩 CSTR/CSV/Object/History를 포함한 편집 문서를 두 번
   초기화해 이전 스킨의 소유 메모리와 파생 배열이 남거나 이중 해제되지 않는지,
   OLR source package 연결이 다음 문서로 새지 않는지, 미로드 Save OLRskin이 명확히

@@ -41,6 +41,10 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
   같은 분류의 기존 Asset으로 교체하거나 이미지를 `simple-assets`에 가져오기.
   노트는 선택 레인, 같은 흰/검/스크래치 계열, 같은 파트 전체 또는 category 전체,
   폰트는 1P/2P pair 단위로 적용 범위를 고를 수 있으며 DST/조건은 유지
+- 숫자/콤보/판정의 이미지 교체 및 TTF의 투명 PNG 생성·미리보기·색상/테두리/그림자
+  설정. 같은 판정 index/owner/IF의 player pair만 자동 연결하며 graphic 선언 순서를
+  보존한다. OLRskin 0.9 포맷은 변경하지 않는다.
+  [폰트 교체 사용법과 구조](SIMPLE_FONT_REPLACEMENT.md)
 - 가져온 이미지에 선택 component의 `div_x/div_y/cycle`을 자동 적용하고 frame grid로
   균등 분할되지 않는 이미지는 수정 전에 거부. 기존 atlas grid가 같은 후보만 필터 가능
 - Hue/Saturation/Brightness 변형을 원본 atlas에 쓰지 않고 crop한 새 PNG로 만든 뒤

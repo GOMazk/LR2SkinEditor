@@ -486,6 +486,17 @@ Undo restores all touched rows even when the import changed the line count.
 The copied file intentionally remains as an unused local asset after Undo.
 Preview and both asset windows continue to use their existing rebuild path.
 
+For number/combo/judgement components, Image replacement and TTF font are
+separate input choices sharing `ApplySimpleModeFontBitmap`. Font replacements
+reserve a leading graphic slot and adjust existing schema graphic references
+so LR2 encounters the generated PNG before any source uses it. Only matching
+player suffix/index/owner/IF contexts form an automatic font pair. The TTF
+panel owns no document copy; its prepared raster is invalidated by settings or
+projection changes. OLRskin fields and compiler contracts remain unchanged.
+See [Simple font replacement](SIMPLE_FONT_REPLACEMENT.md) for limits, entry
+points and regression/manual checks. The trailing registration described above
+continues to apply to the other Simple Mode categories.
+
 For Object Browser labels, naming priority is explicit `$SE_OBJECT_NAME`, then
 the command-specific symbolic SRC value (NUMBER, SLIDER, BUTTON, BARGRAPH or
 TEXT), the first distinct `$op` names, and finally the first distinct non-zero

@@ -5,6 +5,7 @@
 #include "ImageLoader.h"
 #include "seObjectEditor.h"
 #include "skinResolution.h"
+#include "fontAtlas.h"
 #include <algorithm>
 #include <map>
 #include <memory>
@@ -265,6 +266,8 @@ struct SESimpleModeSlot {
     std::string command;
     int row = -1;
     int sourceIndex = -1;
+    int ifgroup = 0;
+    std::string owner;
     int imageIndex = -1;
     int graphicId = 0;
     int x = 0;
@@ -642,6 +645,15 @@ typedef struct WORKSPACE {
     float simpleModeBrightnessPercent = 0.0f;
     std::string simpleModeStatus;
     int simpleModeStatusState = 0;
+    SEFontAtlasRequest simpleFontSettings;
+    SEFontAtlasRequest simpleFontPreparedRequest;
+    SEFontAtlasBitmap simpleFontBitmap;
+    std::shared_ptr<IDirect3DTexture9> simpleFontTexture;
+    std::string simpleFontSlotId;
+    unsigned long long simpleFontPreparedGeneration = 0;
+    bool simpleFontApplyToPair = false;
+    int simpleFontSourceMode = 0;
+    char simpleFontJudgementText[256] = "PGREAT";
     // Building this projection scans the complete CSV/Object/asset model, so
     // retain it per workspace and invalidate it at document/model boundaries.
     std::vector<SESimpleModeSlot> simpleModeProjection;
@@ -650,6 +662,10 @@ typedef struct WORKSPACE {
     const std::vector<SESimpleModeSlot>& GetSimpleModeSlots();
     void InvalidateSimpleModeProjection();
     int drawSimpleMode();
+    void drawSimpleModeFontTools(const SESimpleModeSlot& slot);
+    std::vector<SESimpleModeSlot> GetSimpleModeApplyTargets(const std::string& slotId, int applyScope);
+    int ApplySimpleModeFontBitmap(const std::string& slotId, const SEFontAtlasBitmap& bitmap,
+        int applyScope, std::string& resultMessage);
     int ApplySimpleModeAsset(int targetRow, int imageIndex,
         int applyScope, std::string& resultMessage);
     int ImportSimpleModeImage(int targetRow, const char* sourcePath,

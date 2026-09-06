@@ -2,6 +2,29 @@
 
 ## 개발 환경
 
+Image Manager 우클릭 수동 확인: A 선택 후 B 행 우클릭 시 B가 선택되고 메뉴 정보와
+Delete 대상이 B여야 한다. 목록 빈 공간에서는 Delete가 비활성이어야 한다.
+그림 영역 우클릭 New 후 더블클릭/드래그 등록, Pixel Paint 우클릭 지우개 유지,
+사용 중인 Asset 삭제 차단을 확인한다.
+
+같은 gr의 다른 IF/와일드카드 후보를 선택한 뒤 여러 프레임 대기하고 같은 gr의
+Asset을 클릭해도 선택 texture가 유지되는지 확인한다. ui-contract는 ImGui 입력
+프레임으로 active InvisibleButton의 hover/더블클릭/드래그/해제를 검증한다.
+layout-first는 다른 IF의 수동 texture가 SelectIMGAsset 반복 호출에도 유지됨을 검증한다.
+또한 제스처 등록 명령의 신규 crop 생성, 재파싱, 메타데이터 행 기반 선택 요청,
+중복 생성 방지, Object 수 유지와 Undo/Redo를 검증한다. FindIMG의 미발견 반환값은
+-1이 아닌 arr_IMG.count이므로 유효 범위를 반드시 검사한다.
+
+Image Manager toolbar 수동 확인: 창을 좁혀 긴 파일 경로를 선택한다. 경로와 버튼이
+별도 줄에 있고 파일 관리/생성/확대/Pixel paint 버튼이 자동 줄바꿈되어야 한다.
+경로 복사·툴팁과 atlas 내부 가로 스크롤은 그대로 작동해야 한다.
+
+Atlas 제스처 수동 확인: Pixel paint OFF에서 그림 더블클릭으로 확장 탐색, 그림
+주변 드래그로 범위 내부 여백 축소를 확인한다. 50%/1600%와 스크롤 상태, 역방향
+드래그, Escape, 투명 영역, 기존 crop 재선택, Ctrl+Z를 확인한다. Pixel paint ON에서는
+그리기만 해야 한다. pixel-paint self-test는 모서리/범위 밖 seed/반투명/역방향 trim/
+다중 그림 trim/빈 범위/대각선 연결을 검증하며 GUI 입력 자체는 수동 범위다.
+
 - Windows
 - Visual Studio 2022 C++ toolchain (`v143`)
 - Windows 10 SDK
@@ -90,6 +113,33 @@ DxLib의 `SkinEditor_DX9\Release\Log.txt`를 다시 쓰더라도 실행 전 바�
   다른 include 파일 간 소유권 이전, metadata/선택 보존, Undo/Redo, 새 편집의 Redo
   branch 제거, Object Copy/Paste/Duplicate의 새 ID와 단일 snapshot History
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
+  및 투명 영역 검출(완전 투명, 떨어진 도트, 반투명, 대각선 연결).
+  `layout-first`는 자동 crop 등록의 선택 제외, Object 미생성, 단일 Undo도 확인한다.
+
+Add image 수동 검증: 투명 여백이 있는 PNG에서 Auto crops 옵션을 켜고 후보를 제외한
+뒤 Register한다. 원본 파일이 바뀌지 않고 선택한 crop만 Asset Browser에 나타나는지,
+Ctrl+Z로 등록 전체가 복구되는지 확인한다. 기존 fixed/wildcard 대상도 각각 확인하고
+완전 투명 이미지, 불투명 이미지, Cancel, 옵션 해제 후 전체 등록을 확인한다.
+
+- `layout-first`: DST 사각형으로 투명 PNG/SRC/DST 생성, include/IF 대상 유지,
+  crop 재파싱, Pixel Paint 단일 픽셀 저장, 생성 Undo/Redo 후 그림 보존,
+  IMAGE/NUMBER/SLIDER/BUTTON/BARGRAPH sheet 크기·분할·cycle·NUMBER align/keta,
+  각 종류의 단일 Undo, 과대/0분할 거부.
+  Direct3D 장치가 필요하며 사용자 드래그 UI 검증은 포함하지 않는다.
+
+Layout-first UI 수동 검증: Asset Browser 빈 공간 우클릭 →
+`New blank image Object...`에서 이름·X/Y/W/H를 지정해 Create한다. Asset 0개,
+검색 결과 0개 및 일반 grid의 빈 공간을 각각 확인한다. 카드 우클릭은 기존 메뉴를
+유지해야 한다. Pixel Paint 옵션을 켜면 새 PNG를 그릴 수 있어야 하며, 끄면 Preview의
+선택 사각형과 Inspector DST 위치·크기가 일치해야 한다. Cancel 및 잘못된 크기는
+문서/PNG를 생성하지 않아야 한다.
+
+`Draw rectangle in Preview`를 누른 뒤 50%/100%/1600% 및 스크롤한 화면에서 양방향
+드래그한다. 돌아온 모달의 X/Y/W/H가 스킨 좌표와 일치하고 기존 선택 Object가
+움직이지 않아야 한다. Escape/Cancel placement 및 면적 0 클릭은 PNG를 만들지 않는다.
+각 Type의 sheet에 Pixel Paint로 그린 뒤 저장해 Preview를 확인한다. NUMBER의 W/H는
+한 자리이며 열은 0~9, 실제 전체 폭은 표시 자릿수/align에 따라 달라진다.
+IMAGE의 2x2/cycle=1000 sheet는 Asset Browser Animate SRC와 Preview에서 순환한다.
 
 결과는 `.build\test-results\skineditor-self-tests.xml` JUnit 파일로 남는다. 테스트
 하나라도 실패하면 스크립트와 CI job이 실패한다.

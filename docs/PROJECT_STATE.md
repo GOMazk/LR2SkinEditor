@@ -485,6 +485,36 @@ Browser 순서 변경:
 
 ### New Object / New Command
 
+#### Layout-first IMAGE core
+
+`WORKSPACE::CreateImageObjectFromLayout()`은 먼저 정한 DST `x/y/w/h`로
+image-backed Object를 생성한다. 기본 IMAGE는 같은 크기의 투명 PNG를 main skin 폴더에 고유 이름으로
+만들고, 기존 `RegisterGeneratedImage()`로 `#IMAGE`와 `$SRC_IMAGE` crop을 등록한다.
+SRC는 `(0,0,w,h)`, `div_x=div_y=1`, DST는 지정한 위치·크기와 불투명 ARGB,
+timer/OP 0으로 생성한다. PNG 내용은 기존 Pixel Paint에서 나중에 그릴 수 있다.
+
+기본 대상은 root ALWAYS이며 `afterObject`를 지정하면 그 Object의 파일/branch
+바로 뒤에 SRC/DST를 생성한다. graphic 선언은 root에 둔다. 생성은 새 Object ID,
+선택 복원 및 단일 snapshot Undo/Redo를 사용한다. Undo는 문서 참조만 되돌리고 PNG는
+유지하므로 이후 그린 그림과 Redo가 보존된다. 실패하면 이번에 생성한 PNG와 문서
+변경을 복구한다. 크기는 양수, 한 변 16384 이하 및 전체 16메가픽셀 이하로 제한한다.
+
+Asset Browser 빈 공간 우클릭의 `New blank image Object...`에서 Name, 위치 X/Y,
+크기 W/H를 입력해 생성한다. Asset이 없거나 검색 결과가 비어 있어도 사용할 수 있다.
+기본은 main skin / ALWAYS이며 선택 Object의 파일·IF 뒤에 생성하는 옵션을 제공한다.
+`Open Pixel Paint after creation`은 기본 켜짐이며 새 이미지를 선택해 Image Manager의
+Pixel Paint를 연다. 끄면 Preview로 이동해 선택 사각형으로 배치를 확인한다.
+Type에서 IMAGE, NUMBER, SLIDER, BUTTON, BARGRAPH를 고른다. IMAGE 등은 DST 한 칸
+크기에 div_x/div_y를 곱한 투명 sheet를 만들고 cycle을 SRC와 Asset metadata에 쓴다.
+NUMBER는 왼쪽부터 0~9를 그릴 10칸이며 W/H는 숫자 한 자리의 크기다. keta와
+NUMBER 전용 align을 별도로 설정한다. Value는 기존 command-value 콤보를 사용한다.
+BUTTON 기본 sheet는 두 상태이며 click/panel 등 추가 설정은 Inspector에서 편집한다.
+`Draw rectangle in Preview`는 zoom/scroll을 반영해 양방향 드래그로 위치와 한 칸
+크기를 지정한 뒤 같은 모달로 돌아온다. Escape/Cancel placement는 배치만 취소하고
+입력한 설정을 유지한다. 이 모드에서는 기존 선택 Object 이동/리사이즈와 Asset drop을
+받지 않는다. 최종 Create 전에는 CSV/PNG/History를 변경하지 않는다.
+새 metadata field나 OLRskin 0.9 포맷 변경은 없다.
+
 우클릭 메뉴에서 둘 다 유지한다.
 
 - New Object는 `skinObjGroup.txt`에 포함된 Object 명령만 표시한다.
@@ -767,6 +797,22 @@ replace한다. 최초 저장 전 같은 경로에 `.skineditor-pixel.bak` 원본
 `Revert`는 저장하지 않은 texture 변경을 디스크 상태로 되돌린다. 같은 파일을
 공유하는 다른 `SRCGR` texture에도 편집 pixel을 동기화하며 저장 후 Preview runtime을
 다시 불러온다. 현재 직접 편집은 lock 가능한 32-bit D3D texture에 한정한다.
+
+ImageManager의 `Add image...`는 기존 이미지 파일을 고른 뒤 대상 논리 gr를 선택하는
+modal에서 `Auto crops from transparent spacing`을 지원한다. alpha=0을 여백으로,
+8방향으로 연결된 alpha>0 픽셀마다 최소 사각형을 검출한다. 원본 파일은 수정하지
+않으며 Object 없이 선택한 `$SRC_IMAGE`만 저장한다. 후보 사각형 클릭 또는 목록
+체크로 제외할 수 있다. 불투명 이미지는 전체 한 후보, 완전 투명은 후보 0개다.
+떨어진 글자 획은 별도 후보가 될 수 있다. 16메가픽셀/1024후보 한도를 넘으면 자동
+분할을 중단하고 전체 이미지 등록을 안내한다. 등록은 단일 snapshot Undo이며
+중간 실패 시 문서를 복구한다. 이번 기능에는 새 격자 분할을 추가하지 않는다.
+
+Image Manager atlas에서 Pixel paint가 꺼져 있을 때 더블클릭하면 해당 불투명 픽셀의
+8방향 연결 영역을 확장 탐색해 Asset으로 등록한다. 좌클릭 드래그는 지정 범위 안의
+alpha>0 픽셀을 모두 감싸는 사각형으로 투명 여백을 줄여 하나의 Asset으로 등록한다.
+단일 클릭은 기존 선택이며, 같은 crop은 중복 생성하지 않는다. Escape는 드래그를
+취소한다. 기존 New 메뉴도 이 제스처 안내로 연결된다. 완전 투명한 픽셀/범위는
+등록하지 않는다. 연속등록 모드는 없고 원본 이미지는 변경하지 않는다.
 
 ImageManager의 `Add image...`는 기존 이미지 파일을 고른 뒤 대상 논리 gr를 선택하는
 modal을 연다. 목록에는 각 `#IMAGE`의 gr, Fixed/Wildcard 여부, IF group과 원본 경로가

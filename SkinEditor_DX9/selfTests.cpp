@@ -12,6 +12,7 @@
 #include "skinPathResolver.h"
 #include "skinResolution.h"
 #include "uiCatalog.h"
+#include "imgui/imgui.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -1658,6 +1659,40 @@ int RunUiCatalogSelfTest() {
     }
     SESetUILanguage(originalLanguage, false);
 
+    // Replay real ImGui mouse frames: an active canvas must remain hoverable
+    // even though IsWindowHovered() rejects its active InvisibleButton.
+    ImGuiContext* previousContext = ImGui::GetCurrentContext();
+    ImGuiContext* testContext = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DisplaySize = ImVec2(400, 300);
+    io.DeltaTime = 1.0f / 60.0f;
+    io.ConfigInputTrickleEventQueue = false;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    int inputResult = 0;
+    for (int frame = 0; frame < 6; ++frame) {
+        io.AddMousePosEvent(frame >= 4 ? 80.0f : 30.0f, 30.0f);
+        if (frame == 1 || frame == 3) io.AddMouseButtonEvent(0, true);
+        if (frame == 2 || frame == 5) io.AddMouseButtonEvent(0, false);
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(200, 200));
+        ImGui::Begin("Canvas input test", nullptr, ImGuiWindowFlags_NoDecoration);
+        ImGui::SetCursorScreenPos(ImVec2(20, 20));
+        ImGui::InvisibleButton("canvas", ImVec2(150, 150));
+        const bool hovered = ImGui::IsItemHovered();
+        if (frame == 1 && (!hovered || !ImGui::IsMouseClicked(0) || ImGui::IsWindowHovered())) inputResult = 23;
+        if (frame == 3 && (!hovered || !ImGui::IsMouseDoubleClicked(0))) inputResult = 24;
+        if (frame == 4 && (!hovered || !ImGui::IsMouseDragging(0))) inputResult = 25;
+        if (frame == 5 && !ImGui::IsMouseReleased(0)) inputResult = 26;
+        ImGui::End();
+        ImGui::Render();
+    }
+    ImGui::DestroyContext(testContext);
+    ImGui::SetCurrentContext(previousContext);
+    if (inputResult) return inputResult;
     return 0;
 }
 

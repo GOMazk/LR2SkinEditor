@@ -33,6 +33,16 @@ struct SEObjectSelectionState {
     bool focusBrowserRequested = false;
 };
 
+// Draft creation recipe only; CSV remains the persisted source of truth.
+struct SELayoutImageOptions {
+    int kind = 0; // IMAGE, NUMBER, SLIDER, BUTTON, BARGRAPH
+    int divX = 1, divY = 1, cycle = 0;
+    int value = 0, digits = 1, align = 1, direction = 0, range = 100;
+};
+const char* SELayoutImageType(int kind);
+bool SELayoutImageSize(int width, int height, const SELayoutImageOptions& options,
+    int& sheetWidth, int& sheetHeight);
+
 struct SkinLineSnapshot {
     std::string filename;
     std::string line;
@@ -392,6 +402,11 @@ typedef struct WORKSPACE {
     int CopySelectedObjects();
     int PasteCopiedObjects();
     int DuplicateSelectedObjects();
+    // Layout-first image-backed creation. PNG remains on Undo for later paint
+    // edits and Redo; no new serialized metadata or OLRskin contract is needed.
+    bool CreateImageObjectFromLayout(int x, int y, int width, int height,
+        const char* name, std::string& imagePath, std::string& errorText,
+        int afterObject = -1, const SELayoutImageOptions& options = SELayoutImageOptions());
     bool HasCopiedObjects() const;
     SkinDocumentSnapshot CaptureDocumentSnapshot() const;
     int RestoreDocumentSnapshot(const SkinDocumentSnapshot& snapshot);
@@ -509,6 +524,23 @@ typedef struct WORKSPACE {
     std::string imagePixelPaintStatus;
     std::string imageManagerReloadPathRequest;
     bool imageAddDialogRequested = false;
+    bool imageAssetNewArmed = false;
+    std::string imageManagerManualTexturePath;
+    int imageManagerManualTextureGr = -1;
+    bool imageListContextHasTarget = false;
+    bool imageAssetDragging = false;
+    ImVec2 imageAssetDragStart;
+    IDirect3DTexture9* imageAssetDragTexture = nullptr; // comparison only during a gesture
+    bool imageAddAutoCrops = false;
+    bool imageAddCropsReady = false;
+    std::vector<TransparentAssetCrop> imageAddCrops;
+    std::shared_ptr<IDirect3DTexture9> imageAddPreview;
+    std::string imageAddCropError;
+    int RegisterImageWithTransparentCrops(int declarationRow, const char* path,
+        int width, int height, const std::vector<TransparentAssetCrop>& crops,
+        std::string& error);
+    bool RegisterImageRegion(int graphicIndex, const TransparentAssetCrop& crop,
+        std::string& status);
     std::string imageAddDiskPath;
     int imageAddWidth = 0;
     int imageAddHeight = 0;
@@ -564,6 +596,20 @@ typedef struct WORKSPACE {
     // asset index without creating another image model.
     bool wAssetBrowser;
     int drawAssetBrowser();
+    void drawLayoutFirstImageDialog();
+    SELayoutImageOptions layoutFirstOptions;
+    bool layoutFirstDialogPending = false;
+    bool layoutFirstResume = false;
+    bool layoutFirstPlacement = false;
+    bool layoutFirstDragging = false;
+    ImVec2 layoutFirstDragStart;
+    char layoutFirstName[128] = {};
+    int layoutFirstPosition[2] = { 0, 0 };
+    int layoutFirstSize[2] = { 64, 64 };
+    bool layoutFirstUseSelection = false;
+    bool layoutFirstOpenPaint = true;
+    SEObjectSelectionKey layoutFirstAnchor;
+    std::string layoutFirstError;
     float assetThumbnailSize = 96.0f;
     bool assetAnimateSrc = true;
     bool assetShowUnusedOnly = false;
@@ -808,6 +854,7 @@ int RunObjectReorderSelfTest();
 int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
     const char* secondPath);
 int RunInitialPresetSelfTest();
+int RunLayoutFirstObjectSelfTest();
 int RunWorkspaceRuntimeReloadSmokeTest(const char* firstPath,
     const char* secondPath);
 int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,

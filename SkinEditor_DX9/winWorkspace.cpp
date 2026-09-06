@@ -1077,6 +1077,8 @@ int WORKSPACE::init() {
     ImGui::SetNextWindowSize(viewport->WorkSize);
 
     zoom = 1.0f;
+    layoutFirstDialogPending = layoutFirstResume = false;
+    layoutFirstPlacement = layoutFirstDragging = false;
     ImageManagerZoom = 0.0f;
     imagePixelPaintMode = false;
     imagePixelPaintLastX = -1;
@@ -1087,6 +1089,11 @@ int WORKSPACE::init() {
     imageManagerReloadPathRequest.clear();
     imageAddDialogRequested = false;
     imageAddDiskPath.clear();
+    imageAddPreview.reset();
+    imageAddCrops.clear();
+    imageAssetNewArmed = imageAssetDragging = false;
+    imageManagerManualTexturePath.clear();
+    imageManagerManualTextureGr = -1;
     imageAddWidth = 0;
     imageAddHeight = 0;
     imageAddTargetDeclarationRow = -1;
@@ -1824,6 +1831,7 @@ int WORKSPACE::draw() {
     }
 
     if (wNewObject) drawNewObject();
+    drawLayoutFirstImageDialog();
 
     ImGuiIO& shortcutIO = ImGui::GetIO();
     if (loaded && shortcutIO.KeyCtrl && !shortcutIO.WantTextInput) {
@@ -3554,6 +3562,8 @@ int WORKSPACE::LoadSkin(char* path) {
     wAssetBrowser = true;
     wSimpleMode = true;
     wDstView = true;
+    layoutFirstDialogPending = layoutFirstResume = false;
+    layoutFirstPlacement = layoutFirstDragging = false;
     ImageManagerZoom = 0.0f;
     imagePixelPaintMode = false;
     imagePixelPaintLastX = -1;
@@ -3564,6 +3574,11 @@ int WORKSPACE::LoadSkin(char* path) {
     imageManagerReloadPathRequest.clear();
     imageAddDialogRequested = false;
     imageAddDiskPath.clear();
+    imageAddPreview.reset();
+    imageAddCrops.clear();
+    imageAssetNewArmed = imageAssetDragging = false;
+    imageManagerManualTexturePath.clear();
+    imageManagerManualTextureGr = -1;
     imageAddWidth = 0;
     imageAddHeight = 0;
     imageAddTargetDeclarationRow = -1;
@@ -6218,6 +6233,28 @@ bool WORKSPACE::SelectIMGAsset(int imageIndex, bool requestImageManagerScroll) {
     src_selected = imageIndex;
     grID_selected = tag.gr;
     gr_selected = ResolveIMGTextureIndex(imageIndex);
+    // Keep an explicitly chosen same-gr atlas across selection and cache rebuilds.
+    // Paths, not reallocatable SRCGR indices, identify the manual candidate.
+    if (imageManagerManualTextureGr != tag.gr) {
+        imageManagerManualTexturePath.clear();
+        imageManagerManualTextureGr = -1;
+    }
+    if (!imageManagerManualTexturePath.empty()) {
+        bool found = false;
+        for (int i = 0; i < arr_SRCGR.count; ++i) {
+            SRCGR& candidate = ((SRCGR*)arr_SRCGR.data)[i];
+            if (candidate.grID == tag.gr && candidate.path.body &&
+                IsSameOwnerPath(candidate.path.outstr(), imageManagerManualTexturePath.c_str())) {
+                gr_selected = i;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            imageManagerManualTexturePath.clear();
+            imageManagerManualTextureGr = -1;
+        }
+    }
     if (requestImageManagerScroll) {
         imageManagerFocusRequest = imageIndex;
         wImgManager = true;
@@ -6309,6 +6346,87 @@ int WORKSPACE::RegisterGeneratedImage(const char* diskPath, int width, int heigh
     wImgManager = true;
     wAssetBrowser = true;
     return newGraphicId;
+}
+
+int WORKSPACE::RegisterImageWithTransparentCrops(int declarationRow, const char* path,
+    int width, int height, const std::vector<TransparentAssetCrop>& crops,
+    std::string& error) {
+    if (applyingHistory || pendingHistorySnapshotRestore >= 0 || !loaded) return -1;
+    std::vector<TransparentAssetCrop> selected;
+    for (const auto& crop : crops) if (crop.selected) {
+        if (crop.x < 0 || crop.y < 0 || crop.w <= 0 || crop.h <= 0 ||
+            (long long)crop.x + crop.w > width || (long long)crop.y + crop.h > height) {
+            error = "A crop is outside the image.";
+            return -1;
+        }
+        selected.push_back(crop);
+    }
+    if (selected.empty() || selected.size() > 1024) {
+        error = "Select between 1 and 1024 crops.";
+        return -1;
+    }
+    const auto before = CaptureDocumentSnapshot();
+    const auto oldRedo = redoDocumentSnapshots;
+    const auto oldRevision = documentRevision;
+    const int oldGraphicFocus = imageManagerGeneratedGrFocusRequest;
+    const int oldDeclarationFocus = imageManagerGraphicDeclarationFocusRequest;
+    const int oldAssetFocus = imageManagerAssetDeclarationFocusRequest;
+    applyingHistory = true;
+    const int gr = declarationRow < 0
+        ? RegisterGeneratedImage(path, width, height, error)
+        : RegisterExistingImageAsset(declarationRow, path, width, height, error);
+    int row = declarationRow < 0 ? -1 : imageManagerAssetDeclarationFocusRequest;
+    if (gr >= 0 && declarationRow < 0) {
+        for (int i = skinfileLines.count - 1; i >= 0; --i) {
+            auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[i];
+            if (line.csv.str[0].isSame("$SRC_IMAGE") && line.csv.val[2] == gr &&
+                line.csv.val[3] == 0 && line.csv.val[4] == 0 &&
+                line.csv.val[5] == width && line.csv.val[6] == height) { row = i; break; }
+        }
+    }
+    bool ok = gr >= 0 && row >= 0 && row < skinfileLines.count;
+    if (ok) {
+        auto& base = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        CSTR owner(base.filename);
+        const int branch = base.ifgroup;
+        for (int i = 0; i < (int)selected.size(); ++i) {
+            if (i && InsertLine(row + i) != 0) { ok = false; break; }
+            auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[row + i];
+            const auto& crop = selected[i];
+            char text[256];
+            snprintf(text, sizeof(text), "$SRC_IMAGE,0,%d,%d,%d,%d,%d,1,1,0,0,0,0,0,auto_%03d",
+                gr, crop.x, crop.y, crop.w, crop.h, i + 1);
+            CSTR previous(line.line);
+            if (EditLine(row + i, previous, CSTR(text)) != 0) { ok = false; break; }
+            line.filename.assign(owner);
+            line.ifgroup = branch;
+            SplitCSV(line.line, &line.csv, ",");
+            line.csvColumnCount = CountCsvColumns(line.line);
+        }
+    }
+    applyingHistory = false;
+    if (!ok) {
+        const bool previousReplay = replayingHistory;
+        replayingHistory = true;
+        RestoreDocumentSnapshot(before);
+        replayingHistory = previousReplay;
+        redoDocumentSnapshots = oldRedo;
+        documentRevision = oldRevision;
+        imageManagerGeneratedGrFocusRequest = oldGraphicFocus;
+        imageManagerGraphicDeclarationFocusRequest = oldDeclarationFocus;
+        imageManagerAssetDeclarationFocusRequest = oldAssetFocus;
+        if (error.empty()) error = "Could not register the selected crops.";
+        return -1;
+    }
+    const int snapshot = (int)historyDocumentSnapshots.size();
+    historyDocumentSnapshots.push_back(before);
+    auto* history = (HISTORY*)arr_history.Get_new();
+    history->op = restoreDocument;
+    history->target = snapshot;
+    imageManagerAssetDeclarationFocusRequest = row;
+    assetSearch[0] = '\0';
+    assetShowUnusedOnly = false;
+    return gr;
 }
 
 int WORKSPACE::RegisterExistingImageAsset(int declarationRow,
@@ -6891,10 +7009,12 @@ bool WORKSPACE::OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY) {
 int WORKSPACE::drawImgManager() {
     char title[260];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::ImageManager, num);
-    if (!ImGui::Begin(title, &wImgManager, ImGuiWindowFlags_HorizontalScrollbar)) {
+    if (!ImGui::Begin(title, &wImgManager)) {
         ImGui::End();
         return 0;
     }
+    // Only the atlas child scrolls horizontally; controls stay anchored.
+    ImGui::SetScrollX(0.0f);
 
     char addImagePopup[96] = {};
     snprintf(addImagePopup, sizeof(addImagePopup),
@@ -6915,6 +7035,11 @@ int WORKSPACE::drawImgManager() {
         }
 
         imageAddDiskPath = selectedPath;
+        imageAddPreview.reset();
+        imageAddCrops.clear();
+        imageAddCropError.clear();
+        imageAddAutoCrops = false;
+        imageAddCropsReady = false;
         imageAddWidth = imageWidth;
         imageAddHeight = imageHeight;
         imageAddTargetDeclarationRow = -1;
@@ -6928,6 +7053,8 @@ int WORKSPACE::drawImgManager() {
         }
 
         ImGui::SetNextWindowSize(ImVec2(680.0f, 0.0f), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0),
+            ImVec2(FLT_MAX, ImGui::GetMainViewport()->WorkSize.y - 40.0f));
         if (!ImGui::BeginPopupModal(addImagePopup, NULL,
             ImGuiWindowFlags_AlwaysAutoResize)) return;
 
@@ -7064,22 +7191,82 @@ int WORKSPACE::drawImgManager() {
                 ImGui::TextColored(SEUI::Colors::Danger(),
                     "This is a different file. Choose the new gr target or use Replace.");
         }
+        if (ImGui::Checkbox("Auto crops from transparent spacing", &imageAddAutoCrops) &&
+            imageAddAutoCrops && !imageAddCropsReady) {
+            imageAddCropError.clear();
+            if ((long long)imageAddWidth * imageAddHeight > 16 * 1024 * 1024) {
+                imageAddCropError = "Automatic detection supports images up to 16 megapixels.";
+            } else {
+                PDIRECT3DTEXTURE9 texture = nullptr;
+                int width = 0, height = 0;
+                if (LoadTextureFromFile(imageAddDiskPath.c_str(), &texture, &width, &height) &&
+                    width == imageAddWidth && height == imageAddHeight) {
+                    imageAddPreview.reset(texture, [](IDirect3DTexture9* value) { value->Release(); });
+                    imageAddCropsReady = FindTransparentAssetCrops(texture, imageAddCrops, imageAddCropError);
+                } else {
+                    if (texture) texture->Release();
+                    imageAddCropError = "Could not load the original-size image for detection.";
+                }
+            }
+        }
+        if (imageAddAutoCrops) {
+            ImGui::TextWrapped("Alpha 0 is spacing. Click a box or uncheck a candidate to exclude it. No Objects or image files are created.");
+            if (!imageAddCropError.empty()) ImGui::TextWrapped("%s", imageAddCropError.c_str());
+            if (imageAddPreview && imageAddCropsReady) {
+                const float scale = (std::min)(1.0f, (std::min)(
+                    620.0f / imageAddWidth, 180.0f / imageAddHeight));
+                const ImVec2 origin = ImGui::GetCursorScreenPos();
+                ImGui::Image(imageAddPreview.get(), ImVec2(imageAddWidth * scale, imageAddHeight * scale));
+                const bool clicked = ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+                const ImVec2 mouse = ImGui::GetIO().MousePos;
+                bool consumed = false;
+                for (auto& crop : imageAddCrops) {
+                    const ImVec2 a(origin.x + crop.x * scale, origin.y + crop.y * scale);
+                    const ImVec2 b(a.x + crop.w * scale, a.y + crop.h * scale);
+                    if (clicked && !consumed && mouse.x >= a.x && mouse.x <= b.x &&
+                        mouse.y >= a.y && mouse.y <= b.y) { crop.selected = !crop.selected; consumed = true; }
+                    ImGui::GetWindowDrawList()->AddRect(a, b,
+                        crop.selected ? IM_COL32(70, 230, 130, 255) : IM_COL32(230, 70, 70, 255));
+                }
+                if (ImGui::Button("Select all crops")) for (auto& crop : imageAddCrops) crop.selected = true;
+                ImGui::SameLine();
+                if (ImGui::Button("Clear crop selection")) for (auto& crop : imageAddCrops) crop.selected = false;
+                if (ImGui::BeginChild("##AutoCropCandidates", ImVec2(0, 100), true)) {
+                    for (int i = 0; i < (int)imageAddCrops.size(); ++i) {
+                        auto& crop = imageAddCrops[i];
+                        char label[100];
+                        snprintf(label, sizeof(label), "%03d: %d,%d  %d x %d", i + 1, crop.x, crop.y, crop.w, crop.h);
+                        ImGui::PushID(i);
+                        ImGui::Checkbox(label, &crop.selected);
+                        ImGui::PopID();
+                    }
+                }
+                ImGui::EndChild();
+            }
+            int selectedCount = 0;
+            for (const auto& crop : imageAddCrops) if (crop.selected) ++selectedCount;
+            ImGui::Text("%d / %d crops selected", selectedCount, (int)imageAddCrops.size());
+            canRegister = canRegister && imageAddCropsReady && selectedCount > 0;
+        }
         if (!imageToolStatus.empty())
-            ImGui::TextColored(SEUI::Colors::Danger(), "%s",
-                imageToolStatus.c_str());
+            ImGui::TextColored(SEUI::Colors::Danger(), "%s", imageToolStatus.c_str());
 
         ImGui::Separator();
         ImGui::BeginDisabled(!canRegister);
         if (ImGui::Button("Register", ImVec2(110.0f, 0.0f))) {
             const bool newDeclaration = selectedChoice == NULL;
-            const int registeredGr = newDeclaration
+            const int registeredGr = imageAddAutoCrops
+                ? RegisterImageWithTransparentCrops(newDeclaration ? -1 : selectedChoice->row,
+                    imageAddDiskPath.c_str(), imageAddWidth, imageAddHeight, imageAddCrops, imageToolStatus)
+                : newDeclaration
                 ? RegisterGeneratedImage(imageAddDiskPath.c_str(),
                     imageAddWidth, imageAddHeight, imageToolStatus)
                 : RegisterExistingImageAsset(selectedChoice->row,
                     imageAddDiskPath.c_str(), imageAddWidth, imageAddHeight,
                     imageToolStatus);
             if (registeredGr >= 0) {
-                imageToolStatus = newDeclaration
+                imageToolStatus = imageAddAutoCrops ? "Registered selected transparent-region Assets."
+                    : newDeclaration
                     ? "Registered image as new fixed gr " +
                         std::to_string(registeredGr) + "."
                     : "Added a full-size Asset to " +
@@ -7313,7 +7500,6 @@ int WORKSPACE::drawImgManager() {
             (int)found->second.size();
     };
 
-    static bool newSquare = 0;
     bool clicked = 0;
     int deleteImageRequest = -1;
     int diagnosticObjectNavigationRequest = -1;
@@ -7364,12 +7550,17 @@ int WORKSPACE::drawImgManager() {
     }
 
     //testing new img list
+    auto armNewImageAsset = [&]() {
+        imageAssetNewArmed = true;
+        imageAssetDragging = false;
+        imagePixelPaintMode = false;
+    };
     ImGui::BeginGroup();
     ImGui::SameLine();
     snprintf(title, sizeof(title), "ImgList##%d", num);
     if (ImGui::BeginChild(title, { 250,-imageEditPanelHeight },
         ImGuiChildFlags_ResizeX | ImGuiChildFlags_FrameStyle)) {
-
+        bool imageRowContextRequested = false;
         ImGuiListClipper imageListClipper;
         imageListClipper.Begin(arr_IMG.count);
         if (focusImageListSelection && src_selected >= 0 &&
@@ -7395,6 +7586,11 @@ int WORKSPACE::drawImgManager() {
                 SelectIMGAsset(i, false);
                 clicked = true;
             }
+            if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+                SelectIMGAsset(i, false);
+                clicked = true;
+                imageRowContextRequested = true;
+            }
             if (focusImageListSelection && imageRowSelected)
                 ImGui::SetScrollHereY(0.5f);
             if (!imageRowSelected &&
@@ -7414,25 +7610,37 @@ int WORKSPACE::drawImgManager() {
         }
         }
         imageListClipper.End();
-        IMG& img = ((IMG*)arr_IMG.data)[src_selected];
-        if (ImGui::BeginPopupContextWindow()) {
-            ImGui::Text("selected : %03d", src_selected);
+        if (imageRowContextRequested) {
+            imageListContextHasTarget = true;
+            ImGui::OpenPopup("##imageListContext");
+        } else if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() &&
+            ImGui::IsMouseReleased(ImGuiMouseButton_Right)) {
+            imageListContextHasTarget = false;
+            ImGui::OpenPopup("##imageListContext");
+        }
+        if (ImGui::BeginPopup("##imageListContext")) {
+            const bool hasTarget = imageListContextHasTarget && src_selected >= 0 && src_selected < arr_IMG.count;
+            if (hasTarget) {
+                IMG& target = ((IMG*)arr_IMG.data)[src_selected];
+                ImGui::Text("Asset %03d  |  gr %d", src_selected, target.gr);
+                ImGui::TextWrapped("%s", Cp932ToUtf8(target.name.body ? target.name.outstr() : "").c_str());
+                ImGui::TextDisabled("%d, %d  |  %d x %d", target.x, target.y, target.w, target.h);
+            } else ImGui::TextDisabled("No Asset under cursor");
             
             ImGui::Separator();
             std::string deleteReason;
-            const bool canDeleteImage = CanDeleteIMG(src_selected,
+            const bool canDeleteImage = hasTarget && CanDeleteIMG(src_selected,
                 &deleteReason);
             if (ImGui::MenuItem("Delete", NULL, false, canDeleteImage)) {
                 deleteImageRequest = src_selected;
             }
-            if (!canDeleteImage && ImGui::IsItemHovered(
+            if (hasTarget && !canDeleteImage && ImGui::IsItemHovered(
                 ImGuiHoveredFlags_AllowWhenDisabled |
                 ImGuiHoveredFlags_DelayNormal))
                 ImGui::SetTooltip("%s", deleteReason.c_str());
             ImGui::Separator();
             if(ImGui::MenuItem("New")) {
-                //mosue drag
-                newSquare = 1;
+                armNewImageAsset();
             }
             ImGui::EndPopup();
         }
@@ -7510,14 +7718,27 @@ int WORKSPACE::drawImgManager() {
     IMG& selectedImageTag = ((IMG*)arr_IMG.data)[src_selected];
     if (gr_selected < 0 || gr_selected >= arr_SRCGR.count ||
         ((SRCGR*)arr_SRCGR.data)[gr_selected].grID != grID_selected ||
-        ((SRCGR*)arr_SRCGR.data)[gr_selected].isIf != selectedImageTag.ifGroup) {
-        gr_selected = ResolveIMGTextureIndex(src_selected);
+        (imageManagerManualTexturePath.empty() &&
+            ((SRCGR*)arr_SRCGR.data)[gr_selected].isIf != selectedImageTag.ifGroup)) {
+        SelectIMGAsset(src_selected, false);
     }
     if (gr_selected >= 0 && gr_selected < arr_SRCGR.count) {
         SRCGR& selectedGraphic = ((SRCGR*)arr_SRCGR.data)[gr_selected];
         graphicPreview = formatGraphicLabel(gr_selected, selectedGraphic);
     }
 
+    // Toolbar width follows the visible panel, never the atlas scroll extent.
+    const float imageToolbarRight = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x
+        - ImGui::GetStyle().WindowPadding.x - ImGui::GetStyle().ScrollbarSize;
+    const float imageToolbarWidth = (std::max)(1.0f,
+        imageToolbarRight - ImGui::GetCursorScreenPos().x);
+    auto imageToolbarNext = [&](const char* label, float explicitWidth = 0.0f) {
+        const float width = explicitWidth > 0.0f ? explicitWidth :
+            ImGui::CalcTextSize(label, nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2;
+        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + width <= imageToolbarRight)
+            ImGui::SameLine();
+    };
+    ImGui::SetNextItemWidth(imageToolbarWidth);
     if (ImGui::BeginCombo("##grSelect", graphicPreview.c_str())) {
         for (int i = 0; i < arr_SRCGR.count; i++) {
             SRCGR& gr = ((SRCGR*)arr_SRCGR.data)[i];
@@ -7528,6 +7749,9 @@ int WORKSPACE::drawImgManager() {
             ImGui::PushID(i);
             if (ImGui::Selectable(graphicLabel.c_str(), i == gr_selected)) {
                 gr_selected = i;
+                imageManagerManualTexturePath = gr.path.body ? gr.path.outstr() : "";
+                imageManagerManualTextureGr = gr.grID;
+                imageAssetDragging = false;
             }
 
             ImGui::PopID();
@@ -7545,13 +7769,16 @@ int WORKSPACE::drawImgManager() {
 
     EnsureSRCGRTexture(gr_selected);
     SRCGR& img = ((SRCGR*)arr_SRCGR.data)[gr_selected];
-    ImGui::Text("%03d_%d ", gr_selected, img.grID);
-
-    ImGui::SameLine(0, 0);
+    ImGui::Text("%03d  |  gr %d  |  %d x %d", gr_selected, img.grID, img.sizeX, img.sizeY);
     const std::string imagePathUtf8 = Cp932ToUtf8(
         img.path.body ? img.path.outstr() : "");
-    ImGui::Text("%s %d %d", imagePathUtf8.c_str(), img.sizeX, img.sizeY);
-    ImGui::SameLine(0, 0);
+    std::vector<char> pathDisplay(imagePathUtf8.begin(), imagePathUtf8.end());
+    pathDisplay.push_back('\0');
+    ImGui::SetNextItemWidth(imageToolbarWidth);
+    ImGui::InputText("##imageManagerFilePath", pathDisplay.data(), pathDisplay.size(),
+        ImGuiInputTextFlags_ReadOnly);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("%s", imagePathUtf8.c_str());
     const bool hasImageDiskPath = img.path.body && *img.path.outstr();
     snprintf(title, sizeof(title), "grReload##%d", num);
     ImGui::BeginDisabled(!hasImageDiskPath);
@@ -7569,7 +7796,7 @@ int WORKSPACE::drawImgManager() {
         }
     }
     ImGui::EndDisabled();
-    ImGui::SameLine(0, 0);
+    imageToolbarNext("Folder");
     ImGui::BeginDisabled(!hasImageDiskPath);
     if (ImGui::Button("Folder##imageManagerExplorer")) {
         if (!OpenCp932PathInExplorer(img.path.outstr()))
@@ -7578,7 +7805,7 @@ int WORKSPACE::drawImgManager() {
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("Open the current image in Windows Explorer.");
-    ImGui::SameLine(0, 0);
+    imageToolbarNext("Replace");
     const std::string selectedPaintPath = img.path.body
         ? img.path.outstr() : "";
     const bool selectedPaintDirty = !selectedPaintPath.empty() &&
@@ -7636,13 +7863,11 @@ int WORKSPACE::drawImgManager() {
             ? "Save or revert pixel edits before replacing this texture."
             : "Change only this #IMAGE path; logical gr and crop coordinates stay unchanged.");
     }
-    ImGui::SameLine(0, 0);
+    imageToolbarNext("Usage");
     if (ImGui::Button("Usage##imageManagerUsage"))
         openImageStatusRequest = true;
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("Open image usage, file, crop and gr diagnostics.");
-    ImGui::SameLine(0, 0);
-    ImGui::ColorEdit4("MyColor##3", (float*)&bgColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_None);
 
     auto initializeImageToolPath = [&](const char* stem) {
         const std::string outputPath = MakeUniqueGeneratedImagePath(
@@ -7654,16 +7879,17 @@ int WORKSPACE::drawImgManager() {
         imageToolRegisterInCsv = true;
     };
 
+    ImGui::Separator();
     if (ImGui::Button("Add image...##imageToolAdd"))
         requestExistingImage(img.path.body ? img.path.outstr() : mainpath);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("Choose a new or existing logical gr after checking its fixed/wildcard declaration.");
-    ImGui::SameLine();
+    imageToolbarNext("GIF to sprite...");
     if (ImGui::Button("GIF to sprite...##imageToolGif"))
         requestGifSprite(img.path.body ? img.path.outstr() : mainpath);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("Convert GIF frames into an automatically packed LR2 animation atlas.");
-    ImGui::SameLine();
+    imageToolbarNext("New image");
     if (ImGui::Button("New image##imageToolNew")) {
         imageNewWidth = img.sizeX > 0 ? img.sizeX : (std::max)(1, skinSizeX);
         imageNewHeight = img.sizeY > 0 ? img.sizeY : (std::max)(1, skinSizeY);
@@ -7671,7 +7897,7 @@ int WORKSPACE::drawImgManager() {
         initializeImageToolPath("new_image");
         imageNewDialogRequested = true;
     }
-    ImGui::SameLine();
+    imageToolbarNext("Merge image");
     ImGui::BeginDisabled(!img.texture || arr_IMG.count <= 0);
     if (ImGui::Button("Merge image##imageToolMerge")) {
         imageMergeAssetIndex = (std::max)(0,
@@ -7680,7 +7906,7 @@ int WORKSPACE::drawImgManager() {
         imageMergeDialogRequested = true;
     }
     ImGui::EndDisabled();
-    ImGui::SameLine();
+    imageToolbarNext("Split grid");
     if (ImGui::Button("Split grid##imageToolGrid")) {
         imageGridAssetIndex = src_selected;
         int suggestedColumns = 1;
@@ -7710,8 +7936,8 @@ int WORKSPACE::drawImgManager() {
         imageToolStatus.clear();
         imageGridDialogRequested = true;
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("Add image can append a new gr or reuse a matching fixed/wildcard gr; grid cells reuse this gr.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+        ImGui::SetTooltip("Split the selected crop into grid Assets using the same gr.");
     drawImageAddDialog();
     drawGifSpriteDialog();
 
@@ -8217,11 +8443,14 @@ int WORKSPACE::drawImgManager() {
             imageToolStatus.find("Registered") == 0 ||
             imageToolStatus.find("Added") == 0 ||
             imageToolStatus.find("Reloaded") == 0 ||
+            imageToolStatus.find("Selected existing Asset") == 0 ||
             imageToolStatus.find("Texture reload queued") == 0;
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + imageToolbarWidth);
         ImGui::TextColored(success
             ? ImVec4(0.45f, 0.85f, 0.58f, 1.0f)
             : ImVec4(1.0f, 0.45f, 0.42f, 1.0f), "%s",
             imageToolStatus.c_str());
+        ImGui::PopTextWrapPos();
     }
 
     auto fitImageManagerZoom = [&]() {
@@ -8236,14 +8465,18 @@ int WORKSPACE::drawImgManager() {
     if (!(ImageManagerZoom > 0.0f) || ImageManagerZoom > 16.0f)
         ImageManagerZoom = fitImageManagerZoom();
     float imageZoomPercent = ImageManagerZoom * 100.0f;
-    ImGui::SetNextItemWidth(180.0f);
-    if (ImGui::SliderFloat("Zoom##imageManagerZoom", &imageZoomPercent, 5.0f, 1600.0f,
+    ImGui::Separator();
+    ImGui::SetNextItemWidth((std::min)(180.0f, imageToolbarWidth));
+    if (ImGui::SliderFloat("##imageManagerZoom", &imageZoomPercent, 5.0f, 1600.0f,
         "%.0f%%", ImGuiSliderFlags_Logarithmic))
         ImageManagerZoom = imageZoomPercent / 100.0f;
-    ImGui::SameLine();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Zoom (Ctrl + mouse wheel)");
+    imageToolbarNext("Fit");
     if (ImGui::Button("Fit##imageManagerZoomFit")) ImageManagerZoom = fitImageManagerZoom();
-    ImGui::SameLine();
+    imageToolbarNext("100%");
     if (ImGui::Button("100%##imageManagerZoomReset")) ImageManagerZoom = 1.0f;
+    imageToolbarNext("Background", ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize("Background").x);
+    ImGui::ColorEdit4("Background##3", (float*)&bgColor, ImGuiColorEditFlags_NoInputs);
 
     const std::string paintPath = img.path.body ? img.path.outstr() : "";
     const bool paintDirty = !paintPath.empty() &&
@@ -8254,12 +8487,12 @@ int WORKSPACE::drawImgManager() {
         imagePixelPaintLastButton = -1;
         imagePixelPaintStatus.clear();
     }
-    ImGui::SameLine();
+    imageToolbarNext("Color", ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize("Color").x);
     ImGui::SetNextItemWidth(110.0f);
     ImGui::ColorEdit4("Color##imagePixelPaintColor",
         (float*)&imagePixelPaintColor,
         ImGuiColorEditFlags_AlphaPreviewHalf | ImGuiColorEditFlags_NoInputs);
-    ImGui::SameLine();
+    imageToolbarNext("Save image");
     ImGui::BeginDisabled(!paintDirty);
     if (ImGui::Button("Save image##imagePixelPaintSave")) {
         char saveError[256] = {};
@@ -8288,7 +8521,7 @@ int WORKSPACE::drawImgManager() {
             imagePixelPaintStatus = saveError;
         }
     }
-    ImGui::SameLine();
+    imageToolbarNext("Revert");
     if (ImGui::Button("Revert##imagePixelPaintRevert")) {
         for (int graphicIndex = 0; graphicIndex < arr_SRCGR.count; ++graphicIndex) {
             SRCGR& sibling = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
@@ -8307,8 +8540,9 @@ int WORKSPACE::drawImgManager() {
     }
     ImGui::EndDisabled();
     if (imagePixelPaintMode)
-        ImGui::TextDisabled("Left: draw  |  Right: erase  |  Middle: pick color");
+        ImGui::TextWrapped("Left: draw  |  Right: erase  |  Middle: pick color");
     if (!imagePixelPaintStatus.empty()) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + imageToolbarWidth);
         if (imagePixelPaintStatus.find("Saved.") == 0 ||
             imagePixelPaintStatus.find("Reverted") == 0)
             ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.58f, 1.0f), "%s",
@@ -8316,6 +8550,7 @@ int WORKSPACE::drawImgManager() {
         else
             ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.42f, 1.0f), "%s",
                 imagePixelPaintStatus.c_str());
+        ImGui::PopTextWrapPos();
     }
 
     snprintf(title, sizeof(title), "ImgWorking##%d", num);
@@ -8334,11 +8569,26 @@ int WORKSPACE::drawImgManager() {
         if (img.texture)
             ImGui::ImageWithBg(img.texture, imageDisplaySize, { 0,0 }, { 1, 1 }, bgColor);
         EndSharpMagnifiedCanvas(sharpImageManager);
+        // Own left drags so selecting a crop cannot drag the dock window.
+        bool imageCanvasHovered = false;
+        if (imageDisplaySize.x > 0 && imageDisplaySize.y > 0) {
+            ImGui::SetCursorScreenPos(pb);
+            ImGui::InvisibleButton("##imageAssetCanvas", imageDisplaySize);
+            // IsWindowHovered() rejects the active button on the click frame.
+            // Capture this item's hover before popups/overlays change LastItemData.
+            imageCanvasHovered = ImGui::IsItemHovered();
+            // Right drag remains the eraser in Pixel Paint mode.
+            if (!imagePixelPaintMode && img.texture &&
+                ImGui::BeginPopupContextItem("##imageCanvasContext")) {
+                if (ImGui::MenuItem("New")) armNewImageAsset();
+                ImGui::TextDisabled("Double-click to expand; drag to trim.");
+                ImGui::EndPopup();
+            }
+        }
 
         const ImVec2 paintCanvasMax(pb.x + imageDisplaySize.x,
             pb.y + imageDisplaySize.y);
-        const bool paintCanvasHovered = imagePixelPaintMode && img.texture &&
-            ImGui::IsMouseHoveringRect(pb, paintCanvasMax, true);
+        const bool paintCanvasHovered = imagePixelPaintMode && img.texture && imageCanvasHovered;
         if (paintCanvasHovered) {
             const ImVec2 mouse = ImGui::GetIO().MousePos;
             const int pixelX = (std::max)(0, (std::min)(img.sizeX - 1,
@@ -8464,8 +8714,7 @@ int WORKSPACE::drawImgManager() {
             ImVec2 hoveredImageRB;
             bool hoveredImageFromAtlas = false;
             const ImVec2 atlasMouse = ImGui::GetIO().MousePos;
-            const bool atlasHovered = ImGui::IsMouseHoveringRect(
-                pb, paintCanvasMax, true);
+            const bool atlasHovered = imageCanvasHovered;
             const int hoverFrameAge = ImGui::GetFrameCount() -
                 imageManagerHoveredAssetFrame;
             if (imageManagerHoveredAssetIndex >= 0 &&
@@ -8556,70 +8805,50 @@ int WORKSPACE::drawImgManager() {
                 }
             }
 
-            if (newSquare) {
-                ImGui::BeginTooltip();
-                ImGui::Text("click any image");
-                ImGui::EndTooltip();
-                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                    ImGuiIO& io = ImGui::GetIO();
-                    clickPos = { (io.MousePos.x - grpos.x) / imageScale,
-                        (io.MousePos.y - grpos.y) / imageScale };
-                    
-                    int x = clickPos.x, y = clickPos.y, w, h;
-                    AutoSRCObjectPos( &((SRCGR*)arr_SRCGR.data)[gr_selected], &x,&y,&w,&h);
-                    SRCGR& selectedGraphic = ((SRCGR*)arr_SRCGR.data)[gr_selected];
-                    const int logicalGr = selectedGraphic.grID;
-                    const int graphicIfgroup = selectedGraphic.isIf;
-                    const int graphicDeclare = selectedGraphic.declare;
-                    CSTR assetOwner(mainpath);
-                    if (graphicDeclare >= 0 && graphicDeclare < skinfileLines.count) {
-                        SKINFILELINEREAD& declaration =
-                            ((SKINFILELINEREAD*)skinfileLines.data)[graphicDeclare];
-                        if (declaration.filename.body && *declaration.filename.outstr())
-                            assetOwner.assign(declaration.filename);
+            {
+                TransparentAssetCrop region;
+                bool regionRequested = false;
+                if (imagePixelPaintMode || imageAssetDragTexture != img.texture ||
+                    ImGui::IsKeyPressed(ImGuiKey_Escape)) imageAssetDragging = false;
+                const bool cancel = ImGui::IsKeyPressed(ImGuiKey_Escape);
+                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
+                    !ImGui::IsMouseReleased(ImGuiMouseButton_Left)) imageAssetDragging = false;
+                if (cancel) imageAssetNewArmed = false;
+                if (imageAssetNewArmed && !imagePixelPaintMode && atlasHovered)
+                    ImGui::SetTooltip("Double-click: expand from pixel. Drag: trim transparent margins. Escape: cancel.");
+                const int mx = (int)floorf((atlasMouse.x - pb.x) / imageScale);
+                const int my = (int)floorf((atlasMouse.y - pb.y) / imageScale);
+                if (!imagePixelPaintMode && !cancel && atlasHovered &&
+                    ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                    imageAssetDragging = false;
+                    regionRequested = FindImageAssetRegion(img.texture, mx, my, 0, 0,
+                        true, region, imageToolStatus);
+                } else if (!imagePixelPaintMode && !cancel && atlasHovered &&
+                    ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                    imageAssetDragStart = ImVec2((float)mx, (float)my);
+                    imageAssetDragTexture = img.texture;
+                    imageAssetDragging = true;
+                }
+                if (imageAssetDragging) {
+                    const int x0 = (std::max)(0, (std::min)((int)imageAssetDragStart.x, mx));
+                    const int y0 = (std::max)(0, (std::min)((int)imageAssetDragStart.y, my));
+                    const int x1 = (std::min)(img.sizeX, (std::max)((int)imageAssetDragStart.x, mx) + 1);
+                    const int y1 = (std::min)(img.sizeY, (std::max)((int)imageAssetDragStart.y, my) + 1);
+                    const bool dragged = ImGui::GetIO().MouseDragMaxDistanceSqr[0] >=
+                        ImGui::GetIO().MouseDragThreshold * ImGui::GetIO().MouseDragThreshold;
+                    if (dragged) draw_list->AddRect(
+                        ImVec2(pb.x + x0 * imageScale, pb.y + y0 * imageScale),
+                        ImVec2(pb.x + x1 * imageScale, pb.y + y1 * imageScale),
+                        IM_COL32(80, 240, 140, 255), 0, 0, 2);
+                    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                        imageAssetDragging = false;
+                        if (dragged) regionRequested = FindImageAssetRegion(img.texture,
+                            x0, y0, x1, y1, false, region, imageToolStatus);
                     }
-
-                    const int newImageIndex = NewIMG(logicalGr,
-                        x, y, w, h, graphicIfgroup);
-                    if (newImageIndex >= 0) {
-                        // Persist a reusable crop without making LR2 render an
-                        // Object. The fields intentionally mirror #SRC_IMAGE;
-                        // only the command head changes to '$'.
-                        char assetLine[256];
-                        snprintf(assetLine, sizeof(assetLine),
-                            "$SRC_IMAGE,0,%d,%d,%d,%d,%d,1,1,0,0,0,0,0",
-                            logicalGr, x, y, w, h);
-                        int metadataInsertAt = graphicDeclare >= 0
-                            ? graphicDeclare + 1
-                            : FindOwnerFileEndRow(skinfileLines, assetOwner.outstr());
-                        while (metadataInsertAt >= 0 &&
-                            metadataInsertAt < skinfileLines.count) {
-                            SKINFILELINEREAD& following =
-                                ((SKINFILELINEREAD*)skinfileLines.data)[metadataInsertAt];
-                            const char* followingText = following.line.body
-                                ? following.line.outstr() : "";
-                            if (strncmp(followingText, "$SRC_IMAGE,", 11) != 0) break;
-                            ++metadataInsertAt;
-                        }
-                        if (InsertLine(metadataInsertAt) == 0) {
-                            SKINFILELINEREAD& metadata =
-                                ((SKINFILELINEREAD*)skinfileLines.data)[metadataInsertAt];
-                            CSTR placeholder(metadata.line);
-                            EditLine(metadataInsertAt, placeholder, CSTR(assetLine));
-                            metadata.filename.assign(assetOwner);
-                            metadata.ifgroup = graphicIfgroup;
-                            SplitCSV(metadata.line, &metadata.csv, ",");
-                            metadata.csvColumnCount = CountCsvColumns(metadata.line);
-                            ((IMG*)arr_IMG.data)[newImageIndex].editorDeclare =
-                                metadataInsertAt;
-                        }
-                        assetSearch[0] = '\0';
-                        assetBrowserFocusRequest = newImageIndex;
-                        SelectIMGAsset(newImageIndex, false);
-                        clicked = true;
-                    }
-
-                    newSquare = 0;
+                }
+                if (regionRequested &&
+                    RegisterImageRegion(gr_selected, region, imageToolStatus)) {
+                    imageAssetNewArmed = false;
                 }
             }
         }
@@ -8643,54 +8872,14 @@ int WORKSPACE::drawImgManager() {
 
 //stretch find
 int AutoSRCObjectPos(SRCGR* gr, int* x, int* y, int* w, int* h) {
-
-    D3DLOCKED_RECT lockedRect;
-
-    HRESULT hr = gr->texture->LockRect(0, &lockedRect, NULL, D3DLOCK_READONLY);
-
-    if (SUCCEEDED(hr)) {
-        DWORD* pPixelData = (DWORD*)lockedRect.pBits;
-
-        int xCur = *x, yCur = *y;
-        int wCur = 1, hCur = 1;
-
-        while (1) {
-            bool xDone = true, yDone = true;
-
-            //expand x
-            for (int cur = yCur; cur < yCur + hCur; cur++) {
-                while (pPixelData[cur * (lockedRect.Pitch / 4) + xCur - 1] & 0xFF000000) {
-                    xCur--;
-                    xDone = false;
-                }
-                while (pPixelData[cur * (lockedRect.Pitch / 4) + xCur + wCur] & 0xFF000000) {
-                    wCur++;
-                    xDone = false;
-                }
-            }
-            
-            //expand y
-            for (int cur = xCur; cur < xCur + wCur; cur++) {
-                while (pPixelData[(yCur - 1) * (lockedRect.Pitch / 4) + cur] & 0xFF000000) {
-                    yCur--;
-                    yDone = false;
-                }
-                while (pPixelData[(yCur + hCur) * (lockedRect.Pitch / 4) + cur] & 0xFF000000) {
-                    hCur++;
-                    yDone = false;
-                }
-            }
-            //check
-            if (xDone && yDone) break;
-        }
-
-        *x = xCur;
-        *y = yCur;
-        *w = wCur;
-        *h = hCur;
-        
-        gr->texture->UnlockRect(0);
+    if (!gr || !x || !y || !w || !h) return -1;
+    TransparentAssetCrop crop;
+    std::string error;
+    if (!FindImageAssetRegion(gr->texture, *x, *y, 0, 0, true, crop, error)) {
+        *w = *h = 0;
+        return -1;
     }
+    *x = crop.x; *y = crop.y; *w = crop.w; *h = crop.h;
     return 0;
 }
 

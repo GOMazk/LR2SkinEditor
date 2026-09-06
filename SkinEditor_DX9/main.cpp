@@ -115,6 +115,17 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return 1;
     }
 
+    if (cmdline && strstr(cmdline, "--self-test-font-atlas")) {
+        int result = RunFontAtlasSelfTest();
+        if (!result) {
+            const int integration = RunSimpleFontApplySelfTest();
+            if (integration) result = 50 + integration;
+        }
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        return result;
+    }
     if (cmdline && strstr(cmdline, "--self-test-pixel-paint")) {
         const int result = RunPixelPaintSelfTest();
         CleanupDeviceD3D();

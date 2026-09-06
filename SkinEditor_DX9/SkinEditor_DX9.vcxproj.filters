@@ -87,6 +87,15 @@
     <ClCompile Include="seUI.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="fontAtlas.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="fontAtlasTests.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="winWorkspaceSimpleFonts.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="..\lib\md5.cpp">
       <Filter>LR2</Filter>
     </ClCompile>
@@ -288,6 +297,9 @@
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="seUI.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="fontAtlas.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="skinResolution.h">

@@ -41,6 +41,10 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
   같은 분류의 기존 Asset으로 교체하거나 이미지를 `simple-assets`에 가져오기.
   노트는 선택 레인, 같은 흰/검/스크래치 계열, 같은 파트 전체 또는 category 전체,
   폰트는 1P/2P pair 단위로 적용 범위를 고를 수 있으며 DST/조건은 유지
+- SELECT 스킨의 Simple Mode에서 곡 목록·강조·곡 정보·그래프·버튼·장식 및 현재
+  Object 선택을 묶어 배치/색조/투명도를 편집하고, 이벤트 시점별 페이드/슬라이드/
+  반복 점멸을 적용·재생한다. 기존 애니메이션 교체는 UI에서 명시하며 단일 Undo를
+  사용한다. OLRskin 0.9 계약은 유지한다. [선곡 화면 편집](SIMPLE_SELECTION.md)
 - 숫자/콤보/판정의 이미지 교체 및 TTF의 투명 PNG 생성·미리보기·색상/테두리/그림자
   설정. 같은 판정 index/owner/IF의 player pair만 자동 연결하며 graphic 선언 순서를
   보존한다. OLRskin 0.9 포맷은 변경하지 않는다.

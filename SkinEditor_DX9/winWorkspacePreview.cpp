@@ -222,6 +222,17 @@ bool WORKSPACE::UpdatePreviewRuntime(unsigned long long previewNow) {
         RefreshPreviewSelectionBounds();
     }
 
+    // Effect playback is queued until the CSV-driven runtime reload finishes;
+    // otherwise LoadSceneSE would immediately erase the requested event timer.
+    if (!previewReloadPending && !simpleSelectionPreviewTimers.empty()) {
+        for (int timer : simpleSelectionPreviewTimers) {
+            SetTimeLapse(timer, &g.timer1);
+            if (timer >= 0 && timer < 200) timerManualOverride[timer] = 1;
+        }
+        simpleSelectionPreviewTimers.clear();
+        previewLastRenderAt = 0;
+    }
+
     // Keep editing and live scene playback at the same responsive refresh
     // rate. Image candidates are now loaded lazily, so the former 15/30 FPS
     // memory-pressure workaround is no longer needed.

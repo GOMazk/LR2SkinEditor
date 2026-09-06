@@ -45,7 +45,7 @@ inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
     { SEUIWindowId::AssetBrowser, "asset-browser", "Asset Browser", "Search, preview and drag tagged image crops.", "WORKSPACE::drawAssetBrowser", "Assets", "center-bottom", true },
     { SEUIWindowId::TextEditor, "text-editor", "Text Editor", "Edit the authoritative LR2 skin text while preserving encoding.", "WORKSPACE::drawTextEdit", "Data", "center-tabs", false },
     { SEUIWindowId::FileManager, "file-manager", "File Manager", "Inspect scripts and images referenced by the workspace.", "WORKSPACE::drawFileManager", "Data", "center-bottom", false },
-    { SEUIWindowId::SimpleMode, "simple-mode", "Simple Mode", "Replace number fonts, judgement art, gear parts and note shapes through semantic component groups.", "WORKSPACE::drawSimpleMode", "Workspace", "center-tabs", true },
+    { SEUIWindowId::SimpleMode, "simple-mode", "Simple Mode", "Edit Selection layout and event effects in groups, or replace fonts, gear and note art.", "WORKSPACE::drawSimpleMode", "Workspace", "center-tabs", true },
     { SEUIWindowId::DstView, "dst-view", "DST View", "Inspect destination rows and preview their animation frames.", "WORKSPACE::drawDstView", "Assets", "center-tabs", true },
     { SEUIWindowId::ObjectBrowser, "object-browser", "Object Browser", "Search, reset filters and count matching objects; group, select and reorder them.", "WORKSPACE::drawObjectBrowser", "Workspace", "left-browser", true },
     { SEUIWindowId::ObjectInspector, "object-inspector", "Object Inspector", "Edit properties of the shared Object Browser selection.", "WORKSPACE::drawObjectInspector", "Workspace", "left-inspector", true },
@@ -90,6 +90,7 @@ enum class SEUISurfaceId {
     LayoutFirstImage,
     ObjectMoveConfirmation,
     SimpleFontTools,
+    SimpleSelection,
     Help,
     Count
 };
@@ -115,6 +116,7 @@ inline constexpr SEUISurfaceSpec kSEUISurfaceSpecs[] = {
     { SEUISurfaceId::LayoutFirstImage, "layout-first-image", "New blank image Object", "Place an image-backed Object numerically or by Preview rectangle; create a transparent sprite sheet for painting.", "WORKSPACE::drawLayoutFirstImageDialog", "dialog" },
     { SEUISurfaceId::ObjectMoveConfirmation, "object-move-confirmation", "Move Object to another file?", "Confirm moving an Object and its editor metadata between include files.", "WORKSPACE::draw", "dialog" },
     { SEUISurfaceId::SimpleFontTools, "simple-font-tools", "Simple Font Tools", "Generate and preview TTF number, combo and judgement atlases; apply existing PNG/CSV with Undo.", "WORKSPACE::drawSimpleModeFontTools", "flow" },
+    { SEUISurfaceId::SimpleSelection, "simple-selection", "Selection layout and effects", "Group a loaded Selection skin's components, edit layout/tint, and apply event animations with shared Undo and Preview.", "WORKSPACE::drawSimpleSelection", "flow" },
     { SEUISurfaceId::Help, "help", "Help", "Explain the editor workflow and the role of each primary workspace panel.", "DrawHelpWindow", "dialog" }
 };
 

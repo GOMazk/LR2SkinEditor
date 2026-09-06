@@ -96,6 +96,15 @@
     <ClCompile Include="winWorkspaceSimpleFonts.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="simpleSelection.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="simpleSelectionTests.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="winWorkspaceSimpleSelection.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="..\lib\md5.cpp">
       <Filter>LR2</Filter>
     </ClCompile>
@@ -294,6 +303,9 @@
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="seObjectEditor.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="simpleSelection.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="seUI.h">

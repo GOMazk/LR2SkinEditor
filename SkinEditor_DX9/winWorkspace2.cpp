@@ -2507,6 +2507,8 @@ int WORKSPACE::ApplyPendingObjectReorder() {
 }
 
 void WORKSPACE::NotifyDocumentChanged(unsigned int changes) {
+    // A newer edit/Undo supersedes playback queued for the previous document.
+    simpleSelectionPreviewTimers.clear();
     // A new user edit starts a new history branch. Undo/redo replays set
     // replayingHistory so restoring an older document does not discard the
     // remaining forward states.

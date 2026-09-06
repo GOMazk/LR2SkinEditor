@@ -6,6 +6,7 @@
 #include "seObjectEditor.h"
 #include "skinResolution.h"
 #include "fontAtlas.h"
+#include "simpleSelection.h"
 #include <algorithm>
 #include <map>
 #include <memory>
@@ -708,6 +709,19 @@ typedef struct WORKSPACE {
     const std::vector<SESimpleModeSlot>& GetSimpleModeSlots();
     void InvalidateSimpleModeProjection();
     int drawSimpleMode();
+    bool simpleModeShowSelection = true;
+    SESelectionEdit simpleSelectionEdit;
+    bool simpleSelectionProjectionDirty = true;
+    std::vector<SESelectionTimeline> simpleSelectionProjection;
+    std::vector<int> simpleSelectionPreviewTimers;
+    std::string simpleSelectionStatus;
+    bool simpleSelectionLastSucceeded = true;
+    const std::vector<SESelectionTimeline>& GetSimpleSelectionTimelines();
+    std::vector<SESelectionTimeline> GetSimpleSelectionTargets(const SESelectionEdit& edit);
+    // Atomic CSV/History edit; rejects the entire request if any target is invalid.
+    bool ApplySimpleSelectionEdit(const SESelectionEdit& edit, std::string& message);
+    void drawSimpleSelection();
+    void ReplaySimpleSelectionEffect();
     void drawSimpleModeFontTools(const SESimpleModeSlot& slot);
     std::vector<SESimpleModeSlot> GetSimpleModeApplyTargets(const std::string& slotId, int applyScope);
     int ApplySimpleModeFontBitmap(const std::string& slotId, const SEFontAtlasBitmap& bitmap,

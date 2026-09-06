@@ -86,6 +86,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunOlrPackageSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-simple-mode"))
         return RunSimpleModeProjectionSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-simple-selection"))
+        return RunSimpleSelectionSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-reload-lifecycle"))
         return RunWorkspaceReloadLifecycleSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-dst-color"))

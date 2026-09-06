@@ -3612,6 +3612,10 @@ int WORKSPACE::LoadSkin(char* path) {
     assetSearch[0] = '\0';
     imageManagerFocusRequest = -1;
     simpleModeCategory = 0;
+    simpleModeShowSelection = true;
+    simpleSelectionEdit = SESelectionEdit();
+    simpleSelectionStatus.clear();
+    simpleSelectionPreviewTimers.clear();
     simpleModeSelectedSlotId.clear();
     simpleModeCandidateAsset = -1;
     simpleModeApplyScope = 0;
@@ -9735,6 +9739,7 @@ const std::vector<SESimpleModeSlot>& WORKSPACE::GetSimpleModeSlots() {
 
 void WORKSPACE::InvalidateSimpleModeProjection() {
     simpleModeProjectionDirty = true;
+    simpleSelectionProjectionDirty = true;
 }
 
 SESimpleModeCategoryCounts WORKSPACE::GetSimpleModeCategoryCounts() {
@@ -12915,6 +12920,18 @@ int WORKSPACE::drawSimpleMode() {
         return 0;
     }
 
+    if (meta.type == SKINTYPE_SELECT) {
+        if (ImGui::RadioButton(SEText("Selection layout & effects", u8"\uC120\uACE1 \uD654\uBA74 \uBC30\uCE58\u00B7\uD6A8\uACFC"), simpleModeShowSelection))
+            simpleModeShowSelection = true;
+        if (ImGui::RadioButton(SEText("Image & font replacement", u8"\uC774\uBBF8\uC9C0\u00B7\uAE00\uAF34 \uAD50\uCCB4"), !simpleModeShowSelection))
+            simpleModeShowSelection = false;
+        ImGui::Separator();
+        if (simpleModeShowSelection) {
+            drawSimpleSelection();
+            ImGui::End();
+            return 0;
+        }
+    }
     const std::vector<SESimpleModeSlot>& slots = GetSimpleModeSlots();
     ImGui::TextUnformatted("Change the visible skin without editing LR2 CSV columns.");
     ImGui::TextDisabled("Pick a component, then reuse compatible art or import a new image.");

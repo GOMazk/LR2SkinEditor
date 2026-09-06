@@ -204,6 +204,9 @@
     <ClCompile Include="fontAtlas.cpp" />
     <ClCompile Include="fontAtlasTests.cpp" />
     <ClCompile Include="winWorkspaceSimpleFonts.cpp" />
+    <ClCompile Include="simpleSelection.cpp" />
+    <ClCompile Include="simpleSelectionTests.cpp" />
+    <ClCompile Include="winWorkspaceSimpleSelection.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_demo.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
@@ -291,6 +294,7 @@
     <ClInclude Include="seHelper.h" />
     <ClInclude Include="seLocalization.h" />
     <ClInclude Include="seObjectEditor.h" />
+    <ClInclude Include="simpleSelection.h" />
     <ClInclude Include="selfTests.h" />
     <ClInclude Include="seUI.h" />
     <ClInclude Include="fontAtlas.h" />

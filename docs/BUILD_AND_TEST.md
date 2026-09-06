@@ -63,6 +63,11 @@ DxLib의 `SkinEditor_DX9\Release\Log.txt`를 다시 쓰더라도 실행 전 바�
 복원하므로, 검증 자체가 작업 트리의 기존 런타임 로그를 변경하지 않는다.
 
 - `schema-contract`: 실행 파일에 포함된 command/object 스키마와 symbolic field
+- `simple-selection`: SELECT 묶음 발견과 기존 Object 선택, BAR 상대 좌표의 이중 이동
+  방지, 텍스트 크기 포함 배치/색 편집, 기존 애니메이션 교체 gate, 곡 변경 이벤트와
+  loop/조건/미지 필드 보존, 원자적 오류 처리, 단일 Undo/Redo와 Workspace 분리.
+  생성한 DST를 실제 LR2 reader/interpolator에 넣어 지연·중간 alpha·종료 pose도 검증한다.
+  [선곡 화면 수동 확인](SIMPLE_SELECTION.md)의 GUI/실제 스킨 검증은 별도다.
 - `ui-contract`: 창 카탈로그의 고유 key/title, owner, dock, workspace별 ImGui ID
   및 English/Korean label 선택 계약, Object Browser의 CP932 이름/UTF-8 검색,
   ASCII 대소문자, 빈 검색어와 일치하지 않는 검색어, Preview의 가로/세로 화면 맞춤,

@@ -502,6 +502,16 @@ scrolls to the new row and shows the same Object in Inspector.
 
 ### Simple Mode
 
+SELECT skins default to the editor-only `WORKSPACE::drawSimpleSelection()` flow;
+the existing source replacement UI remains available through a mode switch.
+`simpleSelection.cpp` discovers supported DST timelines directly, separates bar
+ON/OFF and index contexts, and resolves optional custom targets through the shared
+Object selection. Workspace invalidation clears its derived cache. Batched edits
+are prepared against a temporary snapshot, preserve non-target rows/owners and
+commit one History entry. Preview event timers are queued until runtime reload
+finishes. The five serialized Simple Mode source groups and OLRskin 0.9 compiler
+contract remain unchanged. See [Selection editing](SIMPLE_SELECTION.md).
+
 `WORKSPACE::drawSimpleMode()` projects authoritative LR2 `#SRC_*` rows into five
 authoring groups: number fonts (including NOWCOMBO), judgement fonts, gear parts,
 notes and gauge sources. Object Model names and ids enrich labels and selection when present,

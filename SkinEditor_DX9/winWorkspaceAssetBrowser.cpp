@@ -29,6 +29,125 @@
 
 extern PDIRECT3DTEXTURE9 transBackground;
 
+void WORKSPACE::drawLayoutFirstImageDialog() {
+    const SEUISurfaceSpec& spec = SEUISurfaceSpecFor(SEUISurfaceId::LayoutFirstImage);
+    char popup[128];
+    snprintf(popup, sizeof(popup), "%s##%s-%d", spec.title, spec.key, num);
+    if (layoutFirstDialogPending) {
+        layoutFirstDialogPending = false;
+        layoutFirstPlacement = layoutFirstDragging = false;
+        if (!layoutFirstResume) {
+            layoutFirstOptions = SELayoutImageOptions();
+            layoutFirstName[0] = '\0';
+            layoutFirstPosition[0] = layoutFirstPosition[1] = 0;
+            layoutFirstSize[0] = layoutFirstSize[1] = 64;
+            layoutFirstUseSelection = false;
+            layoutFirstOpenPaint = true;
+            layoutFirstAnchor = objectSelection.active;
+            layoutFirstError.clear();
+        }
+        layoutFirstResume = false;
+        ImGui::OpenPopup(popup);
+    }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
+        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(460.0f, 0.0f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal(popup, nullptr,
+        ImGuiWindowFlags_AlwaysAutoResize)) return;
+    ImGui::InputText("Name", layoutFirstName, sizeof(layoutFirstName));
+    if (ImGui::Combo("Type", &layoutFirstOptions.kind,
+        "IMAGE\0NUMBER\0SLIDER\0BUTTON\0BARGRAPH\0")) {
+        const int kind = layoutFirstOptions.kind;
+        layoutFirstOptions = SELayoutImageOptions();
+        layoutFirstOptions.kind = kind;
+        if (kind == 1) layoutFirstOptions.divX = 10;
+        if (kind == 3) layoutFirstOptions.divX = 2;
+    }
+    ImGui::InputInt2("Position (X, Y)", layoutFirstPosition);
+    ImGui::InputInt2("Size (W, H)", layoutFirstSize);
+    if (layoutFirstOptions.kind == 1) {
+        ImGui::TextWrapped("W/H is one digit. Paint 0 through 9 from left to right.");
+        ImGui::InputInt("Digits (keta)", &layoutFirstOptions.digits);
+        ImGui::Combo("Align", &layoutFirstOptions.align, "Right\0Left\0Center\0");
+    } else {
+        ImGui::InputInt("Columns (div_x)", &layoutFirstOptions.divX);
+        ImGui::InputInt("Rows (div_y)", &layoutFirstOptions.divY);
+        ImGui::InputInt("Cycle (ms)", &layoutFirstOptions.cycle);
+    }
+    if (layoutFirstOptions.kind != 0) {
+        const std::string command = std::string("#SRC_") + SELayoutImageType(layoutFirstOptions.kind);
+        int selected = layoutFirstOptions.value;
+        DrawCommandValueCombo("Value", command.c_str(),
+            layoutFirstOptions.kind == 1 ? "$num" : "$type", selected, layoutFirstOptions.value);
+    }
+    if (layoutFirstOptions.kind == 2 || layoutFirstOptions.kind == 4) {
+        ImGui::Combo("Direction", &layoutFirstOptions.direction,
+            "0\0" "1\0" "2\0" "3\0");
+        if (layoutFirstOptions.kind == 2) ImGui::InputInt("Range", &layoutFirstOptions.range);
+    }
+    int sheetWidth = 0, sheetHeight = 0;
+    const bool validSize = SELayoutImageSize(layoutFirstSize[0], layoutFirstSize[1],
+        layoutFirstOptions, sheetWidth, sheetHeight);
+    ImGui::TextDisabled("Transparent PNG: %d x %d pixels", sheetWidth, sheetHeight);
+    if (ImGui::Button("Draw rectangle in Preview")) {
+        layoutFirstPlacement = true;
+        layoutFirstDragging = false;
+        wPreview = true;
+        preview_object_dragging = preview_object_resizing = false;
+        char previewTitle[96];
+        FormatSEUIWindowTitle(previewTitle, sizeof(previewTitle), SEUIWindowId::Preview, num);
+        ImGui::CloseCurrentPopup();
+        ImGui::SetWindowFocus(previewTitle);
+    }
+    const int anchor = ResolveObjectSelectionKey(layoutFirstAnchor);
+    ImGui::BeginDisabled(anchor < 0);
+    ImGui::Checkbox("Use selected Object's file / IF branch", &layoutFirstUseSelection);
+    ImGui::EndDisabled();
+    if (layoutFirstUseSelection && anchor >= 0) {
+        const SEObjectInstance& object = objectEditorModel.Objects()[anchor];
+        ImGui::TextWrapped("After: %s", Cp932ToUtf8(object.name.c_str()).c_str());
+    } else if (!layoutFirstUseSelection) {
+        ImGui::TextDisabled("Destination: main skin / ALWAYS");
+    }
+    ImGui::Checkbox("Open Pixel Paint after creation", &layoutFirstOpenPaint);
+    if (!validSize)
+        ImGui::TextWrapped("Use a positive size, up to 16384 per side and 16 megapixels total.");
+    if (layoutFirstUseSelection && anchor < 0)
+        ImGui::TextWrapped("The target Object is unavailable. Reopen this dialog to choose a target.");
+    if (!layoutFirstError.empty())
+        ImGui::TextWrapped("%s", layoutFirstError.c_str());
+    ImGui::Separator();
+    ImGui::BeginDisabled(!loaded || !validSize ||
+        (layoutFirstUseSelection && anchor < 0) || pendingHistorySnapshotRestore >= 0);
+    if (ImGui::Button("Create", ImVec2(100.0f, 0.0f))) {
+        const std::string name = Utf8ToCp932(layoutFirstName);
+        std::string path;
+        if (Cp932ToUtf8(name.c_str()) != layoutFirstName) {
+            layoutFirstError = "The name contains characters unavailable in Shift-JIS.";
+        } else if (CreateImageObjectFromLayout(layoutFirstPosition[0],
+            layoutFirstPosition[1], layoutFirstSize[0], layoutFirstSize[1],
+            name.c_str(), path, layoutFirstError, layoutFirstUseSelection ? anchor : -1,
+            layoutFirstOptions)) {
+            assetShowUnusedOnly = false;
+            wPreview = wObjectBrowser = wObjectInspector = true;
+            char focusTitle[96];
+            if (layoutFirstOpenPaint) {
+                imagePixelPaintMode = true;
+                imagePixelPaintLastX = imagePixelPaintLastY = imagePixelPaintLastButton = -1;
+            }
+            FormatSEUIWindowTitle(focusTitle, sizeof(focusTitle),
+                layoutFirstOpenPaint ? SEUIWindowId::ImageManager : SEUIWindowId::Preview, num);
+            ImGui::CloseCurrentPopup();
+            ImGui::SetWindowFocus(focusTitle);
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(100.0f, 0.0f)) ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
 int WORKSPACE::drawAssetBrowser() {
     char title[64];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::AssetBrowser, num);
@@ -37,9 +156,27 @@ int WORKSPACE::drawAssetBrowser() {
         return 0;
     }
 
+    auto drawBackgroundMenu = [&](bool emptySurface = false) {
+        // Empty-state children are presentation only, so their whole area
+        // counts as blank space. Real cards keep their own item context menu.
+        if (emptySurface &&
+            ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+            ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+            ImGui::OpenPopup("##AssetBackground");
+        const bool open = emptySurface ? ImGui::BeginPopup("##AssetBackground") :
+            ImGui::BeginPopupContextWindow("##AssetBackground",
+                ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems);
+        if (open) {
+            if (ImGui::MenuItem("New blank image Object...", nullptr, false, loaded))
+                layoutFirstDialogPending = true;
+            ImGui::EndPopup();
+        }
+    };
+
     if (arr_IMG.count <= 0) {
         SEUI::EmptyState("No image crops",
             "Image crops parsed from #SRC commands will appear here as reusable assets.");
+        drawBackgroundMenu(true);
         ImGui::End();
         return 0;
     }
@@ -290,6 +427,7 @@ int WORKSPACE::drawAssetBrowser() {
 
     if (filteredAssets.empty()) {
         SEUI::EmptyState("No matching assets", "Clear the search text to show every crop.");
+        drawBackgroundMenu(true);
         if (drawAssetDeleteDialog()) {
             ImGui::End();
             return 0;
@@ -615,6 +753,7 @@ int WORKSPACE::drawAssetBrowser() {
             }
         }
         clipper.End();
+        drawBackgroundMenu();
     }
     ImGui::EndChild();
     if (drawAssetDeleteDialog()) {

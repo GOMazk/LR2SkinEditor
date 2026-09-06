@@ -287,6 +287,14 @@ int WORKSPACE::drawPreview() {
     }
 
     float previewCanvasScale = 1.0f / zoom;
+    const bool placingLayout = layoutFirstPlacement;
+    if (placingLayout) {
+        ImGui::TextUnformatted("Drag a rectangle for the new Object. Escape cancels placement.");
+        if (ImGui::Button("Cancel placement") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            layoutFirstPlacement = layoutFirstDragging = false;
+            layoutFirstDialogPending = layoutFirstResume = true;
+        }
+    }
     float zoomPercent = previewCanvasScale * 100.0f;
     // Wrap controls in narrow docks; scrolling belongs only to the canvas below.
     const auto nextToolbarItem = [](float width) {
@@ -424,11 +432,46 @@ int WORKSPACE::drawPreview() {
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar();
 
+    if (placingLayout && layoutFirstPlacement) {
+        const bool hovered = ImGui::IsItemHovered();
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const ImVec2 point(
+            (float)(std::max)(0, (std::min)(skinSizeX, (int)floorf((mouse.x - p.x) / previewCanvasScale))),
+            (float)(std::max)(0, (std::min)(skinSizeY, (int)floorf((mouse.y - p.y) / previewCanvasScale))));
+        if (hovered) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            layoutFirstDragging = true;
+            layoutFirstDragStart = point;
+        }
+        if (layoutFirstDragging) {
+            const ImVec2 lo((std::min)(point.x, layoutFirstDragStart.x),
+                (std::min)(point.y, layoutFirstDragStart.y));
+            const ImVec2 hi((std::max)(point.x, layoutFirstDragStart.x),
+                (std::max)(point.y, layoutFirstDragStart.y));
+            ImDrawList* list = ImGui::GetWindowDrawList();
+            const ImVec2 a(p.x + lo.x * previewCanvasScale, p.y + lo.y * previewCanvasScale);
+            const ImVec2 b(p.x + hi.x * previewCanvasScale, p.y + hi.y * previewCanvasScale);
+            list->AddRectFilled(a, b, IM_COL32(60, 170, 255, 45));
+            list->AddRect(a, b, IM_COL32(60, 210, 255, 255), 0, 0, 2);
+            if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+                layoutFirstDragging = false;
+                if (hi.x > lo.x && hi.y > lo.y) {
+                    layoutFirstPosition[0] = (int)lo.x;
+                    layoutFirstPosition[1] = (int)lo.y;
+                    layoutFirstSize[0] = (int)(hi.x - lo.x);
+                    layoutFirstSize[1] = (int)(hi.y - lo.y);
+                    layoutFirstPlacement = false;
+                    layoutFirstDialogPending = layoutFirstResume = true;
+                }
+            }
+        }
+    }
+
     // Asset Browser sends a stable IMG index. Preview owns coordinate
     // conversion because it is the only window that knows the current canvas
     // origin, scroll and zoom. Delivery opens the existing New Object form;
     // no CSV or runtime Object is mutated until the user confirms that form.
-    if (ImGui::BeginDragDropTarget()) {
+    if (!placingLayout && ImGui::BeginDragDropTarget()) {
         const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(
             "SKINEDITOR_IMG_ASSET",
             ImGuiDragDropFlags_AcceptBeforeDelivery |
@@ -543,7 +586,7 @@ int WORKSPACE::drawPreview() {
 
     // Drag the highlighted Object. All DST animation rows receive the same
     // delta, preserving animation while EditValue records CSV and History.
-    if (preview_selected_obj_valid) {
+    if (!placingLayout && preview_selected_obj_valid) {
         const float previewScale = 1.0f / zoom;
         float hitX1 = preview_selected_obj.x;
         float hitY1 = preview_selected_obj.y;
@@ -866,7 +909,7 @@ int WORKSPACE::drawPreview() {
     }
 
     //test objects on cursor
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+    if (!placingLayout && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         ImGuiIO& io = ImGui::GetIO();
         clickPos = { io.MousePos.x,io.MousePos.y };
         drawRightClick = true;
@@ -875,7 +918,7 @@ int WORKSPACE::drawPreview() {
     // processed later in this function; clearing it first skipped the entire
     // popup block on the exact frame a Selectable was clicked.
     preview_hover_obj_valid = false;
-    if(drawRightClick){
+    if(!placingLayout && drawRightClick){
         ImGui::PushID(num);
         if (ImGui::BeginPopupContextWindow()) {
             auto branchConditionMatches = [&](int ifgroup) -> bool {

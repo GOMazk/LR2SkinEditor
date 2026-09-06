@@ -122,6 +122,13 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
         return result;
     }
+    if (cmdline && strstr(cmdline, "--self-test-layout-first")) {
+        const int result = RunLayoutFirstObjectSelfTest();
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        return result;
+    }
     if (cmdline && strstr(cmdline, "--self-test-initial-preset")) {
         const int result = RunInitialPresetSelfTest();
         CleanupDeviceD3D();

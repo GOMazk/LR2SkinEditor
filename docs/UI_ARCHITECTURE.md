@@ -48,6 +48,17 @@ All six still operate on the same `WORKSPACE`, CSV rows, stable Object IDs and
 History. A panel source file must not introduce a second document or selection
 store merely because its draw routine is compiled separately.
 
+Asset Browser's blank-area context menu opens `drawLayoutFirstImageDialog()`.
+The modal owns only draft name/rectangle/options and a stable target selection
+key, then calls `CreateImageObjectFromLayout()`. It also works with no assets
+or no search results. The popup is submitted once by the workspace after all
+panels, so creating rows cannot invalidate an active card iteration and the
+modal can resume even when Asset Browser is an inactive tab. Preview placement
+stores only a draft rectangle, blocks normal move/resize/drop input, and queues
+the same modal on release. `SELayoutImageSize()` validates shared sheet limits;
+source fields use GetCommandHelp rather than positional UI copies.
+The `layout-first-image` surface is catalogued in `uiCatalog.h`.
+
 `seUI` is deliberately stateless. A component may return a click or edited
 value, but it must not load skins, mutate CSV, select objects, or push History.
 Those actions belong to `WORKSPACE` or the existing domain helpers.
@@ -362,6 +373,36 @@ pre-filled. The normal OK path remains responsible for CSV insertion, model
 rebuild, Preview invalidation and History.
 
 Image Manager owns the simple `Pixel paint` mode. Canvas mouse coordinates are
+independent from its responsive toolbar: the gr selector and read-only path each
+occupy their own row. File actions, creation tools, zoom/background and paint
+controls wrap to the visible window edge instead of the atlas scroll extent.
+The path remains copyable and exposes its full text in a tooltip. Status text
+wraps, while the atlas child keeps its own horizontal scrollbar.
+
+The atlas claims left input with an InvisibleButton. Outside Pixel Paint,
+its item context menu exposes New using the same creation intent as the list.
+Capture IsItemHovered immediately after the canvas button: IsWindowHovered is
+false while that very button owns a click/drag. Overlay widgets must not replace
+this input sample. Manual same-gr texture choices are retained by path + logical
+gr, not a SRCGR index or the current crop's IF; SelectIMGAsset resolves that path
+after rebuilds and clears it on a different gr or an unavailable candidate.
+List right-click first synchronizes the clicked row with shared IMG selection;
+the popup identifies the target by name, gr and rectangle. Blank-list context
+does not permit deletion of the previously selected Asset. Pixel Paint retains
+right-drag erasing and suppresses the atlas context menu.
+
+The atlas claims left input with an InvisibleButton. Outside Pixel Paint,
+double-click calls `FindImageAssetRegion(expand=true)`; a completed drag calls
+the same alpha reader with a bounded trim rectangle. Gesture state belongs to
+Workspace and cancels on texture changes or Escape. `RegisterImageRegion`
+persists `$SRC_IMAGE` with one snapshot History entry; duplicate rectangles select
+the existing Asset. `FindIMG` returns `arr_IMG.count` on a miss, not -1.
+New selection resolves the metadata row after rebuilding instead of retaining a
+temporary array index. Asset filters are cleared so the registered crop is visible.
+`AutoSRCObjectPos()` now delegates to the bounded reader instead of indexing
+past texture borders. The detector never modifies pixels or CSV.
+
+Image Manager owns the simple `Pixel paint` mode. Canvas mouse coordinates are
 converted through `ImageManagerZoom` to one source-texture pixel. Left drag
 paints the selected RGBA color, right drag writes transparent pixels, and middle
 click samples a color. A Bresenham segment fills gaps between mouse frames while
@@ -426,6 +467,15 @@ than retaining a `SRCGR` array index.
 textures at the next frame boundary, before any window submits image draw
 commands. It is blocked while that path has unsaved Pixel paint. `Usage` only
 opens the derived Image status panel and does not mutate CSV state.
+
+`RegisterImageAssetGrid()` partitions the selected IMG rectangle with integer
+boundaries. The separate Add image transparency workflow uses
+`FindTransparentAssetCrops()` in ImageLoader, reading alpha without altering the
+texture. Workspace caches the preview and candidate selection only for the dialog.
+`RegisterImageWithTransparentCrops()` wraps existing fixed/wildcard/new-gr validation,
+replaces the new full-size metadata with selected regions, and commits one snapshot
+History entry. No Object or bitmap is created. Preview textures stay alive until
+the next file selection to avoid releasing textures referenced by ImGui draw lists.
 
 `RegisterImageAssetGrid()` partitions the selected IMG rectangle with integer
 boundary ratios, skips duplicate branch/crop keys and inserts named

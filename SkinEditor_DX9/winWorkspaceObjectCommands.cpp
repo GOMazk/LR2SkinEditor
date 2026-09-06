@@ -1,9 +1,12 @@
 #include "winWorkspace.h"
 
 #include "winWorkspaceUiHelpers.h"
+#include "seHelper.h"
+#include "../LR2/En_fileutil.h"
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <set>
 #include <string>
 #include <vector>
@@ -229,4 +232,507 @@ int WORKSPACE::DuplicateSelectedObjects() {
 
 bool WORKSPACE::HasCopiedObjects() const {
     return !processObjectClipboard.objects.empty();
+}
+
+const char* SELayoutImageType(int kind) {
+    static const char* types[] = { "IMAGE", "NUMBER", "SLIDER", "BUTTON", "BARGRAPH" };
+    return kind >= 0 && kind < 5 ? types[kind] : nullptr;
+}
+
+bool WORKSPACE::RegisterImageRegion(int graphicIndex, const TransparentAssetCrop& crop,
+    std::string& status) {
+    if (!loaded || applyingHistory || pendingHistorySnapshotRestore >= 0 ||
+        graphicIndex < 0 || graphicIndex >= arr_SRCGR.count) {
+        status = "The target texture is unavailable.";
+        return false;
+    }
+    SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
+    if (crop.x < 0 || crop.y < 0 || crop.w <= 0 || crop.h <= 0 ||
+        (long long)crop.x + crop.w > graphic.sizeX ||
+        (long long)crop.y + crop.h > graphic.sizeY) {
+        status = "The detected region is outside the texture.";
+        return false;
+    }
+    const int existing = FindIMG(graphic.grID, crop.x, crop.y, crop.w, crop.h, graphic.isIf);
+    // FindIMG's legacy not-found sentinel is arr_IMG.count, NOT -1.
+    if (existing >= 0 && existing < arr_IMG.count) {
+        SelectIMGAsset(existing, true);
+        assetBrowserFocusRequest = existing;
+        assetSearch[0] = '\0';
+        assetShowUnusedOnly = false;
+        wAssetBrowser = true;
+        status = "Selected existing Asset " + std::to_string(existing) + ".";
+        return true;
+    }
+    const int branch = graphic.isIf;
+    CSTR owner(mainpath);
+    int row = graphic.declare;
+    if (row < 0 || row >= skinfileLines.count) {
+        status = "The #IMAGE declaration is unavailable.";
+        return false;
+    }
+    owner.assign(((SKINFILELINEREAD*)skinfileLines.data)[row].filename);
+    ++row;
+    while (row < skinfileLines.count) {
+        auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        if (!line.line.body || strncmp(line.line.outstr(), "$SRC_IMAGE,", 11)) break;
+        ++row;
+    }
+    char text[256];
+    snprintf(text, sizeof(text), "$SRC_IMAGE,0,%d,%d,%d,%d,%d,1,1,0,0,0,0,0,manual crop",
+        graphic.grID, crop.x, crop.y, crop.w, crop.h);
+    const auto before = CaptureDocumentSnapshot();
+    const auto oldRedo = redoDocumentSnapshots;
+    const auto oldRevision = documentRevision;
+    applyingHistory = true;
+    bool ok = InsertLine(row) == 0;
+    if (ok) {
+        auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        CSTR previous(line.line);
+        ok = EditLine(row, previous, CSTR(text)) == 0;
+        line.filename.assign(owner);
+        line.ifgroup = branch;
+        SplitCSV(line.line, &line.csv, ",");
+        line.csvColumnCount = CountCsvColumns(line.line);
+    }
+    applyingHistory = false;
+    if (!ok) {
+        const bool replay = replayingHistory;
+        replayingHistory = true;
+        RestoreDocumentSnapshot(before);
+        replayingHistory = replay;
+        redoDocumentSnapshots = oldRedo;
+        documentRevision = oldRevision;
+        status = "Could not register the Asset; document changes were rolled back.";
+        return false;
+    }
+    const int snapshot = (int)historyDocumentSnapshots.size();
+    historyDocumentSnapshots.push_back(before);
+    HISTORY* history = (HISTORY*)arr_history.Get_new();
+    history->op = restoreDocument;
+    history->target = snapshot;
+    // Resolve the metadata row after the normal deferred rebuild, not a temporary IMG index.
+    imageManagerAssetDeclarationFocusRequest = row;
+    assetSearch[0] = '\0';
+    assetShowUnusedOnly = false;
+    wAssetBrowser = true;
+    status = "Added Asset: " + std::to_string(crop.x) + ", " + std::to_string(crop.y) +
+        " / " + std::to_string(crop.w) + " x " + std::to_string(crop.h) + ".";
+    return true;
+}
+
+bool SELayoutImageSize(int width, int height, const SELayoutImageOptions& options,
+    int& sheetWidth, int& sheetHeight) {
+    sheetWidth = sheetHeight = 0;
+    if (!SELayoutImageType(options.kind) || width <= 0 || height <= 0 ||
+        width > 16384 || height > 16384 || options.divX <= 0 || options.divY <= 0 ||
+        options.divX > 16384 || options.divY > 16384 || options.cycle < 0 ||
+        options.digits < 1 || options.digits > 32 || options.align < 0 || options.align > 2 ||
+        options.direction < 0 || options.direction > 3 || options.range < 0 ||
+        (options.kind == 1 && (options.divX != 10 || options.divY != 1))) return false;
+    const long long w = (long long)width * options.divX;
+    const long long h = (long long)height * options.divY;
+    if (w > 16384 || h > 16384 || w * h > 16 * 1024 * 1024) return false;
+    sheetWidth = (int)w;
+    sheetHeight = (int)h;
+    return true;
+}
+
+bool WORKSPACE::CreateImageObjectFromLayout(int x, int y, int width,
+    int height, const char* name, std::string& imagePath,
+    std::string& errorText, int afterObject, const SELayoutImageOptions& options) {
+    imagePath.clear();
+    errorText.clear();
+    int sheetWidth = 0, sheetHeight = 0;
+    if (!loaded || !*mainpath || pendingHistorySnapshotRestore >= 0 ||
+        applyingHistory || !SELayoutImageSize(width, height, options, sheetWidth, sheetHeight)) {
+        errorText = "Open a skin and specify a positive image size (maximum 16 megapixels).";
+        return false;
+    }
+    const std::string objectName = name && *name ? name : "Untitled image";
+    if (objectName.find_first_of(",\r\n") != std::string::npos) {
+        errorText = "The Object name cannot contain commas or line breaks.";
+        return false;
+    }
+    // Check the installed schema before writing a file or any document row.
+    const std::string sourceCommand = std::string("#SRC_") + SELayoutImageType(options.kind);
+    const std::string destinationCommand = std::string("#DST_") + SELayoutImageType(options.kind);
+    CSTR sourceHelp = GetCommandHelp(sourceCommand.c_str(), 0);
+    CSTR destinationHelp = GetCommandHelp(destinationCommand.c_str(), 0);
+    if (!sourceHelp.isSame(sourceCommand.c_str()) ||
+        !destinationHelp.isSame(destinationCommand.c_str())) {
+        errorText = "The IMAGE command schema is unavailable.";
+        return false;
+    }
+    CSTR rootOwner;
+    AssignRootFileOwner(skinfileLines, mainpath, rootOwner);
+    const int rootEnd = FindOwnerFileEndRow(skinfileLines, rootOwner.outstr());
+    int insertAt = rootEnd;
+    int branch = 0;
+    CSTR owner(rootOwner);
+    const auto& objects = objectEditorModel.Objects();
+    if (afterObject != -1) {
+        if (afterObject < 0 || afterObject >= (int)objects.size() ||
+            objects[afterObject].rows.empty()) {
+            errorText = "The target Object no longer exists.";
+            return false;
+        }
+        const SEObjectInstance& target = objects[afterObject];
+        insertAt = target.rows.back() + 1;
+        branch = target.ifgroup;
+        owner.assign(((SKINFILELINEREAD*)skinfileLines.data)
+            [target.rows.front()].filename);
+    }
+    if (insertAt < 0 || insertAt > skinfileLines.count) {
+        errorText = "Could not locate the target file boundary.";
+        return false;
+    }
+
+    namespace fs = std::filesystem;
+    std::error_code pathError;
+    const fs::path directory = fs::absolute(fs::path(mainpath), pathError)
+        .parent_path();
+    if (pathError || !fs::is_directory(directory, pathError)) {
+        errorText = "The skin directory is unavailable.";
+        return false;
+    }
+    std::string objectId;
+    std::string generatedPath;
+    do {
+        objectId = GenerateObjectId(*this);
+        generatedPath = (directory / ("layout_" + objectId + ".png")).string();
+    } while (fs::exists(generatedPath, pathError) && !pathError);
+    if (pathError || generatedPath.size() >= MAX_PATH ||
+        generatedPath.find(',') != std::string::npos) {
+        errorText = "The generated PNG path cannot be represented in LR2 CSV.";
+        return false;
+    }
+
+    char imageError[256] = {};
+    if (!CreateSolidImageFileAtomic(generatedPath.c_str(), sheetWidth, sheetHeight,
+        D3DCOLOR_ARGB(0, 0, 0, 0), imageError, sizeof(imageError))) {
+        errorText = imageError;
+        return false;
+    }
+    const SkinDocumentSnapshot before = CaptureDocumentSnapshot();
+    const auto oldRedo = redoDocumentSnapshots;
+    const auto oldRevision = documentRevision;
+    const int oldGraphicFocus = imageManagerGeneratedGrFocusRequest;
+    applyingHistory = true;
+    const int oldCount = skinfileLines.count;
+    const int graphicId = RegisterGeneratedImage(generatedPath.c_str(),
+        sheetWidth, sheetHeight, errorText, options.divX, options.divY, options.cycle);
+    // RegisterGeneratedImage inserts #IMAGE and its reusable crop at root end.
+    if (insertAt >= rootEnd) insertAt += skinfileLines.count - oldCount;
+
+    const auto append = [&](const std::string& text) {
+        if (InsertLine(insertAt) != 0) return false;
+        SKINFILELINEREAD& line =
+            ((SKINFILELINEREAD*)skinfileLines.data)[insertAt];
+        CSTR previous(line.line);
+        if (EditLine(insertAt, previous, CSTR(text.c_str())) != 0) return false;
+        line.filename.assign(owner);
+        line.ifgroup = branch;
+        ++insertAt;
+        return true;
+    };
+    const auto makeCommand = [&](const char* command, bool source) {
+        CSVbuf values;
+        SplitCSV("", &values, ",");
+        values.str[0].assign(command);
+        for (int column = 1; column < 30; ++column) {
+            CSTR help = GetCommandHelp(command, column);
+            if (!help.body || !*help.outstr()) continue;
+            help.trimWhiteSpace();
+            const char* field = help.outstr();
+            int value = 0;
+            if (!strcmp(field, "w")) value = source ? sheetWidth : width;
+            else if (!strcmp(field, "h")) value = source ? sheetHeight : height;
+            else if (source && !strcmp(field, "gr")) value = graphicId;
+            else if (source && !strcmp(field, "div_x")) value = options.divX;
+            else if (source && !strcmp(field, "div_y")) value = options.divY;
+            else if (source && !strcmp(field, "cycle")) value = options.cycle;
+            else if (source && (!strcmp(field, "$type") || !strcmp(field, "type") ||
+                !strcmp(field, "$num") || !strcmp(field, "num"))) value = options.value;
+            else if (source && !strncmp(field, "align", 5)) value = options.align;
+            else if (source && !strcmp(field, "keta")) value = options.digits;
+            else if (source && !strcmp(field, "muki")) value = options.direction;
+            else if (source && !strcmp(field, "range")) value = options.range;
+            else if (!source && !strcmp(field, "x")) value = x;
+            else if (!source && !strcmp(field, "y")) value = y;
+            else if (!source && (!strcmp(field, "a") || !strcmp(field, "r") ||
+                !strcmp(field, "g") || !strcmp(field, "b"))) value = 255;
+            values.str[column].assign(std::to_string(value).c_str());
+            values.val[column] = value;
+        }
+        CSTR text;
+        CsvToCSTR(values, text);
+        return std::string(text.outstr());
+    };
+    const bool succeeded = graphicId >= 0 &&
+        append("$SE_OBJECT_ID," + objectId) &&
+        append("$SE_OBJECT_NAME," + objectName) &&
+        append(makeCommand(sourceCommand.c_str(), true)) &&
+        append(makeCommand(destinationCommand.c_str(), false));
+    applyingHistory = false;
+    if (!succeeded) {
+        const bool previousReplay = replayingHistory;
+        replayingHistory = true;
+        RestoreDocumentSnapshot(before);
+        replayingHistory = previousReplay;
+        redoDocumentSnapshots = oldRedo;
+        documentRevision = oldRevision;
+        imageManagerGeneratedGrFocusRequest = oldGraphicFocus;
+        // Only this call's newly created file is removed on failed creation.
+        fs::remove(generatedPath, pathError);
+        if (errorText.empty()) errorText = "Could not create the IMAGE Object.";
+        if (pathError) errorText += " The unused PNG could not be removed: " + generatedPath;
+        return false;
+    }
+    const int snapshotIndex = (int)historyDocumentSnapshots.size();
+    historyDocumentSnapshots.push_back(before);
+    HISTORY* history = (HISTORY*)arr_history.Get_new();
+    history->op = restoreDocument;
+    history->target = snapshotIndex;
+    RebuildObjectModel();
+    const auto& rebuilt = objectEditorModel.Objects();
+    for (int model = 0; model < (int)rebuilt.size(); ++model) {
+        if (rebuilt[model].editorId != objectId) continue;
+        SetObjectSelection(std::vector<int>(1, model), model, model, true);
+        RefreshPreviewSelectionBounds();
+        break;
+    }
+    imagePath = generatedPath;
+    return true;
+}
+
+int RunLayoutFirstObjectSelfTest() {
+    namespace fs = std::filesystem;
+    if (LoadCommandHelp(nullptr) != 0) return 1;
+    char tempRoot[MAX_PATH] = {};
+    char uniqueFile[MAX_PATH] = {};
+    if (!GetTempPathA(MAX_PATH, tempRoot) ||
+        !GetTempFileNameA(tempRoot, "sel", 0, uniqueFile)) return 2;
+    // GetTempFileName reserves a unique path; use that name for our test folder.
+    if (!DeleteFileA(uniqueFile) || !CreateDirectoryA(uniqueFile, nullptr)) return 3;
+    const fs::path directory(uniqueFile);
+    struct Cleanup {
+        fs::path directory;
+        ~Cleanup() { std::error_code ec; fs::remove_all(directory, ec); }
+    } cleanup{directory};
+
+    auto workspace = std::make_unique<WORKSPACE>();
+    workspace->skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 16);
+    workspace->arr_CustomFile.Alloc(sizeof(CSTR), 2);
+    workspace->arr_SRCGR.Alloc(sizeof(SRCGR), 2);
+    workspace->arr_IMG.Alloc(sizeof(IMG), 2);
+    workspace->arr_SRC.Alloc(sizeof(SRC), 2);
+    workspace->arr_DST.Alloc(sizeof(DST), 2);
+    workspace->arr_seobj.Alloc(sizeof(SEOBJ), 2);
+    workspace->arr_ifunit.Alloc(sizeof(IFUNIT), 2);
+    workspace->arr_history.Alloc(sizeof(HISTORY), 2);
+    const std::string root = (directory / "main.lr2skin").string();
+    const std::string include = (directory / "parts.csv").string();
+    strncpy_s(workspace->mainpath, root.c_str(), _TRUNCATE);
+    const auto append = [&](const std::string& text, const std::string& owner) {
+        auto* line = (SKINFILELINEREAD*)workspace->skinfileLines.Get_new();
+        line->line.assign(text.c_str());
+        line->filename.assign(owner.c_str());
+        line->isComment = text[0] != '#';
+        line->isSEcomment = text[0] == '$';
+        SplitCSV(line->line, &line->csv, ",");
+        line->csvColumnCount = CountCsvColumns(line->line);
+    };
+    append("$FILE '" + root + "' start", root);
+    append("#INFORMATION,0,Layout test,test", root);
+    append("$FILE '" + include + "' start", include);
+    append("#IF,900", include);
+    append("$SE_OBJECT_ID,layout-anchor", include);
+    append("#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0,0,0,0", include);
+    append("#DST_IMAGE,0,0,0,0,1,1,0,255,255,255,255,0,0,0,0,0,0,0,0,0", include);
+    append("#ENDIF", include);
+    append("$FILE '" + include + "' end", include);
+    append("$FILE '" + root + "' end", root);
+    if (workspace->RebuildEditorDerivedState() != 0 ||
+        !workspace->objectEditorModel.LoadGroups(nullptr)) return 4;
+    workspace->RebuildObjectModel();
+    workspace->loaded = true;
+    const int originalRows = workspace->skinfileLines.count;
+    const int anchorBranch = workspace->objectEditorModel.Objects()[0].ifgroup;
+    std::string imagePath, error;
+    if (workspace->CreateImageObjectFromLayout(0, 0, 0, 16, "Bad",
+        imagePath, error) || workspace->skinfileLines.count != originalRows ||
+        workspace->arr_history.count != 0) return 5;
+    if (!workspace->CreateImageObjectFromLayout(-7, 23, 32, 16, "Draw later",
+        imagePath, error, 0)) return 6;
+    if (workspace->arr_history.count != 1 ||
+        workspace->skinfileLines.count != originalRows + 6) return 7;
+    int width = 0, height = 0;
+    unsigned char alpha = 255;
+    if (!GetImageSizeFromFile(imagePath.c_str(), &width, &height) ||
+        width != 32 || height != 16 ||
+        !ReadImageFilePixelAlpha(imagePath.c_str(), 31, 15, &alpha) || alpha != 0)
+        return 8;
+    const std::string id = workspace->objectSelection.active.editorId;
+    const auto validate = [&]() {
+        const int model = workspace->ResolveObjectSelectionKey(workspace->objectSelection.active);
+        if (model < 0) return false;
+        const auto& object = workspace->objectEditorModel.Objects()[model];
+        if (object.editorId != id || object.rows.size() != 2 ||
+            object.ifgroup != anchorBranch) return false;
+        auto* lines = (SKINFILELINEREAD*)workspace->skinfileLines.data;
+        auto& src = lines[object.rows[0]];
+        auto& dst = lines[object.rows[1]];
+        return src.csv.str[0].isSame("#SRC_IMAGE") &&
+            dst.csv.str[0].isSame("#DST_IMAGE") &&
+            src.csv.val[5] == 32 && src.csv.val[6] == 16 &&
+            src.csv.val[7] == 1 && src.csv.val[8] == 1 &&
+            dst.csv.val[3] == -7 && dst.csv.val[4] == 23 &&
+            dst.csv.val[5] == 32 && dst.csv.val[6] == 16 &&
+            dst.csv.val[8] == 255 && dst.csv.val[17] == 0 &&
+            src.filename.isSame(include.c_str()) && dst.filename.isSame(include.c_str());
+    };
+    if (!validate() || workspace->RebuildEditorDerivedState() != 0) return 9;
+    workspace->RebuildObjectModel();
+    if (!validate() || workspace->FindImageAssetForObject(
+        workspace->preview_selected_object_model_index) < 0) return 10;
+    const int selectedAsset = workspace->src_selected;
+    const int manualGraphicIndex = workspace->arr_SRCGR.count;
+    const int logicalGr = ((IMG*)workspace->arr_IMG.data)[selectedAsset].gr;
+    auto* alternate = (SRCGR*)workspace->arr_SRCGR.Get_new();
+    alternate->grID = logicalGr;
+    alternate->isIf = 999;
+    alternate->path.assign((directory / "manual.png").string().c_str());
+    workspace->imageManagerManualTexturePath = alternate->path.outstr();
+    workspace->imageManagerManualTextureGr = logicalGr;
+    if (!workspace->SelectIMGAsset(selectedAsset, false) ||
+        workspace->gr_selected != manualGraphicIndex ||
+        !workspace->SelectIMGAsset(selectedAsset, false) ||
+        workspace->gr_selected != manualGraphicIndex) return 52;
+    workspace->imageManagerManualTexturePath.clear();
+    workspace->imageManagerManualTextureGr = -1;
+    if (workspace->RebuildEditorDerivedState() != 0) return 53;
+    workspace->RebuildObjectModel();
+
+    // Register a gesture result through the same command as Image Manager.
+    const TransparentAssetCrop gestureCrop{1, 1, 4, 3, true};
+    const int gestureGraphic = workspace->ResolveIMGTextureIndex(workspace->src_selected);
+    if (gestureGraphic < 0) return 54;
+    const int gestureGr = ((SRCGR*)workspace->arr_SRCGR.data)[gestureGraphic].grID;
+    const int gestureBranch = ((SRCGR*)workspace->arr_SRCGR.data)[gestureGraphic].isIf;
+    const int gestureRows = workspace->skinfileLines.count;
+    const int gestureHistory = workspace->arr_history.count;
+    const auto gestureObjects = workspace->objectEditorModel.Objects().size();
+    const auto findGesture = [&]() {
+        return workspace->FindIMG(gestureGr, 1, 1, 4, 3, gestureBranch);
+    };
+    if (findGesture() != workspace->arr_IMG.count ||
+        !workspace->RegisterImageRegion(gestureGraphic, gestureCrop, error) ||
+        workspace->skinfileLines.count != gestureRows + 1 ||
+        workspace->arr_history.count != gestureHistory + 1 ||
+        workspace->RebuildEditorDerivedState() != 0) return 55;
+    workspace->RebuildObjectModel();
+    const int gestureAsset = findGesture();
+    if (gestureAsset < 0 || gestureAsset >= workspace->arr_IMG.count ||
+        workspace->objectEditorModel.Objects().size() != gestureObjects) return 56;
+    const int gestureDeclaration = ((IMG*)workspace->arr_IMG.data)[gestureAsset].editorDeclare;
+    if (gestureDeclaration < 0 ||
+        workspace->imageManagerAssetDeclarationFocusRequest != gestureDeclaration ||
+        !workspace->RegisterImageRegion(workspace->ResolveIMGTextureIndex(gestureAsset),
+            gestureCrop, error) || workspace->skinfileLines.count != gestureRows + 1 ||
+        workspace->arr_history.count != gestureHistory + 1) return 57;
+    if (workspace->UndoLastEdit() != 0 ||
+        workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->RebuildEditorDerivedState() != 0 ||
+        workspace->skinfileLines.count != gestureRows ||
+        findGesture() != workspace->arr_IMG.count) return 58;
+    workspace->RebuildObjectModel();
+    if (workspace->RedoLastEdit() != 0 ||
+        workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->RebuildEditorDerivedState() != 0 ||
+        findGesture() >= workspace->arr_IMG.count) return 59;
+    workspace->RebuildObjectModel();
+    if (workspace->UndoLastEdit() != 0 ||
+        workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->RebuildEditorDerivedState() != 0) return 60;
+    workspace->RebuildObjectModel();
+
+    // The generated asset is a real paintable PNG. Undo/Redo must not erase
+    // artwork added after creation, so only document references are undone.
+    PDIRECT3DTEXTURE9 texture = nullptr;
+    if (!LoadTextureFromFile(imagePath.c_str(), &texture, &width, &height)) return 11;
+    char paintError[256] = {};
+    const bool painted = PaintTextureLine(texture, 2, 3, 2, 3,
+        D3DCOLOR_ARGB(255, 255, 0, 0)) && SaveTextureToImageFileAtomic(
+            imagePath.c_str(), texture, paintError, sizeof(paintError));
+    texture->Release();
+    if (!painted) return 12;
+    if (workspace->UndoLastEdit() != 0 ||
+        workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->skinfileLines.count != originalRows || !fs::exists(imagePath)) return 13;
+    if (workspace->RebuildEditorDerivedState() != 0) return 14;
+    workspace->RebuildObjectModel();
+    if (workspace->RedoLastEdit() != 0 ||
+        workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->RebuildEditorDerivedState() != 0) return 15;
+    workspace->RebuildObjectModel();
+    if (!validate() || !ReadImageFilePixelAlpha(imagePath.c_str(), 2, 3, &alpha) ||
+        alpha != 255) return 16;
+    const int cropRowsBefore = workspace->skinfileLines.count;
+    const int cropHistoryBefore = workspace->arr_history.count;
+    const int cropObjectsBefore = (int)workspace->objectEditorModel.Objects().size();
+    std::vector<TransparentAssetCrop> detected = {{0, 0, 4, 4, true}, {10, 8, 2, 3, true}, {20, 0, 1, 1, false}};
+    if (workspace->RegisterImageWithTransparentCrops(-1, imagePath.c_str(), 32, 16,
+        detected, error) < 0 || workspace->arr_history.count != cropHistoryBefore + 1 ||
+        workspace->skinfileLines.count != cropRowsBefore + 3 ||
+        workspace->RebuildEditorDerivedState() != 0) return 50;
+    workspace->RebuildObjectModel();
+    if ((int)workspace->objectEditorModel.Objects().size() != cropObjectsBefore ||
+        workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->skinfileLines.count != cropRowsBefore ||
+        workspace->RebuildEditorDerivedState() != 0) return 51;
+    workspace->RebuildObjectModel();
+    for (int kind = 0; kind < 5; ++kind) {
+        SELayoutImageOptions options;
+        options.kind = kind;
+        options.divX = kind == 1 ? 10 : 3;
+        options.divY = kind == 1 ? 1 : 2;
+        options.cycle = kind == 1 ? 0 : 600;
+        options.digits = 4;
+        const int rowCount = workspace->skinfileLines.count;
+        const int historyCount = workspace->arr_history.count;
+        if (!workspace->CreateImageObjectFromLayout(11, 12, 8, 9, "Sprite",
+            imagePath, error, -1, options)) return 17 + kind;
+        if (workspace->arr_history.count != historyCount + 1 ||
+            !GetImageSizeFromFile(imagePath.c_str(), &width, &height) ||
+            width != 8 * options.divX || height != 9 * options.divY ||
+            workspace->RebuildEditorDerivedState() != 0) return 22 + kind;
+        workspace->RebuildObjectModel();
+        const int model = workspace->ResolveObjectSelectionKey(workspace->objectSelection.active);
+        if (model < 0) return 27 + kind;
+        const auto& object = workspace->objectEditorModel.Objects()[model];
+        if (object.rows.size() != 2 || object.ifgroup != 0) return 32 + kind;
+        auto* lines = (SKINFILELINEREAD*)workspace->skinfileLines.data;
+        auto& src = lines[object.rows[0]].csv;
+        const auto& dst = lines[object.rows[1]].csv;
+        const std::string command = std::string("#SRC_") + SELayoutImageType(kind);
+        if (!src.str[0].isSame(command.c_str()) || src.val[5] != width ||
+            src.val[6] != height || src.val[7] != options.divX ||
+            src.val[8] != options.divY || src.val[9] != options.cycle ||
+            dst.val[5] != 8 || dst.val[6] != 9 ||
+            (kind == 1 && (src.val[12] != 1 || src.val[13] != 4))) return 37 + kind;
+        if (workspace->UndoLastEdit() != 0 ||
+            workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+            workspace->skinfileLines.count != rowCount || !fs::exists(imagePath) ||
+            workspace->RebuildEditorDerivedState() != 0) return 42 + kind;
+        workspace->RebuildObjectModel();
+    }
+    SELayoutImageOptions invalid;
+    invalid.divX = INT_MAX;
+    if (SELayoutImageSize(64, 64, invalid, width, height)) return 47;
+    invalid.divX = 0;
+    if (SELayoutImageSize(64, 64, invalid, width, height)) return 48;
+    invalid.divX = 2;
+    if (SELayoutImageSize(16384, 16384, invalid, width, height)) return 49;
+    return 0;
 }

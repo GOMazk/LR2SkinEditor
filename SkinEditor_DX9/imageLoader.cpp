@@ -1617,6 +1617,136 @@ int RunGifSpriteLayoutSelfTest()
     return 0;
 }
 
+bool FindTransparentAssetCrops(PDIRECT3DTEXTURE9 texture,
+    std::vector<TransparentAssetCrop>& crops, std::string& error) {
+    crops.clear();
+    error.clear();
+    D3DSURFACE_DESC desc = {};
+    if (!texture || FAILED(texture->GetLevelDesc(0, &desc)) ||
+        !IsEditable32BitTextureFormat(desc.Format) || !desc.Width || !desc.Height ||
+        (unsigned long long)desc.Width * desc.Height > 16 * 1024 * 1024) {
+        error = "Automatic crops require a 32-bit image up to 16 megapixels.";
+        return false;
+    }
+    try {
+        const int width = (int)desc.Width, height = (int)desc.Height;
+        std::vector<unsigned char> mask((size_t)width * height);
+        D3DLOCKED_RECT locked = {};
+        if (FAILED(texture->LockRect(0, &locked, nullptr, D3DLOCK_READONLY))) {
+            error = "Could not read image transparency.";
+            return false;
+        }
+        for (int y = 0; y < height; ++y) {
+            const DWORD* row = (const DWORD*)((const BYTE*)locked.pBits + (size_t)y * locked.Pitch);
+            for (int x = 0; x < width; ++x)
+                mask[(size_t)y * width + x] = (DecodeTexturePixel(desc.Format, row[x]) >> 24) != 0;
+        }
+        texture->UnlockRect(0);
+        std::vector<int> queue;
+        for (int index = 0; index < (int)mask.size(); ++index) {
+            if (!mask[index]) continue;
+            if (crops.size() >= 1024) {
+                crops.clear();
+                error = "More than 1024 separate regions found. Register the full image instead.";
+                return false;
+            }
+            int left = index % width, right = left, top = index / width, bottom = top;
+            queue.clear();
+            queue.push_back(index);
+            mask[index] = 0;
+            // Eight neighbours preserve diagonal one-pixel strokes.
+            for (size_t head = 0; head < queue.size(); ++head) {
+                const int x = queue[head] % width, y = queue[head] / width;
+                left = (std::min)(left, x); right = (std::max)(right, x);
+                top = (std::min)(top, y); bottom = (std::max)(bottom, y);
+                for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                    const int nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                    const int next = ny * width + nx;
+                    if (mask[next]) { mask[next] = 0; queue.push_back(next); }
+                }
+            }
+            crops.push_back({left, top, right - left + 1, bottom - top + 1, true});
+        }
+        std::sort(crops.begin(), crops.end(), [](const TransparentAssetCrop& a, const TransparentAssetCrop& b) {
+            return a.y != b.y ? a.y < b.y : a.x < b.x;
+        });
+        return true;
+    } catch (const std::exception&) {
+        crops.clear();
+        error = "Not enough memory to find transparent regions.";
+        return false;
+    }
+}
+
+bool FindImageAssetRegion(PDIRECT3DTEXTURE9 texture, int x0, int y0, int x1, int y1,
+    bool expand, TransparentAssetCrop& crop, std::string& error) {
+    crop = {};
+    error.clear();
+    D3DSURFACE_DESC desc = {};
+    if (!texture || FAILED(texture->GetLevelDesc(0, &desc)) ||
+        !IsEditable32BitTextureFormat(desc.Format) || !desc.Width || !desc.Height ||
+        (unsigned long long)desc.Width * desc.Height > 16 * 1024 * 1024) {
+        error = "Region detection requires a 32-bit texture up to 16 megapixels.";
+        return false;
+    }
+    const int width = (int)desc.Width, height = (int)desc.Height;
+    if (expand && (x0 < 0 || y0 < 0 || x0 >= width || y0 >= height)) {
+        error = "Click inside the image.";
+        return false;
+    }
+    D3DLOCKED_RECT lock = {};
+    if (FAILED(texture->LockRect(0, &lock, nullptr, D3DLOCK_READONLY))) {
+        error = "Could not read image pixels.";
+        return false;
+    }
+    struct Unlock { PDIRECT3DTEXTURE9 texture; ~Unlock() { texture->UnlockRect(0); } } unlock{texture};
+    const auto opaque = [&](int x, int y) {
+        const DWORD* row = (const DWORD*)((const BYTE*)lock.pBits + (size_t)y * lock.Pitch);
+        return (DecodeTexturePixel(desc.Format, row[x]) >> 24) != 0;
+    };
+    try {
+        int left = width, top = height, right = -1, bottom = -1;
+        const auto include = [&](int x, int y) {
+            left = (std::min)(left, x); top = (std::min)(top, y);
+            right = (std::max)(right, x); bottom = (std::max)(bottom, y);
+        };
+        if (expand && opaque(x0, y0)) {
+            std::vector<unsigned char> seen((size_t)width * height);
+            std::vector<int> queue{y0 * width + x0};
+            seen[queue[0]] = 1;
+            for (size_t i = 0; i < queue.size(); ++i) {
+                const int x = queue[i] % width, y = queue[i] / width;
+                include(x, y);
+                for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                    const int nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                    const int index = ny * width + nx;
+                    if (seen[index]) continue;
+                    seen[index] = 1;
+                    if (opaque(nx, ny)) queue.push_back(index);
+                }
+            }
+        } else if (!expand) {
+            const int minX = (std::max)(0, (std::min)(x0, x1));
+            const int minY = (std::max)(0, (std::min)(y0, y1));
+            const int maxX = (std::min)(width, (std::max)(x0, x1));
+            const int maxY = (std::min)(height, (std::max)(y0, y1));
+            for (int y = minY; y < maxY; ++y) for (int x = minX; x < maxX; ++x)
+                if (opaque(x, y)) include(x, y);
+        }
+        if (right < left) {
+            error = expand ? "The clicked pixel is transparent." : "The selected area is fully transparent.";
+            return false;
+        }
+        crop = {left, top, right - left + 1, bottom - top + 1, true};
+        return true;
+    } catch (const std::exception&) {
+        error = "Not enough memory to detect the region.";
+        return false;
+    }
+}
+
 int RunPixelPaintSelfTest()
 {
     if (!g_pd3dDevice) return 40;
@@ -1648,11 +1778,39 @@ int RunPixelPaintSelfTest()
     }
 
     const D3DCOLOR expected = D3DCOLOR_ARGB(255, 241, 37, 99);
+    std::vector<TransparentAssetCrop> crops;
+    std::string cropError;
+    if (!FindTransparentAssetCrops(texture, crops, cropError) || !crops.empty()) {
+        texture->Release(); return 90;
+    }
+    PaintTextureLine(texture, 0, 0, 0, 0, expected);
+    PaintTextureLine(texture, 3, 3, 3, 3, D3DCOLOR_ARGB(1, 255, 255, 255));
+    if (!FindTransparentAssetCrops(texture, crops, cropError) || crops.size() != 2 ||
+        crops[0].x != 0 || crops[1].x != 3 || crops[1].w != 1) {
+        texture->Release(); return 91;
+    }
+    TransparentAssetCrop region;
+    if (!FindImageAssetRegion(texture, 0, 0, 0, 0, true, region, cropError) ||
+        region.x != 0 || region.w != 1 || region.h != 1 ||
+        !FindImageAssetRegion(texture, 3, 3, 0, 0, true, region, cropError) || region.x != 3 ||
+        FindImageAssetRegion(texture, -1, 0, 0, 0, true, region, cropError) ||
+        FindImageAssetRegion(texture, 1, 1, 0, 0, true, region, cropError) ||
+        !FindImageAssetRegion(texture, 4, 4, 1, 1, false, region, cropError) ||
+        region.x != 3 || region.y != 3 || region.w != 1 ||
+        !FindImageAssetRegion(texture, -5, -5, 10, 10, false, region, cropError) ||
+        region.w != 4 || region.h != 4 ||
+        FindImageAssetRegion(texture, 1, 1, 3, 3, false, region, cropError)) {
+        texture->Release(); return 93;
+    }
     if (!PaintTextureLine(texture, 0, 0, 3, 3, expected)) {
         texture->Release();
         return 45;
     }
     D3DCOLOR painted = 0;
+    if (!FindImageAssetRegion(texture, 0, 0, 0, 0, true, region, cropError) ||
+        region.w != 4 || region.h != 4) { texture->Release(); return 94; }
+    if (!FindTransparentAssetCrops(texture, crops, cropError) || crops.size() != 1 ||
+        crops[0].w != 4 || crops[0].h != 4) { texture->Release(); return 92; }
     if (!ReadTexturePixel(texture, 2, 2, &painted) || painted != expected) {
         texture->Release();
         return 46;

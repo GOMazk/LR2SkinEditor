@@ -583,6 +583,17 @@ one document snapshot, so one Undo/Redo step restores selection and all rows.
 
 ### PLAY preview simulation
 
+The Timer Control toolbar uses compact `Play`, `Reset`, `Simple`, `Full` buttons
+on one row, wrapping only when needed. The selected chart mode is highlighted.
+`Play` is the former Restart scene action; `Reset` is Reset preview. Explanations
+remain in tooltips; compact padding is scoped to the toolbar, not the timer list.
+
+`Timer Control > Reset preview` calls `WORKSPACE::ResetPreviewToStatic()` to stop
+simulation and queue the existing runtime rebuild without SceneInit. Initial
+timers and static note/LN/mine samples return; CSV, History, selection and chart
+mode are unchanged. Pending resets are processed even in an inactive Preview tab.
+Restart scene cancels the pending reset and starts the selected chart normally.
+
 ```text
 Timer Control > Restart scene
   -> LoadSceneSE rebuilds the current skin runtime objects

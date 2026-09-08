@@ -5109,10 +5109,29 @@ int WORKSPACE::drawTimerControl() {
         return 0;
     }
 
-    bool restartScene = SEUI::ActionButton("Restart scene",
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 3.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
+    const auto nextControl = [](const char* label) {
+        ImGui::SameLine();
+        if (ImGui::GetContentRegionAvail().x <
+            ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2)
+            ImGui::NewLine();
+    };
+    const auto modeButton = [](const char* label, bool selected) {
+        if (selected) ImGui::PushStyleColor(ImGuiCol_Button,
+            ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        const bool clicked = ImGui::Button(label);
+        if (selected) ImGui::PopStyleColor();
+        return clicked;
+    };
+    bool restartScene = SEUI::ActionButton("Play",
         "Reinitialize the current scene preview", loaded);
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Simple", !previewChartFull)) {
+    nextControl("Reset");
+    if (SEUI::ActionButton("Reset",
+        "Stop playback and restore the initial preview (note, LN and mine samples).", loaded))
+        ResetPreviewToStatic();
+    nextControl("Simple");
+    if (modeButton("Simple", !previewChartFull)) {
         if (previewChartFull) {
             previewChartFull = false;
             restartScene = true;
@@ -5120,8 +5139,8 @@ int WORKSPACE::drawTimerControl() {
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
         ImGui::SetTooltip("Use LR2's bundled sample_*.bme/pms Preview chart.");
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Full", previewChartFull)) {
+    nextControl("Full");
+    if (modeButton("Full", previewChartFull)) {
         if (!previewChartFull) {
             previewChartFull = true;
             restartScene = true;
@@ -5129,6 +5148,7 @@ int WORKSPACE::drawTimerControl() {
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
         ImGui::SetTooltip("Dense Preview chart for LN, mine, chord and judge testing.");
+    ImGui::PopStyleVar(2);
 
     if (restartScene) {
         LoadSceneSE();
@@ -5136,6 +5156,7 @@ int WORKSPACE::drawTimerControl() {
         const LR2SEPreviewChartMode chartMode = previewChartFull
             ? LR2SE_PREVIEW_CHART_FULL : LR2SE_PREVIEW_CHART_SIMPLE;
         previewSimulationPlaying = (LR2SESceneInitSafe(&g, meta.type, chartMode) == 0);
+        previewReloadPending = false;
         previewLastRenderAt = 0;
     }
 

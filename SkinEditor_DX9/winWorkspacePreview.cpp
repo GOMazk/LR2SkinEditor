@@ -203,6 +203,17 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
     return preview_selected_obj_valid ? 0 : -1;
 }
 
+void WORKSPACE::ResetPreviewToStatic() {
+    if (!loaded) return;
+    // Reuse the normal runtime rebuild, but deliberately skip SceneInit/Proc.
+    // This restores initial timers and static note/LN/mine placeholders without
+    // changing CSV, History, selection or the Simple/Full chart preference.
+    previewSimulationPlaying = false;
+    previewReloadPending = true;
+    previewReloadRequestedAt = 0;
+    previewLastRenderAt = 0;
+}
+
 bool WORKSPACE::UpdatePreviewRuntime(unsigned long long previewNow) {
     bool previewFrameUpdated = false;
     const LR2SEPreviewChartMode chartMode = previewChartFull
@@ -279,7 +290,7 @@ int WORKSPACE::drawPreview() {
         title, previewCanvasFullscreen ? NULL : &wPreview, previewWindowFlags);
 
     const bool previewFrameUpdated = previewWindowVisible ||
-        previewSimulationPlaying
+        previewSimulationPlaying || previewReloadPending
         ? UpdatePreviewRuntime(GetTickCount64()) : false;
     if (!previewWindowVisible) {
         ImGui::End();

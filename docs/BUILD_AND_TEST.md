@@ -2,6 +2,13 @@
 
 ## 개발 환경
 
+Timer Control 정적 복원: PLAY에서 Restart scene 재생 후 Reset preview를 눌러
+초기 노트/LN/지뢰 샘플 복원과 timer 41 해제를 확인한다. Simple/Full 각각 다시
+재생할 수 있어야 하며 비활성 Preview 탭에서도 reset을 처리해야 한다.
+reload-lifecycle self-test는 reset 요청의 재생 해제, 재빌드 예약, 반복 호출과
+문서 revision/패턴 설정 보존을 검사한다. multi-workspace smoke는 실제 runtime의
+정적 복원, timer 41 해제, 다른 Workspace의 재생 유지 및 재시작을 검사한다.
+
 Image Manager 우클릭 수동 확인: A 선택 후 B 행 우클릭 시 B가 선택되고 메뉴 정보와
 Delete 대상이 B여야 한다. 목록 빈 공간에서는 Delete가 비활성이어야 한다.
 그림 영역 우클릭 New 후 더블클릭/드래그 등록, Pixel Paint 우클릭 지우개 유지,

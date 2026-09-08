@@ -3269,6 +3269,7 @@ static bool ResetEditorDerivedContainers(WORKSPACE& workspace) {
 }
 
 int WORKSPACE::ResetEditorDocumentForLoad() {
+    objectBrowserFile.clear();
     simpleFontTexture.reset();
     simpleFontBitmap = SEFontAtlasBitmap();
     simpleFontSlotId.clear();
@@ -5458,34 +5459,27 @@ int WORKSPACE::drawTextEdit() {
         ImGui::EndMenuBar();
     }
 
-    //vertical scroll & skip hidden //todo only mouse on
-    if(ImGui::IsWindowHovered()) {
-        ImGuiIO& io = ImGui::GetIO();
-        textCursor -= io.MouseWheel;
-        if (textCursor < 0) textCursor = 0;
-        SKINFILELINEREAD* read1 = &((SKINFILELINEREAD*)skinfileLines.data)[textCursor];
-        while ((hideBlank && *read1->line.atPos(0) == '\0') || (hideComment && read1->isComment)) {
-            if (io.MouseWheel < 0) textCursor++;
-            else textCursor--;
-
-            if (textCursor < 0) {
-                textCursor = 0;
-                read1 = &((SKINFILELINEREAD*)skinfileLines.data)[textCursor];
-                while ((hideBlank && *read1->line.atPos(0) == '\0') || (hideComment && read1->isComment)) {
-                    textCursor++;
-                    read1 = &((SKINFILELINEREAD*)skinfileLines.data)[textCursor];
-                }
-            }
-            read1 = &((SKINFILELINEREAD*)skinfileLines.data)[textCursor];
+    const auto textRowVisible = [&](int row) {
+        const auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        return (objectBrowserFile.empty() || (line.filename.body &&
+            !_stricmp(line.filename.body, objectBrowserFile.c_str()))) &&
+            !(hideComment && line.isComment) &&
+            !(hideBlank && (!line.line.body || !*line.line.body));
+    };
+    if (!objectBrowserFile.empty())
+        ImGui::TextWrapped("File: %s", Cp932ToUtf8(objectBrowserFile.c_str()).c_str());
+    textCursor = (std::max)(0, (std::min)(textCursor, skinfileLines.count - 1));
+    if (ImGui::IsWindowHovered() && ImGui::GetIO().MouseWheel != 0) {
+        const int direction = ImGui::GetIO().MouseWheel < 0 ? 1 : -1;
+        for (int row = textCursor + direction; row >= 0 && row < skinfileLines.count; row += direction) {
+            if (textRowVisible(row)) { textCursor = row; break; }
         }
-        if (textCursor < 0) textCursor = 0;
-        if (textCursor >= skinfileLines.count) textCursor = skinfileLines.count - 1;
     }
-    
-    
+
     //print every line
     int printed = 0;
     for (int n = textCursor; n < skinfileLines.count && printed < 30; n++) {
+        if (!textRowVisible(n)) continue;
         SKINFILELINEREAD& read = ((SKINFILELINEREAD*)skinfileLines.data)[n];
 
         ImVec4 color;

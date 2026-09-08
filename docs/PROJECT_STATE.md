@@ -11,6 +11,24 @@
 
 ## 1. 제품 목표
 
+Object Browser의 File 필터는 All files 또는 원본 CSV 소유 경로를 선택한다.
+Type/Group/Active/Search와 교집합으로 적용하며 전체 스킨 Preview는 바꾸지 않는다.
+Text Editor도 같은 파일 범위로 표시하고 파일 변경 시 해당 파일 첫 행으로 이동한다.
+New in file은 선택 파일의 end marker 앞(그 위치의 IF 문맥)에 생성한다. 특정 분기
+안에 넣을 때는 기존 Branch/Object 우클릭 생성을 사용한다. Asset drop은 기존 이미지
+선언 순서 보호를 유지하므로 File 필터만으로 삽입 위치를 강제하지 않는다.
+외부 Preview 선택 요청은 파일 필터가 켜져 있으면 해당 Object 파일로 따라간다.
+새 스킨 load 또는 선택 파일 소멸 시 All files로 복귀한다. CSV/History는 필터 변경에
+영향받지 않으며 filename 전체 경로를 식별자로 사용한다.
+
+Object Browser의 `Split to new CSV...`는 동일 원본 파일/IF 안에서 연속된 선택
+Object를 새 sibling CSV로 분리한다. 원래 자리에 INCLUDE를 넣고 SRC/DST와 Object
+ID/이름을 함께 이동하므로 선언 순서를 보존한다. 이미지 선언/파일은 이동하지 않는다.
+파일명은 영문/숫자/밑줄/하이픈의 새 .csv만 허용한다. 기존 파일 덮어쓰기, 여러 파일/
+분기 및 중간 명령/그룹을 가로지르는 선택, virtual OLR workspace는 차단한다.
+`Split and save`는 다른 미저장 script 변경도 함께 저장한다. 단일 snapshot Undo 후
+다시 Save하면 include 연결을 되돌리며, 이미 생성된 CSV는 복구용으로 남긴다.
+
 SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가능한 Object로
 다루는 것을 목표로 한다. 한 CSV 행은 여전히 저장의 원본이며 Object Model은
 그 행을 해석해 Browser, Inspector, Preview, Image Manager와 DST View가 공유하는

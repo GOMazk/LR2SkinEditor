@@ -2,11 +2,13 @@
 
 #include "winWorkspaceUiHelpers.h"
 #include "seHelper.h"
+#include "olrSkin.h"
 #include "../LR2/En_fileutil.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <set>
 #include <string>
 #include <vector>
@@ -228,6 +230,121 @@ int WORKSPACE::DuplicateSelectedObjects() {
     ObjectClipboard copied;
     if (!CaptureObjects(*this, selected, copied)) return -1;
     return PasteObjects(*this, copied);
+}
+
+bool WORKSPACE::SplitSelectedObjects(const char* filename, std::string& error) {
+    namespace fs = std::filesystem;
+    error.clear();
+    if (!loaded || applyingHistory || pendingHistorySnapshotRestore >= 0 ||
+        SEIsOLRVirtualWorkspace(mainpath)) {
+        error = "Open an editable LR2 skin first (not a virtual OLR workspace).";
+        return false;
+    }
+    // A sibling filename keeps all moved commands in the same resource directory.
+    std::string name = filename ? filename : "";
+    if (name.size() < 5 || name.size() > 120 ||
+        _stricmp(name.c_str() + name.size() - 4, ".csv") != 0 ||
+        name.find("..") != std::string::npos || name[0] == '.') {
+        error = "Enter a new sibling filename such as notes.csv."; return false;
+    }
+    for (unsigned char c : name) {
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.')) {
+            error = "Use letters, digits, underscore or dash in the CSV filename.";
+            return false;
+        }
+    }
+    const auto selected = ResolveSelectedObjectModels(*this);
+    if (selected.empty()) { error = "Select Objects first."; return false; }
+    const auto& objects = objectEditorModel.Objects();
+    std::set<int> selectedRows;
+    for (int index : selected)
+        selectedRows.insert(objects[index].rows.begin(), objects[index].rows.end());
+    int first = *selectedRows.begin(), last = *selectedRows.rbegin();
+    auto* lines = (SKINFILELINEREAD*)skinfileLines.data;
+    const std::string owner = lines[first].filename.outstr();
+    const int branch = lines[first].ifgroup;
+    int ownerInstances = 0;
+    for (int row = 0; row < skinfileLines.count; ++row) {
+        const std::string text = lines[row].line.body ? lines[row].line.outstr() : "";
+        if (!_stricmp(lines[row].filename.outstr(), owner.c_str()) &&
+            text.rfind("$FILE ", 0) == 0 && text.size() >= 6 &&
+            text.compare(text.size() - 6, 6, " start") == 0) ++ownerInstances;
+    }
+    if (ownerInstances != 1) {
+        error = "A repeatedly included source file cannot be split here."; return false;
+    }
+    // Include attached identity/name metadata, never the enclosing IF or group.
+    while (first > 0) {
+        auto& previous = lines[first - 1];
+        const char* text = previous.line.body ? previous.line.outstr() : "";
+        if (_stricmp(previous.filename.outstr(), owner.c_str()) ||
+            strncmp(text, "$SE_OBJECT_", 11)) break;
+        --first;
+    }
+    for (int row = first; row <= last; ++row) {
+        auto& line = lines[row];
+        const char* text = line.line.body ? line.line.outstr() : "";
+        if (_stricmp(line.filename.outstr(), owner.c_str()) || line.ifgroup != branch ||
+            (!line.isComment && selectedRows.count(row) == 0) ||
+            (line.isSEcomment && strncmp(text, "$SE_OBJECT_", 11))) {
+            error = "Select consecutive Objects in one file and IF branch, without intervening commands/groups.";
+            return false;
+        }
+    }
+    std::error_code ec;
+    const fs::path target = fs::absolute(fs::path(owner).parent_path() / name, ec).lexically_normal();
+    if (ec || target.string().size() >= MAX_PATH || fs::exists(target, ec) || ec) {
+        error = "The target already exists or the path is invalid."; return false;
+    }
+    for (int row = 0; row < skinfileLines.count; ++row) {
+        if (!_stricmp(lines[row].filename.outstr(), target.string().c_str())) {
+            error = "This filename is already part of the document."; return false;
+        }
+    }
+    const auto before = CaptureDocumentSnapshot();
+    auto after = before;
+    const std::string targetText = target.string();
+    for (int row = first; row <= last; ++row) {
+        after.lines[row].filename = targetText;
+        after.lines[row].modified = true;
+    }
+    SkinLineSnapshot include, begin, end;
+    include.filename = owner;
+    include.line = "#INCLUDE," + name;
+    include.modified = true;
+    begin.filename = end.filename = targetText;
+    begin.line = "$FILE '" + targetText + "' start";
+    end.line = "$FILE '" + targetText + "' end";
+    after.lines.insert(after.lines.begin() + last + 1, end);
+    after.lines.insert(after.lines.begin() + first, begin);
+    after.lines.insert(after.lines.begin() + first, include);
+    const auto oldRedo = redoDocumentSnapshots;
+    const auto oldRevision = documentRevision;
+    const bool oldReplay = replayingHistory;
+    const auto rollback = [&]() {
+        replayingHistory = true;
+        RestoreDocumentSnapshot(before);
+        replayingHistory = oldReplay;
+        redoDocumentSnapshots = oldRedo;
+        documentRevision = oldRevision;
+        RebuildEditorDerivedState();
+        RebuildObjectModel();
+    };
+    if (RestoreDocumentSnapshot(after) != 0 || RebuildEditorDerivedState() != 0) {
+        rollback(); error = "Could not rebuild split document; changes rolled back."; return false;
+    }
+    RebuildObjectModel();
+    if (SaveSkinScript(mainpath, true, false) != 0) {
+        rollback(); error = "Save failed; split was rolled back."; return false;
+    }
+    const int snapshot = (int)historyDocumentSnapshots.size();
+    historyDocumentSnapshots.push_back(before);
+    auto* history = (HISTORY*)arr_history.Get_new();
+    history->op = restoreDocument;
+    history->target = snapshot;
+    MarkDocumentSaved();
+    return true;
 }
 
 bool WORKSPACE::HasCopiedObjects() const {
@@ -545,6 +662,7 @@ int RunLayoutFirstObjectSelfTest() {
     };
     append("$FILE '" + root + "' start", root);
     append("#INFORMATION,0,Layout test,test", root);
+    append("#INCLUDE,parts.csv", root);
     append("$FILE '" + include + "' start", include);
     append("#IF,900", include);
     append("$SE_OBJECT_ID,layout-anchor", include);
@@ -734,5 +852,80 @@ int RunLayoutFirstObjectSelfTest() {
     if (SELayoutImageSize(64, 64, invalid, width, height)) return 48;
     invalid.divX = 2;
     if (SELayoutImageSize(16384, 16384, invalid, width, height)) return 49;
+    // Split an object inside an include/IF. The disk expansion must retain
+    // its command order, owner metadata and a single snapshot undo boundary.
+    int splitModel = -1;
+    for (int i = 0; i < (int)workspace->objectEditorModel.Objects().size(); ++i)
+        if (workspace->objectEditorModel.Objects()[i].editorId == id) splitModel = i;
+    if (splitModel < 0) return 70;
+    workspace->SetObjectSelection({splitModel}, splitModel, splitModel, false);
+    const auto splitBefore = workspace->CaptureDocumentSnapshot();
+    const int splitHistory = workspace->arr_history.count;
+    if (workspace->SplitSelectedObjects("../bad.csv", error)) return 71;
+    if (!workspace->SplitSelectedObjects("extracted.csv", error)) return 72;
+    if (!fs::exists(directory / "extracted.csv") ||
+        workspace->arr_history.count != splitHistory + 1) return 73;
+    const auto readText = [](const fs::path& file) {
+        std::ifstream input(file, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(input), {});
+    };
+    const std::string extracted = readText(directory / "extracted.csv");
+    const std::string parent = readText(include);
+    if (extracted.find("#SRC_IMAGE") == std::string::npos ||
+        extracted.find("#DST_IMAGE") == std::string::npos ||
+        extracted.find("$FILE") != std::string::npos ||
+        parent.find("#INCLUDE,extracted.csv") == std::string::npos ||
+        parent.find("#IF,900") > parent.find("#INCLUDE,extracted.csv") ||
+        parent.find("#ENDIF") < parent.find("#INCLUDE,extracted.csv")) return 74;
+    if (workspace->SplitSelectedObjects("extracted.csv", error) ||
+        workspace->arr_history.count != splitHistory + 1) return 75;
+    if (workspace->UndoLastEdit() != 0 ||
+        workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->CaptureDocumentSnapshot().lines.size() != splitBefore.lines.size()) return 76;
+    const auto undone = workspace->CaptureDocumentSnapshot();
+    for (size_t i = 0; i < undone.lines.size(); ++i)
+        if (undone.lines[i].line != splitBefore.lines[i].line ||
+            undone.lines[i].filename != splitBefore.lines[i].filename) return 77;
+    if (workspace->RedoLastEdit() != 0 ||
+        workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->SaveSkinScript(workspace->mainpath, true, false) != 0) return 78;
+    auto reopened = std::make_unique<WORKSPACE>();
+    if (reopened->ResetEditorDocumentForLoad() != 0) return 79;
+    strncpy_s(reopened->mainpath, root.c_str(), _TRUNCATE);
+    if (reopened->LoadSkinScript(reopened->mainpath) < 0 ||
+        reopened->RebuildEditorDerivedState() != 0 ||
+        !reopened->objectEditorModel.LoadGroups(nullptr)) return 80;
+    reopened->RebuildObjectModel();
+    const auto runtimeLines = [](const SkinDocumentSnapshot& snapshot) {
+        std::vector<std::string> result;
+        for (const auto& line : snapshot.lines)
+            if (!line.line.empty() && line.line[0] == '#' &&
+                line.line.rfind("#INCLUDE", 0) != 0) result.push_back(line.line);
+        return result;
+    };
+    if (runtimeLines(reopened->CaptureDocumentSnapshot()) != runtimeLines(splitBefore)) return 81;
+    bool foundSplit = false;
+    for (const auto& object : reopened->objectEditorModel.Objects()) {
+        if (object.editorId != id) continue;
+        foundSplit = object.rows.size() == 2 && object.ifgroup == anchorBranch &&
+            ((SKINFILELINEREAD*)reopened->skinfileLines.data)[object.rows[0]].filename.isSame(
+                (directory / "extracted.csv").string().c_str());
+    }
+    if (!foundSplit) return 82;
+    reopened->loaded = true;
+    const auto fileRevision = reopened->documentRevision;
+    const std::string splitOwner = (directory / "extracted.csv").string();
+    if (!reopened->SetObjectBrowserFile(splitOwner)) return 83;
+    int filteredCount = 0;
+    for (int i = 0; i < (int)reopened->objectEditorModel.Objects().size(); ++i)
+        if (reopened->ObjectMatchesFile(i)) ++filteredCount;
+    if (filteredCount != 1 || !reopened->PrepareNewObjectInBrowserFile() ||
+        !reopened->newObjectOwner.isSame(splitOwner.c_str()) ||
+        reopened->newObjectIfgroup != anchorBranch ||
+        reopened->documentRevision != fileRevision ||
+        reopened->SetObjectBrowserFile("missing.csv")) return 84;
+    if (!reopened->SetObjectBrowserFile("")) return 85;
+    for (int i = 0; i < (int)reopened->objectEditorModel.Objects().size(); ++i)
+        if (!reopened->ObjectMatchesFile(i)) return 86;
     return 0;
 }

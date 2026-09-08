@@ -48,6 +48,56 @@ bool ObjectBrowserTextMatchesSearch(const char* cp932Text, const char* utf8Query
     return false;
 }
 
+bool WORKSPACE::ObjectMatchesFile(int modelIndex) const {
+    const auto& objects = objectEditorModel.Objects();
+    if (modelIndex < 0 || modelIndex >= (int)objects.size()) return false;
+    if (objectBrowserFile.empty()) return true;
+    for (int row : objects[modelIndex].rows) {
+        if (row < 0 || row >= skinfileLines.count) continue;
+        const auto& line = ((const SKINFILELINEREAD*)skinfileLines.data)[row];
+        if (line.filename.body && !_stricmp(line.filename.body, objectBrowserFile.c_str()))
+            return true;
+    }
+    return false;
+}
+
+bool WORKSPACE::SetObjectBrowserFile(const std::string& owner) {
+    if (owner.empty()) { objectBrowserFile.clear(); return true; }
+    for (int row = 0; row < skinfileLines.count; ++row) {
+        auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        if (line.filename.body && !_stricmp(line.filename.outstr(), owner.c_str())) {
+            objectBrowserFile = line.filename.outstr();
+            textCursor = row;
+            selected_object_editor = 0;
+            ClearObjectSelection();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool WORKSPACE::PrepareNewObjectInBrowserFile() {
+    if (!loaded || objectBrowserFile.empty()) return false;
+    for (int row = 0; row < skinfileLines.count; ++row) {
+        auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        const std::string text = line.line.body ? line.line.outstr() : "";
+        if (!line.filename.body || _stricmp(line.filename.outstr(), objectBrowserFile.c_str()) ||
+            text.rfind("$FILE ", 0) != 0 || text.size() < 4 ||
+            text.compare(text.size() - 4, 4, " end")) continue;
+        newObjectOwner.assign(objectBrowserFile.c_str());
+        newObjectInsertPosition = row;
+        newObjectIfgroup = line.ifgroup;
+        newCommandIncludeAll = false;
+        newObjectName.assign("");
+        newObjectAssetIndex = -1;
+        newObjectCsvInitialized = false;
+        newObjectFocusRequest = true;
+        wNewObject = true;
+        return true;
+    }
+    return false;
+}
+
 int WORKSPACE::drawObjectBrowser() {
     char browserTitle[128];
     FormatSEUIWindowTitle(browserTitle, sizeof(browserTitle), SEUIWindowId::ObjectBrowser, num);
@@ -86,11 +136,20 @@ int WORKSPACE::drawObjectBrowser() {
         selected_user_object_group = -1;
         objectBrowserActiveOnly = false;
         objectSearch[0] = '\0';
+        objectBrowserFile.clear();
     };
     if (requestedObjectModel >= 0) {
         // A Preview hit must remain reachable even when the Object Editor was
         // showing a type/user-group/search filter that excludes it.
+        const bool wasFileScoped = !objectBrowserFile.empty();
         clearFilters();
+        if (wasFileScoped && requestedObjectModel < (int)objectEditorModel.Objects().size()) {
+            const auto& object = objectEditorModel.Objects()[requestedObjectModel];
+            if (!object.rows.empty()) {
+                objectBrowserFile = ((SKINFILELINEREAD*)skinfileLines.data)[object.rows.front()].filename.outstr();
+                textCursor = object.rows.front();
+            }
+        }
     }
     // Object Browser: filters on top, condition/object list below.
     if (drawBrowser) {
@@ -100,7 +159,7 @@ int WORKSPACE::drawObjectBrowser() {
         const bool focusSearch = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
             !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) &&
             ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F, false);
-        const float fullFilterHeight = ImGui::GetFrameHeightWithSpacing() * 6.0f +
+        const float fullFilterHeight = ImGui::GetFrameHeightWithSpacing() * 8.0f +
             ImGui::GetStyle().WindowPadding.y * 2.0f;
         // Leave room for objects in short docks; filters can scroll independently.
         const float filterPanelHeight = (std::min)(fullFilterHeight,
@@ -109,6 +168,47 @@ int WORKSPACE::drawObjectBrowser() {
         const bool drawFilters = ImGui::BeginChild("ObjectFilters",
             ImVec2(0, filterPanelHeight), true);
         if (drawFilters) {
+        std::vector<std::string> owners;
+        for (int row = 0; row < skinfileLines.count; ++row) {
+            const auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+            if (!line.filename.body || !*line.filename.body) continue;
+            const std::string path = line.filename.body;
+            if (std::none_of(owners.begin(), owners.end(), [&](const std::string& p) {
+                return !_stricmp(p.c_str(), path.c_str());
+            })) owners.push_back(path);
+        }
+        if (!objectBrowserFile.empty() && std::none_of(owners.begin(), owners.end(),
+            [&](const std::string& p) { return !_stricmp(p.c_str(), objectBrowserFile.c_str()); }))
+            objectBrowserFile.clear();
+        const auto fileLabel = [](const std::string& path) {
+            const auto slash = path.find_last_of("/\\");
+            return Cp932ToUtf8(path.substr(slash == std::string::npos ? 0 : slash + 1).c_str());
+        };
+        ImGui::TextDisabled("File");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        const std::string preview = objectBrowserFile.empty() ? "All files" : fileLabel(objectBrowserFile);
+        if (ImGui::BeginCombo("##ObjectFileFilter", preview.c_str())) {
+            if (ImGui::Selectable("All files", objectBrowserFile.empty())) SetObjectBrowserFile("");
+            for (const auto& owner : owners) {
+                ImGui::PushID(owner.c_str());
+                if (ImGui::Selectable(fileLabel(owner).c_str(), !_stricmp(owner.c_str(), objectBrowserFile.c_str())))
+                    SetObjectBrowserFile(owner);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Cp932ToUtf8(owner.c_str()).c_str());
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        if (!objectBrowserFile.empty()) {
+            if (ImGui::Button("New in file")) PrepareNewObjectInBrowserFile();
+            ImGui::SameLine();
+            if (ImGui::Button("Text Editor")) {
+                wTextEdit = true;
+                char textTitle[128];
+                FormatSEUIWindowTitle(textTitle, sizeof(textTitle), SEUIWindowId::TextEditor, num);
+                ImGui::SetWindowFocus(textTitle);
+            }
+        }
         ImGui::TextDisabled("%s", SEText("Type", u8"종류"));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -174,7 +274,7 @@ int WORKSPACE::drawObjectBrowser() {
             ImGui::SetTooltip("Show objects whose IF branch and DST options are currently enabled.");
 
         const bool hasFilters = selected_object_group >= 0 || selected_user_object_group >= 0 ||
-            objectBrowserActiveOnly || objectSearch[0];
+            objectBrowserActiveOnly || objectSearch[0] || !objectBrowserFile.empty();
         if (SEUI::ActionButton(SEText("Clear filters###ClearObjectFilters", u8"필터 초기화###ClearObjectFilters"),
             SEText("Show all objects. Keep the current selection and draw-order view.",
                 u8"모든 오브젝트를 표시합니다. 현재 선택과 그리기 순서는 유지합니다."), hasFilters))
@@ -273,6 +373,9 @@ int WORKSPACE::drawObjectBrowser() {
         for (int i = 0; i < (int)allObjects.size(); ++i) groupObjects.push_back(i);
     }
 
+    groupObjects.erase(std::remove_if(groupObjects.begin(), groupObjects.end(),
+        [&](int modelIndex) { return !ObjectMatchesFile(modelIndex); }), groupObjects.end());
+
     auto syncDstSelectionForObject = [&](int objectModelIndex, bool focusPreview) {
         const std::vector<SEObjectInstance>& allObjects = objectEditorModel.Objects();
         if (objectModelIndex < 0 || objectModelIndex >= (int)allObjects.size()) return;
@@ -339,6 +442,7 @@ int WORKSPACE::drawObjectBrowser() {
     int contextCopyModel = -1;
     int contextPasteModel = -1;
     int contextDuplicateModel = -1;
+    int contextSplitModel = -1;
     int contextDeleteModel = -1;
 
     // Middle: control-flow is metadata, never an Object command.
@@ -1030,6 +1134,8 @@ int WORKSPACE::drawObjectBrowser() {
                             contextPasteModel = modelIndex;
                         if (ImGui::MenuItem(SEText("Duplicate", u8"\uBCF5\uC81C"), "Ctrl+D"))
                             contextDuplicateModel = modelIndex;
+                        if (ImGui::MenuItem("Split to new CSV..."))
+                            contextSplitModel = modelIndex;
                         if (ImGui::MenuItem("Remove Object")) contextDeleteModel = modelIndex;
                         ImGui::Separator();
                         if (ImGui::MenuItem("Create Group from Selection", NULL, false,
@@ -1099,18 +1205,25 @@ int WORKSPACE::drawObjectBrowser() {
                     if (ImGui::BeginPopupContextItem("BranchContext")) {
                         int insertPosition = skinfileLines.count;
                         CSTR branchOwner(mainpath);
+                        bool hasFileContext = objectBrowserFile.empty();
                         for (int row = 0; row < skinfileLines.count; ++row) {
                             SKINFILELINEREAD& candidate = ((SKINFILELINEREAD*)skinfileLines.data)[row];
                             if (candidate.ifgroup != branch.ifgroup) continue;
+                            if (!objectBrowserFile.empty() && (!candidate.filename.body ||
+                                _stricmp(candidate.filename.outstr(), objectBrowserFile.c_str()))) continue;
+                            hasFileContext = true;
                             if (candidate.filename.body && *candidate.filename.outstr())
                                 branchOwner.assign(candidate.filename.outstr());
-                            if (candidate.isIfGroupEnd) {
+                            const std::string candidateText = candidate.line.body ? candidate.line.outstr() : "";
+                            if (candidate.isIfGroupEnd || (candidateText.rfind("$FILE ", 0) == 0 &&
+                                candidateText.size() >= 4 &&
+                                candidateText.compare(candidateText.size() - 4, 4, " end") == 0)) {
                                 insertPosition = row;
                                 break;
                             }
                             insertPosition = row + 1;
                         }
-                        if (ImGui::MenuItem("Create Object in this branch")) {
+                        if (ImGui::MenuItem("Create Object in this branch", nullptr, false, hasFileContext)) {
                             newObjectInsertPosition = insertPosition;
                             newObjectOwner.assign(branchOwner);
                             newObjectIfgroup = branch.ifgroup;
@@ -1118,7 +1231,7 @@ int WORKSPACE::drawObjectBrowser() {
                             newObjectName.assign("");
                             wNewObject = true;
                         }
-                        if (ImGui::MenuItem("Create Command / Setting in this branch")) {
+                        if (ImGui::MenuItem("Create Command / Setting in this branch", nullptr, false, hasFileContext)) {
                             newObjectInsertPosition = insertPosition;
                             newObjectOwner.assign(branchOwner);
                             newObjectIfgroup = branch.ifgroup;
@@ -1200,5 +1313,41 @@ int WORKSPACE::drawObjectBrowser() {
     }
     if (browserWasBegun) ImGui::End();
 
+    if (contextSplitModel >= 0) {
+        selectContextObject(contextSplitModel, true);
+        objectSplitRequested = true;
+        objectSplitRevision = documentRevision;
+        objectSplitError.clear();
+    }
+    drawObjectSplitDialog();
+
     return 0;
+}
+
+void WORKSPACE::drawObjectSplitDialog() {
+    const auto& spec = SEUISurfaceSpecFor(SEUISurfaceId::ObjectSplit);
+    char title[128];
+    snprintf(title, sizeof(title), "%s##object-split-%d", spec.title, num);
+    if (objectSplitRequested) {
+        ImGui::OpenPopup(title);
+        objectSplitRequested = false;
+    }
+    ImGui::SetNextWindowSize(ImVec2(500, 0), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextWrapped("Move selected consecutive Objects into a new CSV beside their source file. SRC/DST, draw order and the enclosing IF stay unchanged.");
+        ImGui::InputText("New CSV", objectSplitFilename, IM_ARRAYSIZE(objectSplitFilename));
+        ImGui::TextWrapped("Split and save writes ALL current script edits. Existing files are never used as the new CSV. Image files are not moved.");
+        ImGui::TextWrapped("Undo restores the document; save again to update disk. The detached CSV is kept for recovery.");
+        if (objectSplitRevision != documentRevision)
+            objectSplitError = "Document changed. Cancel and select the Objects again.";
+        if (!objectSplitError.empty())
+            ImGui::TextWrapped("%s", objectSplitError.c_str());
+        if (ImGui::Button("Split and save") && objectSplitRevision == documentRevision) {
+            if (SplitSelectedObjects(objectSplitFilename, objectSplitError))
+                ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
 }

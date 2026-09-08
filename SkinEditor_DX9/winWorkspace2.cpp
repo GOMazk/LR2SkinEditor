@@ -35,6 +35,21 @@ int CountCsvColumns(CSTR& line) {
 int RunWorkspaceReloadLifecycleSelfTest() {
     WORKSPACE workspace{};
     workspace.olrSourcePackagePath = "stale-source.olrskin";
+    workspace.ResetPreviewToStatic();
+    if (workspace.previewReloadPending) return 15;
+    workspace.loaded = true;
+    workspace.previewSimulationPlaying = true;
+    workspace.previewChartFull = true;
+    workspace.previewLastRenderAt = 1000;
+    workspace.previewReloadRequestedAt = 999;
+    const auto resetRevision = workspace.documentRevision;
+    workspace.ResetPreviewToStatic();
+    if (workspace.previewSimulationPlaying || !workspace.previewReloadPending ||
+        workspace.previewReloadRequestedAt != 0 || workspace.previewLastRenderAt != 0 ||
+        !workspace.previewChartFull || workspace.documentRevision != resetRevision) return 16;
+    workspace.ResetPreviewToStatic(); // Repeated reset remains idempotent.
+    if (workspace.previewSimulationPlaying || !workspace.previewReloadPending) return 17;
+    workspace.loaded = false;
     if (workspace.ResetEditorDocumentForLoad() != 0) return 1;
     if (!workspace.olrSourcePackagePath.empty()) return 13;
 
@@ -214,6 +229,16 @@ int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
         return 13;
     if (GetTimeLapse(41, &secondWorkspace->g.timer1) <= secondStart)
         return 14;
+    firstWorkspace->ResetPreviewToStatic();
+    if (!firstWorkspace->UpdatePreviewRuntime(GetTickCount64()) ||
+        firstWorkspace->previewSimulationPlaying || firstWorkspace->previewReloadPending ||
+        GetTimeLapse(41, &firstWorkspace->g.timer1) >= 0 ||
+        !secondWorkspace->previewSimulationPlaying) return 15;
+    firstWorkspace->previewSimulationPlaying =
+        LR2SESceneInitSafe(&firstWorkspace->g, firstWorkspace->meta.type,
+            LR2SE_PREVIEW_CHART_SIMPLE) == 0;
+    if (!firstWorkspace->previewSimulationPlaying ||
+        GetTimeLapse(41, &firstWorkspace->g.timer1) < 0) return 16;
     return 0;
 }
 
@@ -291,6 +316,7 @@ int RunSimpleModeProjectionSelfTest() {
 
 
 int RunObjectReorderSelfTest() {
+    if (arr_CommandHelp.count <= 0 && LoadCommandHelp(nullptr) != 0) return 66;
     char tempDirectory[MAX_PATH] = {};
     if (!GetTempPathA(MAX_PATH, tempDirectory)) return 1;
     char ownerPath[MAX_PATH] = {};
@@ -302,7 +328,7 @@ int RunObjectReorderSelfTest() {
         GetCurrentProcessId());
 
     WORKSPACE workspace;
-    workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 24);
+    workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 32);
     workspace.arr_CustomFile.Alloc(sizeof(CSTR), 2);
     workspace.arr_SRCGR.Alloc(sizeof(SRCGR), 2);
     workspace.arr_IMG.Alloc(sizeof(IMG), 4);
@@ -346,6 +372,40 @@ int RunObjectReorderSelfTest() {
     appendLine("#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0,0,0,0", ownerPath);
     appendLine("#DST_IMAGE,0,0,3,4,1,1,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
     appendLine("#ENDIF", ownerPath);
+    appendLine("$SE_OBJECT_ID,front-number", ownerPath);
+    appendLine("$SE_OBJECT_NAME,Front Number", ownerPath);
+    appendLine("#SRC_NUMBER,0,0,0,0,100,20,10,1,0,0,101,0,4", ownerPath);
+    appendLine("#DST_NUMBER,0,0,7,8,10,20,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("$SE_OBJECT_ID,front-text", ownerPath);
+    appendLine("$SE_OBJECT_NAME,Front Text", ownerPath);
+    appendLine("#SRC_TEXT,0,0,10,0,0,0", ownerPath);
+    appendLine("#DST_TEXT,0,0,100,30,40,20,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("$SE_OBJECT_ID,front-groove-gauge", ownerPath);
+    appendLine("$SE_OBJECT_NAME,Front Groove Gauge", ownerPath);
+    appendLine("#SRC_GROOVEGAUGE,0,0,0,0,40,16,4,1,0,0,5,-2", ownerPath);
+    appendLine("#DST_GROOVEGAUGE,0,0,100,200,10,4,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("$SE_OBJECT_ID,front-bga", ownerPath);
+    appendLine("$SE_OBJECT_NAME,Front BGA", ownerPath);
+    appendLine("#SRC_BGA,0,0,0,0,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("#DST_BGA,0,0,11,12,320,180,0,255,255,255,255,0,0,0,0,0,0,0,0,0", ownerPath);
+    appendLine("$SE_OBJECT_ID,combo-original", ownerPath);
+    appendLine("#SRC_NOWCOMBO_1P,5,0,0,0,80,16,10,1,0,46,0,1,7", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,0,10,20,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,500,10,20,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("$SE_OBJECT_ID,combo-duplicate", ownerPath);
+    appendLine("#SRC_NOWCOMBO_1P,5,0,0,0,80,16,10,1,0,46,0,1,7", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,0,30,40,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,500,30,40,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    // Older duplicate behavior could copy an already merged Object, leaving
+    // repeated SRC/DST bundles beneath one ID. Rebuild must split those runs
+    // instead of presenting every SRC in one Inspector Object.
+    appendLine("$SE_OBJECT_ID,combo-packed-copy", ownerPath);
+    appendLine("#SRC_NOWCOMBO_1P,5,0,0,0,80,16,10,1,0,46,0,1,7", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,0,50,60,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,500,50,60,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("#SRC_NOWCOMBO_1P,5,0,0,0,80,16,10,1,0,46,0,1,7", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,0,70,80,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
+    appendLine("#DST_NOWCOMBO_1P,5,500,70,80,8,16,0,255,255,255,255,1,0,0,0,0,46,0,0,0", ownerPath);
     appendLine(includeStart.c_str(), otherOwnerPath);
     appendLine("#IF,901", otherOwnerPath);
     appendLine("$SE_OBJECT_ID,include-object", otherOwnerPath);
@@ -371,11 +431,235 @@ int RunObjectReorderSelfTest() {
 
     int source = findObject("left-object");
     int target = findObject("right-object");
-    if (source < 0 || target < 0) return 4;
+    const int frontNumber = findObject("front-number");
+    const int frontText = findObject("front-text");
+    const int frontGrooveGauge = findObject("front-groove-gauge");
+    const int frontBga = findObject("front-bga");
+    if (source < 0 || target < 0 || frontNumber < 0 || frontText < 0 ||
+        frontGrooveGauge < 0 || frontBga < 0)
+        return 4;
+    const int originalCombo = findObject("combo-original");
+    const int duplicatedCombo = findObject("combo-duplicate");
+    if (originalCombo < 0 || duplicatedCombo < 0 ||
+        originalCombo == duplicatedCombo) return 45;
+    const std::vector<SEObjectInstance>& duplicateObjects =
+        workspace.objectEditorModel.Objects();
+    if (duplicateObjects[originalCombo].rows.size() != 3 ||
+        duplicateObjects[duplicatedCombo].rows.size() != 3)
+        return 46;
+    for (int modelIndex : { originalCombo, duplicatedCombo }) {
+        int sourceCount = 0;
+        int destinationCount = 0;
+        for (int row : duplicateObjects[modelIndex].rows) {
+            const SKINFILELINEREAD& line =
+                ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+            const char* command = line.csv.str[0].body
+                ? line.csv.str[0].body : "";
+            if (strcmp(command, "#SRC_NOWCOMBO_1P") == 0)
+                ++sourceCount;
+            else if (strcmp(command, "#DST_NOWCOMBO_1P") == 0)
+                ++destinationCount;
+        }
+        if (sourceCount != 1 || destinationCount != 2) return 47;
+    }
+    int nowComboObjectCount = 0;
+    for (const SEObjectInstance& object : duplicateObjects) {
+        int sourceCount = 0;
+        int destinationCount = 0;
+        for (int row : object.rows) {
+            const SKINFILELINEREAD& line =
+                ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+            const char* command = line.csv.str[0].body
+                ? line.csv.str[0].body : "";
+            if (strcmp(command, "#SRC_NOWCOMBO_1P") == 0)
+                ++sourceCount;
+            else if (strcmp(command, "#DST_NOWCOMBO_1P") == 0)
+                ++destinationCount;
+        }
+        if (sourceCount == 0 && destinationCount == 0) continue;
+        ++nowComboObjectCount;
+        if (sourceCount != 1 || destinationCount != 2) return 48;
+    }
+    if (nowComboObjectCount != 4) return 49;
+
+    // Editing the shared key of an indexed Object must keep its SRC and every
+    // DST animation row together. This is especially important after Clone:
+    // the duplicate deliberately keeps the same LR2 index but has a distinct
+    // editor ID, so a one-line edit would split it on the next model rebuild.
+    workspace.SetObjectSelection(std::vector<int>(1, duplicatedCombo),
+        duplicatedCombo, duplicatedCombo, false);
+    int duplicatedComboSourceRow = -1;
+    for (int row : duplicateObjects[duplicatedCombo].rows) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.str[0].body &&
+            strcmp(line.csv.str[0].body, "#SRC_NOWCOMBO_1P") == 0) {
+            duplicatedComboSourceRow = row;
+            break;
+        }
+    }
+    if (duplicatedComboSourceRow < 0 ||
+        workspace.EditValue(duplicatedComboSourceRow, 1, "3") != 0)
+        return 67;
+    if (workspace.arr_history.count != 4) return 68;
+    workspace.RebuildObjectModel();
+    int editedCombo = findObject("combo-duplicate");
+    if (editedCombo < 0 ||
+        workspace.objectEditorModel.Objects()[editedCombo].rows.size() != 3 ||
+        workspace.ResolveObjectSelectionKey(workspace.objectSelection.active) !=
+            editedCombo)
+        return 69;
+    for (int row : workspace.objectEditorModel.Objects()[editedCombo].rows) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.val[1] != 3) return 70;
+    }
+    if (workspace.UndoLastEdit() != 0) return 71;
+    workspace.RebuildObjectModel();
+    editedCombo = findObject("combo-duplicate");
+    if (editedCombo < 0 ||
+        workspace.objectEditorModel.Objects()[editedCombo].rows.size() != 3 ||
+        workspace.arr_history.count != 0)
+        return 72;
+    for (int row : workspace.objectEditorModel.Objects()[editedCombo].rows) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.val[1] != 5) return 73;
+    }
+
+    // Simulate a file saved by the old one-line editor and make sure the next
+    // SRC index edit also picks up its physically adjacent orphaned DST run.
+    SKINFILELINEREAD& legacySplitSource =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)
+            [duplicatedComboSourceRow];
+    legacySplitSource.csv.str[1].assign("3");
+    legacySplitSource.csv.val[1] = 3;
+    workspace.CsvToLine(duplicatedComboSourceRow);
+    workspace.RebuildObjectModel();
+    editedCombo = findObject("combo-duplicate");
+    if (editedCombo < 0 ||
+        workspace.objectEditorModel.Objects()[editedCombo].rows.size() != 1)
+        return 74;
+    if (workspace.EditValue(duplicatedComboSourceRow, 1, "4") != 0 ||
+        workspace.arr_history.count != 4)
+        return 75;
+    workspace.RebuildObjectModel();
+    editedCombo = findObject("combo-duplicate");
+    if (editedCombo < 0 ||
+        workspace.objectEditorModel.Objects()[editedCombo].rows.size() != 3)
+        return 76;
+    for (int row : workspace.objectEditorModel.Objects()[editedCombo].rows) {
+        const SKINFILELINEREAD& line =
+            ((const SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.val[1] != 4) return 77;
+    }
+    if (workspace.UndoLastEdit() != 0 || workspace.arr_history.count != 0)
+        return 78;
+    legacySplitSource.csv.str[1].assign("5");
+    legacySplitSource.csv.val[1] = 5;
+    workspace.CsvToLine(duplicatedComboSourceRow);
+    workspace.RebuildObjectModel();
+    editedCombo = findObject("combo-duplicate");
+    if (editedCombo < 0 ||
+        workspace.objectEditorModel.Objects()[editedCombo].rows.size() != 3)
+        return 79;
+
     const std::vector<SEObjectInstance>& initialObjects =
         workspace.objectEditorModel.Objects();
+    if (initialObjects[source].drawOrder < 0 ||
+        initialObjects[target].drawOrder <= initialObjects[source].drawOrder ||
+        initialObjects[frontNumber].drawOrder <= initialObjects[target].drawOrder ||
+        initialObjects[source].firstDstRow >= initialObjects[target].firstDstRow ||
+        initialObjects[target].firstDstRow >= initialObjects[frontNumber].firstDstRow)
+        return 43;
+    if (!(source < target && target < frontNumber)) return 44;
     if (initialObjects[source].ifgroup == initialObjects[target].ifgroup)
         return 5;
+    DST_ANIMATION numberFrame = {};
+    numberFrame.x = 7.0f;
+    numberFrame.y = 8.0f;
+    numberFrame.w = 10.0f;
+    numberFrame.h = 20.0f;
+    float numberX = 0.0f, numberY = 0.0f;
+    float numberWidth = 0.0f, numberHeight = 0.0f;
+    workspace.ResolvePreviewObjectFrameBounds(initialObjects[frontNumber],
+        numberFrame, numberX, numberY, numberWidth, numberHeight);
+    if (std::abs(numberX - 7.0f) >= 0.5f ||
+        std::abs(numberY - 8.0f) >= 0.5f ||
+        std::abs(numberWidth - 40.0f) >= 0.5f ||
+        std::abs(numberHeight - 20.0f) >= 0.5f)
+        return 50;
+
+    int textSourceRow = -1;
+    for (int row : initialObjects[frontText].rows) {
+        SKINFILELINEREAD& line =
+            ((SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.str[0].isSame("#SRC_TEXT")) {
+            textSourceRow = row;
+            break;
+        }
+    }
+    if (textSourceRow < 0) return 51;
+    DST_ANIMATION textFrame = {};
+    textFrame.x = 100.0f;
+    textFrame.y = 30.0f;
+    textFrame.w = 40.0f;
+    textFrame.h = 20.0f;
+    const float expectedTextX[] = { 100.0f, 80.0f, 60.0f };
+    for (int align = 0; align < 3; ++align) {
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[textSourceRow]
+            .csv.val[4] = align;
+        float textX = 0.0f, textY = 0.0f;
+        float textWidth = 0.0f, textHeight = 0.0f;
+        workspace.ResolvePreviewObjectFrameBounds(initialObjects[frontText],
+            textFrame, textX, textY, textWidth, textHeight);
+        if (std::abs(textX - expectedTextX[align]) >= 0.5f ||
+            std::abs(textY - 30.0f) >= 0.5f ||
+            std::abs(textWidth - 40.0f) >= 0.5f ||
+            std::abs(textHeight - 20.0f) >= 0.5f)
+            return 52 + align;
+    }
+    ((SKINFILELINEREAD*)workspace.skinfileLines.data)[textSourceRow]
+        .csv.val[4] = 0;
+    DST_ANIMATION grooveGaugeFrame = {};
+    grooveGaugeFrame.x = 100.0f;
+    grooveGaugeFrame.y = 200.0f;
+    grooveGaugeFrame.w = 10.0f;
+    grooveGaugeFrame.h = 4.0f;
+    float grooveGaugeX = 0.0f, grooveGaugeY = 0.0f;
+    float grooveGaugeWidth = 0.0f, grooveGaugeHeight = 0.0f;
+    workspace.ResolvePreviewObjectFrameBounds(
+        initialObjects[frontGrooveGauge], grooveGaugeFrame,
+        grooveGaugeX, grooveGaugeY, grooveGaugeWidth, grooveGaugeHeight);
+    if (std::abs(grooveGaugeX - 100.0f) >= 0.5f ||
+        std::abs(grooveGaugeY - 102.0f) >= 0.5f ||
+        std::abs(grooveGaugeWidth - 255.0f) >= 0.5f ||
+        std::abs(grooveGaugeHeight - 102.0f) >= 0.5f)
+        return 55;
+    std::vector<SEPreviewObjectDestination> grooveDestinations;
+    workspace.CollectPreviewObjectDestinations(
+        initialObjects[frontGrooveGauge], grooveDestinations);
+    if (grooveDestinations.size() != 1 ||
+        grooveDestinations[0].lastRow < 0 ||
+        std::abs(grooveDestinations[0].frame.x - 100.0f) >= 0.5f ||
+        std::abs(grooveDestinations[0].frame.y - 200.0f) >= 0.5f)
+        return 56;
+    std::vector<SEPreviewObjectDestination> bgaDestinations;
+    workspace.CollectPreviewObjectDestinations(
+        initialObjects[frontBga], bgaDestinations);
+    if (bgaDestinations.size() != 1 ||
+        bgaDestinations[0].lastRow < 0 ||
+        std::abs(bgaDestinations[0].frame.x - 11.0f) >= 0.5f ||
+        std::abs(bgaDestinations[0].frame.y - 12.0f) >= 0.5f ||
+        std::abs(bgaDestinations[0].frame.w - 320.0f) >= 0.5f ||
+        std::abs(bgaDestinations[0].frame.h - 180.0f) >= 0.5f)
+        return 57;
+    for (int dstIndex = 0; dstIndex < workspace.arr_DST.count; ++dstIndex) {
+        const DST& cachedDestination =
+            ((const DST*)workspace.arr_DST.data)[dstIndex];
+        if (cachedDestination.declare == bgaDestinations[0].lastRow)
+            return 58;
+    }
     if (!workspace.CanReorderObject(source, target)) return 6;
 
     if (!workspace.QueueObjectReorder(source, target, true) ||
@@ -394,11 +678,7 @@ int RunObjectReorderSelfTest() {
 
     if (workspace.UndoLastEdit() != 0 ||
         workspace.pendingHistorySnapshotRestore < 0) return 12;
-    const int snapshot = workspace.pendingHistorySnapshotRestore;
-    workspace.pendingHistorySnapshotRestore = -1;
-    if (snapshot >= (int)workspace.historyDocumentSnapshots.size() ||
-        workspace.RestoreDocumentSnapshot(
-            workspace.historyDocumentSnapshots[snapshot]) != 0) return 13;
+    if (workspace.ApplyPendingHistorySnapshotRestore() != 0) return 13;
     if (workspace.RebuildEditorDerivedState() != 0) return 14;
     workspace.RebuildObjectModel();
     source = findObject("left-object");
@@ -408,6 +688,28 @@ int RunObjectReorderSelfTest() {
         workspace.objectEditorModel.Objects();
     if (restoredObjects[source].ifgroup == restoredObjects[target].ifgroup)
         return 16;
+
+    // Redo restores the complete forward snapshot and creates one matching
+    // undo entry. This covers snapshot-backed Object moves as well as the
+    // primitive line-edit history path used by Inspector and Preview.
+    if (workspace.RedoLastEdit() != 0 ||
+        workspace.ApplyPendingHistorySnapshotRestore() != 0) return 43;
+    if (workspace.RebuildEditorDerivedState() != 0) return 44;
+    workspace.RebuildObjectModel();
+    source = findObject("left-object");
+    target = findObject("right-object");
+    if (source < 0 || target < 0 ||
+        workspace.objectEditorModel.Objects()[source].ifgroup !=
+            workspace.objectEditorModel.Objects()[target].ifgroup) return 45;
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.ApplyPendingHistorySnapshotRestore() != 0) return 46;
+    if (workspace.RebuildEditorDerivedState() != 0) return 47;
+    workspace.RebuildObjectModel();
+    source = findObject("left-object");
+    target = findObject("right-object");
+    if (source < 0 || target < 0 ||
+        workspace.objectEditorModel.Objects()[source].ifgroup ==
+            workspace.objectEditorModel.Objects()[target].ifgroup) return 48;
 
     target = findObject("include-object");
     if (source < 0 || target < 0) return 17;
@@ -490,11 +792,7 @@ int RunObjectReorderSelfTest() {
 
     if (workspace.UndoLastEdit() != 0 ||
         workspace.pendingHistorySnapshotRestore < 0) return 31;
-    const int crossSnapshot = workspace.pendingHistorySnapshotRestore;
-    workspace.pendingHistorySnapshotRestore = -1;
-    if (crossSnapshot >= (int)workspace.historyDocumentSnapshots.size() ||
-        workspace.RestoreDocumentSnapshot(
-            workspace.historyDocumentSnapshots[crossSnapshot]) != 0) return 32;
+    if (workspace.ApplyPendingHistorySnapshotRestore() != 0) return 32;
     if (workspace.RebuildEditorDerivedState() != 0) return 33;
     workspace.RebuildObjectModel();
     source = findObject("left-object");
@@ -510,6 +808,52 @@ int RunObjectReorderSelfTest() {
         if (!line.filename.body ||
             _stricmp(line.filename.body, ownerPath) != 0) return 36;
     }
+
+    const int objectCountBeforeCopy =
+        (int)workspace.objectEditorModel.Objects().size();
+    workspace.SetObjectSelection(std::vector<int>(1, source), source, source,
+        false);
+    if (workspace.CopySelectedObjects() != 1 ||
+        !workspace.HasCopiedObjects()) return 50;
+    if (workspace.PasteCopiedObjects() != 1) return 51;
+    if ((int)workspace.objectEditorModel.Objects().size() !=
+        objectCountBeforeCopy + 1) return 52;
+    const int pastedModel = workspace.preview_selected_object_model_index;
+    if (pastedModel < 0 ||
+        workspace.objectEditorModel.Objects()[pastedModel].editorId.empty() ||
+        workspace.objectEditorModel.Objects()[pastedModel].editorId ==
+            "left-object") return 53;
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.ApplyPendingHistorySnapshotRestore() != 0) return 54;
+    if (workspace.RebuildEditorDerivedState() != 0) return 55;
+    workspace.RebuildObjectModel();
+    if ((int)workspace.objectEditorModel.Objects().size() !=
+        objectCountBeforeCopy) return 56;
+    if (workspace.RedoLastEdit() != 0 ||
+        workspace.ApplyPendingHistorySnapshotRestore() != 0) return 57;
+    if (workspace.RebuildEditorDerivedState() != 0) return 58;
+    workspace.RebuildObjectModel();
+    if ((int)workspace.objectEditorModel.Objects().size() !=
+        objectCountBeforeCopy + 1) return 59;
+
+    // A normal edit after Undo must discard the forward branch.
+    if (workspace.UndoLastEdit() != 0 ||
+        workspace.ApplyPendingHistorySnapshotRestore() != 0) return 60;
+    if (workspace.RebuildEditorDerivedState() != 0) return 61;
+    workspace.RebuildObjectModel();
+    source = findObject("left-object");
+    if (source < 0 || workspace.objectEditorModel.Objects()[source].rows.empty())
+        return 62;
+    const int sourceRow = workspace.objectEditorModel.Objects()[source].rows[0];
+    if (workspace.EditValue(sourceRow, 2,
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[sourceRow]
+            .csv.val[2] + 1) != 0) return 63;
+    if (workspace.RedoLastEdit() == 0) return 64;
+    workspace.SetObjectSelection(std::vector<int>(1, source), source, source,
+        false);
+    if (workspace.DuplicateSelectedObjects() != 1 ||
+        (int)workspace.objectEditorModel.Objects().size() !=
+            objectCountBeforeCopy + 1) return 65;
     return 0;
 }
 int RunAssetMetadataSelfTest() {
@@ -517,6 +861,50 @@ int RunAssetMetadataSelfTest() {
     if (gifLayoutResult != 0) return 105 + gifLayoutResult;
     if (arr_CommandHelp.count <= 0 &&
         LoadCommandHelp("..\\skinHelper.txt") != 0) return 9;
+    const char* directAssetDropCommands[] = {
+        "#SRC_IMAGE", "#SRC_NUMBER", "#SRC_SLIDER", "#SRC_BUTTON",
+        "#SRC_BARGRAPH", "#SRC_ONMOUSE", "#SRC_MOUSECURSOR",
+        "#SRC_BAR_FLASH", "#SRC_BAR_LEVEL", "#SRC_BAR_LAMP",
+        "#SRC_BAR_MY_LAMP", "#SRC_BAR_RIVAL_LAMP", "#SRC_BAR_RANK",
+        "#SRC_BAR_RIVAL", "#SRC_LINE", "#SRC_JUDGELINE",
+        "#SRC_NOWJUDGE_1P", "#SRC_NOWCOMBO_1P", "#SRC_NOWJUDGE_2P",
+        "#SRC_NOWCOMBO_2P", "#SRC_GROOVEGAUGE", "#SRC_GAUGECHART_1P",
+        "#SRC_GAUGECHART_2P", "#SRC_SCORECHART"
+    };
+    for (const char* command : directAssetDropCommands)
+        if (!SEIsDirectAssetDropObjectCommand(command)) return 130;
+    const char* deferredAssetDropCommands[] = {
+        "#SRC_TEXT", "#SRC_BAR_BODY", "#SRC_EVENT_MODE_CURSOR",
+        "#SRC_NOTE", "#SRC_MINE", "#SRC_LN_START", "#SRC_AUTO_NOTE",
+        "#SRC_BGA", "#SRC_MASK"
+    };
+    for (const char* command : deferredAssetDropCommands)
+        if (SEIsDirectAssetDropObjectCommand(command)) return 131;
+
+    // Exercise the Image Manager failure sequence: delete a non-last crop,
+    // then reuse the vacant tail for a new crop. ARR byte-relocates records,
+    // so the survivor and the new entry must still own distinct CSTR buffers.
+    std::unique_ptr<WORKSPACE> reuseWorkspace(new WORKSPACE());
+    reuseWorkspace->arr_IMG.Alloc(sizeof(IMG), 4);
+    if (reuseWorkspace->NewIMG(0, 0, 0, 1, 1, 0) != 0 ||
+        reuseWorkspace->NewIMG(0, 1, 0, 1, 1, 0) != 1)
+        return 132;
+    ((IMG*)reuseWorkspace->arr_IMG.data)[1].name.assign("survivor");
+    if (reuseWorkspace->DeleteIMG(0) != 0 ||
+        reuseWorkspace->NewIMG(0, 2, 0, 1, 1, 0) != 1)
+        return 133;
+    IMG* reusedImages = (IMG*)reuseWorkspace->arr_IMG.data;
+    if (!reusedImages[0].name.isSame("survivor") ||
+        !reusedImages[1].name.isSame("manual crop") ||
+        reusedImages[0].name.body == reusedImages[1].name.body)
+        return 134;
+    for (int imageIndex = 0; imageIndex < reuseWorkspace->arr_IMG.count;
+        ++imageIndex) {
+        reusedImages[imageIndex].name.~CSTR();
+        reusedImages[imageIndex].name.body = NULL;
+    }
+    reuseWorkspace->arr_IMG.Free();
+
     char tempDirectory[MAX_PATH] = {};
     if (!GetTempPathA(MAX_PATH, tempDirectory)) return 10;
     char outputPath[MAX_PATH] = {};
@@ -1366,13 +1754,19 @@ int WORKSPACE::DeleteIMG(int pos) {
         const char* text = metadata.line.body ? metadata.line.outstr() : "";
         if (strncmp(text, "$SRC_IMAGE,", 11) == 0) {
             DeleteLine(metadataRow);
-            for (int imageIndex = 0; imageIndex < arr_IMG.count; ++imageIndex) {
-                IMG& image = ((IMG*)arr_IMG.data)[imageIndex];
-                if (image.editorDeclare > metadataRow) --image.editorDeclare;
-            }
         }
     }
-    arr_IMG.DeleteAt(pos);
+
+    // ARR relocates entries with memcpy. Release only the removed CSTR, then
+    // clear the duplicate tail slot after the surviving entries have moved.
+    // Without clearing it, Delete(non-last) followed by NewIMG() reuses a
+    // shallow copy of the last surviving name and corrupts the heap.
+    IMG* images = (IMG*)arr_IMG.data;
+    images[pos].name.~CSTR();
+    images[pos].name.body = NULL;
+    if (arr_IMG.DeleteAt(pos) != 0) return -1;
+    if (arr_IMG.data && arr_IMG.count >= 0 && arr_IMG.count < arr_IMG.bufSize)
+        memset(&((IMG*)arr_IMG.data)[arr_IMG.count], 0, sizeof(IMG));
 
     //TODO:history here
 
@@ -1654,6 +2048,14 @@ int WORKSPACE::InsertLine(int pos) {
         if (((SRC*)arr_SRC.data)[i].declare >= pos) ++((SRC*)arr_SRC.data)[i].declare;
     for (int i = 0; i < arr_DST.count; ++i)
         if (((DST*)arr_DST.data)[i].declare >= pos) ++((DST*)arr_DST.data)[i].declare;
+    for (int i = 0; i < arr_SRCGR.count; ++i)
+        if (((SRCGR*)arr_SRCGR.data)[i].declare >= pos)
+            ++((SRCGR*)arr_SRCGR.data)[i].declare;
+    for (int i = 0; i < arr_IMG.count; ++i) {
+        IMG& image = ((IMG*)arr_IMG.data)[i];
+        if (image.sourceDeclare >= pos) ++image.sourceDeclare;
+        if (image.editorDeclare >= pos) ++image.editorDeclare;
+    }
 
     NotifyDocumentChanged(DOCUMENT_CHANGE_STRUCTURE);
 
@@ -2130,6 +2532,12 @@ int WORKSPACE::ApplyPendingObjectReorder() {
 }
 
 void WORKSPACE::NotifyDocumentChanged(unsigned int changes) {
+    // A newer edit/Undo supersedes playback queued for the previous document.
+    simpleSelectionPreviewTimers.clear();
+    // A new user edit starts a new history branch. Undo/redo replays set
+    // replayingHistory so restoring an older document does not discard the
+    // remaining forward states.
+    if (!replayingHistory) redoDocumentSnapshots.clear();
     ++documentRevision;
     InvalidateSimpleModeProjection();
     const unsigned long long now = GetTickCount64();
@@ -2299,6 +2707,18 @@ int WORKSPACE::DeleteLine(int pos) {
         if (dst.declare == pos) dst.declare = -1;
         else if (dst.declare > pos) --dst.declare;
     }
+    for (int i = 0; i < arr_SRCGR.count; ++i) {
+        SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[i];
+        if (graphic.declare == pos) graphic.declare = -1;
+        else if (graphic.declare > pos) --graphic.declare;
+    }
+    for (int i = 0; i < arr_IMG.count; ++i) {
+        IMG& image = ((IMG*)arr_IMG.data)[i];
+        if (image.sourceDeclare == pos) image.sourceDeclare = -1;
+        else if (image.sourceDeclare > pos) --image.sourceDeclare;
+        if (image.editorDeclare == pos) image.editorDeclare = -1;
+        else if (image.editorDeclare > pos) --image.editorDeclare;
+    }
     NotifyDocumentChanged(DOCUMENT_CHANGE_STRUCTURE);
 
     return 0;
@@ -2340,60 +2760,153 @@ int WORKSPACE::EditLine(int pos, CSTR oldlinebody, CSTR newlinebody) {
     return 0;
 }
 
+namespace {
+
+bool IsCommandIndexField(const char* command, int column) {
+    if (!command || !*command || column <= 0 || column >= 30) return false;
+    CSTR help = GetCommandHelp(command, column);
+    help.trimWhiteSpace();
+    const char* label = help.body ? help.outstr() : "";
+    if (*label == '$') ++label;
+    return _stricmp(label, "index") == 0;
+}
+
+int FindCommandIndexColumn(const char* command) {
+    for (int column = 1; column < 30; ++column)
+        if (IsCommandIndexField(command, column)) return column;
+    return -1;
+}
+
+bool CommandBelongsToObjectGroup(const SEObjectGroupDef* group,
+    const char* command) {
+    if (!group || !command || !*command) return false;
+    return std::find(group->commands.begin(), group->commands.end(),
+        command) != group->commands.end();
+}
+
+void CollectLinkedObjectIndexTargets(WORKSPACE& workspace, int sourceRow,
+    int sourceColumn, std::vector<std::pair<int, int> >& targets) {
+    targets.clear();
+    targets.push_back(std::make_pair(sourceRow, sourceColumn));
+
+    SKINFILELINEREAD& source =
+        ((SKINFILELINEREAD*)workspace.skinfileLines.data)[sourceRow];
+    const char* sourceCommand = source.csv.str[0].body
+        ? source.csv.str[0].outstr() : "";
+    if (!IsCommandIndexField(sourceCommand, sourceColumn)) return;
+
+    const std::vector<SEObjectInstance>& objects =
+        workspace.objectEditorModel.Objects();
+    const int modelIndex = SEFindObjectForRow(objects, sourceRow);
+    if (modelIndex < 0 || modelIndex >= (int)objects.size()) return;
+
+    const SEObjectInstance& object = objects[modelIndex];
+    const auto appendTarget = [&](int row) {
+        if (row < 0 || row >= workspace.skinfileLines.count) return;
+        SKINFILELINEREAD& candidate =
+            ((SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        const char* command = candidate.csv.str[0].body
+            ? candidate.csv.str[0].outstr() : "";
+        const int indexColumn = FindCommandIndexColumn(command);
+        if (indexColumn < 0) return;
+        const std::pair<int, int> target(row, indexColumn);
+        if (std::find(targets.begin(), targets.end(), target) == targets.end())
+            targets.push_back(target);
+    };
+    for (int row : object.rows) appendTarget(row);
+
+    // A document edited by an older build may already have a SRC index which
+    // no longer matches its following DST rows. In that state the Object model
+    // necessarily exposes a source-only instance. Recover the immediately
+    // following destination run from the same command group so changing the
+    // SRC index again repairs, rather than further splits, the copied Object.
+    if (targets.size() == 1 && strncmp(sourceCommand, "#SRC", 4) == 0) {
+        const SEObjectGroupDef* group =
+            workspace.objectEditorModel.Group(object.group);
+        const std::string owner = source.filename.body
+            ? source.filename.outstr() : "";
+        for (int row = sourceRow + 1; row < workspace.skinfileLines.count;
+            ++row) {
+            SKINFILELINEREAD& candidate =
+                ((SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+            const std::string candidateOwner = candidate.filename.body
+                ? candidate.filename.outstr() : "";
+            if (_stricmp(owner.c_str(), candidateOwner.c_str()) != 0 ||
+                candidate.ifgroup != source.ifgroup)
+                break;
+
+            const char* text = candidate.line.body
+                ? candidate.line.outstr() : "";
+            const char* command = candidate.csv.str[0].body
+                ? candidate.csv.str[0].outstr() : "";
+            if (!*text || strncmp(text, "//", 2) == 0) continue;
+            if (strncmp(text, "$SE_OBJECT_ID,", 14) == 0 ||
+                strncmp(text, "$SE_OBJECT_NAME,", 16) == 0)
+                break;
+            if (!CommandBelongsToObjectGroup(group, command)) break;
+            if (strncmp(command, "#SRC", 4) == 0) break;
+            if (strncmp(command, "#DST", 4) != 0) break;
+            appendTarget(row);
+        }
+    }
+}
+
+} // namespace
+
 int WORKSPACE::EditValue(int pos, int column, const char* newVal) {
+    if (pos < 0 || pos >= skinfileLines.count || column < 0 || column >= 30 ||
+        newVal == NULL)
+        return -1;
 
-    if (pos < 0 || pos >= skinfileLines.count || column < 0 || column >= 30 || newVal == NULL) return -1;
+    std::vector<std::pair<int, int> > targets;
+    CollectLinkedObjectIndexTargets(*this, pos, column, targets);
+    int historyEditCount = 0;
+    bool structuralChange = false;
+    for (const std::pair<int, int>& target : targets) {
+        SKINFILELINEREAD& line =
+            ((SKINFILELINEREAD*)skinfileLines.data)[target.first];
+        CSTR oldLine(line.line);
 
-    SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[pos];
-    CSTR oldLine(line.line);
+        line.csv.str[target.second].assign(newVal);
+        line.csv.val[target.second] = atol(newVal);
+        if (line.csvColumnCount < target.second + 1)
+            line.csvColumnCount = target.second + 1;
+        line.modified = true;
+        CsvToLine(target.first);
 
-    line.csv.str[column].assign(newVal);
-    line.csv.val[column] = atol(newVal);
-    if (line.csvColumnCount < column + 1) line.csvColumnCount = column + 1;
-    line.modified = true;
-    CsvToLine(pos);
-
-    if (!applyingHistory) {
-        HISTORY* hs = (HISTORY*)arr_history.Get_new();
-        hs->op = overwriteLine;
-        hs->target = pos;
-        hs->older.line.assign(oldLine);
-        hs->newer.line.assign(line.line);
+        if (!applyingHistory) {
+            HISTORY* history = (HISTORY*)arr_history.Get_new();
+            if (history) {
+                history->op = overwriteLine;
+                history->target = target.first;
+                history->older.line.assign(oldLine);
+                history->newer.line.assign(line.line);
+                ++historyEditCount;
+            }
+        }
+        if (target.second == 0) structuralChange = true;
+    }
+    if (!applyingHistory && historyEditCount > 1) {
+        HISTORY* grouped = (HISTORY*)arr_history.Get_new();
+        if (grouped) {
+            grouped->op = group;
+            grouped->target = historyEditCount;
+        }
     }
 
-    NotifyDocumentChanged(column == 0
+    NotifyDocumentChanged(structuralChange
         ? DOCUMENT_CHANGE_STRUCTURE : DOCUMENT_CHANGE_VALUE);
-
     return 0;
 }
+
 int WORKSPACE::EditValue(int pos, int column, int newVal) {
-
-    if (pos < 0 || pos >= skinfileLines.count || column < 0 || column >= 30) return -1;
-
-    SKINFILELINEREAD& line = ((SKINFILELINEREAD*)skinfileLines.data)[pos];
-    CSTR oldLine(line.line);
-    line.csv.str[column].resize(12);
-    ltoa(newVal, line.csv.str[column], 10);
-    line.csv.val[column] = newVal;
-    if (line.csvColumnCount < column + 1) line.csvColumnCount = column + 1;
-    line.modified = true;
-    CsvToLine(pos);
-
-    if (!applyingHistory) {
-        HISTORY* hs = (HISTORY*)arr_history.Get_new();
-        hs->op = overwriteLine;
-        hs->target = pos;
-        hs->older.line.assign(oldLine);
-        hs->newer.line.assign(line.line);
-    }
-
-    NotifyDocumentChanged(column == 0
-        ? DOCUMENT_CHANGE_STRUCTURE : DOCUMENT_CHANGE_VALUE);
-
-    return 0;
+    char value[16];
+    _snprintf_s(value, sizeof(value), _TRUNCATE, "%d", newVal);
+    return EditValue(pos, column, value);
 }
 
-int WORKSPACE::UndoLastEdit() {
+static int UndoHistoryEntry(WORKSPACE& workspace) {
+    ARR& arr_history = workspace.arr_history;
     if (arr_history.count <= 0) return -1;
 
     HISTORY& history = ((HISTORY*)arr_history.data)[arr_history.count - 1];
@@ -2408,34 +2921,38 @@ int WORKSPACE::UndoLastEdit() {
     if (operation == group) {
         if (target <= 0 || target > arr_history.count) return -1;
         for (int edit = 0; edit < target; ++edit) {
-            if (UndoLastEdit() != 0) return -1;
+            if (UndoHistoryEntry(workspace) != 0) return -1;
         }
         return 0;
     }
 
-    applyingHistory = true;
+    workspace.applyingHistory = true;
     int result = 0;
     if (operation == overwriteLine) {
-        if (target < 0 || target >= skinfileLines.count) result = -1;
+        if (target < 0 || target >= workspace.skinfileLines.count) result = -1;
         else {
-            CSTR currentLine(((SKINFILELINEREAD*)skinfileLines.data)[target].line);
-            result = EditLine(target, currentLine, oldLine);
+            CSTR currentLine(
+                ((SKINFILELINEREAD*)workspace.skinfileLines.data)[target].line);
+            result = workspace.EditLine(target, currentLine, oldLine);
         }
     } else if (operation == insertLine) {
-        result = DeleteLine(target);
+        result = workspace.DeleteLine(target);
     } else if (operation == removeLine) {
-        result = InsertLine(target);
+        result = workspace.InsertLine(target);
         if (result == 0) {
-            CSTR insertedLine(((SKINFILELINEREAD*)skinfileLines.data)[target].line);
-            result = EditLine(target, insertedLine, oldLine);
+            CSTR insertedLine(
+                ((SKINFILELINEREAD*)workspace.skinfileLines.data)[target].line);
+            result = workspace.EditLine(target, insertedLine, oldLine);
         }
     } else if (operation == moveLine || operation == restoreDocument) {
-        if (target >= 0 && target < (int)historyDocumentSnapshots.size()) {
+        if (target >= 0 &&
+            target < (int)workspace.historyDocumentSnapshots.size()) {
             // Undo can be requested after Preview/ImageManager have already
             // submitted texture commands this frame. Restore at the next
             // frame boundary so the derived texture arrays can be rebuilt
             // before any window draws.
-            pendingHistorySnapshotRestore = target;
+            workspace.pendingHistorySnapshotRestore = target;
+            workspace.pendingHistorySnapshotPreservesRedo = true;
             result = 0;
         } else {
             result = -1;
@@ -2443,10 +2960,64 @@ int WORKSPACE::UndoLastEdit() {
     } else {
         result = -1;
     }
-    applyingHistory = false;
+    workspace.applyingHistory = false;
 
     if (result == 0 && operation != moveLine && operation != restoreDocument)
-        RestoreObjectSelection();
+        workspace.RestoreObjectSelection();
+    return result;
+}
+
+int WORKSPACE::UndoLastEdit() {
+    if (arr_history.count <= 0 || pendingHistorySnapshotRestore >= 0)
+        return -1;
+
+    const SkinDocumentSnapshot redoState = CaptureDocumentSnapshot();
+    const bool previousReplayState = replayingHistory;
+    replayingHistory = true;
+    const int result = UndoHistoryEntry(*this);
+    replayingHistory = previousReplayState;
+    if (result == 0) redoDocumentSnapshots.push_back(redoState);
+    return result;
+}
+
+int WORKSPACE::RedoLastEdit() {
+    if (redoDocumentSnapshots.empty() || pendingHistorySnapshotRestore >= 0)
+        return -1;
+
+    const SkinDocumentSnapshot undoState = CaptureDocumentSnapshot();
+    const SkinDocumentSnapshot redoState = redoDocumentSnapshots.back();
+    redoDocumentSnapshots.pop_back();
+
+    const int undoSnapshotIndex = (int)historyDocumentSnapshots.size();
+    historyDocumentSnapshots.push_back(undoState);
+    HISTORY* history = (HISTORY*)arr_history.Get_new();
+    if (!history) {
+        redoDocumentSnapshots.push_back(redoState);
+        historyDocumentSnapshots.pop_back();
+        return -1;
+    }
+    history->op = restoreDocument;
+    history->target = undoSnapshotIndex;
+
+    pendingHistorySnapshotRestore = (int)historyDocumentSnapshots.size();
+    historyDocumentSnapshots.push_back(redoState);
+    pendingHistorySnapshotPreservesRedo = true;
+    return 0;
+}
+
+int WORKSPACE::ApplyPendingHistorySnapshotRestore() {
+    if (pendingHistorySnapshotRestore < 0) return -1;
+    const int snapshotIndex = pendingHistorySnapshotRestore;
+    const bool preserveRedo = pendingHistorySnapshotPreservesRedo;
+    pendingHistorySnapshotRestore = -1;
+    pendingHistorySnapshotPreservesRedo = false;
+    if (snapshotIndex >= (int)historyDocumentSnapshots.size()) return -1;
+
+    const bool previousReplayState = replayingHistory;
+    if (preserveRedo) replayingHistory = true;
+    const int result = RestoreDocumentSnapshot(
+        historyDocumentSnapshots[snapshotIndex]);
+    replayingHistory = previousReplayState;
     return result;
 }
 

@@ -12,6 +12,8 @@ struct SEObjectInstance {
     int group = -1;
     int ifgroup = 0;          // branch this object belongs to; 0 = unconditional
     int branchHeaderRow = -1; // #IF/#ELSEIF/#ELSE row, UI metadata only
+    int drawOrder = -1;       // global back-to-front rank; -1 when there is no DST
+    int firstDstRow = -1;     // first DST declaration used to derive LR2 draw order
     std::vector<int> rows;    // NEVER contains control-flow rows
     std::string name;         // explicit name or command-specific symbolic source name
     std::string editorId;     // persistent $SE_OBJECT_ID

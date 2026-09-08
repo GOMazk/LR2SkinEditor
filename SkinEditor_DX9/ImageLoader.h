@@ -2,6 +2,18 @@
 #include "imgui/imgui.h"
 #include <D3dx9tex.h>
 #include <d3d9.h>
+#include <vector>
+#include <string>
+
+struct TransparentAssetCrop {
+    int x = 0, y = 0, w = 0, h = 0;
+    bool selected = true;
+};
+bool FindTransparentAssetCrops(PDIRECT3DTEXTURE9 texture,
+    std::vector<TransparentAssetCrop>& crops, std::string& error);
+// Expand from (x0,y0), or trim the half-open rectangle [x0,x1) x [y0,y1).
+bool FindImageAssetRegion(PDIRECT3DTEXTURE9 texture, int x0, int y0, int x1, int y1,
+    bool expand, TransparentAssetCrop& crop, std::string& error);
 #pragma comment(lib, "D3dx9")
 
 typedef struct D3Image {

@@ -22,6 +22,7 @@
 
 #include "winWorkspace.h"
 #include "seHelper.h"
+#include "seLocalization.h"
 #include "seUI.h"
 #include "selfTests.h"
 #include "uiCatalog.h"
@@ -70,6 +71,7 @@ static void DrawHelpWindow(bool* open)
 // Main code
 int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
 {
+    SELoadUILanguageSetting();
     if (cmdline && strstr(cmdline, "--self-test-schema-contract"))
         return RunSchemaContractSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-ui-contract"))
@@ -84,6 +86,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunOlrPackageSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-simple-mode"))
         return RunSimpleModeProjectionSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-simple-selection"))
+        return RunSimpleSelectionSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-reload-lifecycle"))
         return RunWorkspaceReloadLifecycleSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-dst-color"))
@@ -113,8 +117,26 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return 1;
     }
 
+    if (cmdline && strstr(cmdline, "--self-test-font-atlas")) {
+        int result = RunFontAtlasSelfTest();
+        if (!result) {
+            const int integration = RunSimpleFontApplySelfTest();
+            if (integration) result = 50 + integration;
+        }
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        return result;
+    }
     if (cmdline && strstr(cmdline, "--self-test-pixel-paint")) {
         const int result = RunPixelPaintSelfTest();
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        return result;
+    }
+    if (cmdline && strstr(cmdline, "--self-test-layout-first")) {
+        const int result = RunLayoutFirstObjectSelfTest();
         CleanupDeviceD3D();
         ::DestroyWindow(hwnd);
         ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
@@ -291,8 +313,10 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         if (ImGui::BeginMainMenuBar()) {
             ImGui::TextColored(SEUI::Colors::Accent(), "LR2 Skin Editor");
             ImGui::Separator();
-            if (ImGui::BeginMenu("Workspace")) {
-                if (ImGui::MenuItem("New Workspace", NULL, false, true)) {
+            if (ImGui::BeginMenu(SEText("Workspace",
+                u8"\uC791\uC5C5\uACF5\uAC04"))) {
+                if (ImGui::MenuItem(SEText("New Workspace",
+                    u8"\uC0C8 \uC791\uC5C5\uACF5\uAC04"), NULL, false, true)) {
                     workspaceList.push_back(std::unique_ptr<WORKSPACE>(new WORKSPACE()));
                     WORKSPACE* work = workspaceList.back().get();
                     work->alive = true;
@@ -304,6 +328,20 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
                 for (int i = 0; i < (int)workspaceList.size(); i++) {
                     WORKSPACE& workspace = *workspaceList[i];
                     ImGui::MenuItem(workspace.title, NULL, &workspace.alive);
+                }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu(SEText("Settings", u8"\uC124\uC815"))) {
+                if (ImGui::BeginMenu(SEText("Language", u8"\uC5B8\uC5B4"))) {
+                    const SEUILanguage language = SEGetUILanguage();
+                    if (ImGui::MenuItem(SEText("English", u8"\uC601\uC5B4"),
+                        NULL, language == SEUILanguage::English))
+                        SESetUILanguage(SEUILanguage::English);
+                    if (ImGui::MenuItem(SEText("Korean", u8"\uD55C\uAD6D\uC5B4"),
+                        NULL, language == SEUILanguage::Korean))
+                        SESetUILanguage(SEUILanguage::Korean);
+                    ImGui::EndMenu();
                 }
                 ImGui::EndMenu();
             }

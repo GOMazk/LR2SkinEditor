@@ -11,6 +11,24 @@
 
 ## 1. 제품 목표
 
+Object Browser의 File 필터는 All files 또는 원본 CSV 소유 경로를 선택한다.
+Type/Group/Active/Search와 교집합으로 적용하며 전체 스킨 Preview는 바꾸지 않는다.
+Text Editor도 같은 파일 범위로 표시하고 파일 변경 시 해당 파일 첫 행으로 이동한다.
+New in file은 선택 파일의 end marker 앞(그 위치의 IF 문맥)에 생성한다. 특정 분기
+안에 넣을 때는 기존 Branch/Object 우클릭 생성을 사용한다. Asset drop은 기존 이미지
+선언 순서 보호를 유지하므로 File 필터만으로 삽입 위치를 강제하지 않는다.
+외부 Preview 선택 요청은 파일 필터가 켜져 있으면 해당 Object 파일로 따라간다.
+새 스킨 load 또는 선택 파일 소멸 시 All files로 복귀한다. CSV/History는 필터 변경에
+영향받지 않으며 filename 전체 경로를 식별자로 사용한다.
+
+Object Browser의 `Split to new CSV...`는 동일 원본 파일/IF 안에서 연속된 선택
+Object를 새 sibling CSV로 분리한다. 원래 자리에 INCLUDE를 넣고 SRC/DST와 Object
+ID/이름을 함께 이동하므로 선언 순서를 보존한다. 이미지 선언/파일은 이동하지 않는다.
+파일명은 영문/숫자/밑줄/하이픈의 새 .csv만 허용한다. 기존 파일 덮어쓰기, 여러 파일/
+분기 및 중간 명령/그룹을 가로지르는 선택, virtual OLR workspace는 차단한다.
+`Split and save`는 다른 미저장 script 변경도 함께 저장한다. 단일 snapshot Undo 후
+다시 Save하면 include 연결을 되돌리며, 이미 생성된 CSV는 복구용으로 남긴다.
+
 SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가능한 Object로
 다루는 것을 목표로 한다. 한 CSV 행은 여전히 저장의 원본이며 Object Model은
 그 행을 해석해 Browser, Inspector, Preview, Image Manager와 DST View가 공유하는
@@ -33,7 +51,7 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
 - Object/Command 생성, 이름 지정, SRC/DST 속성 편집
 - FAST/SLOW를 특별 예외가 아닌 NUMBER Object로 취급
 - `$num/$type/$timer/$op/$st` 이름을 ID 또는 이름으로 검색하는 ComboBox
-- Asset crop을 Preview에 놓은 뒤 IMAGE/NUMBER/SLIDER/BUTTON 중 Object 종류 선택
+- Asset crop을 Preview에 놓은 뒤 schema-compatible image Object 종류 선택
 - Preview에서 선택 Object 이동, 키보드 미세 이동 및 첫 DST rectangle resize
 - Object Inspector의 Layout / Timeline / Conditions semantic 편집과 DST 프레임 증감
 - Ctrl+Z 기반 CSV/구조 편집 복구
@@ -41,6 +59,14 @@ SkinEditor는 LR2 스킨 스크립트를 단순 CSV 표가 아니라 편집 가�
   같은 분류의 기존 Asset으로 교체하거나 이미지를 `simple-assets`에 가져오기.
   노트는 선택 레인, 같은 흰/검/스크래치 계열, 같은 파트 전체 또는 category 전체,
   폰트는 1P/2P pair 단위로 적용 범위를 고를 수 있으며 DST/조건은 유지
+- SELECT 스킨의 Simple Mode에서 곡 목록·강조·곡 정보·그래프·버튼·장식 및 현재
+  Object 선택을 묶어 배치/색조/투명도를 편집하고, 이벤트 시점별 페이드/슬라이드/
+  반복 점멸을 적용·재생한다. 기존 애니메이션 교체는 UI에서 명시하며 단일 Undo를
+  사용한다. OLRskin 0.9 계약은 유지한다. [선곡 화면 편집](SIMPLE_SELECTION.md)
+- 숫자/콤보/판정의 이미지 교체 및 TTF의 투명 PNG 생성·미리보기·색상/테두리/그림자
+  설정. 같은 판정 index/owner/IF의 player pair만 자동 연결하며 graphic 선언 순서를
+  보존한다. OLRskin 0.9 포맷은 변경하지 않는다.
+  [폰트 교체 사용법과 구조](SIMPLE_FONT_REPLACEMENT.md)
 - 가져온 이미지에 선택 component의 `div_x/div_y/cycle`을 자동 적용하고 frame grid로
   균등 분할되지 않는 이미지는 수정 전에 거부. 기존 atlas grid가 같은 후보만 필터 가능
 - Hue/Saturation/Brightness 변형을 원본 atlas에 쓰지 않고 crop한 새 PNG로 만든 뒤
@@ -352,8 +378,16 @@ Object Inspector는 이 네 숫자 입력을 `ARGB` 색상 선택기 하나로 �
 
 주요 규칙:
 
-- 명령 도움말에서 1번 열이 명시적으로 `index`인 그룹은 `(ifgroup, index)`로
-  행을 묶는다.
+- 명령 도움말에서 1번 열이 명시적으로 `index`인 legacy 그룹은
+  `(ifgroup, index)`로 행을 묶는다. `$SE_OBJECT_ID`가 붙은 블록은 ID도 묶음
+  경계로 사용하므로 같은 index의 Object를 복제해도 복제본의 SRC와 전체 DST가
+  원본 Object 안으로 합쳐지지 않는다. 이전 동작으로 한 ID 아래
+  `SRC/DST/.../SRC/DST`가 반복된 경우도 DST 뒤 같은 SRC가 다시 시작되는 지점에서
+  별도 Object로 복구해 표시한다.
+- Object Inspector에서 indexed Object의 `index`를 바꾸면 해당 Object에 속한
+  SRC와 모든 DST frame의 `index`를 한 번의 History 작업으로 함께 바꾼다. 이전
+  버전에서 SRC만 변경되어 이미 분리된 블록도 SRC 바로 뒤의 같은 command group
+  DST run을 다시 연결해 편집한다.
 - NOTE 계열처럼 도움말이 불완전해도 여러 SRC/DST 명령 종류가 동일 숫자 인덱스를
   공유하면 indexed group으로 취급한다.
 - index가 없는 그룹은 각 SRC부터 다음 SRC 전까지의 DST를 한 Object로 묶는다.
@@ -430,7 +464,7 @@ DST View는 조건 Branch 활성 여부와 무관하게 선택한 SRC/DST의 텍
 기존 Object Editor의 좌우 영역은 독립 도킹 창으로 분리되었다.
 
 - **Object Browser**: Type/사용자 그룹/Search/활성 Object 필터, 조건 트리,
-  다중 선택, 생성·삭제 Context menu
+  다중 선택, 생성·삭제와 Copy/Paste/Duplicate Context menu
 - **Object Inspector**: Name, Tagged image, SRC와 semantic Layout/Timeline/Conditions
   편집. `Advanced LR2`는 지원 범위 밖 필드의 compatibility escape hatch
 
@@ -455,6 +489,13 @@ Browser 선택:
 - Delete: 활성 Object의 종류와 이름을 확인하는 modal을 거친 뒤 삭제한다. 입력
   field나 다른 modal이 활성화된 동안에는 Delete shortcut을 받지 않는다.
 - 우클릭 `Remove Object`도 같은 확인 modal과 CSV/History 삭제 경로를 사용한다.
+- 우클릭 `Create Object (duplicate)`는 선택 Object의 SRC와 모든 DST 행을 한 번에
+  복사하고 새 `$SE_OBJECT_ID`를 붙인다. indexed Object도 이 ID 경계로 원본과
+  복제본을 각각 한 Object로 유지한다.
+- Ctrl+C는 선택 Object 행을 앱 내부 clipboard에 복사하고, Ctrl+V는 활성 Object의
+  include owner와 IF Branch 뒤에 새 `$SE_OBJECT_ID`로 붙여넣는다. Ctrl+D는 clipboard를
+  바꾸지 않고 현재 선택을 복제한다. 다중 선택은 문서 행 순서를 유지하며 전체 작업은
+  한 번의 Undo/Redo 문서 snapshot이다.
 
 Browser 순서 변경:
 
@@ -469,6 +510,36 @@ Browser 순서 변경:
   이전 행/texture 인덱스를 참조하지 않게 한다.
 
 ### New Object / New Command
+
+#### Layout-first IMAGE core
+
+`WORKSPACE::CreateImageObjectFromLayout()`은 먼저 정한 DST `x/y/w/h`로
+image-backed Object를 생성한다. 기본 IMAGE는 같은 크기의 투명 PNG를 main skin 폴더에 고유 이름으로
+만들고, 기존 `RegisterGeneratedImage()`로 `#IMAGE`와 `$SRC_IMAGE` crop을 등록한다.
+SRC는 `(0,0,w,h)`, `div_x=div_y=1`, DST는 지정한 위치·크기와 불투명 ARGB,
+timer/OP 0으로 생성한다. PNG 내용은 기존 Pixel Paint에서 나중에 그릴 수 있다.
+
+기본 대상은 root ALWAYS이며 `afterObject`를 지정하면 그 Object의 파일/branch
+바로 뒤에 SRC/DST를 생성한다. graphic 선언은 root에 둔다. 생성은 새 Object ID,
+선택 복원 및 단일 snapshot Undo/Redo를 사용한다. Undo는 문서 참조만 되돌리고 PNG는
+유지하므로 이후 그린 그림과 Redo가 보존된다. 실패하면 이번에 생성한 PNG와 문서
+변경을 복구한다. 크기는 양수, 한 변 16384 이하 및 전체 16메가픽셀 이하로 제한한다.
+
+Asset Browser 빈 공간 우클릭의 `New blank image Object...`에서 Name, 위치 X/Y,
+크기 W/H를 입력해 생성한다. Asset이 없거나 검색 결과가 비어 있어도 사용할 수 있다.
+기본은 main skin / ALWAYS이며 선택 Object의 파일·IF 뒤에 생성하는 옵션을 제공한다.
+`Open Pixel Paint after creation`은 기본 켜짐이며 새 이미지를 선택해 Image Manager의
+Pixel Paint를 연다. 끄면 Preview로 이동해 선택 사각형으로 배치를 확인한다.
+Type에서 IMAGE, NUMBER, SLIDER, BUTTON, BARGRAPH를 고른다. IMAGE 등은 DST 한 칸
+크기에 div_x/div_y를 곱한 투명 sheet를 만들고 cycle을 SRC와 Asset metadata에 쓴다.
+NUMBER는 왼쪽부터 0~9를 그릴 10칸이며 W/H는 숫자 한 자리의 크기다. keta와
+NUMBER 전용 align을 별도로 설정한다. Value는 기존 command-value 콤보를 사용한다.
+BUTTON 기본 sheet는 두 상태이며 click/panel 등 추가 설정은 Inspector에서 편집한다.
+`Draw rectangle in Preview`는 zoom/scroll을 반영해 양방향 드래그로 위치와 한 칸
+크기를 지정한 뒤 같은 모달로 돌아온다. Escape/Cancel placement는 배치만 취소하고
+입력한 설정을 유지한다. 이 모드에서는 기존 선택 Object 이동/리사이즈와 Asset drop을
+받지 않는다. 최종 Create 전에는 CSV/PNG/History를 변경하지 않는다.
+새 metadata field나 OLRskin 0.9 포맷 변경은 없다.
 
 우클릭 메뉴에서 둘 다 유지한다.
 
@@ -556,13 +627,31 @@ Ctrl+MouseWheel로 확대/축소한다.
 - TEXT의 `align`은 NUMBER와 달리 `0=left`, `1=middle`, `2=right`이며 DST `x`를
   문자열 anchor로 사용한다. 경계는 LR2가 폰트와 DST `w/h`에서 계산하는 실제 출력
   폭으로 맞추고, middle/right에서는 각각 그 폭의 절반/전체만큼 왼쪽으로 이동한다.
+- GROOVEGAUGE의 경계는 첫 DST 한 칸이 아니라 LR2가 `SRC add_x/add_y` 간격으로
+  반복 출력하는 50칸 전체의 외곽 영역이다. 음수 간격도 같은 방식으로 포함한다.
 - 선택한 Object 위에서 좌클릭 drag하면 해당 Object의 모든 선택 대상 DST 좌표를
   이동한다.
 - 한 Object를 선택하면 첫 DST 우하단에 흰 handle이 나타난다. handle drag는 첫
   destination rectangle의 `w/h(or size)`만 바꾸며 최소 절대 크기 1을 유지한다.
 - 방향키 이동도 동일 CSV 편집/History 경로를 사용한다.
+- Shift를 누른 drag/resize는 Preview toolbar에서 고른 1/2/4/8/10/16/32px grid에
+  맞춘다. Shift+방향키는 같은 간격만큼 이동한다.
+- 선택 좌표는 Preview 오른쪽 아래의 고정 화면 크기 X/Y meter로 표시한다. 반투명
+  암색 배경, 검은 외곽과 밝은 안쪽 테두리를 함께 사용해 스킨 색과 무관하게 보인다.
+- F11은 Preview canvas를 main viewport 전체화면으로 전환하고 F11 또는 Escape로
+  원래 dock layout에 돌아온다.
 - Ctrl+Z 후 Preview object와 점멸 사각형이 어긋나지 않도록 모델과 Preview의
   파생 데이터를 함께 invalidate/rebuild한다.
+
+History는 Ctrl+Z Undo와 Ctrl+Y/Ctrl+Shift+Z Redo를 제공한다. 새 편집을 시작하면
+Redo branch를 버리며, 복합 Object/Preview 작업은 한 번의 사용자 작업으로 묶는다.
+상단 Settings > Language에서 English/Korean을 선택할 수 있고 선택값은 사용자별
+설정 파일에 저장된다. 이 설정은 UI label만 바꾸며 LR2 CSV/CP932 데이터에는 영향을
+주지 않는다.
+
+Timer Control의 `Reset preview`는 재생을 종료하고 로드 직후의 정적 노트/LN/지뢰
+샘플로 돌아간다. 일시정지가 아니며 runtime timer/OP 상태도 초기화한다.
+CSV, History, 선택 Object와 Simple/Full 설정은 보존하고 Restart scene으로 다시 재생한다.
 
 Preview 캔버스에는 Object 확인·선택·배치 기능만 둔다. scene restart와 timer 조작은
 독립된 **Timer Control** 도킹 창에 둔다. 이 창은 scene runtime
@@ -594,7 +683,15 @@ Object만 목록에 표시한다. 각 항목은 Object 모델의 대응 SRC 명�
 thumbnail을 만든다. 항목 hover 시 얇은 노란 점멸 사각형으로 위치를 표시하고,
 클릭 시 Browser/Inspector/DST View 선택을 동기화한다. LR2는 뒤쪽 CSV DST를 나중에
 그려 앞에 배치하므로, 겹친 후보 목록도 이 순서를 뒤집어 가장 앞에 보이는 Object부터
-표시한다.
+표시한다. 후보와 DST frame은 순차 `arr_DST`가 아니라 각 Object 모델이 직접 소유한
+CSV 행에서 만든다. 따라서 해당 cache에서 제외되는 BGA 배경과 특수/indexed SRC 뒤의
+GROOVEGAUGE도 다른 Object로 잘못 연결되지 않는다. hit-test와 hover 사각형은 선택
+점멸 사각형과 같은 frame 영역 계산을
+사용하므로 NUMBER는 한 glyph의 `DST w`가 아니라 `DST w * keta` 전체를 검사하고,
+TEXT는 실제 문자열 폭과 전용 align 보정을 반영한다. 글꼴이나 문자열 폭을 아직
+계산할 수 없는 frame도 DST w를 대체 폭으로 삼아 `0=left`, `1=middle`,
+`2=right` anchor 보정은 유지한다. GROOVEGAUGE도 `add_x/add_y`로 배치되는 50칸
+전체를 검사한다.
 
 ### 이미지 번호와 텍스처 선택
 
@@ -686,11 +783,17 @@ LR2의 전체 cycle 시간에 맞춰 분할 frame을 행 우선 순서로 재생
 Asset card를 Preview로 drag하면 Preview 확대율/스크롤을 반영한 스킨 좌표에
 반투명 crop ghost가 표시된다. SRC에 `div_x/div_y`가 있으면 전체 sheet가 아니라
 현재 animation frame 한 칸의 UV와 크기를 ghost에 사용한다. Drop 시 CSV를 즉시
-추가하지 않고 기존 New Object 창을 연다. 이 modal의 Object type은
-IMAGE/NUMBER/SLIDER/BUTTON 네 가지이며, 종류를 바꿔도 Asset의 `gr/x/y/w/h`와
-`div_x/div_y/cycle/timer`, Drop 위치가 유지된다. 대응하는 SRC/DST command를
+추가하지 않고 기존 New Object 창을 연다. 이 modal은 `gr/x/y/w/h` crop schema와
+같은 이름의 단일 DST 명령을 가진 Object type을 자동으로 표시한다.
+IMAGE/NUMBER/SLIDER/BUTTON뿐 아니라 BARGRAPH, ONMOUSE, MOUSECURSOR, BAR 표시 계열,
+LINE/JUDGELINE, NOWJUDGE/NOWCOMBO, GROOVEGAUGE와 CHART 계열을 선택할 수 있다.
+종류를 바꿔도 Asset의 `gr/x/y/w/h`와 `div_x/div_y/cycle/timer`, Drop 위치가
+유지된다. 대응하는 SRC/DST command를
 만들고 현재 선택 Object의 IF branch를 사용한다. New Object의 SRC에는 원본
 분할/animation 값을 유지하고 DST 크기는 한 frame 크기로 초기화한다.
+여러 DST가 필요하거나 공용 DST를 쓰는 BAR_BODY, EVENT_MODE_CURSOR, NOTE/MINE/LN
+계열은 전용 생성 recipe가 필요하므로 이 직접 생성 목록에서 제외한다. TEXT/BGA처럼
+이미지 crop을 SRC로 소비하지 않는 타입도 표시하지 않는다.
 Asset이 실제 SRC 선언에서 만들어졌고 새 Object type도 같은 command라면 공통
 crop뿐 아니라 command-specific 필드도 schema 이름으로 복사한다. 따라서 기존
 NUMBER Asset은 `num/align/keta`, SLIDER/BUTTON Asset은 각 type 관련 값을 유지한다.
@@ -724,6 +827,22 @@ replace한다. 최초 저장 전 같은 경로에 `.skineditor-pixel.bak` 원본
 `Revert`는 저장하지 않은 texture 변경을 디스크 상태로 되돌린다. 같은 파일을
 공유하는 다른 `SRCGR` texture에도 편집 pixel을 동기화하며 저장 후 Preview runtime을
 다시 불러온다. 현재 직접 편집은 lock 가능한 32-bit D3D texture에 한정한다.
+
+ImageManager의 `Add image...`는 기존 이미지 파일을 고른 뒤 대상 논리 gr를 선택하는
+modal에서 `Auto crops from transparent spacing`을 지원한다. alpha=0을 여백으로,
+8방향으로 연결된 alpha>0 픽셀마다 최소 사각형을 검출한다. 원본 파일은 수정하지
+않으며 Object 없이 선택한 `$SRC_IMAGE`만 저장한다. 후보 사각형 클릭 또는 목록
+체크로 제외할 수 있다. 불투명 이미지는 전체 한 후보, 완전 투명은 후보 0개다.
+떨어진 글자 획은 별도 후보가 될 수 있다. 16메가픽셀/1024후보 한도를 넘으면 자동
+분할을 중단하고 전체 이미지 등록을 안내한다. 등록은 단일 snapshot Undo이며
+중간 실패 시 문서를 복구한다. 이번 기능에는 새 격자 분할을 추가하지 않는다.
+
+Image Manager atlas에서 Pixel paint가 꺼져 있을 때 더블클릭하면 해당 불투명 픽셀의
+8방향 연결 영역을 확장 탐색해 Asset으로 등록한다. 좌클릭 드래그는 지정 범위 안의
+alpha>0 픽셀을 모두 감싸는 사각형으로 투명 여백을 줄여 하나의 Asset으로 등록한다.
+단일 클릭은 기존 선택이며, 같은 crop은 중복 생성하지 않는다. Escape는 드래그를
+취소한다. 기존 New 메뉴도 이 제스처 안내로 연결된다. 완전 투명한 픽셀/범위는
+등록하지 않는다. 연속등록 모드는 없고 원본 이미지는 변경하지 않는다.
 
 ImageManager의 `Add image...`는 기존 이미지 파일을 고른 뒤 대상 논리 gr를 선택하는
 modal을 연다. 목록에는 각 `#IMAGE`의 gr, Fixed/Wildcard 여부, IF group과 원본 경로가
@@ -916,6 +1035,18 @@ FMOD는 delay-load이며 Preview 진입 시 오디오 경로를 비활성화한�
 재생 기능을 다시 활성화하는 경우 DLL 의존성을 별도로 재검증해야 한다.
 
 ## 8. 현대화 UI 구조
+
+스킨을 열 때 Preview는 실제 캔버스 영역에 맞춰 전체 스킨을 표시하며 작은 스킨은
+100%보다 확대하지 않는다. 화면 맞춤은 도킹/전체화면 크기를 따라가고 수동 배율,
+Ctrl+휠 또는 100%를 선택하면 수동 모드로 전환한다. 캔버스만 스크롤하며 도구 모음은
+고정된다. 기본 Browser/Inspector 폭은 각각 약 17%, 중앙은 약 54%이며 중앙 하단
+Asset Browser는 23% 높이를 사용한다. 선택이 없는 Inspector에는 선택 방법을 안내한다.
+
+Object Browser는 좁은 창에서 그리기 순서/활성 필터를 별도 행에 표시하고,
+높이가 부족하면 필터 영역을 독립 스크롤한다. `Ctrl+F` 검색과 `Esc` 검색어 지우기,
+선택을 유지하는 필터 초기화, 활성 필터까지 적용한 결과/전체 개수 및 빈 결과 안내를
+제공한다. CP932 이름과 원문은 UTF-8로 변환해 검색하므로 일본어 검색어도 일치한다.
+필터의 주요 컨트롤은 기존 English/Korean 설정을 따른다.
 
 현대화의 원칙은 기존 기능과 상태를 유지하면서 표현 계층만 재사용 가능하게
 분리하는 것이다.

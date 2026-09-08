@@ -5,6 +5,8 @@
 #include "ImageLoader.h"
 #include "seObjectEditor.h"
 #include "skinResolution.h"
+#include "fontAtlas.h"
+#include "simpleSelection.h"
 #include <algorithm>
 #include <map>
 #include <memory>
@@ -32,6 +34,16 @@ struct SEObjectSelectionState {
     SEObjectSelectionKey anchor;
     bool focusBrowserRequested = false;
 };
+
+// Draft creation recipe only; CSV remains the persisted source of truth.
+struct SELayoutImageOptions {
+    int kind = 0; // IMAGE, NUMBER, SLIDER, BUTTON, BARGRAPH
+    int divX = 1, divY = 1, cycle = 0;
+    int value = 0, digits = 1, align = 1, direction = 0, range = 100;
+};
+const char* SELayoutImageType(int kind);
+bool SELayoutImageSize(int width, int height, const SELayoutImageOptions& options,
+    int& sheetWidth, int& sheetHeight);
 
 struct SkinLineSnapshot {
     std::string filename;
@@ -190,6 +202,15 @@ typedef struct DST_ANIMATION{
     int center; //angle axis, numpad
 }DST_ANIMATION;
 
+struct SEPreviewObjectDestination {
+    int firstRow = -1;
+    int lastRow = -1;
+    DST_ANIMATION frame = {};
+    int op1 = 0;
+    int op2 = 0;
+    int op3 = 0;
+};
+
 typedef struct SKINUNIT {
     int ID;
     int type; //0:text 1:buttoon 2:slider 3:onmouse 4:BGA 5:bargraph 6:number 7:mask //10:img
@@ -256,6 +277,8 @@ struct SESimpleModeSlot {
     std::string command;
     int row = -1;
     int sourceIndex = -1;
+    int ifgroup = 0;
+    std::string owner;
     int imageIndex = -1;
     int graphicId = 0;
     int x = 0;
@@ -302,6 +325,10 @@ typedef struct WORKSPACE {
     // embedded into the portable package or LR2 export.
     std::string olrSourcePackagePath;
     int RefreshPreviewSelectionBounds();
+    void CollectPreviewObjectDestinations(const SEObjectInstance& object,
+        std::vector<SEPreviewObjectDestination>& destinations);
+    void ResolvePreviewObjectFrameBounds(const SEObjectInstance& object,
+        const DST_ANIMATION& frame, float& x, float& y, float& w, float& h);
     char mainpath[MAX_PATH];
 
     byte* filedata = NULL;
@@ -326,8 +353,11 @@ typedef struct WORKSPACE {
     // Snapshot history entries point into this vector. Object reorders and
     // Simple Mode batch replacements can touch non-contiguous document rows.
     std::vector<SkinDocumentSnapshot> historyDocumentSnapshots;
+    std::vector<SkinDocumentSnapshot> redoDocumentSnapshots;
     int pendingHistorySnapshotRestore = -1;
+    bool pendingHistorySnapshotPreservesRedo = false;
     bool applyingHistory = false;
+    bool replayingHistory = false;
     // A ColorEdit gesture may update several ARGB columns over many frames.
     // Keep one live history entry for the gesture instead of recording every
     // component and mouse movement as a separate undo step.
@@ -336,6 +366,8 @@ typedef struct WORKSPACE {
     int ApplyDstArgbEdit(int row, const int argb[4]);
     void EndDstArgbEdit();
     int UndoLastEdit();
+    int RedoLastEdit();
+    int ApplyPendingHistorySnapshotRestore();
     void NotifyDocumentChanged(unsigned int changes);
     bool IsDocumentDirty() const;
     void MarkDocumentSaved();
@@ -371,6 +403,21 @@ typedef struct WORKSPACE {
     void RebuildObjectModel();
     int SetObjectName(int modelIndex, const char* name);
     int DeleteObject(int modelIndex);
+    int CopySelectedObjects();
+    int PasteCopiedObjects();
+    int DuplicateSelectedObjects();
+    bool SplitSelectedObjects(const char* filename, std::string& error);
+    void drawObjectSplitDialog();
+    bool objectSplitRequested = false;
+    char objectSplitFilename[128] = "objects.csv";
+    std::string objectSplitError;
+    unsigned long long objectSplitRevision = 0;
+    // Layout-first image-backed creation. PNG remains on Undo for later paint
+    // edits and Redo; no new serialized metadata or OLRskin contract is needed.
+    bool CreateImageObjectFromLayout(int x, int y, int width, int height,
+        const char* name, std::string& imagePath, std::string& errorText,
+        int afterObject = -1, const SELayoutImageOptions& options = SELayoutImageOptions());
+    bool HasCopiedObjects() const;
     SkinDocumentSnapshot CaptureDocumentSnapshot() const;
     int RestoreDocumentSnapshot(const SkinDocumentSnapshot& snapshot);
     bool CanReorderObject(int sourceModelIndex, int targetModelIndex) const;
@@ -462,9 +509,11 @@ typedef struct WORKSPACE {
     bool previewSimulationPlaying = false;
     bool previewChartFull = false;
     bool UpdatePreviewRuntime(unsigned long long previewNow);
+    void ResetPreviewToStatic();
     ImVec2 clickPos;
     bool drawRightClick;
     float zoom = 1.0f;
+    bool previewAutoFit = true;
 
     bool wCustomize;
     int drawCustomize();
@@ -487,6 +536,23 @@ typedef struct WORKSPACE {
     std::string imagePixelPaintStatus;
     std::string imageManagerReloadPathRequest;
     bool imageAddDialogRequested = false;
+    bool imageAssetNewArmed = false;
+    std::string imageManagerManualTexturePath;
+    int imageManagerManualTextureGr = -1;
+    bool imageListContextHasTarget = false;
+    bool imageAssetDragging = false;
+    ImVec2 imageAssetDragStart;
+    IDirect3DTexture9* imageAssetDragTexture = nullptr; // comparison only during a gesture
+    bool imageAddAutoCrops = false;
+    bool imageAddCropsReady = false;
+    std::vector<TransparentAssetCrop> imageAddCrops;
+    std::shared_ptr<IDirect3DTexture9> imageAddPreview;
+    std::string imageAddCropError;
+    int RegisterImageWithTransparentCrops(int declarationRow, const char* path,
+        int width, int height, const std::vector<TransparentAssetCrop>& crops,
+        std::string& error);
+    bool RegisterImageRegion(int graphicIndex, const TransparentAssetCrop& crop,
+        std::string& status);
     std::string imageAddDiskPath;
     int imageAddWidth = 0;
     int imageAddHeight = 0;
@@ -542,6 +608,20 @@ typedef struct WORKSPACE {
     // asset index without creating another image model.
     bool wAssetBrowser;
     int drawAssetBrowser();
+    void drawLayoutFirstImageDialog();
+    SELayoutImageOptions layoutFirstOptions;
+    bool layoutFirstDialogPending = false;
+    bool layoutFirstResume = false;
+    bool layoutFirstPlacement = false;
+    bool layoutFirstDragging = false;
+    ImVec2 layoutFirstDragStart;
+    char layoutFirstName[128] = {};
+    int layoutFirstPosition[2] = { 0, 0 };
+    int layoutFirstSize[2] = { 64, 64 };
+    bool layoutFirstUseSelection = false;
+    bool layoutFirstOpenPaint = true;
+    SEObjectSelectionKey layoutFirstAnchor;
+    std::string layoutFirstError;
     float assetThumbnailSize = 96.0f;
     bool assetAnimateSrc = true;
     bool assetShowUnusedOnly = false;
@@ -619,6 +699,15 @@ typedef struct WORKSPACE {
     float simpleModeBrightnessPercent = 0.0f;
     std::string simpleModeStatus;
     int simpleModeStatusState = 0;
+    SEFontAtlasRequest simpleFontSettings;
+    SEFontAtlasRequest simpleFontPreparedRequest;
+    SEFontAtlasBitmap simpleFontBitmap;
+    std::shared_ptr<IDirect3DTexture9> simpleFontTexture;
+    std::string simpleFontSlotId;
+    unsigned long long simpleFontPreparedGeneration = 0;
+    bool simpleFontApplyToPair = false;
+    int simpleFontSourceMode = 0;
+    char simpleFontJudgementText[256] = "PGREAT";
     // Building this projection scans the complete CSV/Object/asset model, so
     // retain it per workspace and invalidate it at document/model boundaries.
     std::vector<SESimpleModeSlot> simpleModeProjection;
@@ -627,6 +716,23 @@ typedef struct WORKSPACE {
     const std::vector<SESimpleModeSlot>& GetSimpleModeSlots();
     void InvalidateSimpleModeProjection();
     int drawSimpleMode();
+    bool simpleModeShowSelection = true;
+    SESelectionEdit simpleSelectionEdit;
+    bool simpleSelectionProjectionDirty = true;
+    std::vector<SESelectionTimeline> simpleSelectionProjection;
+    std::vector<int> simpleSelectionPreviewTimers;
+    std::string simpleSelectionStatus;
+    bool simpleSelectionLastSucceeded = true;
+    const std::vector<SESelectionTimeline>& GetSimpleSelectionTimelines();
+    std::vector<SESelectionTimeline> GetSimpleSelectionTargets(const SESelectionEdit& edit);
+    // Atomic CSV/History edit; rejects the entire request if any target is invalid.
+    bool ApplySimpleSelectionEdit(const SESelectionEdit& edit, std::string& message);
+    void drawSimpleSelection();
+    void ReplaySimpleSelectionEffect();
+    void drawSimpleModeFontTools(const SESimpleModeSlot& slot);
+    std::vector<SESimpleModeSlot> GetSimpleModeApplyTargets(const std::string& slotId, int applyScope);
+    int ApplySimpleModeFontBitmap(const std::string& slotId, const SEFontAtlasBitmap& bitmap,
+        int applyScope, std::string& resultMessage);
     int ApplySimpleModeAsset(int targetRow, int imageIndex,
         int applyScope, std::string& resultMessage);
     int ImportSimpleModeImage(int targetRow, const char* sourcePath,
@@ -679,12 +785,17 @@ typedef struct WORKSPACE {
     bool wObjectBrowser = false;
     bool wObjectInspector = false;
     bool objectBrowserActiveOnly = false;
+    bool objectBrowserDrawOrder = false;
     int selected_object_editor = 0;
     int selected_object_group = -1;
     int selected_user_object_group = -1;
     int object_editor_select_request = -1;
     int objectEditorLastLineCount = -1;
     char objectSearch[128] = {};
+    std::string objectBrowserFile; // Empty = all owners; never an array index.
+    bool ObjectMatchesFile(int modelIndex) const;
+    bool SetObjectBrowserFile(const std::string& owner);
+    bool PrepareNewObjectInBrowserFile();
     bool requestCreateGroupPopup = false;
     char newObjectGroupName[128] = "New Group";
     int objectStatusCacheLineCount = -1;
@@ -703,7 +814,8 @@ typedef struct WORKSPACE {
     std::string pendingObjectReorderTargetOwner;
     bool objectDeleteDialogRequested = false;
     SEObjectSelectionKey pendingObjectDelete;
-    int drawObjectEditor();
+    int drawObjectBrowser();
+    int drawObjectInspector();
     int selected_obj;
 
 
@@ -725,6 +837,8 @@ typedef struct WORKSPACE {
     int preview_selection_anchor_model_index = -1;
     bool preview_object_dragging = false;
     bool preview_object_resizing = false;
+    bool previewCanvasFullscreen = false;
+    int previewSnapGridSize = 8;
     ImVec2 preview_drag_mouse_start = {};
     float preview_drag_object_start_x = 0.0f;
     float preview_drag_object_start_y = 0.0f;
@@ -772,6 +886,7 @@ int makeTransBackground();
 int AutoSRCObjectPos(SRCGR* gr, int* x, int* y, int* w, int* h);
 int CsvToCSTR(CSVbuf& csv, CSTR& line);
 int CountCsvColumns(CSTR& line);
+bool SEIsDirectAssetDropObjectCommand(const char* command);
 int RunAssetMetadataSelfTest();
 int RunSimpleModeProjectionSelfTest();
 int RunSimpleModeScopeRuleSelfTest();
@@ -781,6 +896,7 @@ int RunObjectReorderSelfTest();
 int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
     const char* secondPath);
 int RunInitialPresetSelfTest();
+int RunLayoutFirstObjectSelfTest();
 int RunWorkspaceRuntimeReloadSmokeTest(const char* firstPath,
     const char* secondPath);
 int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,

@@ -2,6 +2,50 @@
 
 ## 개발 환경
 
+File filter manual checks: choose a split CSV in Object Browser, combine Type/Group/
+Active/Search, open Text Editor, create with New in file, and return to All files.
+Preview must remain the full skin. Check an empty include and equal filenames in
+different folders. A Preview selection in another file should follow that owner.
+layout-first checks file matching, unknown paths, Text cursor/new-object owner setup,
+inherited IF, All files restoration, and unchanged document revision.
+
+Object split: layout-first self-test checks splitting SRC/DST inside an include IF,
+disk owner separation, marker omission, overwrite/traversal rejection and Undo/Redo.
+Manual: select consecutive Objects, right-click Split to new CSV, cancel once, then
+Split and save; reopen the main skin and compare Preview/order/selection. Disjoint,
+cross-IF and cross-file selections must fail without edits. Undo then Save must remove
+the INCLUDE while retaining the detached CSV for recovery. Actual LR2 remains manual.
+
+Timer Control 정적 복원: PLAY에서 Restart scene 재생 후 Reset preview를 눌러
+초기 노트/LN/지뢰 샘플 복원과 timer 41 해제를 확인한다. Simple/Full 각각 다시
+재생할 수 있어야 하며 비활성 Preview 탭에서도 reset을 처리해야 한다.
+reload-lifecycle self-test는 reset 요청의 재생 해제, 재빌드 예약, 반복 호출과
+문서 revision/패턴 설정 보존을 검사한다. multi-workspace smoke는 실제 runtime의
+정적 복원, timer 41 해제, 다른 Workspace의 재생 유지 및 재시작을 검사한다.
+
+Image Manager 우클릭 수동 확인: A 선택 후 B 행 우클릭 시 B가 선택되고 메뉴 정보와
+Delete 대상이 B여야 한다. 목록 빈 공간에서는 Delete가 비활성이어야 한다.
+그림 영역 우클릭 New 후 더블클릭/드래그 등록, Pixel Paint 우클릭 지우개 유지,
+사용 중인 Asset 삭제 차단을 확인한다.
+
+같은 gr의 다른 IF/와일드카드 후보를 선택한 뒤 여러 프레임 대기하고 같은 gr의
+Asset을 클릭해도 선택 texture가 유지되는지 확인한다. ui-contract는 ImGui 입력
+프레임으로 active InvisibleButton의 hover/더블클릭/드래그/해제를 검증한다.
+layout-first는 다른 IF의 수동 texture가 SelectIMGAsset 반복 호출에도 유지됨을 검증한다.
+또한 제스처 등록 명령의 신규 crop 생성, 재파싱, 메타데이터 행 기반 선택 요청,
+중복 생성 방지, Object 수 유지와 Undo/Redo를 검증한다. FindIMG의 미발견 반환값은
+-1이 아닌 arr_IMG.count이므로 유효 범위를 반드시 검사한다.
+
+Image Manager toolbar 수동 확인: 창을 좁혀 긴 파일 경로를 선택한다. 경로와 버튼이
+별도 줄에 있고 파일 관리/생성/확대/Pixel paint 버튼이 자동 줄바꿈되어야 한다.
+경로 복사·툴팁과 atlas 내부 가로 스크롤은 그대로 작동해야 한다.
+
+Atlas 제스처 수동 확인: Pixel paint OFF에서 그림 더블클릭으로 확장 탐색, 그림
+주변 드래그로 범위 내부 여백 축소를 확인한다. 50%/1600%와 스크롤 상태, 역방향
+드래그, Escape, 투명 영역, 기존 crop 재선택, Ctrl+Z를 확인한다. Pixel paint ON에서는
+그리기만 해야 한다. pixel-paint self-test는 모서리/범위 밖 seed/반투명/역방향 trim/
+다중 그림 trim/빈 범위/대각선 연결을 검증하며 GUI 입력 자체는 수동 범위다.
+
 - Windows
 - Visual Studio 2022 C++ toolchain (`v143`)
 - Windows 10 SDK
@@ -35,10 +79,20 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
 런타임과 실행 파일을 `SkinEditor_DX9\Release-x64`에 분리한다. 중간 생성물은
 `.build\obj`, 텍스트/binlog는 `.build\logs`에 둔다.
 
-`test.ps1`은 다음 계약 테스트를 각각 별도 프로세스로 실행한다.
+`test.ps1`은 다음 계약 테스트를 각각 별도 프로세스로 실행한다. 각 프로세스가
+DxLib의 `SkinEditor_DX9\Release\Log.txt`를 다시 쓰더라도 실행 전 바이트를 마지막에
+복원하므로, 검증 자체가 작업 트리의 기존 런타임 로그를 변경하지 않는다.
 
 - `schema-contract`: 실행 파일에 포함된 command/object 스키마와 symbolic field
+- `simple-selection`: SELECT 묶음 발견과 기존 Object 선택, BAR 상대 좌표의 이중 이동
+  방지, 텍스트 크기 포함 배치/색 편집, 기존 애니메이션 교체 gate, 곡 변경 이벤트와
+  loop/조건/미지 필드 보존, 원자적 오류 처리, 단일 Undo/Redo와 Workspace 분리.
+  생성한 DST를 실제 LR2 reader/interpolator에 넣어 지연·중간 alpha·종료 pose도 검증한다.
+  [선곡 화면 수동 확인](SIMPLE_SELECTION.md)의 GUI/실제 스킨 검증은 별도다.
 - `ui-contract`: 창 카탈로그의 고유 key/title, owner, dock, workspace별 ImGui ID
+  및 English/Korean label 선택 계약, Object Browser의 CP932 이름/UTF-8 검색,
+  ASCII 대소문자, 빈 검색어와 일치하지 않는 검색어, Preview의 가로/세로 화면 맞춤,
+  작은 스킨의 비확대, 잘못된 크기와 작은 4K viewport
 - `skin-browser`: 외부 폴더의 대소문자 확장자, 하위 폴더 탐색, 비스킨 파일 제외,
   잘못된 위치 거부, 100개를 넘는 등록 스킨 목록의 구조체 크기 기반 안전 확장
 - `preview-simulator`: PLAY 키 모드별 메모리 chart의 시간순 lane 배치, 동시치기,
@@ -69,6 +123,10 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   도출은 아래 수동 항목 15의 검증 범위다.
 - `simple-mode`: Object Editor 그룹이 없는 기존 LR2 행에서도 숫자/콤보 폰트,
   판정 폰트, 기어 라인, 일반·롱·마인·AUTO 노트를 직접 분류하는 투영 계약
+- `font-atlas`: 실제 TTF 숫자/판정 래스터화, 10/11/24칸 순서와 빈칸/부호, 투명도,
+  잘못된 파일/크기 거부, PNG 적용과 graphic 선언 순서, 다른 판정의 원본 이미지
+  유지, 단일 Undo/Redo, 이미지 import 및 기존 OLRskin 0.9 packager 검증.
+  수동 항목과 제한은 [폰트 교체 문서](SIMPLE_FONT_REPLACEMENT.md)를 따른다.
 - `reload-lifecycle`: 중첩 CSTR/CSV/Object/History를 포함한 편집 문서를 두 번
   초기화해 이전 스킨의 소유 메모리와 파생 배열이 남거나 이중 해제되지 않는지,
   OLR source package 연결이 다음 문서로 새지 않는지, 미로드 Save OLRskin이 명확히
@@ -80,12 +138,40 @@ DirectX SDK 설치에 의존하지 않고 Microsoft D3DX 패키지를 고정 버
   플레이어별 NOWJUDGE/NOWCOMBO, RESULT의 label/판정 숫자/chart 및 COURSERESULT의
   1~5스테이지 제목/레벨과 누적 결과 필수 Object 생성, `#INFORMATION`과
   활성 `#RESOLUTION`의 동일 해상도
-- `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제, graphic ID 배정과 선택
+- `asset-metadata`: Asset 메타데이터 저장, 재파싱, 삭제 후 재생성 시 문자열 소유권, graphic ID 배정과 선택
   Object SRC에 대한 원자적 Asset 적용/Undo, `#IMAGE` 경로 교체/Undo, 이미지 상태
   진단, named grid Asset 일괄 등록/단일 Undo
 - `object-reorder`: 같은 파일 안의 IF/ELSEIF/ELSE 간 Object 이동과 확인 후 서로
-  다른 include 파일 간 소유권 이전, metadata/선택 보존 및 단일 Undo
+  다른 include 파일 간 소유권 이전, metadata/선택 보존, Undo/Redo, 새 편집의 Redo
+  branch 제거, Object Copy/Paste/Duplicate의 새 ID와 단일 snapshot History
 - `pixel-paint`: Direct3D texture 편집, 이미지 원자 저장, 생성 및 병합
+  및 투명 영역 검출(완전 투명, 떨어진 도트, 반투명, 대각선 연결).
+  `layout-first`는 자동 crop 등록의 선택 제외, Object 미생성, 단일 Undo도 확인한다.
+
+Add image 수동 검증: 투명 여백이 있는 PNG에서 Auto crops 옵션을 켜고 후보를 제외한
+뒤 Register한다. 원본 파일이 바뀌지 않고 선택한 crop만 Asset Browser에 나타나는지,
+Ctrl+Z로 등록 전체가 복구되는지 확인한다. 기존 fixed/wildcard 대상도 각각 확인하고
+완전 투명 이미지, 불투명 이미지, Cancel, 옵션 해제 후 전체 등록을 확인한다.
+
+- `layout-first`: DST 사각형으로 투명 PNG/SRC/DST 생성, include/IF 대상 유지,
+  crop 재파싱, Pixel Paint 단일 픽셀 저장, 생성 Undo/Redo 후 그림 보존,
+  IMAGE/NUMBER/SLIDER/BUTTON/BARGRAPH sheet 크기·분할·cycle·NUMBER align/keta,
+  각 종류의 단일 Undo, 과대/0분할 거부.
+  Direct3D 장치가 필요하며 사용자 드래그 UI 검증은 포함하지 않는다.
+
+Layout-first UI 수동 검증: Asset Browser 빈 공간 우클릭 →
+`New blank image Object...`에서 이름·X/Y/W/H를 지정해 Create한다. Asset 0개,
+검색 결과 0개 및 일반 grid의 빈 공간을 각각 확인한다. 카드 우클릭은 기존 메뉴를
+유지해야 한다. Pixel Paint 옵션을 켜면 새 PNG를 그릴 수 있어야 하며, 끄면 Preview의
+선택 사각형과 Inspector DST 위치·크기가 일치해야 한다. Cancel 및 잘못된 크기는
+문서/PNG를 생성하지 않아야 한다.
+
+`Draw rectangle in Preview`를 누른 뒤 50%/100%/1600% 및 스크롤한 화면에서 양방향
+드래그한다. 돌아온 모달의 X/Y/W/H가 스킨 좌표와 일치하고 기존 선택 Object가
+움직이지 않아야 한다. Escape/Cancel placement 및 면적 0 클릭은 PNG를 만들지 않는다.
+각 Type의 sheet에 Pixel Paint로 그린 뒤 저장해 Preview를 확인한다. NUMBER의 W/H는
+한 자리이며 열은 0~9, 실제 전체 폭은 표시 자릿수/align에 따라 달라진다.
+IMAGE의 2x2/cycle=1000 sheet는 Asset Browser Animate SRC와 Preview에서 순환한다.
 
 결과는 `.build\test-results\skineditor-self-tests.xml` JUnit 파일로 남는다. 테스트
 하나라도 실패하면 스크립트와 CI job이 실패한다.
@@ -116,6 +202,28 @@ JUnit, UI 지도, 문서 검사와 AI 인계 자료는 실패 여부와 관계�
 artifact로 보존한다. 러너는 현재 프로젝트의 Visual Studio 2022/`v143`
 기준을 지키기 위해 `windows-2022`로 고정하고, checkout과 artifact action은 현행
 major version을 사용한다.
+
+## Object Browser 검색/필터 수동 확인
+
+- 1280x720 및 세로형 스킨을 열어 Preview 전체가 잘리지 않는지 확인한다.
+  창 크기 변경과 F11 전환에서 화면 맞춤이 유지되어야 한다. `100%`/배율/Ctrl+휠로
+  수동 전환 후 도킹 크기를 바꿔도 배율을 유지하며, `화면 맞춤`으로 복귀한다.
+- 확대/스크롤 중 Preview 도구 모음이 고정되어 있고, 작은 폭에서는 줄바꿈되는지
+  확인한다. 중앙 정렬 상태와 확대 상태에서 Object 선택/드래그/크기 변경 및
+  Asset drop 위치가 같은 스킨 좌표를 가리키는지 확인한다.
+- 스킨 로드 또는 `Rebuild current docking`으로 기본 비율을 확인한다. 빈 Inspector는
+  선택 안내를 표시하고, 기존 수동 도킹 변경은 일반 프레임에서 유지되어야 한다.
+
+- Browser를 좁고 낮게 도킹해 두 체크박스가 별도 행에 표시되고 필터를 스크롤할
+  수 있는지 확인한다. English/Korean 양쪽 설정에서 확인한다.
+- Browser에 포커스가 있을 때 `Ctrl+F`로 검색하고 `Esc`로 검색어를 지운다.
+  다른 Workspace/Inspector 입력 또는 modal을 사용 중이면 검색 포커스를 빼앗지 않는다.
+- 일본어 이름과 원문, ASCII 대소문자를 검색하고 Type/Group/Active only를 조합한다.
+  표시 개수는 접힌 Branch 수와 무관하게 필터에 일치하는 Object 수여야 한다.
+- 결과가 없을 때 안내를 확인하고 `필터 초기화`를 누른다. 선택 Object와 그리기
+  순서는 유지되며, Preview에서 새 Object를 선택하면 기존 선택 복원 경로로 찾아간다.
+
+이 항목은 자동 `ui-contract`의 문자열 검색 검사와 별도의 네이티브 GUI 확인이다.
 
 ## 저장소 배치
 
@@ -505,6 +613,9 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 
 - IF/ELSEIF/ELSE가 한 ConditionBlock의 sibling인지
 - IF와 ELSEIF 뒤에 각각 `293`, `294`가 표시되는지
+- Object Browser의 `z` 번호가 Type/Group/Search filter와 무관하게 유지되고, 작은
+  번호가 뒤쪽, 큰 번호가 앞쪽인지. `Draw order`를 켜면 IF tree 대신 전체 Object가
+  위(뒤)에서 아래(앞) 순서로 표시되며 끄면 기존 branch 문맥이 복원되는지
 - ELSE는 불필요한 파라미터 없이 표시되는지
 - `Active objects only`에서 ELSE만 남았을 때 ELSE 툴팁에 그 체인의 원래
   IF/ELSEIF 조건이 모두 표시되는지
@@ -549,14 +660,37 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - NUMBER `align=0/1/2`를 각각 선택해도 점멸 사각형의 왼쪽은 DST `x`이고,
   숫자 glyph만 그 필드 안에서 right/left/middle로 배치되는지. 특히 right에서
   사각형 전체가 DST `x` 왼쪽으로 이동하면 안 된다.
+- `keta > 1`인 NUMBER의 첫 glyph 바깥, 나머지 숫자 영역에서 Preview를 우클릭해도
+  해당 Object가 메뉴에 나타나고, 메뉴 hover 사각형도 `DST w * keta` 전체를
+  표시하는지. `object-reorder` self-test는 공용 계산의 4자리 폭을 확인한다.
 - TEXT는 NUMBER와 다른 `align` 순서인 `0=left`, `1=middle`, `2=right`를
   사용하는지. 점멸 사각형은 실제 렌더링된 문자열 폭을 사용하고 middle은 그 폭의
-  절반, right는 전체 폭만큼 DST `x` 왼쪽에 표시되는지
+  절반, right는 전체 폭만큼 DST `x` 왼쪽에 표시되는지. 문자열/글꼴 폭을 아직
+  얻지 못한 경우에도 DST w 대체 폭으로 세 align의 x가 각각 100/80/60이 되는지를
+  `object-reorder` self-test가 확인한다.
+- GROOVEGAUGE의 첫 칸이 아닌 뒤쪽 칸을 우클릭해도 Object 후보에 나타나는지.
+  점멸/hover 사각형은 `SRC add_x/add_y`로 배치되는 50칸 전체를 감싸야 하며,
+  `object-reorder` self-test는 양수 X/음수 Y 간격의 외곽 영역도 확인한다.
+- BGA/배경의 보이는 영역을 우클릭하면 Object 후보에 나타나는지. 우클릭 후보는
+  `arr_DST`가 아니라 Object 소유 CSV 행에서 만들어야 하며, `object-reorder`
+  self-test는 `arr_DST`에 없는 `#DST_BGA`도 수집되는지 확인한다.
 - PLAY의 `NOWJUDGE_1P/2P`, `NOWCOMBO_1P/2P`를 선택했을 때도 점멸
   사각형이 표시되고 DST 프레임 위치를 따라가는지
+- `NOWCOMBO_1P/2P` Inspector 상단에 상대좌표 안내가 표시되고 Layout은
+  `Offset X/Y`, Timeline은 `dX/dY`로 보이는지. 각 좌표 input hover tooltip이
+  같은 player/judgement index의 NOWJUDGE 기준임을 설명하며 다른 DST의 X/Y label은
+  바뀌지 않는지
 - Object Browser에서 같은 파일의 Object를 같은 Branch 또는 다른
   IF/ELSEIF/ELSE Branch의 Object 위/아래로 drag하면 SRC/DST와
   `$SE_OBJECT_NAME/$SE_OBJECT_ID`가 함께 이동하는지
+- indexed Object의 `Create Object (duplicate)`를 한 번 실행했을 때 원본과
+  복제본이 각각 별도 Object로 남고, 복제본 안에 SRC 1개와 원본의 모든 DST가
+  한 묶음으로 들어가는지. `object-reorder` self-test는 같은 index와 서로 다른
+  `$SE_OBJECT_ID`를 가진 NOWCOMBO 두 블록 및 한 ID 아래 반복된 두 SRC/DST 묶음이
+  각각 합쳐지지 않는지 확인한다.
+- 복제한 indexed Object의 SRC `index`를 변경해도 같은 Object의 모든 DST
+  `index`가 함께 바뀌고 Browser/Inspector에서 한 Object로 남는지. Ctrl+Z 한
+  번으로 SRC와 모든 DST 값이 함께 복원되는지 (`object-reorder` self-test 포함).
 - 다른 include 파일의 Object에 drop할 때 주황색 삽입선과 확인창이 표시되는지.
   Cancel하면 문서가 바뀌지 않고, 승인하면 SRC/DST와 `$SE_OBJECT_ID/NAME`의 파일
   소유권이 대상 include로 바뀌는지
@@ -681,8 +815,12 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
   drag하는 동안 `div_x/div_y` 한 frame 크기와 UV의 반투명 ghost가 표시되는지
 - Drop 시 New Object 창이 열리고 `#SRC_IMAGE`의 gr/crop, `#DST_IMAGE`의 x/y/w/h,
   현재 선택 Object의 IF branch가 미리 채워지는지
-- Drop modal에서 IMAGE/NUMBER/SLIDER/BUTTON을 바꿔도 gr/crop/div/cycle/timer와
-  DST Drop 위치가 유지되고 선택한 command 쌍으로 생성되는지
+- Drop modal에 BARGRAPH, ONMOUSE, MOUSECURSOR, BAR 표시 계열, LINE/JUDGELINE,
+  NOWJUDGE/NOWCOMBO, GROOVEGAUGE와 CHART 계열이 표시되는지. 선택한 타입과 같은
+  이름의 SRC/DST 한 쌍이 생성되고 gr/crop/div/cycle/timer와 DST Drop 위치가
+  유지되는지
+- BAR_BODY, EVENT_MODE_CURSOR, NOTE/MINE/LN, TEXT와 BGA는 이 1차 직접 생성
+  목록에 나타나지 않는지
 - 기존 `#SRC_NUMBER`에서 나온 Asset을 NUMBER로 선택하면 `num/align/keta`가
   그대로 복사되는지. SLIDER/BUTTON도 같은 command-specific 복사 규칙을 따르는지
 - 분할 SRC Drop 시 New Object의 `div_x/div_y/cycle/timer`가 원본과 같고 DST w/h가

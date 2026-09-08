@@ -27,6 +27,14 @@ New-Item -ItemType Directory -Force -Path $ResultsDirectory | Out-Null
 
 $tests = @(
     [pscustomobject]@{
+        Name = 'simple-selection'
+        Argument = '--self-test-simple-selection'
+    },
+    [pscustomobject]@{
+        Name = 'layout-first'
+        Argument = '--self-test-layout-first'
+    },
+    [pscustomobject]@{
         Name = 'schema-contract'
         Argument = '--self-test-schema-contract'
     },
@@ -55,6 +63,10 @@ $tests = @(
         Argument = '--self-test-simple-mode'
     },
     [pscustomobject]@{
+        Name = 'font-atlas'
+        Argument = '--self-test-font-atlas'
+    },
+    [pscustomobject]@{
         Name = 'reload-lifecycle'
         Argument = '--self-test-reload-lifecycle'
     },
@@ -81,7 +93,16 @@ $tests = @(
 )
 
 $workingDirectory = Split-Path -Parent $ExecutablePath
+$runtimeLogPath = Join-Path $workingDirectory 'Log.txt'
+$runtimeLogExisted = Test-Path -LiteralPath $runtimeLogPath
+$runtimeLogBytes = if ($runtimeLogExisted) {
+    [System.IO.File]::ReadAllBytes($runtimeLogPath)
+}
+else {
+    $null
+}
 $results = @()
+try {
 foreach ($test in $tests) {
     Write-Host "[ RUN      ] $($test.Name)"
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -170,3 +191,12 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host "$($results.Count) self-tests passed."
+}
+finally {
+    if ($runtimeLogExisted) {
+        [System.IO.File]::WriteAllBytes($runtimeLogPath, $runtimeLogBytes)
+    }
+    elseif (Test-Path -LiteralPath $runtimeLogPath) {
+        Remove-Item -LiteralPath $runtimeLogPath -Force
+    }
+}

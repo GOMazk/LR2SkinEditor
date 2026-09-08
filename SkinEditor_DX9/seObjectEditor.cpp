@@ -7,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <climits>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -24,6 +25,21 @@ static bool numericIndex(SKINFILELINEREAD& r, int& value) {
     if (end == s || *end != '\0') return false;
     value = (int)v;
     return true;
+}
+
+static std::string explicitObjectIdBeforeRow(WORKSPACE& ws, int row) {
+    for (int metadataRow = row - 1; metadataRow >= 0; --metadataRow) {
+        SKINFILELINEREAD& metadata =
+            ((SKINFILELINEREAD*)ws.skinfileLines.data)[metadataRow];
+        const char* text = metadata.line.body ? metadata.line.outstr() : "";
+        if (strncmp(text, "$SE_OBJECT_ID,", 14) == 0)
+            return text + 14;
+        if (strncmp(text, "$SE_OBJECT_NAME,", 16) == 0 ||
+            *text == '\0' || strncmp(text, "//", 2) == 0)
+            continue;
+        break;
+    }
+    return std::string();
 }
 
 int SEFindObjectForRow(const std::vector<SEObjectInstance>& objects, int row) {
@@ -150,35 +166,81 @@ void SEObjectEditorModel::Rebuild(WORKSPACE& ws) {
         }
 
         if (indexedGroup) {
-            struct Bucket { int ifgroup; int key; std::vector<int> rows; };
+            struct Bucket {
+                int ifgroup;
+                int key;
+                std::string editorId;
+                std::vector<std::string> sourceCommands;
+                bool hasDestination;
+                std::vector<int> rows;
+            };
             std::vector<Bucket> buckets;
-            std::map<std::pair<int, int>, int> bucketIndex;
+            typedef std::pair<int, int> LogicalObjectKey;
+            std::map<LogicalObjectKey, int> activeBuckets;
             for (std::size_t i = 0; i < matching.size(); ++i) {
                 int key = 0;
-                int ifgroup = ((SKINFILELINEREAD*)ws.skinfileLines.data)[matching[i]].ifgroup;
-                if (!numericIndex(((SKINFILELINEREAD*)ws.skinfileLines.data)[matching[i]], key)) {
+                SKINFILELINEREAD& matchingLine =
+                    ((SKINFILELINEREAD*)ws.skinfileLines.data)[matching[i]];
+                int ifgroup = matchingLine.ifgroup;
+                if (!numericIndex(matchingLine, key)) {
                     if (buckets.empty() || buckets.back().ifgroup != ifgroup) {
-                        Bucket b; b.ifgroup = ifgroup; b.key = -1; buckets.push_back(b);
+                        Bucket b;
+                        b.ifgroup = ifgroup;
+                        b.key = -1;
+                        b.hasDestination = false;
+                        buckets.push_back(b);
                     }
                     buckets.back().rows.push_back(matching[i]);
                     continue;
                 }
+
+                const LogicalObjectKey logicalKey(ifgroup, key);
+                const std::string command = commandOf(matchingLine);
+                const bool isSrc = command.size() >= 4 &&
+                    command.compare(0, 4, "#SRC") == 0;
+                const bool isDst = command.size() >= 4 &&
+                    command.compare(0, 4, "#DST") == 0;
+                const std::string explicitEditorId =
+                    explicitObjectIdBeforeRow(ws, matching[i]);
+
                 int bi = -1;
-                std::pair<int, int> bucketKey(ifgroup, key);
-                std::map<std::pair<int, int>, int>::const_iterator found = bucketIndex.find(bucketKey);
-                if (found != bucketIndex.end()) bi = found->second;
-                if (bi < 0) {
-                    Bucket b; b.ifgroup = ifgroup; b.key = key; buckets.push_back(b);
+                std::map<LogicalObjectKey, int>::const_iterator active =
+                    activeBuckets.find(logicalKey);
+                if (active != activeBuckets.end()) bi = active->second;
+
+                bool startsNextObject = bi < 0;
+                if (bi >= 0 && !explicitEditorId.empty() &&
+                    buckets[bi].editorId != explicitEditorId)
+                    startsNextObject = true;
+                if (bi >= 0 && isSrc && buckets[bi].hasDestination &&
+                    std::find(buckets[bi].sourceCommands.begin(),
+                        buckets[bi].sourceCommands.end(), command) !=
+                    buckets[bi].sourceCommands.end())
+                    startsNextObject = true;
+
+                if (startsNextObject) {
+                    Bucket b;
+                    b.ifgroup = ifgroup;
+                    b.key = key;
+                    b.editorId = explicitEditorId;
+                    b.hasDestination = false;
+                    buckets.push_back(b);
                     bi = (int)buckets.size() - 1;
-                    bucketIndex[bucketKey] = bi;
+                    activeBuckets[logicalKey] = bi;
                 }
                 buckets[bi].rows.push_back(matching[i]);
+                if (isSrc && std::find(buckets[bi].sourceCommands.begin(),
+                    buckets[bi].sourceCommands.end(), command) ==
+                    buckets[bi].sourceCommands.end())
+                    buckets[bi].sourceCommands.push_back(command);
+                if (isDst) buckets[bi].hasDestination = true;
             }
             for (std::size_t b = 0; b < buckets.size(); ++b) {
                 SEObjectInstance o;
                 o.group = gi;
                 o.ifgroup = buckets[b].ifgroup;
                 o.rows = buckets[b].rows;
+                o.editorId = buckets[b].editorId;
                 objects.push_back(o);
             }
         } else {
@@ -246,6 +308,41 @@ void SEObjectEditorModel::Rebuild(WORKSPACE& ws) {
             if (*text && *text != '$' && strncmp(text, "//", 2) != 0) break;
         }
     }
+
+    // Object groups describe ownership, not rendering order. LR2 gives every
+    // DST animation row a monotonically increasing sortID while reading the
+    // expanded CSV and draws smaller IDs first. Keep the editor model in that
+    // same back-to-front order so type/group/search filters cannot replace the
+    // real layer order with skinObjGroup.txt schema order.
+    auto firstObjectRow = [](const SEObjectInstance& object) -> int {
+        return object.rows.empty() ? INT_MAX :
+            *std::min_element(object.rows.begin(), object.rows.end());
+    };
+    for (SEObjectInstance& object : objects) {
+        object.firstDstRow = -1;
+        for (int row : object.rows) {
+            if (row < 0 || row >= ws.skinfileLines.count) continue;
+            SKINFILELINEREAD& line =
+                ((SKINFILELINEREAD*)ws.skinfileLines.data)[row];
+            const char* command = line.csv.str[0].body
+                ? line.csv.str[0].outstr() : "";
+            if (strncmp(command, "#DST", 4) == 0) {
+                object.firstDstRow = row;
+                break;
+            }
+        }
+    }
+    std::stable_sort(objects.begin(), objects.end(),
+        [&](const SEObjectInstance& left, const SEObjectInstance& right) {
+            const int leftRow = left.firstDstRow >= 0
+                ? left.firstDstRow : firstObjectRow(left);
+            const int rightRow = right.firstDstRow >= 0
+                ? right.firstDstRow : firstObjectRow(right);
+            return leftRow < rightRow;
+        });
+    int nextDrawOrder = 0;
+    for (SEObjectInstance& object : objects)
+        object.drawOrder = object.firstDstRow >= 0 ? nextDrawOrder++ : -1;
 
     SEUserObjectGroup* currentUserGroup = NULL;
     for (int row = 0; row < ws.skinfileLines.count; ++row) {

@@ -11,6 +11,19 @@ of truth.
 
 ## Layers
 
+File-scoped browsing uses `WORKSPACE::objectBrowserFile` (empty means All files).
+`ObjectMatchesFile` filters the existing model by row ownership; no per-file model
+or runtime is created. `SetObjectBrowserFile` clears stale selection and moves the
+shared text cursor. Text Editor reuses the owner filter with bounded wheel traversal.
+`PrepareNewObjectInBrowserFile` uses the file end marker and inherited IF context.
+File labels decode CP932 to UTF-8; full-path tooltips distinguish equal basenames.
+
+`WORKSPACE::drawObjectSplitDialog` collects a sibling CSV filename and confirms
+that all pending script edits will be saved. `SplitSelectedObjects` owns validation,
+source-order-preserving include markers, owner reassignment, snapshot History and
+the existing transactional split writer. The popup rejects a changed document revision.
+It does not copy the Object model or change the OLRskin 0.9 contract.
+
 ```text
 main.cpp
   ImGui/DX9 lifecycle, fonts, application menu
@@ -35,6 +48,30 @@ WORKSPACE::draw()
 skin model, CSV rows, History and selection synchronization
 ```
 
+The large workspace shell is split by UI ownership, not by duplicated state:
+
+- `winWorkspace.cpp`: workspace shell, menus, docking and remaining dialogs;
+- `winWorkspacePreview.cpp`: Preview runtime presentation and canvas input;
+- `winWorkspaceObjectBrowser.cpp`: Object navigation and selection intents;
+- `winWorkspaceObjectInspector.cpp`: selected Object property presentation;
+- `winWorkspaceObjectCommands.cpp`: copy, paste and duplicate domain commands;
+- `winWorkspaceAssetBrowser.cpp`: asset search, cards and drag source.
+
+All six still operate on the same `WORKSPACE`, CSV rows, stable Object IDs and
+History. A panel source file must not introduce a second document or selection
+store merely because its draw routine is compiled separately.
+
+Asset Browser's blank-area context menu opens `drawLayoutFirstImageDialog()`.
+The modal owns only draft name/rectangle/options and a stable target selection
+key, then calls `CreateImageObjectFromLayout()`. It also works with no assets
+or no search results. The popup is submitted once by the workspace after all
+panels, so creating rows cannot invalidate an active card iteration and the
+modal can resume even when Asset Browser is an inactive tab. Preview placement
+stores only a draft rectangle, blocks normal move/resize/drop input, and queues
+the same modal on release. `SELayoutImageSize()` validates shared sheet limits;
+source fields use GetCommandHelp rather than positional UI copies.
+The `layout-first-image` surface is catalogued in `uiCatalog.h`.
+
 `seUI` is deliberately stateless. A component may return a click or edited
 value, but it must not load skins, mutate CSV, select objects, or push History.
 Those actions belong to `WORKSPACE` or the existing domain helpers.
@@ -51,6 +88,9 @@ Those actions belong to `WORKSPACE` or the existing domain helpers.
 Fonts are assembled in `main.cpp`: Segoe UI is the base face and Meiryo/Malgun
 glyphs are merged for Japanese and Korean metadata. Font/backend/device setup
 stays outside `seUI` because it is part of application lifetime management.
+`seLocalization.cpp` owns the English/Korean UI preference and stores only the
+language code under `%LOCALAPPDATA%\SkinEditor\settings.ini`. `SEText()` changes
+labels; it never changes schema tokens, CSV content or skin encodings.
 
 Reusable components currently include:
 
@@ -100,6 +140,20 @@ stays organized instead of creating floating panels. `Layout > Balanced
 workspace` restores default visibility; `Rebuild current docking` preserves
 visibility and only repairs placement.
 
+The initial layout assigns about 17% each to Browser and Inspector, 54% to the
+center and 12% to the right column. Assets take the lower 23% of the center,
+leaving 77% for Preview. These ratios apply on load or an explicit layout
+rebuild; normal frames do not override user-adjusted splits.
+
+Preview starts in auto-fit mode when a skin is loaded. `CalculatePreviewFitScale`
+fits both dimensions into the actual canvas viewport without enlarging small
+skins. Fit follows dock/fullscreen resizing; the zoom slider, Ctrl+wheel and
+`100%` switch to manual zoom until `Fit` is chosen again. Only the canvas child
+scrolls, so its wrapping toolbar remains visible. Image placement, hit tests,
+asset drops and selection overlays all use the same centered canvas origin and
+scale. Empty Inspector content explains how to select an object without
+creating a synthetic selection on load.
+
 Browser and Inspector use the full workspace height. ImageManager and dstView
 share Preview's tab node in the center. Asset Browser occupies the lower center
 node so Preview remains visible while an asset is dragged upward. The right
@@ -126,6 +180,18 @@ updates cannot diverge.
 
 ### Object selection
 
+Object Browser filters use separate rows for draw order and active-only mode so
+narrow docks do not clip one checkbox behind the other. In short docks, the
+filter child scrolls independently and leaves room for the object list.
+`Ctrl+F` focuses search only in the focused Browser workspace; `Esc` clears its
+text. Search compares UTF-8 input with CP932 names/source rows converted for
+display, with ASCII case folding. `Clear filters` resets Type, Group, Active
+only and Search while preserving shared selection and the draw-order view.
+The list reports matching/total objects after the active predicate, independently
+of collapsed branches, and explains an empty result. These controls use the
+existing English/Korean preference and stable ImGui IDs. Disabled action buttons
+retain their explanatory tooltips.
+
 ```text
 Preview / right-click / DST View / Text Editor Object row
   -> workspace ObjectSelection (`$SE_OBJECT_ID` 중심 key)
@@ -140,6 +206,14 @@ Preview / right-click / DST View / Text Editor Object row
 Clicking an Object Browser row keeps the matching DST index synchronized for
 DST View, but it focuses the Preview dock tab so the user immediately sees the
 selected Object highlight. DST View must not steal focus from a Browser click.
+
+Object Browser layer labels use the first expanded `#DST` row, matching LR2's
+monotonically assigned `sortID`: lower `z` is drawn first (behind), and higher
+`z` is drawn later (in front). This order is derived after Object ownership is
+built, never from `skinObjGroup.txt` group order or the current filter index.
+`Draw order` presents the filtered Objects as one flat back-to-front list;
+turning it off restores the IF/ELSEIF/ELSE context tree without changing the
+shared selection, History or CSV model.
 
 Object Browser and Object Inspector are independent dockable windows, but only
 their visibility is independent. They must not acquire separate selection
@@ -164,6 +238,12 @@ global Object model or function-local `static` state for a per-workspace pane.
 Model indices may change after any CSV rebuild; store `$SE_OBJECT_ID` plus the
 legacy group/anchor-row fallback in `SEObjectSelectionState`, then resolve the
 current indices through `RestoreObjectSelection()`.
+
+For indexed command families, untagged legacy rows still group by IF branch and
+numeric index. Once an Object has `$SE_OBJECT_ID`, that ID is also a grouping
+boundary. The Object Browser duplicate action can therefore copy one SRC plus
+all of its DST rows with a fresh ID without the rebuild merging the copy back
+into the original same-index Object.
 
 `SetObjectSelection()`과 `RestoreObjectSelection()`은 active Object의 첫 SRC
 command를 `GetCommandHelp()` schema로 해석해 동일 `arr_IMG` crop을 선택한다.
@@ -214,6 +294,13 @@ V0.9 package projection serializes every supported source-bound destination
 run. These tabs never retain their own Object, frame or condition copies; ImGui
 values are rebuilt from Workspace rows on each draw.
 
+`#DST_NOWCOMBO_1P/2P` is a deliberate coordinate exception. Its `x/y` values
+are offsets from the matching player and judgement-index `DST_NOWJUDGE`, after
+which LR2 applies judgement adjustment and digit alignment. The schema and CSV
+remain unchanged, but Inspector identifies the fields as `Offset X/Y`, uses
+`dX/dY` in Timeline, and keeps a visible warning plus field tooltips above all
+property tabs. Other DST commands continue to show absolute canvas X/Y.
+
 Preview movement translates every selected destination frame. The white
 bottom-right handle is intentionally single-selection only and changes only the
 first destination's width/height (or text size), matching V0.5 static Layout
@@ -254,6 +341,13 @@ at the corresponding atlas position. Cards expose the stable
 Preview drop target can consume assets without depending on Asset Browser
 rendering code.
 
+The drop modal discovers its direct-create Object types from command schema:
+the SRC must expose `gr/x/y/w/h`, belong to an Object group, and have one
+same-suffix DST command. This covers the common image-backed families without
+duplicating a UI-only command list. Multi-DST and shared-DST families such as
+BAR_BODY, EVENT_MODE_CURSOR and NOTE remain excluded until they have explicit
+creation recipes.
+
 `BuildImageAssetUsage()` derives reverse usage from `IMG::sourceDeclare` or
 `editorDeclare` to the rows held by each `SEObjectInstance`; legacy rows use the
 shared schema/crop resolver only as a fallback. Asset Browser cards and Image
@@ -290,6 +384,36 @@ the existing New Object form with the source division/cycle/timer preserved and
 `#SRC_IMAGE`, crop coordinates, destination position and current Object branch
 pre-filled. The normal OK path remains responsible for CSV insertion, model
 rebuild, Preview invalidation and History.
+
+Image Manager owns the simple `Pixel paint` mode. Canvas mouse coordinates are
+independent from its responsive toolbar: the gr selector and read-only path each
+occupy their own row. File actions, creation tools, zoom/background and paint
+controls wrap to the visible window edge instead of the atlas scroll extent.
+The path remains copyable and exposes its full text in a tooltip. Status text
+wraps, while the atlas child keeps its own horizontal scrollbar.
+
+The atlas claims left input with an InvisibleButton. Outside Pixel Paint,
+its item context menu exposes New using the same creation intent as the list.
+Capture IsItemHovered immediately after the canvas button: IsWindowHovered is
+false while that very button owns a click/drag. Overlay widgets must not replace
+this input sample. Manual same-gr texture choices are retained by path + logical
+gr, not a SRCGR index or the current crop's IF; SelectIMGAsset resolves that path
+after rebuilds and clears it on a different gr or an unavailable candidate.
+List right-click first synchronizes the clicked row with shared IMG selection;
+the popup identifies the target by name, gr and rectangle. Blank-list context
+does not permit deletion of the previously selected Asset. Pixel Paint retains
+right-drag erasing and suppresses the atlas context menu.
+
+The atlas claims left input with an InvisibleButton. Outside Pixel Paint,
+double-click calls `FindImageAssetRegion(expand=true)`; a completed drag calls
+the same alpha reader with a bounded trim rectangle. Gesture state belongs to
+Workspace and cancels on texture changes or Escape. `RegisterImageRegion`
+persists `$SRC_IMAGE` with one snapshot History entry; duplicate rectangles select
+the existing Asset. `FindIMG` returns `arr_IMG.count` on a miss, not -1.
+New selection resolves the metadata row after rebuilding instead of retaining a
+temporary array index. Asset filters are cleared so the registered crop is visible.
+`AutoSRCObjectPos()` now delegates to the bounded reader instead of indexing
+past texture borders. The detector never modifies pixels or CSV.
 
 Image Manager owns the simple `Pixel paint` mode. Canvas mouse coordinates are
 converted through `ImageManagerZoom` to one source-texture pixel. Left drag
@@ -358,6 +482,15 @@ commands. It is blocked while that path has unsaved Pixel paint. `Usage` only
 opens the derived Image status panel and does not mutate CSV state.
 
 `RegisterImageAssetGrid()` partitions the selected IMG rectangle with integer
+boundaries. The separate Add image transparency workflow uses
+`FindTransparentAssetCrops()` in ImageLoader, reading alpha without altering the
+texture. Workspace caches the preview and candidate selection only for the dialog.
+`RegisterImageWithTransparentCrops()` wraps existing fixed/wildcard/new-gr validation,
+replaces the new full-size metadata with selected regions, and commits one snapshot
+History entry. No Object or bitmap is created. Preview textures stay alive until
+the next file selection to avoid releasing textures referenced by ImGui draw lists.
+
+`RegisterImageAssetGrid()` partitions the selected IMG rectangle with integer
 boundary ratios, skips duplicate branch/crop keys and inserts named
 `$SRC_IMAGE` rows beside the owning `#IMAGE`. The grid modal owns only temporary
 columns/rows/cell-selection presentation state. Every primitive insert/edit
@@ -381,6 +514,16 @@ drives a one-shot Object Browser selection request; this clears filters/search,
 scrolls to the new row and shows the same Object in Inspector.
 
 ### Simple Mode
+
+SELECT skins default to the editor-only `WORKSPACE::drawSimpleSelection()` flow;
+the existing source replacement UI remains available through a mode switch.
+`simpleSelection.cpp` discovers supported DST timelines directly, separates bar
+ON/OFF and index contexts, and resolves optional custom targets through the shared
+Object selection. Workspace invalidation clears its derived cache. Batched edits
+are prepared against a temporary snapshot, preserve non-target rows/owners and
+commit one History entry. Preview event timers are queued until runtime reload
+finishes. The five serialized Simple Mode source groups and OLRskin 0.9 compiler
+contract remain unchanged. See [Selection editing](SIMPLE_SELECTION.md).
 
 `WORKSPACE::drawSimpleMode()` projects authoritative LR2 `#SRC_*` rows into five
 authoring groups: number fonts (including NOWCOMBO), judgement fonts, gear parts,
@@ -416,6 +559,17 @@ Undo restores all touched rows even when the import changed the line count.
 The copied file intentionally remains as an unused local asset after Undo.
 Preview and both asset windows continue to use their existing rebuild path.
 
+For number/combo/judgement components, Image replacement and TTF font are
+separate input choices sharing `ApplySimpleModeFontBitmap`. Font replacements
+reserve a leading graphic slot and adjust existing schema graphic references
+so LR2 encounters the generated PNG before any source uses it. Only matching
+player suffix/index/owner/IF contexts form an automatic font pair. The TTF
+panel owns no document copy; its prepared raster is invalidated by settings or
+projection changes. OLRskin fields and compiler contracts remain unchanged.
+See [Simple font replacement](SIMPLE_FONT_REPLACEMENT.md) for limits, entry
+points and regression/manual checks. The trailing registration described above
+continues to apply to the other Simple Mode categories.
+
 For Object Browser labels, naming priority is explicit `$SE_OBJECT_NAME`, then
 the command-specific symbolic SRC value (NUMBER, SLIDER, BUTTON, BARGRAPH or
 TEXT), the first distinct `$op` names, and finally the first distinct non-zero
@@ -436,13 +590,32 @@ property edit or preview drag
   -> NotifyDocumentChanged(change kind)
   -> editor cache / Object model / Preview rebuild as required
   -> Ctrl+Z or toolbar Undo calls WORKSPACE::UndoLastEdit()
+  -> Ctrl+Y / Ctrl+Shift+Z restores the captured forward document snapshot
 ```
 
-The toolbar does not maintain its own history. If the rectangle and object
+The toolbar does not maintain its own history. A normal edit after Undo clears
+the redo branch. Snapshot restores run at the next frame boundary before any
+texture-backed panel draws. If the rectangle and object
 position separate after Undo, inspect the rebuild/invalidation stage rather
 than the button.
 
+Object copy/paste and duplicate are `WORKSPACE` commands. They copy the selected
+Object rows, generate fresh `$SE_OBJECT_ID` values, preserve names, and write to
+the active target Object's include owner and IF branch. The whole batch records
+one document snapshot, so one Undo/Redo step restores selection and all rows.
+
 ### PLAY preview simulation
+
+The Timer Control toolbar uses compact `Play`, `Reset`, `Simple`, `Full` buttons
+on one row, wrapping only when needed. The selected chart mode is highlighted.
+`Play` is the former Restart scene action; `Reset` is Reset preview. Explanations
+remain in tooltips; compact padding is scoped to the toolbar, not the timer list.
+
+`Timer Control > Reset preview` calls `WORKSPACE::ResetPreviewToStatic()` to stop
+simulation and queue the existing runtime rebuild without SceneInit. Initial
+timers and static note/LN/mine samples return; CSV, History, selection and chart
+mode are unchanged. Pending resets are processed even in an inactive Preview tab.
+Restart scene cancels the pending reset and starts the selected chart normally.
 
 ```text
 Timer Control > Restart scene
@@ -502,6 +675,28 @@ The cache may absorb a neighboring Object's destination after an include-file
 reorder, while Inspector still correctly reports one DST row. Cyan shows the
 first Object-owned frame; red is drawn only when the Object has a distinct final
 frame.
+
+`ResolvePreviewObjectFrameBounds()` is the shared geometry source for selection
+outlines, Preview context-menu hit testing and menu-hover outlines. NUMBER uses
+the full `DST w * keta` field while keeping DST x as its left edge; TEXT uses
+its rendered string width and its distinct left/middle/right anchor rules. If
+font or string metrics are not available yet, TEXT falls back to DST w but must
+still apply the anchor shift. GROOVEGAUGE uses the union of all 50 LR2 cells,
+including positive or negative `SRC add_x/add_y` displacement.
+Do not reintroduce a raw one-cell `DST w/h` hit rectangle in the context menu.
+
+Preview context-menu candidates come from each `SEObjectInstance::rows` via
+`CollectPreviewObjectDestinations()`. They must not be enumerated from the
+legacy sequential `arr_DST` cache: `#DST_BGA` is deliberately absent there and
+special/indexed source families can associate the following cache entry with a
+neighboring Object. The Object-owned path keeps BGA/background and GROOVEGAUGE
+hit testing synchronized with Browser and Inspector ownership.
+
+Holding Shift while dragging or resizing snaps the live Preview bounds to the
+selected grid interval. Shift+Arrow moves by that interval. The bottom-right
+X/Y meter is screen-space UI: its size and contrast do not change with canvas
+zoom. F11 presents Preview in a temporary undecorated main-viewport window;
+leaving fullscreen returns to the original docked Preview identity.
 
 ### Files
 

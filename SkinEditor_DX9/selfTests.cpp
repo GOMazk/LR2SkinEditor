@@ -5,12 +5,15 @@
 #include "../LR2/LR2_skinmanage.h"
 #include "olrSkin.h"
 #include "seHelper.h"
+#include "seLocalization.h"
 #include "seObjectEditor.h"
 #include "skin.h"
 #include "skinBrowser.h"
 #include "skinPathResolver.h"
 #include "skinResolution.h"
 #include "uiCatalog.h"
+#include "winWorkspaceUiHelpers.h"
+#include "imgui/imgui.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -1324,9 +1327,12 @@ int RunOlrPackageSelfTest() {
                     CSTR rootedIncludePath = GetRandomFileNoError(CSTR(
                         "LR2files\\Theme\\Test\\_olr_include_0001.csv"),
                         CSTR("LR2files\\Theme\\Test\\"));
-                    CSTR bareIncludePath = GetRandomFileNoError(CSTR(
-                        "_olr_include_0001.csv"),
-                        CSTR("LR2files\\Theme\\Test\\"));
+                    // Probe the process directory directly. The production
+                    // helper intentionally falls back to the declaring CSV
+                    // directory, which would make this negative assertion
+                    // pass for the wrong reason.
+                    CSTR bareIncludePath = GetRandomFile(CSTR(
+                        "_olr_include_0001.csv"), 0);
                     FILE* rootedIncludeFile = fopen(
                         rootedIncludePath.outstr(), "rb");
                     FILE* bareIncludeFile = fopen(
@@ -1640,6 +1646,73 @@ int RunUiCatalogSelfTest() {
             "WORKSPACE::drawSaveOlrSkin") != 0)
         return 20;
 
+    const SEUILanguage originalLanguage = SEGetUILanguage();
+    SESetUILanguage(SEUILanguage::Korean, false);
+    if (std::strcmp(SEText("File", u8"\uD30C\uC77C"),
+        reinterpret_cast<const char*>(u8"\uD30C\uC77C")) != 0) {
+        SESetUILanguage(originalLanguage, false);
+        return 21;
+    }
+    SESetUILanguage(SEUILanguage::English, false);
+    if (std::strcmp(SEText("File", u8"\uD30C\uC77C"), "File") != 0) {
+        SESetUILanguage(originalLanguage, false);
+        return 22;
+    }
+    SESetUILanguage(originalLanguage, false);
+
+    if (!ObjectBrowserTextMatchesSearch("Judge_LINE", "judge_line")) return 23;
+    if (ObjectBrowserTextMatchesSearch("Judge", "Judge_LINE")) return 24;
+    if (!ObjectBrowserTextMatchesSearch("", "")) return 25;
+    if (ObjectBrowserTextMatchesSearch(nullptr, "note")) return 26;
+    // CP932 bytes for Japanese 'judgment': the browser receives a UTF-8 query.
+    const char* japaneseQuery = reinterpret_cast<const char*>(u8"\u5224\u5b9a");
+    if (!ObjectBrowserTextMatchesSearch("NOW_\x94\xBB\x92\xE8_LINE", japaneseQuery)) return 27;
+    if (ObjectBrowserTextMatchesSearch("NOW_\x94\xBB\x92\xE8_LINE",
+        reinterpret_cast<const char*>(u8"\u80cc\u666f"))) return 28;
+
+    if (CalculatePreviewFitScale(1280.0f, 720.0f, ImVec2(960.0f, 600.0f)) != 0.75f) return 29;
+    if (CalculatePreviewFitScale(720.0f, 1280.0f, ImVec2(960.0f, 640.0f)) != 0.5f) return 30;
+    if (CalculatePreviewFitScale(640.0f, 480.0f, ImVec2(1280.0f, 960.0f)) != 1.0f) return 31;
+    if (CalculatePreviewFitScale(0.0f, 720.0f, ImVec2(960.0f, 600.0f)) != 1.0f) return 32;
+    if (CalculatePreviewFitScale(1280.0f, 720.0f, ImVec2(0.0f, 600.0f)) != 1.0f) return 33;
+    const float smallDockScale = CalculatePreviewFitScale(3840.0f, 2160.0f, ImVec2(320.0f, 180.0f));
+    if (smallDockScale <= 0.0f || smallDockScale * 3840.0f > 320.01f ||
+        smallDockScale * 2160.0f > 180.01f) return 34;
+
+    // Replay real ImGui mouse frames: an active canvas must remain hoverable
+    // even though IsWindowHovered() rejects its active InvisibleButton.
+    ImGuiContext* previousContext = ImGui::GetCurrentContext();
+    ImGuiContext* testContext = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DisplaySize = ImVec2(400, 300);
+    io.DeltaTime = 1.0f / 60.0f;
+    io.ConfigInputTrickleEventQueue = false;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    int inputResult = 0;
+    for (int frame = 0; frame < 6; ++frame) {
+        io.AddMousePosEvent(frame >= 4 ? 80.0f : 30.0f, 30.0f);
+        if (frame == 1 || frame == 3) io.AddMouseButtonEvent(0, true);
+        if (frame == 2 || frame == 5) io.AddMouseButtonEvent(0, false);
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(200, 200));
+        ImGui::Begin("Canvas input test", nullptr, ImGuiWindowFlags_NoDecoration);
+        ImGui::SetCursorScreenPos(ImVec2(20, 20));
+        ImGui::InvisibleButton("canvas", ImVec2(150, 150));
+        const bool hovered = ImGui::IsItemHovered();
+        if (frame == 1 && (!hovered || !ImGui::IsMouseClicked(0) || ImGui::IsWindowHovered())) inputResult = 23;
+        if (frame == 3 && (!hovered || !ImGui::IsMouseDoubleClicked(0))) inputResult = 24;
+        if (frame == 4 && (!hovered || !ImGui::IsMouseDragging(0))) inputResult = 25;
+        if (frame == 5 && !ImGui::IsMouseReleased(0)) inputResult = 26;
+        ImGui::End();
+        ImGui::Render();
+    }
+    ImGui::DestroyContext(testContext);
+    ImGui::SetCurrentContext(previousContext);
+    if (inputResult) return inputResult;
     return 0;
 }
 

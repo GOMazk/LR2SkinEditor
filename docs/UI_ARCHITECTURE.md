@@ -11,6 +11,19 @@ of truth.
 
 ## Layers
 
+File-scoped browsing uses `WORKSPACE::objectBrowserFile` (empty means All files).
+`ObjectMatchesFile` filters the existing model by row ownership; no per-file model
+or runtime is created. `SetObjectBrowserFile` clears stale selection and moves the
+shared text cursor. Text Editor reuses the owner filter with bounded wheel traversal.
+`PrepareNewObjectInBrowserFile` uses the file end marker and inherited IF context.
+File labels decode CP932 to UTF-8; full-path tooltips distinguish equal basenames.
+
+`WORKSPACE::drawObjectSplitDialog` collects a sibling CSV filename and confirms
+that all pending script edits will be saved. `SplitSelectedObjects` owns validation,
+source-order-preserving include markers, owner reassignment, snapshot History and
+the existing transactional split writer. The popup rejects a changed document revision.
+It does not copy the Object model or change the OLRskin 0.9 contract.
+
 ```text
 main.cpp
   ImGui/DX9 lifecycle, fonts, application menu

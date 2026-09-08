@@ -2,6 +2,20 @@
 
 ## 개발 환경
 
+File filter manual checks: choose a split CSV in Object Browser, combine Type/Group/
+Active/Search, open Text Editor, create with New in file, and return to All files.
+Preview must remain the full skin. Check an empty include and equal filenames in
+different folders. A Preview selection in another file should follow that owner.
+layout-first checks file matching, unknown paths, Text cursor/new-object owner setup,
+inherited IF, All files restoration, and unchanged document revision.
+
+Object split: layout-first self-test checks splitting SRC/DST inside an include IF,
+disk owner separation, marker omission, overwrite/traversal rejection and Undo/Redo.
+Manual: select consecutive Objects, right-click Split to new CSV, cancel once, then
+Split and save; reopen the main skin and compare Preview/order/selection. Disjoint,
+cross-IF and cross-file selections must fail without edits. Undo then Save must remove
+the INCLUDE while retaining the detached CSV for recovery. Actual LR2 remains manual.
+
 Timer Control 정적 복원: PLAY에서 Restart scene 재생 후 Reset preview를 눌러
 초기 노트/LN/지뢰 샘플 복원과 timer 41 해제를 확인한다. Simple/Full 각각 다시
 재생할 수 있어야 하며 비활성 Preview 탭에서도 reset을 처리해야 한다.

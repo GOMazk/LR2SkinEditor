@@ -43,11 +43,11 @@ inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
     { SEUIWindowId::Customize, "customize", "Customize", "Choose skin-defined customization options.", "WORKSPACE::drawCustomize", "Data", "right-lower", true },
     { SEUIWindowId::ImageManager, "image-manager", "Image Manager", "Inspect source atlases and register, edit or generate image files.", "WORKSPACE::drawImgManager", "Assets", "center-tabs", true },
     { SEUIWindowId::AssetBrowser, "asset-browser", "Asset Browser", "Search, preview and drag tagged image crops.", "WORKSPACE::drawAssetBrowser", "Assets", "center-bottom", true },
-    { SEUIWindowId::TextEditor, "text-editor", "Text Editor", "Edit the authoritative LR2 skin text while preserving encoding.", "WORKSPACE::drawTextEdit", "Data", "center-tabs", false },
+    { SEUIWindowId::TextEditor, "text-editor", "Text Editor", "Edit authoritative LR2 text in the shared file scope while preserving encoding.", "WORKSPACE::drawTextEdit", "Data", "center-tabs", false },
     { SEUIWindowId::FileManager, "file-manager", "File Manager", "Inspect scripts and images referenced by the workspace.", "WORKSPACE::drawFileManager", "Data", "center-bottom", false },
     { SEUIWindowId::SimpleMode, "simple-mode", "Simple Mode", "Replace number fonts, judgement art, gear parts and note shapes through semantic component groups.", "WORKSPACE::drawSimpleMode", "Workspace", "center-tabs", true },
     { SEUIWindowId::DstView, "dst-view", "DST View", "Inspect destination rows and preview their animation frames.", "WORKSPACE::drawDstView", "Assets", "center-tabs", true },
-    { SEUIWindowId::ObjectBrowser, "object-browser", "Object Browser", "Search, reset filters and count matching objects; group, select and reorder them.", "WORKSPACE::drawObjectBrowser", "Workspace", "left-browser", true },
+    { SEUIWindowId::ObjectBrowser, "object-browser", "Object Browser", "Filter by source CSV, type and group; create in file, search, select and reorder Objects.", "WORKSPACE::drawObjectBrowser", "Workspace", "left-browser", true },
     { SEUIWindowId::ObjectInspector, "object-inspector", "Object Inspector", "Edit properties of the shared Object Browser selection.", "WORKSPACE::drawObjectInspector", "Workspace", "left-inspector", true },
     { SEUIWindowId::ObjectManager, "object-manager", "Object Manager", "Inspect the legacy object list and property editor.", "WORKSPACE::drawObjectManager", "Advanced", "left-browser", false },
     { SEUIWindowId::ObjectManagerTest, "object-manager-test", "Object Manager Test", "Exercise the legacy runtime object model for development.", "WORKSPACE::drawObjectManagerTest", "Advanced", "left-browser", false },
@@ -89,6 +89,7 @@ enum class SEUISurfaceId {
     NewObject,
     LayoutFirstImage,
     ObjectMoveConfirmation,
+    ObjectSplit,
     SimpleFontTools,
     Help,
     Count
@@ -114,6 +115,7 @@ inline constexpr SEUISurfaceSpec kSEUISurfaceSpecs[] = {
     { SEUISurfaceId::NewObject, "new-object", "New Object", "Create an Object or raw command in the selected file and branch.", "WORKSPACE::drawNewObject", "dialog" },
     { SEUISurfaceId::LayoutFirstImage, "layout-first-image", "New blank image Object", "Place an image-backed Object numerically or by Preview rectangle; create a transparent sprite sheet for painting.", "WORKSPACE::drawLayoutFirstImageDialog", "dialog" },
     { SEUISurfaceId::ObjectMoveConfirmation, "object-move-confirmation", "Move Object to another file?", "Confirm moving an Object and its editor metadata between include files.", "WORKSPACE::draw", "dialog" },
+    { SEUISurfaceId::ObjectSplit, "object-split", "Split Objects to CSV", "Extract consecutive Objects into a new sibling include and save scripts without changing draw order.", "WORKSPACE::drawObjectSplitDialog", "dialog" },
     { SEUISurfaceId::SimpleFontTools, "simple-font-tools", "Simple Font Tools", "Generate and preview TTF number, combo and judgement atlases; apply existing PNG/CSV with Undo.", "WORKSPACE::drawSimpleModeFontTools", "flow" },
     { SEUISurfaceId::Help, "help", "Help", "Explain the editor workflow and the role of each primary workspace panel.", "DrawHelpWindow", "dialog" }
 };

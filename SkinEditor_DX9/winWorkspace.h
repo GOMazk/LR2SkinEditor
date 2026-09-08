@@ -405,6 +405,12 @@ typedef struct WORKSPACE {
     int CopySelectedObjects();
     int PasteCopiedObjects();
     int DuplicateSelectedObjects();
+    bool SplitSelectedObjects(const char* filename, std::string& error);
+    void drawObjectSplitDialog();
+    bool objectSplitRequested = false;
+    char objectSplitFilename[128] = "objects.csv";
+    std::string objectSplitError;
+    unsigned long long objectSplitRevision = 0;
     // Layout-first image-backed creation. PNG remains on Undo for later paint
     // edits and Redo; no new serialized metadata or OLRskin contract is needed.
     bool CreateImageObjectFromLayout(int x, int y, int width, int height,
@@ -772,6 +778,10 @@ typedef struct WORKSPACE {
     int object_editor_select_request = -1;
     int objectEditorLastLineCount = -1;
     char objectSearch[128] = {};
+    std::string objectBrowserFile; // Empty = all owners; never an array index.
+    bool ObjectMatchesFile(int modelIndex) const;
+    bool SetObjectBrowserFile(const std::string& owner);
+    bool PrepareNewObjectInBrowserFile();
     bool requestCreateGroupPopup = false;
     char newObjectGroupName[128] = "New Group";
     int objectStatusCacheLineCount = -1;

@@ -35,6 +35,21 @@ int CountCsvColumns(CSTR& line) {
 int RunWorkspaceReloadLifecycleSelfTest() {
     WORKSPACE workspace{};
     workspace.olrSourcePackagePath = "stale-source.olrskin";
+    workspace.ResetPreviewToStatic();
+    if (workspace.previewReloadPending) return 15;
+    workspace.loaded = true;
+    workspace.previewSimulationPlaying = true;
+    workspace.previewChartFull = true;
+    workspace.previewLastRenderAt = 1000;
+    workspace.previewReloadRequestedAt = 999;
+    const auto resetRevision = workspace.documentRevision;
+    workspace.ResetPreviewToStatic();
+    if (workspace.previewSimulationPlaying || !workspace.previewReloadPending ||
+        workspace.previewReloadRequestedAt != 0 || workspace.previewLastRenderAt != 0 ||
+        !workspace.previewChartFull || workspace.documentRevision != resetRevision) return 16;
+    workspace.ResetPreviewToStatic(); // Repeated reset remains idempotent.
+    if (workspace.previewSimulationPlaying || !workspace.previewReloadPending) return 17;
+    workspace.loaded = false;
     if (workspace.ResetEditorDocumentForLoad() != 0) return 1;
     if (!workspace.olrSourcePackagePath.empty()) return 13;
 
@@ -214,6 +229,16 @@ int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,
         return 13;
     if (GetTimeLapse(41, &secondWorkspace->g.timer1) <= secondStart)
         return 14;
+    firstWorkspace->ResetPreviewToStatic();
+    if (!firstWorkspace->UpdatePreviewRuntime(GetTickCount64()) ||
+        firstWorkspace->previewSimulationPlaying || firstWorkspace->previewReloadPending ||
+        GetTimeLapse(41, &firstWorkspace->g.timer1) >= 0 ||
+        !secondWorkspace->previewSimulationPlaying) return 15;
+    firstWorkspace->previewSimulationPlaying =
+        LR2SESceneInitSafe(&firstWorkspace->g, firstWorkspace->meta.type,
+            LR2SE_PREVIEW_CHART_SIMPLE) == 0;
+    if (!firstWorkspace->previewSimulationPlaying ||
+        GetTimeLapse(41, &firstWorkspace->g.timer1) < 0) return 16;
     return 0;
 }
 

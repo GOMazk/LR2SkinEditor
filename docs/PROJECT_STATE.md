@@ -631,6 +631,10 @@ Redo branch를 버리며, 복합 Object/Preview 작업은 한 번의 사용자 �
 설정 파일에 저장된다. 이 설정은 UI label만 바꾸며 LR2 CSV/CP932 데이터에는 영향을
 주지 않는다.
 
+Timer Control의 `Reset preview`는 재생을 종료하고 로드 직후의 정적 노트/LN/지뢰
+샘플로 돌아간다. 일시정지가 아니며 runtime timer/OP 상태도 초기화한다.
+CSV, History, 선택 Object와 Simple/Full 설정은 보존하고 Restart scene으로 다시 재생한다.
+
 Preview 캔버스에는 Object 확인·선택·배치 기능만 둔다. scene restart와 timer 조작은
 독립된 **Timer Control** 도킹 창에 둔다. 이 창은 scene runtime
 재시작과 OpList 형식의 timer 0~199 체크 목록을 제공한다. 체크하면 해당 timer를

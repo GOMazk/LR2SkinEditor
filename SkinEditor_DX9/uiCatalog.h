@@ -39,7 +39,7 @@ struct SEUIWindowSpec {
 
 inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
     { SEUIWindowId::Preview, "preview", "Preview", "Fit, zoom and directly manipulate the loaded skin in a scrollable canvas beneath fixed controls.", "WORKSPACE::drawPreview", "Workspace", "center-tabs", true },
-    { SEUIWindowId::TimerControl, "timer-control", "Timer Control", "Restart the scene runtime and inspect or override LR2 timers.", "WORKSPACE::drawTimerControl", "Workspace", "right-lower", true },
+    { SEUIWindowId::TimerControl, "timer-control", "Timer Control", "Restart playback, reset to the initial static preview, and inspect or override LR2 timers.", "WORKSPACE::drawTimerControl", "Workspace", "right-lower", true },
     { SEUIWindowId::Customize, "customize", "Customize", "Choose skin-defined customization options.", "WORKSPACE::drawCustomize", "Data", "right-lower", true },
     { SEUIWindowId::ImageManager, "image-manager", "Image Manager", "Inspect source atlases and register, edit or generate image files.", "WORKSPACE::drawImgManager", "Assets", "center-tabs", true },
     { SEUIWindowId::AssetBrowser, "asset-browser", "Asset Browser", "Search, preview and drag tagged image crops.", "WORKSPACE::drawAssetBrowser", "Assets", "center-bottom", true },

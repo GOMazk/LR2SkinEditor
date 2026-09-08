@@ -503,6 +503,7 @@ typedef struct WORKSPACE {
     bool previewSimulationPlaying = false;
     bool previewChartFull = false;
     bool UpdatePreviewRuntime(unsigned long long previewNow);
+    void ResetPreviewToStatic();
     ImVec2 clickPos;
     bool drawRightClick;
     float zoom = 1.0f;

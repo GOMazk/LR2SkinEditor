@@ -54,6 +54,42 @@ void FinishPreviewHistoryGroup(WORKSPACE& workspace, int editCount) {
 
 } // namespace
 
+bool WORKSPACE::IsPreviewFileHidden(const char* owner) const {
+    if (!owner) return false;
+    for (const auto& hidden : previewHiddenFiles)
+        if (!_stricmp(hidden.c_str(), owner)) return true;
+    return false;
+}
+
+bool WORKSPACE::IsPreviewFileVisible(const char* owner) const {
+    return !IsPreviewFileHidden(owner) && (!previewSelectedFileOnly || objectBrowserFile.empty() ||
+        (owner && !_stricmp(owner, objectBrowserFile.c_str())));
+}
+
+bool WORKSPACE::IsPreviewRowVisible(int row) const {
+    return row >= 0 && row < skinfileLines.count &&
+        IsPreviewFileVisible(((SKINFILELINEREAD*)skinfileLines.data)[row].filename.body);
+}
+
+void WORKSPACE::SetPreviewFileVisible(const std::string& owner, bool visible) {
+    if (owner.empty()) return;
+    if (visible) {
+        previewHiddenFiles.erase(std::remove_if(previewHiddenFiles.begin(), previewHiddenFiles.end(),
+            [&](const std::string& hidden) { return !_stricmp(hidden.c_str(), owner.c_str()); }), previewHiddenFiles.end());
+    } else if (!IsPreviewFileHidden(owner.c_str())) previewHiddenFiles.push_back(owner);
+    previewFileDrawMask.clear();
+    previewLastRenderAt = 0;
+    RefreshPreviewSelectionBounds();
+}
+
+void WORKSPACE::ShowAllPreviewFiles() {
+    previewHiddenFiles.clear();
+    previewSelectedFileOnly = false;
+    previewFileDrawMask.clear();
+    previewLastRenderAt = 0;
+    RefreshPreviewSelectionBounds();
+}
+
 int WORKSPACE::RefreshPreviewSelectionBounds() {
     bool firstBounds = true;
     bool lastBounds = true;
@@ -97,7 +133,7 @@ int WORKSPACE::RefreshPreviewSelectionBounds() {
         // synchronized even in that case.
         std::vector<DST_ANIMATION> editorFrames;
         for (int objectRow : object.rows) {
-            if (objectRow < 0 || objectRow >= skinfileLines.count) continue;
+            if (!IsPreviewRowVisible(objectRow)) continue;
             SKINFILELINEREAD& destinationLine =
                 ((SKINFILELINEREAD*)skinfileLines.data)[objectRow];
             if (!destinationLine.csv.str[0].body ||
@@ -216,6 +252,13 @@ void WORKSPACE::ResetPreviewToStatic() {
 
 bool WORKSPACE::UpdatePreviewRuntime(unsigned long long previewNow) {
     bool previewFrameUpdated = false;
+    const std::string owner = previewSelectedFileOnly ? objectBrowserFile : std::string();
+    if (previewDrawOwner != owner || previewFileDrawMask.empty()) {
+        previewDrawOwner = owner;
+        previewFileDrawMask.clear();
+        previewLastRenderAt = 0;
+        RefreshPreviewSelectionBounds();
+    }
     const LR2SEPreviewChartMode chartMode = previewChartFull
         ? LR2SE_PREVIEW_CHART_FULL : LR2SE_PREVIEW_CHART_SIMPLE;
 
@@ -263,7 +306,19 @@ bool WORKSPACE::UpdatePreviewRuntime(unsigned long long previewNow) {
         // timers are running; the original selector loop is not driven here.
         const bool staticSpecialPreview =
             !previewSimulationPlaying || meta.type == SKINTYPE_SELECT;
-        if (LR2SEDrawLoopSafe(&g, previewScreen, skinSizeX, skinSizeY, staticSpecialPreview) == 0) {
+        // Build from the actual runtime order, not editor Object indices. Keeping
+        // the full runtime preserves relative NOWCOMBO positions and shared grs.
+        if (previewFileDrawMask.empty()) {
+            previewFileDrawMask.assign(previewDrawSourceRows.size() + 1, 0);
+            for (size_t order = 0; order < previewDrawSourceRows.size(); ++order) {
+                const int row = previewDrawSourceRows[order];
+                if (row >= 0 && row < skinfileLines.count) {
+                    previewFileDrawMask[order] = IsPreviewRowVisible(row);
+                }
+            }
+        }
+        if (LR2SEDrawLoopSafe(&g, previewScreen, skinSizeX, skinSizeY, staticSpecialPreview,
+            owner.empty() && previewHiddenFiles.empty() ? nullptr : previewFileDrawMask.data(), (int)previewFileDrawMask.size()) == 0) {
             previewFrameUpdated = true;
             previewTextureDirty = true;
         }
@@ -1009,6 +1064,7 @@ int WORKSPACE::drawPreview() {
                 float hitWidth = 0.0f, hitHeight = 0.0f;
                 for (auto destination = destinations.rbegin();
                     destination != destinations.rend(); ++destination) {
+                    if (!IsPreviewRowVisible(destination->lastRow)) continue;
                     if (!GetOptionFlag_dst(&g, destination->op1) ||
                         !GetOptionFlag_dst(&g, destination->op2) ||
                         !GetOptionFlag_dst(&g, destination->op3))

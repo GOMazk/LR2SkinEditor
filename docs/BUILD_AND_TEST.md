@@ -2,8 +2,39 @@
 
 ## 개발 환경
 
+Editor names: ui-contract checks CSV Editor (text-editor key) and Text Editor
+(code-editor key). Manually check Windows > Data and File Manager context menus.
+
+Selection reveal: layout-first checks Object selection opens/requests Inspector,
+selection restoration does not, and successful CSV editing requests Text Editor.
+Manual: select objects while File Manager covers Inspector; double-click/edit an
+asset with Image Manager closed/inactive; open a CSV with Text Editor closed.
+Verify asset single-click/drag, Preview drag and keyboard selection retain input.
+
+UI layout: ui-contract checks Timer Control's right-middle dock, Customize's
+right-lower dock and File Manager's left-inspector dock. Manually rebuild docking:
+all three right panes must appear together. Test File Manager at narrow widths,
+tree eye/selection/context actions and Browse with CP932 filenames and All files.
+
+CSV tree: layout-first checks folder grouping, duplicate-owner deduplication, equal
+basenames in different directories, main-file presence, and Text Editor draft guards.
+It also checks LR2files as the visible root, sibling Theme/Sound folders,
+case-insensitive containment and separate external files. Verify eye toggles and
+main lr2skin-before-csv-folder ordering. Verify
+file selection still target original owners after the tree-root change.
+Manual: File Manager > Scripts, collapse/expand folders, click to scope Objects,
+double-click to open Text Editor, try another file with a dirty draft, and test the
+legacy CSV Editor/New Object context actions. Split/Undo/reload must refresh the tree.
+
+Text Editor: layout-first covers multiline apply, snapshot Undo, child-include
+preservation, stale revision rejection, unbalanced IF, changed INCLUDE and unencodable
+Unicode rejection. Manual: Windows > Data > Text Editor, paste several lines, test
+Ctrl+Z/redo within the field, Apply, unfocus then Workspace Undo, Save/reopen, close
+and reopen with a draft, and edit the same file in Inspector to check conflict blocking.
+Check Japanese text and tab/horizontal/vertical scrolling; the old CSV Editor stays available.
+
 File filter manual checks: choose a split CSV in Object Browser, combine Type/Group/
-Active/Search, open Text Editor, create with New in file, and return to All files.
+Active/Search, open CSV Editor, create with New in file, and return to All files.
 Preview must remain the full skin. Check an empty include and equal filenames in
 different folders. A Preview selection in another file should follow that owner.
 layout-first checks file matching, unknown paths, Text cursor/new-object owner setup,
@@ -388,7 +419,7 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 
 1. `fmod.dll`, 외부 `skinHelper.txt`, 외부 `skinObjGroup.txt`가 없는 별도 폴더에서
    exe가 시작되는지 확인한다.
-2. New/Open toolbar와 grouped Windows menu를 열고 Data 아래 Text Editor 항목이
+2. New/Open toolbar와 grouped Windows menu를 열고 Data 아래 CSV Editor 항목이
    있는지 확인한다. `File > Open another location`에서 임의의 스킨 폴더를 고르면
    하위 폴더의 `.lr2skin`/`.lr2ss`가 목록에 나타나고, Refresh와 Default locations가
    정상 동작해야 한다.
@@ -423,7 +454,7 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
    runtime 상태인 timer는 기본 배경이고, 사용자가 직접 시작하거나 reset한 timer는
    각각 빨간 배경의 체크/빈 칸이어야 한다. Restart scene 후 빨간 배경이 사라지는지도
    확인한다.
-   Text Editor에서 SRC 또는 DST Object 명령 행을 좌클릭하면 Object Browser/Inspector가
+   CSV Editor에서 SRC 또는 DST Object 명령 행을 좌클릭하면 Object Browser/Inspector가
    열리고 Type/Group/Search/Active-only 필터에 가려지지 않은 채 해당 Object로 자동
    스크롤되어야 한다. IF 헤더나 주석을 누르면 기존 Object 선택이 유지되어야 한다.
    PLAY scene을 restart하면 선택한 무음 Preview chart가 LR2의 원본
@@ -701,7 +732,7 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 
 - Object Browser 선택이 Inspector, DST View, Preview에 반영되면서 Preview 탭이
   활성화되고 DST View가 포커스를 빼앗지 않는지
-- Object Browser, Preview, DST View 또는 Text Editor에서 Object를 선택하면
+- Object Browser, Preview, DST View 또는 CSV Editor에서 Object를 선택하면
   Image Manager가 그 Object의 SRC crop으로 이동하고 atlas 위에 주황색 점멸
   사각형을 표시하는지
 - Preview scene timer를 멈추거나 skin을 막 연 상태에서도 Image Manager의
@@ -954,6 +985,37 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - Save As merged/split 양쪽을 확인한다.
 - Save As 성공 후 추가 편집이 새 main script에 저장되는지
 - 실패 또는 overwrite 취소 시 원본이 유지되는지
+
+## Selected-file Preview manual check
+
+### Custom Files
+
+- Open Customize > Manage files..., choose a declaration, inspect candidates
+  (including non-images), linked thumbnails/gr navigation and Folder.
+- Preview must not dirty CSV. Set default edits the draft; Apply creates one
+  Undo step; Save persists to the original owner CSV.
+- Change the document while a draft exists: applying must be blocked. Test
+  missing patterns/defaults, CP932 names, duplicate names in separate CSVs,
+  active/inactive IFs, RANDOM, and folder-wildcard declarations.
+- layout-first self-test covers default editing, owner preservation, Undo,
+  stale revisions, comma rejection and unrepresentable Unicode rejection.
+- Actual GUI thumbnail/Preview switching needs a manual pass.
+
+### File-only rendering
+
+- In File Manager > Scripts, select an include CSV and enable Preview selected
+  file only. Only its drawings should remain; root images/fonts must still work.
+- Change files while stopped and playing; verify LN start/body/end, text and
+  NOWCOMBO relative positions, and that hidden objects cannot be right-clicked.
+- Hide two CSVs with their eye buttons: only their own drawings disappear;
+  included children remain independent and shared fonts/images still work.
+- Restore one eye without changing file selection; verify right-click candidates
+  and blinking bounds agree. Solo and hidden modes intersect.
+- Show all restores all files and clears Solo preview, without restart.
+- layout-first tests cover multiple hides, case-insensitive owner identity,
+  solo/hide intersection, row visibility, restoration and unchanged History/revision.
+- The file-scope self-test checks draw-mask inclusion, exclusion and boundaries.
+  Actual multi-file GUI playback remains a manual verification step.
 
 ## 장애 기록 형식
 

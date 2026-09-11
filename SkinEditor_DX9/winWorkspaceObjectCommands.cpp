@@ -3,6 +3,9 @@
 #include "winWorkspaceUiHelpers.h"
 #include "seHelper.h"
 #include "olrSkin.h"
+#include "inputwrap.h"
+#include "uiCatalog.h"
+#include "seUI.h"
 #include "../LR2/En_fileutil.h"
 
 #include <algorithm>
@@ -345,6 +348,330 @@ bool WORKSPACE::SplitSelectedObjects(const char* filename, std::string& error) {
     history->target = snapshot;
     MarkDocumentSaved();
     return true;
+}
+
+namespace {
+constexpr size_t codeEditorCapacity = 4 * 1024 * 1024;
+bool CodeFileMarker(const SkinLineSnapshot& line) {
+    return line.line.rfind("$FILE ", 0) == 0;
+}
+std::string CodeCommand(const std::string& line) {
+    const size_t first = line.find_first_not_of(" \t");
+    if (first == std::string::npos) return "";
+    const size_t end = line.find_first_of(", \t", first);
+    return line.substr(first, end == std::string::npos ? end : end - first);
+}
+bool EncodeCodeDraft(const char* utf8, std::string& cp932) {
+    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8, -1, nullptr, 0);
+    if (length <= 0) return false;
+    std::vector<wchar_t> wide(length);
+    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8, -1, wide.data(), length)) return false;
+    BOOL substituted = FALSE;
+    const int bytes = WideCharToMultiByte(932, WC_NO_BEST_FIT_CHARS, wide.data(), -1,
+        nullptr, 0, nullptr, &substituted);
+    if (bytes <= 0 || substituted) return false;
+    std::vector<char> encoded(bytes);
+    if (!WideCharToMultiByte(932, WC_NO_BEST_FIT_CHARS, wide.data(), -1,
+        encoded.data(), bytes, nullptr, &substituted) || substituted) return false;
+    cp932.assign(encoded.data());
+    return true;
+}
+}
+
+bool WORKSPACE::ApplyCustomFileDraft() {
+    if (!loaded || applyingHistory || pendingHistorySnapshotRestore >= 0 ||
+        customFileDraftDocument != mainpath || customFileDraftRevision != documentRevision ||
+        customFileDraftRow < 0 || customFileDraftRow >= skinfileLines.count) {
+        customFileStatus = "Document changed; discard the draft and reselect the declaration.";
+        return false;
+    }
+    SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[customFileDraftRow];
+    if (!row.line.body || customFileDraftOriginal != row.line.body ||
+        !row.csv.str[0].body || !row.csv.str[0].isSame("#CUSTOMFILE")) return false;
+    std::string title, pattern, defaultValue;
+    if (!EncodeCodeDraft(customFileTitle, title) || !EncodeCodeDraft(customFilePattern, pattern) ||
+        !EncodeCodeDraft(customFileDefault, defaultValue)) {
+        customFileStatus = "A field cannot be represented in CP932."; return false;
+    }
+    for (const std::string* value : { &title, &pattern, &defaultValue }) {
+        if (value->find_first_of(",\r\n") != std::string::npos) {
+            customFileStatus = "CSV fields cannot contain commas or newlines."; return false;
+        }
+    }
+    if (title.empty() || pattern.empty()) {
+        customFileStatus = "Title and pattern are required."; return false;
+    }
+    const std::string replacement = "#CUSTOMFILE," + title + "," + pattern + "," + defaultValue;
+    if (replacement != customFileDraftOriginal &&
+        EditLine(customFileDraftRow, CSTR(customFileDraftOriginal.c_str()), CSTR(replacement.c_str())) != 0) {
+        customFileStatus = "Could not edit the declaration."; return false;
+    }
+    customFileDraftDirty = false;
+    customFileStatus = "Applied to document (Undo available). Use Save to write CSV.";
+    return true;
+}
+
+bool WORKSPACE::LoadCodeEditorFile(const std::string& owner) {
+    std::string text;
+    bool found = false;
+    for (const auto& line : CaptureDocumentSnapshot().lines) {
+        if (_stricmp(line.filename.c_str(), owner.c_str())) continue;
+        found = true;
+        if (CodeFileMarker(line)) continue;
+        text += Cp932ToUtf8(line.line.c_str());
+        text += '\n';
+    }
+    if (!found || text.size() >= codeEditorCapacity) {
+        codeEditorStatus = "File unavailable or larger than the 4 MiB draft limit.";
+        return false;
+    }
+    codeEditorOwner = owner;
+    codeEditorDocument = mainpath;
+    codeEditorBase = text;
+    codeEditorRevision = documentRevision;
+    codeEditorBuffer.assign(codeEditorCapacity, '\0');
+    memcpy(codeEditorBuffer.data(), text.c_str(), text.size());
+    codeEditorStatus.clear();
+    return true;
+}
+
+void WORKSPACE::RebuildScriptDirectoryTree() {
+    namespace fs = std::filesystem;
+    scriptDirectoryTree.clear();
+    scriptDirectoryTree.push_back({"Scripts", "", {}});
+    std::error_code pathError;
+    fs::path main = fs::absolute(fs::path(mainpath), pathError);
+    if (pathError) main = fs::path(mainpath);
+    fs::path base = main.parent_path().lexically_normal();
+    bool rootedAtLr2Files = false;
+    for (fs::path parent = base; !parent.empty(); parent = parent.parent_path()) {
+        if (!_stricmp(parent.filename().string().c_str(), "LR2files")) {
+            base = parent;
+            rootedAtLr2Files = true;
+            break;
+        }
+        if (parent == parent.parent_path()) break;
+    }
+    std::string basePrefix = base.string();
+    if (!basePrefix.empty() && basePrefix.back() != '\\' && basePrefix.back() != '/') basePrefix += '\\';
+    std::set<std::string> seen;
+    for (int row = 0; row < skinfileLines.count; ++row) {
+        const auto& source = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+        if (!source.filename.body || !*source.filename.body) continue;
+        const std::string owner = source.filename.body;
+        std::string key = owner;
+        std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) {
+            return c >= 'A' && c <= 'Z' ? char(c + 'a' - 'A') : char(c);
+        });
+        if (!seen.insert(key).second) continue;
+        pathError.clear();
+        fs::path ownerPath = fs::absolute(fs::path(owner), pathError);
+        if (pathError) ownerPath = fs::path(owner);
+        ownerPath = ownerPath.lexically_normal();
+        const std::string ownerPathText = ownerPath.string();
+        const bool inside = !basePrefix.empty() &&
+            !_strnicmp(ownerPathText.c_str(), basePrefix.c_str(), basePrefix.size());
+        fs::path relative = inside ? fs::path(ownerPathText.substr(basePrefix.size())) : ownerPath;
+        std::vector<std::string> parts;
+        if (!inside) {
+            parts.push_back("External files");
+        } else if (rootedAtLr2Files) parts.push_back("LR2files");
+        for (const auto& part : relative) {
+            if (part != "." && !part.empty()) parts.push_back(part.string());
+        }
+        if (parts.empty()) continue;
+        int parent = 0;
+        for (size_t i = 0; i < parts.size(); ++i) {
+            const bool leaf = i + 1 == parts.size();
+            int child = -1;
+            for (int candidate : scriptDirectoryTree[parent].children) {
+                const auto& node = scriptDirectoryTree[candidate];
+                if (!_stricmp(node.label.c_str(), parts[i].c_str()) &&
+                    node.owner.empty() == !leaf) { child = candidate; break; }
+            }
+            if (child < 0) {
+                child = (int)scriptDirectoryTree.size();
+                scriptDirectoryTree.push_back({parts[i], leaf ? owner : "", {}});
+                scriptDirectoryTree[parent].children.push_back(child);
+            }
+            parent = child;
+        }
+    }
+    for (auto& node : scriptDirectoryTree)
+        std::sort(node.children.begin(), node.children.end(), [&](int a, int b) {
+            const auto& left = scriptDirectoryTree[a];
+            const auto& right = scriptDirectoryTree[b];
+            const bool leftMain = !left.owner.empty() && !_stricmp(left.owner.c_str(), mainpath);
+            const bool rightMain = !right.owner.empty() && !_stricmp(right.owner.c_str(), mainpath);
+            if (leftMain != rightMain) return leftMain;
+            if (left.owner.empty() != right.owner.empty()) return left.owner.empty();
+            return _stricmp(left.label.c_str(), right.label.c_str()) < 0;
+        });
+    scriptDirectoryRevision = documentRevision;
+    scriptDirectoryDocument = mainpath;
+}
+
+bool WORKSPACE::OpenScriptInCodeEditor(const std::string& owner) {
+    wCodeEditor = true;
+    if (!codeEditorBuffer.empty() && codeEditorBase != codeEditorBuffer.data()) {
+        if (codeEditorOwner == owner && codeEditorDocument == mainpath) {
+            codeEditorRevealRequested = true;
+            return true;
+        }
+        scriptDirectoryStatus = "Text Editor has an unapplied draft. Apply or discard it before opening another file.";
+        return false;
+    }
+    if (!LoadCodeEditorFile(owner)) { scriptDirectoryStatus = codeEditorStatus; return false; }
+    codeEditorRevealRequested = true;
+    scriptDirectoryStatus.clear();
+    return true;
+}
+
+bool WORKSPACE::ApplyCodeEditorDraft() {
+    if (!loaded || codeEditorBuffer.empty() || applyingHistory || pendingHistorySnapshotRestore >= 0 ||
+        codeEditorDocument != mainpath || codeEditorRevision != documentRevision) {
+        codeEditorStatus = "Document changed elsewhere. Copy your draft, then discard/reload before applying.";
+        return false;
+    }
+    if (codeEditorBase == codeEditorBuffer.data()) return true;
+    std::string text;
+    if (!EncodeCodeDraft(codeEditorBuffer.data(), text)) {
+        codeEditorStatus = "Some characters cannot be stored as Shift-JIS (CP932). Nothing was applied.";
+        return false;
+    }
+    const auto before = CaptureDocumentSnapshot();
+    int start = -1, finish = -1, starts = 0;
+    for (int i = 0; i < (int)before.lines.size(); ++i) {
+        const auto& line = before.lines[i];
+        if (_stricmp(line.filename.c_str(), codeEditorOwner.c_str()) || !CodeFileMarker(line)) continue;
+        if (line.line.size() >= 6 && line.line.compare(line.line.size() - 6, 6, " start") == 0) {
+            start = i; ++starts;
+        } else if (line.line.size() >= 4 && line.line.compare(line.line.size() - 4, 4, " end") == 0) finish = i;
+    }
+    if (starts != 1 || start < 0 || finish <= start) {
+        codeEditorStatus = "This file has no unique include instance. Repeated includes are read-only here.";
+        return false;
+    }
+    // Preserve expanded child files; only this owner's source lines are replaced.
+    std::vector<std::string> includeLines;
+    std::vector<std::vector<SkinLineSnapshot>> children;
+    for (int i = start + 1; i < finish; ++i) {
+        const auto& line = before.lines[i];
+        if (_stricmp(line.filename.c_str(), codeEditorOwner.c_str())) {
+            codeEditorStatus = "Unrecognized include expansion; nothing was applied."; return false;
+        }
+        if (!_stricmp(CodeCommand(line.line).c_str(), "#INCLUDE")) {
+            includeLines.push_back(line.line);
+            children.emplace_back();
+            while (i + 1 < finish && _stricmp(before.lines[i + 1].filename.c_str(), codeEditorOwner.c_str()))
+                children.back().push_back(before.lines[++i]);
+        }
+    }
+    std::vector<SkinLineSnapshot> replacement;
+    size_t offset = 0, includeIndex = 0;
+    int sourceNumber = 0;
+    std::vector<bool> conditionElse;
+    while (offset < text.size()) {
+        const size_t end = text.find('\n', offset);
+        std::string line = text.substr(offset, end == std::string::npos ? end : end - offset);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        offset = end == std::string::npos ? text.size() : end + 1;
+        const auto command = CodeCommand(line);
+        if (command == "$FILE") { codeEditorStatus = "$FILE markers are internal and cannot be entered."; return false; }
+        if (!_stricmp(command.c_str(), "#IF")) conditionElse.push_back(false);
+        else if (!_stricmp(command.c_str(), "#ELSE") || !_stricmp(command.c_str(), "#ELSEIF")) {
+            if (conditionElse.empty() || conditionElse.back()) { codeEditorStatus = "Invalid ELSE/ELSEIF nesting."; return false; }
+            if (!_stricmp(command.c_str(), "#ELSE")) conditionElse.back() = true;
+        } else if (!_stricmp(command.c_str(), "#ENDIF")) {
+            if (conditionElse.empty()) { codeEditorStatus = "Unmatched ENDIF in this file."; return false; }
+            conditionElse.pop_back();
+        }
+        SkinLineSnapshot source;
+        source.filename = codeEditorOwner;
+        source.line = line;
+        source.num = ++sourceNumber;
+        source.modified = true;
+        replacement.push_back(source);
+        if (!_stricmp(command.c_str(), "#INCLUDE")) {
+            if (includeIndex >= includeLines.size() || line != includeLines[includeIndex]) {
+                codeEditorStatus = "Keep INCLUDE lines and their order unchanged in this first version."; return false;
+            }
+            replacement.insert(replacement.end(), children[includeIndex].begin(), children[includeIndex].end());
+            ++includeIndex;
+        }
+    }
+    if (!conditionElse.empty() || includeIndex != includeLines.size()) {
+        codeEditorStatus = "Close all IF blocks and keep every original INCLUDE line."; return false;
+    }
+    auto after = before;
+    after.lines.erase(after.lines.begin() + start + 1, after.lines.begin() + finish);
+    after.lines.insert(after.lines.begin() + start + 1, replacement.begin(), replacement.end());
+    const auto oldRedo = redoDocumentSnapshots;
+    const auto oldRevision = documentRevision;
+    if (RestoreDocumentSnapshot(after) != 0 || RebuildEditorDerivedState() != 0) {
+        const bool oldReplay = replayingHistory;
+        replayingHistory = true;
+        RestoreDocumentSnapshot(before);
+        replayingHistory = oldReplay;
+        redoDocumentSnapshots = oldRedo;
+        documentRevision = oldRevision;
+        RebuildEditorDerivedState();
+        RebuildObjectModel();
+        codeEditorStatus = "Rebuild failed; document restored. Draft kept.";
+        return false;
+    }
+    RebuildObjectModel();
+    const int snapshot = (int)historyDocumentSnapshots.size();
+    historyDocumentSnapshots.push_back(before);
+    auto* history = (HISTORY*)arr_history.Get_new();
+    history->op = restoreDocument;
+    history->target = snapshot;
+    LoadCodeEditorFile(codeEditorOwner);
+    codeEditorStatus = "Applied to Workspace. Use Save to write files.";
+    return true;
+}
+
+void WORKSPACE::drawCodeEditor() {
+    char title[128];
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::CodeEditor, num);
+    ImGui::SetNextWindowSize(ImVec2(760, 520), ImGuiCond_FirstUseEver);
+    if (codeEditorRevealRequested) {
+        SEUI::RevealWindowTab(title);
+        codeEditorRevealRequested = false;
+    }
+    if (!ImGui::Begin(title, &wCodeEditor)) { ImGui::End(); return; }
+    if (!loaded) { ImGui::TextUnformatted("Open a skin first."); ImGui::End(); return; }
+    if (codeEditorBuffer.empty()) LoadCodeEditorFile(objectBrowserFile.empty() ? mainpath : objectBrowserFile);
+    const bool dirty = !codeEditorBuffer.empty() && codeEditorBase != codeEditorBuffer.data();
+    ImGui::BeginDisabled(dirty);
+    const std::string filePreview = Cp932ToUtf8(codeEditorOwner.c_str());
+    if (ImGui::BeginCombo("File", filePreview.c_str())) {
+        std::set<std::string> owners;
+        for (const auto& line : CaptureDocumentSnapshot().lines) owners.insert(line.filename);
+        for (const auto& owner : owners) {
+            if (owner.empty()) continue;
+            if (ImGui::Selectable(Cp932ToUtf8(owner.c_str()).c_str(), owner == codeEditorOwner)) LoadCodeEditorFile(owner);
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::EndDisabled();
+    if (ImGui::Button("Apply")) ApplyCodeEditorDraft();
+    ImGui::SameLine();
+    if (ImGui::Button(dirty ? "Discard draft" : "Reload from Workspace")) {
+        const std::string owner = codeEditorDocument == mainpath ? codeEditorOwner : std::string(mainpath);
+        LoadCodeEditorFile(owner);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled(dirty ? "Draft (not saved)" : "Workspace copy");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ctrl+Z inside the field undoes text edits. Apply is one Workspace undo step. Closing this window keeps the draft.");
+    if (!codeEditorStatus.empty()) ImGui::TextWrapped("%s", codeEditorStatus.c_str());
+    if (codeEditorRevision != documentRevision || codeEditorDocument != mainpath)
+        ImGui::TextWrapped("Workspace changed. Copy the draft before reloading; Apply is blocked.");
+    if (!codeEditorBuffer.empty())
+        ImGui::InputTextMultiline("##CodeDraft", codeEditorBuffer.data(), codeEditorBuffer.size(),
+            ImVec2(-FLT_MIN, (std::max)(80.0f, ImGui::GetContentRegionAvail().y)),
+            ImGuiInputTextFlags_AllowTabInput);
+    ImGui::End();
 }
 
 bool WORKSPACE::HasCopiedObjects() const {
@@ -927,5 +1254,143 @@ int RunLayoutFirstObjectSelfTest() {
     if (!reopened->SetObjectBrowserFile("")) return 85;
     for (int i = 0; i < (int)reopened->objectEditorModel.Objects().size(); ++i)
         if (!reopened->ObjectMatchesFile(i)) return 86;
+    if (!reopened->LoadCodeEditorFile(splitOwner)) return 87;
+    const auto codeBefore = reopened->CaptureDocumentSnapshot();
+    const int codeHistory = reopened->arr_history.count;
+    const auto setDraft = [&](const std::string& value) {
+        memcpy(reopened->codeEditorBuffer.data(), value.c_str(), value.size() + 1);
+    };
+    setDraft(reopened->codeEditorBase + "// multiline draft\n// second line\n");
+    if (!reopened->ApplyCodeEditorDraft() || reopened->arr_history.count != codeHistory + 1 ||
+        runtimeLines(reopened->CaptureDocumentSnapshot()) != runtimeLines(codeBefore)) return 88;
+    if (reopened->UndoLastEdit() != 0 || reopened->ApplyPendingHistorySnapshotRestore() != 0 ||
+        reopened->CaptureDocumentSnapshot().lines.size() != codeBefore.lines.size()) return 89;
+    if (!reopened->LoadCodeEditorFile(splitOwner)) return 90;
+    setDraft(reopened->codeEditorBase + "#IF,900\n");
+    if (reopened->ApplyCodeEditorDraft()) return 91;
+    setDraft(reopened->codeEditorBase + "// \xF0\x9F\x98\x80\n");
+    if (reopened->ApplyCodeEditorDraft()) return 92;
+    setDraft(reopened->codeEditorBase + "// conflict\n");
+    ++reopened->documentRevision;
+    if (reopened->ApplyCodeEditorDraft()) return 93;
+    if (!reopened->LoadCodeEditorFile(root)) return 94;
+    const auto rootBefore = reopened->CaptureDocumentSnapshot();
+    setDraft(reopened->codeEditorBase + "// parent edit\n");
+    if (!reopened->ApplyCodeEditorDraft() ||
+        runtimeLines(reopened->CaptureDocumentSnapshot()) != runtimeLines(rootBefore)) return 95;
+    auto alteredInclude = reopened->codeEditorBase;
+    const auto includePos = alteredInclude.find("#INCLUDE,parts.csv");
+    if (includePos == std::string::npos) return 96;
+    alteredInclude.replace(includePos, strlen("#INCLUDE,parts.csv"), "#INCLUDE,missing.csv");
+    setDraft(alteredInclude);
+    if (reopened->ApplyCodeEditorDraft()) return 97;
+    // Tree navigation must not overwrite an unapplied Text Editor draft.
+    const std::string keptDraft = reopened->codeEditorBuffer.data();
+    if (reopened->OpenScriptInCodeEditor(splitOwner) ||
+        keptDraft != reopened->codeEditorBuffer.data()) return 98;
+    if (!reopened->LoadCodeEditorFile(root) ||
+        !reopened->OpenScriptInCodeEditor(splitOwner)) return 99;
+    const auto addTreeOwner = [&](const fs::path& path) {
+        auto* line = (SKINFILELINEREAD*)reopened->skinfileLines.Get_new();
+        line->filename.assign(path.string().c_str());
+    };
+    addTreeOwner(directory / "left" / "notes.csv");
+    addTreeOwner(directory / "right" / "notes.csv");
+    addTreeOwner(directory / "left" / "notes.csv");
+    reopened->RebuildScriptDirectoryTree();
+    int notes = 0, left = 0, right = 0, mainFiles = 0;
+    for (const auto& node : reopened->scriptDirectoryTree) {
+        if (node.label == "notes.csv" && !node.owner.empty()) ++notes;
+        if (node.label == "left" && node.owner.empty() && node.children.size() == 1) ++left;
+        if (node.label == "right" && node.owner.empty() && node.children.size() == 1) ++right;
+        if (node.owner == root) ++mainFiles;
+    }
+    if (notes != 2 || left != 1 || right != 1 || mainFiles != 1 ||
+        reopened->scriptDirectoryRevision != reopened->documentRevision) return 100;
+    auto* custom = (SKINFILELINEREAD*)reopened->skinfileLines.Get_new();
+    custom->filename.assign(root.c_str());
+    custom->line.assign("#CUSTOMFILE,Notes,notes/*.png,white");
+    SplitCSV(custom->line, &custom->csv, ",");
+    custom->csvColumnCount = 4;
+    reopened->customFileDraftRow = reopened->skinfileLines.count - 1;
+    reopened->customFileDraftDocument = reopened->mainpath;
+    reopened->customFileDraftRevision = reopened->documentRevision;
+    reopened->customFileDraftOriginal = custom->line.body;
+    strcpy_s(reopened->customFileTitle, "Notes");
+    strcpy_s(reopened->customFilePattern, "notes/*.png");
+    strcpy_s(reopened->customFileDefault, "blue");
+    const int customHistory = reopened->arr_history.count;
+    if (!reopened->ApplyCustomFileDraft() || reopened->arr_history.count != customHistory + 1 ||
+        !custom->csv.str[3].isSame("blue") || !custom->filename.isSame(root.c_str())) return 101;
+    if (reopened->ApplyCustomFileDraft()) return 102; // stale revision rejected
+    reopened->customFileDraftRevision = reopened->documentRevision;
+    reopened->customFileDraftOriginal = custom->line.body;
+    strcpy_s(reopened->customFileTitle, "bad,title");
+    if (reopened->ApplyCustomFileDraft()) return 103;
+    strcpy_s(reopened->customFileTitle, "\xF0\x9F\x98\x80");
+    if (reopened->ApplyCustomFileDraft()) return 104;
+    if (reopened->UndoLastEdit() != 0 || !custom->csv.str[3].isSame("white")) return 105;
+    const auto visibilityRevision = reopened->documentRevision;
+    const int visibilityHistory = reopened->arr_history.count;
+    reopened->SetObjectBrowserFile(splitOwner);
+    reopened->SetPreviewFileVisible(root, false);
+    reopened->SetPreviewFileVisible(root, false);
+    if (reopened->previewHiddenFiles.size() != 1 || reopened->IsPreviewFileVisible(root.c_str()) ||
+        !reopened->IsPreviewFileVisible(splitOwner.c_str()) || reopened->objectBrowserFile != splitOwner) return 106;
+    reopened->SetPreviewFileVisible(splitOwner, false);
+    reopened->previewSelectedFileOnly = true;
+    if (reopened->IsPreviewFileVisible(splitOwner.c_str())) return 107;
+    reopened->SetPreviewFileVisible(splitOwner, true);
+    if (!reopened->IsPreviewFileVisible(splitOwner.c_str()) || reopened->IsPreviewFileVisible(root.c_str())) return 108;
+    reopened->previewSelectedFileOnly = false;
+    std::string rootCase = root;
+    for (char& c : rootCase) if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
+    if (!reopened->IsPreviewFileHidden(rootCase.c_str())) return 109;
+    reopened->SetPreviewFileVisible(rootCase, true);
+    if (reopened->IsPreviewFileHidden(root.c_str())) return 110;
+    reopened->SetPreviewFileVisible(root, false);
+    if (reopened->IsPreviewRowVisible(reopened->customFileDraftRow)) return 111;
+    reopened->ShowAllPreviewFiles();
+    if (!reopened->IsPreviewRowVisible(reopened->customFileDraftRow) || reopened->previewSelectedFileOnly ||
+        !reopened->previewHiddenFiles.empty() || reopened->documentRevision != visibilityRevision ||
+        reopened->arr_history.count != visibilityHistory) return 112;
+    auto tree = std::make_unique<WORKSPACE>();
+    strcpy_s(tree->mainpath, "C:\\tree-test\\LR2files\\Theme\\Demo\\main.lr2skin");
+    tree->skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 4);
+    for (const char* path : { "C:\\tree-test\\LR2files\\Theme\\Demo\\main.lr2skin",
+        "C:\\tree-test\\lr2files\\Sound\\shared.csv", "C:\\external\\other.csv",
+        "C:\\tree-test\\LR2files\\Theme\\Demo\\csv\\notes.csv" }) {
+        auto* source = (SKINFILELINEREAD*)tree->skinfileLines.Get_new();
+        source->filename.assign(path);
+    }
+    tree->RebuildScriptDirectoryTree();
+    int lr2Root = -1, externalRoot = -1;
+    for (int child : tree->scriptDirectoryTree[0].children) {
+        if (tree->scriptDirectoryTree[child].label == "LR2files") lr2Root = child;
+        if (tree->scriptDirectoryTree[child].label == "External files") externalRoot = child;
+    }
+    if (lr2Root < 0 || externalRoot < 0 || tree->scriptDirectoryTree[lr2Root].children.size() != 2) return 113;
+    bool themeFound = false, soundFound = false;
+    for (int child : tree->scriptDirectoryTree[lr2Root].children) {
+        themeFound |= tree->scriptDirectoryTree[child].label == "Theme";
+        soundFound |= tree->scriptDirectoryTree[child].label == "Sound";
+    }
+    if (!themeFound || !soundFound) return 114;
+    bool mainFirst = false;
+    for (const auto& node : tree->scriptDirectoryTree) {
+        if (node.label != "Demo" || node.children.size() != 2) continue;
+        mainFirst = tree->scriptDirectoryTree[node.children[0]].owner == tree->mainpath &&
+            tree->scriptDirectoryTree[node.children[1]].label == "csv";
+    }
+    if (!mainFirst) return 115;
+    reopened->wObjectInspector = false;
+    reopened->objectInspectorRevealRequested = false;
+    reopened->SetObjectSelection({0}, 0, 0, false);
+    if (!reopened->wObjectInspector || !reopened->objectInspectorRevealRequested) return 116;
+    reopened->objectInspectorRevealRequested = false;
+    reopened->RestoreObjectSelection();
+    if (reopened->objectInspectorRevealRequested) return 117;
+    reopened->codeEditorRevealRequested = false;
+    if (!reopened->OpenScriptInCodeEditor(splitOwner) || !reopened->codeEditorRevealRequested) return 118;
     return 0;
 }

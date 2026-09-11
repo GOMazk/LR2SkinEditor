@@ -160,7 +160,7 @@ foreach ($duplicate in $duplicateTitles) {
 }
 $allowedGroups = @('Workspace', 'Assets', 'Data', 'Advanced')
 $allowedDocks = @('left-browser', 'left-inspector', 'center-tabs', 'center-bottom',
-    'right-upper', 'right-lower')
+    'right-upper', 'right-middle', 'right-lower')
 foreach ($window in $windows) {
     if ($allowedGroups -notcontains $window.group) {
         $diagnostics.Add([pscustomobject]@{

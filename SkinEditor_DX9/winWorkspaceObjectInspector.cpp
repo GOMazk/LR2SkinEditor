@@ -31,6 +31,10 @@ int WORKSPACE::drawObjectInspector() {
     char inspectorTitle[128];
     FormatSEUIWindowTitle(inspectorTitle, sizeof(inspectorTitle),
         SEUIWindowId::ObjectInspector, num);
+    if (objectInspectorRevealRequested) {
+        SEUI::RevealWindowTab(inspectorTitle);
+        objectInspectorRevealRequested = false;
+    }
     if (!ImGui::Begin(inspectorTitle, &wObjectInspector)) {
         ImGui::End();
         return 0;

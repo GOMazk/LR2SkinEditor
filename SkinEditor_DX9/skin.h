@@ -10,8 +10,13 @@
 
 int LR2SEInit(game* g, bool initializeCore);
 
-int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview);
-int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview);
+inline bool LR2SEPreviewDrawVisible(int order, const unsigned char* mask, int count) {
+    return !mask || (order >= 0 && order < count && mask[order] != 0);
+}
+int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview,
+    const unsigned char* mask = nullptr, int maskCount = 0);
+int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview,
+    const unsigned char* mask = nullptr, int maskCount = 0);
 void LR2SEResetRenderFault();
 void LR2SEPreparePreviewState(game* g, int type);
 

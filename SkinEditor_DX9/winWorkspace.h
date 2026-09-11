@@ -493,6 +493,13 @@ typedef struct WORKSPACE {
     //TextEdit
     bool wTextEdit;
     int drawTextEdit();
+    bool wCodeEditor = false;
+    void drawCodeEditor();
+    bool LoadCodeEditorFile(const std::string& owner);
+    bool ApplyCodeEditorDraft();
+    std::string codeEditorOwner, codeEditorDocument, codeEditorBase, codeEditorStatus;
+    std::vector<char> codeEditorBuffer;
+    unsigned long long codeEditorRevision = 0;
     int textCursor = 0;
     bool hideComment = false;
     bool hideBlank = false;
@@ -507,6 +514,28 @@ typedef struct WORKSPACE {
     unsigned long long previewLastRenderAt = 0;
     bool previewTextureDirty = true;
     bool previewSimulationPlaying = false;
+    bool previewSelectedFileOnly = false;
+    std::vector<std::string> previewHiddenFiles;
+    bool IsPreviewFileHidden(const char* owner) const;
+    bool IsPreviewFileVisible(const char* owner) const;
+    bool IsPreviewRowVisible(int row) const;
+    void SetPreviewFileVisible(const std::string& owner, bool visible);
+    void ShowAllPreviewFiles();
+    bool wCustomFiles = false;
+    void drawCustomFiles();
+    bool ApplyCustomFileDraft();
+    int customFileDraftRow = -1;
+    unsigned long long customFileDraftRevision = 0;
+    std::string customFileDraftDocument, customFileDraftOriginal, customFileStatus;
+    char customFileTitle[512] = {}, customFilePattern[2048] = {}, customFileDefault[512] = {};
+    char customFileSearch[256] = {};
+    bool customFileDraftDirty = false;
+    struct CustomFileCandidate { std::string label, path; bool directory = false; };
+    std::vector<CustomFileCandidate> customFileCandidates;
+    std::map<std::string, std::string> customFilePreviewChoices;
+    std::vector<int> previewDrawSourceRows;
+    std::vector<unsigned char> previewFileDrawMask;
+    std::string previewDrawOwner;
     bool previewChartFull = false;
     bool UpdatePreviewRuntime(unsigned long long previewNow);
     void ResetPreviewToStatic();
@@ -667,6 +696,15 @@ typedef struct WORKSPACE {
     int printSrcImgButton(SRC src, int num, int w, int h);
     int printSrcImgEx(SRC src, int w, int h, bool ignoreIfGroup = false);
 
+    struct ScriptDirectoryNode {
+        std::string label, owner;
+        std::vector<int> children;
+    };
+    std::vector<ScriptDirectoryNode> scriptDirectoryTree;
+    unsigned long long scriptDirectoryRevision = ~0ULL;
+    std::string scriptDirectoryDocument, scriptDirectoryStatus;
+    void RebuildScriptDirectoryTree();
+    bool OpenScriptInCodeEditor(const std::string& owner);
     bool wFileManager;
     int drawFileManager();
 
@@ -784,6 +822,9 @@ typedef struct WORKSPACE {
     // The two panes own only visibility; selection stays in shared WORKSPACE state.
     bool wObjectBrowser = false;
     bool wObjectInspector = false;
+    bool objectInspectorRevealRequested = false;
+    bool imageManagerRevealRequested = false;
+    bool codeEditorRevealRequested = false;
     bool objectBrowserActiveOnly = false;
     bool objectBrowserDrawOrder = false;
     int selected_object_editor = 0;

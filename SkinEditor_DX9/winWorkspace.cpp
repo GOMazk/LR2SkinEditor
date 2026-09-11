@@ -5444,12 +5444,6 @@ int WORKSPACE::drawCustomize() {
     char title[260];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Customize, num);
     ImGui::Begin(title, &wCustomize);
-    if (ImGui::Button("Manage files...")) {
-        wCustomFiles = true;
-        char managerTitle[128];
-        FormatSEUIWindowTitle(managerTitle, sizeof(managerTitle), SEUIWindowId::CustomFiles, num);
-        ImGui::SetWindowFocus(managerTitle);
-    }
 
     for (int i = 0; i < meta.custom_count; i++) {
         SkinCustom& cu = meta.customs[i];

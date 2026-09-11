@@ -26,7 +26,7 @@ File Manager는 Object Inspector와 같은 도킹 영역의 탭으로 배치하�
 탐색기에 표시하며 All files에서는 메인 스킨 파일을 표시한다. 기존 배치는
 Layout > Rebuild current docking으로 재구성할 수 있다.
 
-Custom Files 창은 Customize의 Manage files... 또는 Windows > Data에서 연다.
+Custom Files 창은 Windows > Data > Custom Files에서 연다. Customize에는 별도 진입 버튼을 두지 않는다.
 로드된 #CUSTOMFILE 선언의 title/path/default를 CP932 검증 후 기존 EditLine/Undo로
 수정하며 Apply 이후 Save가 필요하다. 문서 revision이 바뀐 초안은 적용을 막는다.
 후보는 LR2의 CUSTOMFILE 파일명 토큰 규칙으로 열거하며 비이미지도 유지한다

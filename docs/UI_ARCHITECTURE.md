@@ -832,6 +832,9 @@ portable package or materialized LR2 tree.
 
 ## Custom Files manager
 
+Open through Windows > Data > Custom Files, like the other tools. Customize has
+no separate manager shortcut; the existing catalog/window toggle owns visibility.
+
 `WORKSPACE::drawCustomFiles` owns a revision-guarded declaration draft and a
 refreshable candidate list, not a second CSV model. `ApplyCustomFileDraft` uses
 strict CP932 conversion and `EditLine` for Undo. The per-workspace preview-choice

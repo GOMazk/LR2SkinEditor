@@ -42,6 +42,8 @@ inherited IF, All files restoration, and unchanged document revision.
 
 Object split: layout-first self-test checks splitting SRC/DST inside an include IF,
 disk owner separation, marker omission, overwrite/traversal rejection and Undo/Redo.
+It also covers two plain Objects without editor IDs: both selected Objects, the
+active Object and range anchor must survive split and the normal Undo/Redo rebuild.
 Manual: select consecutive Objects, right-click Split to new CSV, cancel once, then
 Split and save; reopen the main skin and compare Preview/order/selection. Disjoint,
 cross-IF and cross-file selections must fail without edits. Undo then Save must remove
@@ -1014,7 +1016,11 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 - Show all restores all files and clears Solo preview, without restart.
 - layout-first tests cover multiple hides, case-insensitive owner identity,
   solo/hide intersection, row visibility, restoration and unchanged History/revision.
-- The file-scope self-test checks draw-mask inclusion, exclusion and boundaries.
+- The file-scope self-test checks draw-mask inclusion, exclusion and boundaries,
+  actual DST interpolation across a hidden include's order, moving-bar interpolation,
+  and draw-buffer growth. Runtime source ownership stays on the selected keyframe
+  while z-order still interpolates. Its large runtime fixtures live on the heap so
+  the same test also runs within the default x64 stack limit.
   Actual multi-file GUI playback remains a manual verification step.
 
 ## 장애 기록 형식

@@ -104,8 +104,8 @@ $git = [pscustomobject][ordered]@{
     branch = $null
     head = $null
     dirty = $null
-    remote = 'https://github.com/GOMazk/SkinEditor'
-    targetBranch = 'AI'
+    remote = 'https://github.com/GOMazk/LR2SkinEditor'
+    targetBranch = 'AI_2'
 }
 if (Test-Path -LiteralPath (Join-Path $repositoryRoot '.git')) {
     $branch = (& git -C $repositoryRoot branch --show-current 2>$null)
@@ -159,9 +159,9 @@ if ($null -ne $focusEntry) {
 
 $manifest = [pscustomobject][ordered]@{
     schemaVersion = 1
-    project = 'GOMazk/SkinEditor'
+    project = 'GOMazk/LR2SkinEditor'
     baseline = [pscustomobject][ordered]@{
-        branch = 'AI'
+        branch = 'AI_2'
         configuration = 'Release'
         platform = 'Win32'
         toolset = 'Visual Studio 2022 v143'
@@ -196,8 +196,9 @@ $null = $markdown.AppendLine('Generated artifact. Do not edit it by hand; update
 $null = $markdown.AppendLine()
 $null = $markdown.AppendLine('## Baseline')
 $null = $markdown.AppendLine()
-$null = $markdown.AppendLine('- Repository: `GOMazk/SkinEditor`')
-$null = $markdown.AppendLine('- Target branch: `AI`')
+$null = $markdown.AppendLine('- Repository: `GOMazk/LR2SkinEditor`')
+$null = $markdown.AppendLine('- Target branch: `AI_2`')
+$null = $markdown.AppendLine('- Branch ownership: never modify `AI`; read `AI_1` only unless GOMazk explicitly authorizes changes.')
 $null = $markdown.AppendLine('- Build: `Release | Win32(x86)` with Visual Studio 2022 `v143`')
 $gitText = if ($git.available) {
     "branch ``$($git.branch)`` at ``$($git.head)``; dirty=$($git.dirty)"

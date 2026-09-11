@@ -491,7 +491,7 @@ typedef struct DrawingBuf DrawingBuf, *PDrawingBuf;
 
 typedef struct DSTdraw DSTdraw, *PDSTdraw;
 
-struct DSTdraw { /* 80bytes,4*0x14 */
+struct DSTdraw {
 	float x;
 	float y;
 	float w;
@@ -512,6 +512,8 @@ struct DSTdraw { /* 80bytes,4*0x14 */
 	int subHandle;
 	int align;
 	char isDrawBackbox;
+	// Runtime-only provenance for editor file masks; never interpolate like sortID.
+	int sourceOrder;
 };
 
 struct DrawingBuf {

@@ -113,6 +113,7 @@ foreach ($test in $tests) {
         $process = Start-Process -FilePath $ExecutablePath `
             -ArgumentList $test.Argument `
             -WorkingDirectory $workingDirectory `
+            -WindowStyle Hidden `
             -PassThru
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             $process.Kill()

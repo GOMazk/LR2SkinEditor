@@ -4022,6 +4022,43 @@ static int CalculateActiveTrailingGraphicId(ARR& skinfileLines, skstruct* sk) {
     return graphicId;
 }
 int RunOlrFileScopeSelfTest() {
+    // Parent keyframes surround a hidden child include in runtime order. The
+    // interpolated z-order may cross the child, but file ownership must not.
+    DSTstruct animated{};
+    CSVbuf frame{};
+    frame.val[5] = frame.val[6] = 16;
+    frame.val[8] = frame.val[9] = frame.val[10] = frame.val[11] = 255;
+    ReadDST(&animated, &frame, 0);
+    frame.val[2] = 100;
+    frame.val[3] = 100;
+    ReadDST(&animated, &frame, 4);
+    DSTdraw middle = SetDSTdrawByTime(animated, 50);
+    DSTdraw end = SetDSTdrawByTime(animated, 100);
+    DSTdraw barMiddle = DSTDbyTime(&animated.draw[0], &animated.draw[1], 0, 100, 50);
+    free(animated.draw);
+    if (middle.x != 50 || middle.sortID != 2 || end.x != 100 ||
+        barMiddle.x != 50 || barMiddle.sortID != 2) return 11;
+    const unsigned char parentOnly[] = { 1, 0, 0, 0, 1 };
+    DSTdraw draws[] = { middle, end, barMiddle };
+    DrawingBuf buffer{};
+    buffer.dstd = draws;
+    buffer.count = 3;
+    LR2SEFilterPreviewDrawBuffer(buffer, parentOnly, 5);
+    if (buffer.count != 3) return 12;
+    const unsigned char childOnly[] = { 0, 1, 1, 1, 0 };
+    LR2SEFilterPreviewDrawBuffer(buffer, childOnly, 5);
+    if (buffer.count != 0) return 13;
+    // Exercise allocation, growth and full-struct copies with runtime provenance.
+    DrawingBuf growing{};
+    if (AllocDrawingBuffer(&growing) != 1) return 14;
+    const int drawCount = growing.max + 1;
+    for (int i = 0; i < drawCount; ++i) AddDrawingBuffer(&growing, 1, &middle);
+    LR2SEFilterPreviewDrawBuffer(growing, parentOnly, 5);
+    const bool growthPreserved = growing.count == drawCount &&
+        growing.dstd[drawCount - 1].sourceOrder == 0 &&
+        growing.dstd[drawCount - 1].sortID == 2;
+    free(growing.dstd);
+    if (!growthPreserved) return 15;
     const unsigned char fileMask[] = { 1, 0, 1, 1, 1 };
     if (!LR2SEPreviewDrawVisible(0, fileMask, 5) ||
         LR2SEPreviewDrawVisible(1, fileMask, 5) ||
@@ -4029,7 +4066,10 @@ int RunOlrFileScopeSelfTest() {
         LR2SEPreviewDrawVisible(-1, fileMask, 5) ||
         LR2SEPreviewDrawVisible(5, fileMask, 5) ||
         !LR2SEPreviewDrawVisible(99, nullptr, 0)) return 10;
-    WORKSPACE workspace{};
+    // These runtime fixtures exceed the default x64 stack when combined.
+    // Match normal workspace ownership instead of enlarging the process stack.
+    auto workspaceStorage = std::make_unique<WORKSPACE>();
+    WORKSPACE& workspace = *workspaceStorage;
     workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 20);
     const char* mainPath = "C:\\olr-scope-test\\main.lr2skin";
 
@@ -4071,7 +4111,8 @@ int RunOlrFileScopeSelfTest() {
     for (const char* row : rows)
         if (!appendLine(row, mainPath)) return 1;
 
-    skstruct skin{};
+    auto skinStorage = std::make_unique<skstruct>();
+    skstruct& skin = *skinStorage;
     skin.op[0] = 1;
     skin.op[900] = 1;
     skin.op[901] = 0;

@@ -40,6 +40,14 @@ that all pending script edits will be saved. `SplitSelectedObjects` owns validat
 source-order-preserving include markers, owner reassignment, snapshot History and
 the existing transactional split writer. The popup rejects a changed document revision.
 It does not copy the Object model or change the OLRskin 0.9 contract.
+For plain Objects without editor IDs, split translates the snapshot's selected,
+active and range-anchor row keys through the inserted INCLUDE/file markers.
+
+Preview masks use `DSTdraw::sourceOrder`, runtime-only provenance initialized by
+ReadDST and retained by the DST/bar interpolators. The existing `sortID` continues
+to interpolate for draw ordering; it cannot identify the source file between
+keyframes. Draw buffers allocate/copy using `sizeof(DSTdraw)`. Neither field changes
+CSV or OLRskin serialization.
 
 ```text
 main.cpp

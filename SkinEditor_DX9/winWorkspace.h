@@ -7,6 +7,7 @@
 #include "skinResolution.h"
 #include "fontAtlas.h"
 #include "simpleSelection.h"
+#include "codeEditorAssist.h"
 #include <algorithm>
 #include <map>
 #include <memory>
@@ -499,6 +500,7 @@ typedef struct WORKSPACE {
     bool ApplyCodeEditorDraft();
     std::string codeEditorOwner, codeEditorDocument, codeEditorBase, codeEditorStatus;
     std::vector<char> codeEditorBuffer;
+    SECodeAssistState codeEditorAssist;
     unsigned long long codeEditorRevision = 0;
     int textCursor = 0;
     bool hideComment = false;

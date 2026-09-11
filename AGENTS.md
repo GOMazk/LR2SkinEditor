@@ -5,10 +5,14 @@
 
 ## 작업 기준
 
-- 기준 브랜치: `AI_2`
+- 기준 브랜치: `AI_experimental` (사용자가 요청한 AI 스킨 제작 유틸 실험)
 - 기준 빌드: `Release | Win32(x86)`
 - 도구 체인: Visual Studio 2022 C++ (`v143`), Windows SDK, Direct3D 9
-- 게시 대상: `https://github.com/GOMazk/SkinEditor`, branch `AI_2`
+- 저장소: `https://github.com/GOMazk/LR2SkinEditor`, 이 작업의 대상은 `AI_experimental`이다.
+- 기본 편집기 작업은 별도 `AI_2` checkout에 보존한다. 실험 결과를 자동으로 되돌려 병합하지 않는다.
+- `AI`는 통합 merge 브랜치이므로 수정하거나 push하지 않는다.
+- `AI_1`은 기능 이식용으로 읽기만 한다. 곰마적님의 명시적 허락 없이는 수정하거나
+  push하지 않는다. 이번 유틸과 검증 결과는 `AI_experimental`에서만 작성한다.
 - 현재 폴더에 `.git`이 없을 수 있다. 이 경우 export 작업본으로 취급하고 push를
   시도하지 않는다. 게시 요청을 받으면 실제 checkout과 remote/branch를 먼저 검증한다.
 - force-push, 기존 변경 폐기, 실제 LR2 사용자 데이터 수정은 명시적 요청 없이 하지 않는다.

@@ -322,6 +322,15 @@ bool WORKSPACE::SplitSelectedObjects(const char* filename, std::string& error) {
     after.lines.insert(after.lines.begin() + last + 1, end);
     after.lines.insert(after.lines.begin() + first, begin);
     after.lines.insert(after.lines.begin() + first, include);
+    // Plain LR2 Objects may have no editor ID, so selection falls back to a row.
+    // Translate those anchors with the inserted markers before rebuilding.
+    const auto remapSelection = [first, last](SEObjectSelectionKey& key) {
+        if (key.anchorRow >= first)
+            key.anchorRow += key.anchorRow <= last ? 2 : 3;
+    };
+    for (auto& key : after.selection.selected) remapSelection(key);
+    remapSelection(after.selection.active);
+    remapSelection(after.selection.anchor);
     const auto oldRedo = redoDocumentSnapshots;
     const auto oldRevision = documentRevision;
     const bool oldReplay = replayingHistory;
@@ -431,6 +440,7 @@ bool WORKSPACE::LoadCodeEditorFile(const std::string& owner) {
     codeEditorRevision = documentRevision;
     codeEditorBuffer.assign(codeEditorCapacity, '\0');
     memcpy(codeEditorBuffer.data(), text.c_str(), text.size());
+    codeEditorAssist = {};
     codeEditorStatus.clear();
     return true;
 }
@@ -668,9 +678,9 @@ void WORKSPACE::drawCodeEditor() {
     if (codeEditorRevision != documentRevision || codeEditorDocument != mainpath)
         ImGui::TextWrapped("Workspace changed. Copy the draft before reloading; Apply is blocked.");
     if (!codeEditorBuffer.empty())
-        ImGui::InputTextMultiline("##CodeDraft", codeEditorBuffer.data(), codeEditorBuffer.size(),
+        SEDrawCodeEditorInput("##CodeDraft", codeEditorBuffer.data(), codeEditorBuffer.size(),
             ImVec2(-FLT_MIN, (std::max)(80.0f, ImGui::GetContentRegionAvail().y)),
-            ImGuiInputTextFlags_AllowTabInput);
+            codeEditorAssist, num);
     ImGui::End();
 }
 
@@ -1392,5 +1402,71 @@ int RunLayoutFirstObjectSelfTest() {
     if (reopened->objectInspectorRevealRequested) return 117;
     reopened->codeEditorRevealRequested = false;
     if (!reopened->OpenScriptInCodeEditor(splitOwner) || !reopened->codeEditorRevealRequested) return 118;
+
+    // Existing LR2 skins need not contain $SE_OBJECT_ID. Splitting two such
+    // Objects must retain both choices, the active Object and the range anchor.
+    auto plain = std::make_unique<WORKSPACE>();
+    if (plain->ResetEditorDocumentForLoad() != 0) return 119;
+    const std::string plainRoot = (directory / "plain.lr2skin").string();
+    const std::string plainSplit = (directory / "plain-split.csv").string();
+    strncpy_s(plain->mainpath, plainRoot.c_str(), _TRUNCATE);
+    SkinDocumentSnapshot plainDocument;
+    for (const auto& text : std::vector<std::string>{
+        "$FILE '" + plainRoot + "' start",
+        "#INFORMATION,0,Plain split test,test",
+        "#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0,0,0,0",
+        "#DST_IMAGE,0,0,11,0,1,1,0,255,255,255,255,0,0,0,0,0,0,0,0,0",
+        "#SRC_IMAGE,0,0,0,0,1,1,1,1,0,0,0,0,0",
+        "#DST_IMAGE,0,0,22,0,1,1,0,255,255,255,255,0,0,0,0,0,0,0,0,0",
+        "$FILE '" + plainRoot + "' end" }) {
+        SkinLineSnapshot line;
+        line.filename = plainRoot;
+        line.line = text;
+        plainDocument.lines.push_back(line);
+    }
+    if (plain->RestoreDocumentSnapshot(plainDocument) != 0 ||
+        plain->RebuildEditorDerivedState() != 0 ||
+        !plain->objectEditorModel.LoadGroups(nullptr)) return 120;
+    plain->RebuildObjectModel();
+    plain->loaded = true;
+    if (plain->objectEditorModel.Objects().size() != 2) return 121;
+    plain->SetObjectSelection({0, 1}, 1, 0, false);
+    const auto plainBefore = plain->CaptureDocumentSnapshot();
+    const int plainHistory = plain->arr_history.count;
+    const auto plainSelectionMatches = [&](int offset, const std::string& owner) {
+        const auto& selection = plain->objectSelection;
+        if (selection.selected.size() != 2 ||
+            plain->preview_selected_object_model_indices != std::vector<int>{0, 1}) return false;
+        const auto matches = [&](const SEObjectSelectionKey& key, int expectedIndex) {
+            const int expectedRow = plainBefore.selection.selected[expectedIndex].anchorRow + offset;
+            if (!key.editorId.empty() || key.anchorRow != expectedRow ||
+                plain->ResolveObjectSelectionKey(key) != expectedIndex) return false;
+            const auto& object = plain->objectEditorModel.Objects()[expectedIndex];
+            if (!object.editorId.empty() || object.rows.size() != 2 ||
+                object.rows.front() != expectedRow) return false;
+            const auto* lines = (const SKINFILELINEREAD*)plain->skinfileLines.data;
+            return !strcmp(lines[object.rows.front()].filename.body, owner.c_str()) &&
+                !strcmp(lines[object.rows.back()].filename.body, owner.c_str()) &&
+                lines[object.rows.back()].csv.val[3] == (expectedIndex + 1) * 11;
+        };
+        return matches(selection.selected[0], 0) && matches(selection.selected[1], 1) &&
+            matches(selection.active, 1) && matches(selection.anchor, 0) &&
+            plain->preview_selected_object_model_index == 1 &&
+            plain->preview_selection_anchor_model_index == 0;
+    };
+    if (!plainSelectionMatches(0, plainRoot)) return 122;
+    if (!plain->SplitSelectedObjects("plain-split.csv", error) ||
+        plain->arr_history.count != plainHistory + 1 ||
+        !plainSelectionMatches(2, plainSplit)) return 123;
+    if (plain->UndoLastEdit() != 0 || plain->ApplyPendingHistorySnapshotRestore() != 0 ||
+        plain->skinfileLines.count != (int)plainBefore.lines.size() ||
+        plain->RebuildEditorDerivedState() != 0) return 124;
+    plain->RebuildObjectModel();
+    if (!plainSelectionMatches(0, plainRoot)) return 124;
+    if (plain->RedoLastEdit() != 0 || plain->ApplyPendingHistorySnapshotRestore() != 0 ||
+        plain->skinfileLines.count != (int)plainBefore.lines.size() + 3 ||
+        plain->RebuildEditorDerivedState() != 0) return 125;
+    plain->RebuildObjectModel();
+    if (!plainSelectionMatches(2, plainSplit)) return 125;
     return 0;
 }

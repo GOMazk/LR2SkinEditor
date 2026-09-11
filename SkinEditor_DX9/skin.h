@@ -13,6 +13,15 @@ int LR2SEInit(game* g, bool initializeCore);
 inline bool LR2SEPreviewDrawVisible(int order, const unsigned char* mask, int count) {
     return !mask || (order >= 0 && order < count && mask[order] != 0);
 }
+inline void LR2SEFilterPreviewDrawBuffer(DrawingBuf& buffer,
+    const unsigned char* mask, int count) {
+    if (!mask) return;
+    int kept = 0;
+    for (int i = 0; i < buffer.count; ++i)
+        if (LR2SEPreviewDrawVisible(buffer.dstd[i].sourceOrder, mask, count))
+            buffer.dstd[kept++] = buffer.dstd[i];
+    buffer.count = kept;
+}
 int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview,
     const unsigned char* mask = nullptr, int maskCount = 0);
 int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview,

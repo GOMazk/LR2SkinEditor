@@ -28,6 +28,20 @@ revision, IF balance and unchanged INCLUDE sequence, retains expanded child rows
 and uses RestoreDocumentSnapshot plus one History entry. Normal Save remains the
 only disk write path. Native multiline input owns text undo while focused.
 
+`codeEditorAssist.cpp` supplies the Text Editor's completion surface and signature
+panel. The workspace owns only its draft and `SECodeAssistState` presentation state;
+loading a file resets that state. Suggestions enumerate `GetCommandNames` and use
+`GetCommandHelp`/`GetCommandValueKind`/`GetCommandValueName`, keeping the loaded schema
+as the source of truth. Help lookup matches complete command tokens so a partial
+or unknown suffix cannot silently receive another command's arguments.
+UTF-8 byte offsets are local to the current line/field. One bounds-checked callback
+replacement preserves surrounding CSV fields and becomes one native text Undo.
+The component claims completion/cancel keys only while its field is active and a
+list is open; ordinary Tab/newline behavior remains available otherwise. Arrow
+navigation restores the input caret in the same callback. Mouse confirmation is
+queued until the input regains focus and rejects a changed token. The
+`code-suggestions` surface is catalogued independently of the authoritative editor.
+
 File-scoped browsing uses `WORKSPACE::objectBrowserFile` (empty means All files).
 `ObjectMatchesFile` filters the existing model by row ownership; no per-file model
 or runtime is created. `SetObjectBrowserFile` clears stale selection and moves the
@@ -40,6 +54,14 @@ that all pending script edits will be saved. `SplitSelectedObjects` owns validat
 source-order-preserving include markers, owner reassignment, snapshot History and
 the existing transactional split writer. The popup rejects a changed document revision.
 It does not copy the Object model or change the OLRskin 0.9 contract.
+For plain Objects without editor IDs, split translates the snapshot's selected,
+active and range-anchor row keys through the inserted INCLUDE/file markers.
+
+Preview masks use `DSTdraw::sourceOrder`, runtime-only provenance initialized by
+ReadDST and retained by the DST/bar interpolators. The existing `sortID` continues
+to interpolate for draw ordering; it cannot identify the source file between
+keyframes. Draw buffers allocate/copy using `sizeof(DSTdraw)`. Neither field changes
+CSV or OLRskin serialization.
 
 ```text
 main.cpp

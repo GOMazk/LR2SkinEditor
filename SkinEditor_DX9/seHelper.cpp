@@ -62,14 +62,25 @@ int LoadCommandHelp(const char* file) { //temp function, later hardcoded... with
 }
 
 CSTR GetCommandHelp(const char* command, int column) {
+	if (!command || column < 0 || column >= 30) return "WIP";
 
 	for (int i = 0; i < arr_CommandHelp.count; i++) {
 		CSVbuf& cmd = ((CSVbuf*)arr_CommandHelp.data)[i];
 		
-		if ( strncmp(command, cmd.str[0], strlen(cmd.str[0]) ) ) continue;
+		if (!cmd.str[0].body || _stricmp(command, cmd.str[0].body)) continue;
 		else return cmd.str[column];
 	}
 	return "WIP";
+}
+
+std::vector<std::string> GetCommandNames() {
+	std::vector<std::string> names;
+	for (int i = 0; i < arr_CommandHelp.count; ++i) {
+		const CSVbuf& row = ((const CSVbuf*)arr_CommandHelp.data)[i];
+		if (row.str[0].body && row.str[0].body[0] == '#')
+			names.emplace_back(row.str[0].body);
+	}
+	return names;
 }
 
 SECommandValueKind GetCommandValueKind(const char* command, const char* columnHelp) {

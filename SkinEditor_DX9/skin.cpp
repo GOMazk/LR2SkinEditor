@@ -1310,13 +1310,7 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 		}
 	}
 	// Filter before LRDraw(0): LRDraw sorts the entire buffer on its first call.
-	if (mask) {
-		int kept = 0;
-		for (int i = 0; i < g->skstruct.drBuf.count; ++i)
-			if (LR2SEPreviewDrawVisible(g->skstruct.drBuf.dstd[i].sortID, mask, maskCount))
-				g->skstruct.drBuf.dstd[kept++] = g->skstruct.drBuf.dstd[i];
-		g->skstruct.drBuf.count = kept;
-	}
+	LR2SEFilterPreviewDrawBuffer(g->skstruct.drBuf, mask, maskCount);
 	for (int i = 0; i < g->skstruct.drBuf.count; i++) {
 		int quake_x = 0, quake_y = 0;
 		if (((g->procPhase == 1) && (g->procSelecter == 4)) && (0 < g->config.play.m_earthquake)) {

@@ -96,6 +96,7 @@ int ReadDST(DSTstruct *dst, CSVbuf *csv, int order){
 	dst->draw[dst->dstCount].angle = (float)csv->val[14];
 	dst->draw[dst->dstCount].center = csv->val[15];
 	dst->draw[dst->dstCount].sortID = order;
+	dst->draw[dst->dstCount].sourceOrder = order;
 	dst->draw[dst->dstCount].subHandle = -1;
 	dst->dstCount++;
 	return 1;

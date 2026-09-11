@@ -88,14 +88,17 @@ owner 전체 컨트롤이 포함될 수 있다. pack의 `Shared owner warning`�
 
 ## GitHub 인계
 
-게시 대상은 `https://github.com/GOMazk/SkinEditor`의 `AI_2` branch다. push 요청을
+저장소는 `https://github.com/GOMazk/LR2SkinEditor`이며 이번 사용자 요청의 실험 대상은
+`AI_experimental`이다. 기본 편집기 `AI_2`는 별도 checkout에서 보존한다.
+`AI`는 통합 merge 전용이므로 수정하지 않는다. `AI_1`은 기능 이식용 읽기만 허용하며,
+곰마적님의 명시적 허락 없이는 수정하거나 push하지 않는다. push 요청을
 받은 작업자는 다음을 확인한다.
 
 1. 현재 디렉터리가 실제 Git checkout인지 확인한다.
 2. `git remote -v`와 `git branch --show-current`로 대상이 정확한지 확인한다.
 3. 관련 없는 사용자 변경과 비밀 파일이 포함되지 않았는지 확인한다.
 4. 자동 검증 결과를 handoff 또는 PR 본문에 기록한다.
-5. push 뒤 remote `AI_2` SHA를 다시 확인한다.
+5. push 뒤 remote `AI_experimental` SHA를 다시 확인한다.
 
 force-push나 다른 branch 게시로 대체하지 않는다. 인증이 필요하면 그 시점에만
 사용자에게 요청한다.

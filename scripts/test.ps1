@@ -27,6 +27,10 @@ New-Item -ItemType Directory -Force -Path $ResultsDirectory | Out-Null
 
 $tests = @(
     [pscustomobject]@{
+        Name = 'code-assist'
+        Argument = '--self-test-code-assist'
+    },
+    [pscustomobject]@{
         Name = 'simple-selection'
         Argument = '--self-test-simple-selection'
     },
@@ -113,6 +117,7 @@ foreach ($test in $tests) {
         $process = Start-Process -FilePath $ExecutablePath `
             -ArgumentList $test.Argument `
             -WorkingDirectory $workingDirectory `
+            -WindowStyle Hidden `
             -PassThru
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
             $process.Kill()

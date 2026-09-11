@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 #include "arr.hpp"
 #include "../LR2/strclass.h"
 
@@ -20,6 +21,7 @@ enum SECommandValueKind {
 int LoadCommandHelp(const char* file);
 bool LoadEmbeddedTextResource(int resourceId, std::string& text);
 CSTR GetCommandHelp(const char* command, int column);
+std::vector<std::string> GetCommandNames();
 SECommandValueKind GetCommandValueKind(const char* command, const char* columnHelp);
 const char* GetCommandValueName(SECommandValueKind kind, int value);
 int GetCommandValueItemCount(SECommandValueKind kind);

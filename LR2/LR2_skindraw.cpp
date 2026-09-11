@@ -26,7 +26,7 @@ int AllocDrawingBuffer(DrawingBuf *drb){
 		drb->top[i] = -1;
 		drb->bottom[i] = -1;
 	}
-	drb->dstd = (DSTdraw *)malloc(drb->max * 0x50);
+	drb->dstd = (DSTdraw *)malloc(drb->max * sizeof(DSTdraw));
 	if (drb->dstd == (DSTdraw *)0x0) {
 		ErrorLogAdd("描画用バッファのメモリ取得に失敗しました。\n");
 		return -1;
@@ -37,7 +37,7 @@ int AllocDrawingBuffer(DrawingBuf *drb){
 //49c840
 int ReallocDrawingBuffer(DrawingBuf *drb){
 	drb->max = drb->max + 1000;
-	drb->dstd = (DSTdraw *)realloc(drb->dstd, drb->max * 0x50);
+	drb->dstd = (DSTdraw *)realloc(drb->dstd, drb->max * sizeof(DSTdraw));
 	if (drb->dstd == (DSTdraw *)0x0) {
 		ErrorLogAdd("描画用バッファのメモリ再取得に失敗しました。\n");
 		return -1;
@@ -51,6 +51,7 @@ int InitDSTdraw(DSTdraw *dstd){
 	dstd->y = 0;
 	dstd->w = 0;
 	dstd->sortID = 0;
+	dstd->sourceOrder = -1;
 	dstd->h = 0;
 	dstd->a = 0;
 	dstd->angle = 0.0;
@@ -79,6 +80,7 @@ DSTdraw DSTDbyTime(DSTdraw *dstd1, DSTdraw *dstd2, double t1, double t2, double 
 	ret.w = ByTime(dstd1->w, dstd2->w, t1, t2, tO);
 	ret.h = ByTime(dstd1->h, dstd2->h, t1, t2, tO);
 	ret.sortID = ByTime(dstd1->sortID, dstd2->sortID, t1, t2, tO);
+	ret.sourceOrder = tO >= t2 ? dstd2->sourceOrder : dstd1->sourceOrder;
 	ret.a = ByTime(dstd1->a, dstd2->a, t1, t2, tO);
 	ret.r = ByTime(dstd1->r, dstd2->r, t1, t2, tO);
 	ret.g = ByTime(dstd1->g, dstd2->g, t1, t2, tO);
@@ -131,6 +133,7 @@ DSTdraw SetDSTdrawByTime(DSTstruct dst, double time) {
 				}
 			}
 			rDstd = &dst.draw[select];
+			oBuf.sourceOrder = rDstd->sourceOrder;
 
 			if (t2 != rDstd->time && select != dst.dstCount - 1 ) {
 				oBuf.x = ChangeValueByTime((double)rDstd->x, (double)rDstd[1].x, (double)rDstd->time, (double)rDstd[1].time, (double)t2, rDstd->acc);

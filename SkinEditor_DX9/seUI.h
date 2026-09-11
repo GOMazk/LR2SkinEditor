@@ -22,6 +22,8 @@ namespace SEUI {
     bool BeginStatusBar(const char* id);
     void EndStatusBar();
     bool ActionButton(const char* label, const char* tooltip = nullptr, bool enabled = true);
+    bool VisibilityButton(const char* id, bool visible);
+    void RevealWindowTab(const char* title);
     void ToolbarSeparator();
 
     void SectionHeader(const char* title, const char* description = nullptr);

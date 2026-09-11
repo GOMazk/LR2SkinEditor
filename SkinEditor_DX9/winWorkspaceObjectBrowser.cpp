@@ -202,7 +202,7 @@ int WORKSPACE::drawObjectBrowser() {
         if (!objectBrowserFile.empty()) {
             if (ImGui::Button("New in file")) PrepareNewObjectInBrowserFile();
             ImGui::SameLine();
-            if (ImGui::Button("Text Editor")) {
+            if (ImGui::Button(SEUIWindowSpecFor(SEUIWindowId::TextEditor).title)) {
                 wTextEdit = true;
                 char textTitle[128];
                 FormatSEUIWindowTitle(textTitle, sizeof(textTitle), SEUIWindowId::TextEditor, num);

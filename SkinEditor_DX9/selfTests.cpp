@@ -1637,7 +1637,13 @@ int RunUiCatalogSelfTest() {
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::TimerControl, 5);
     if (std::strcmp(title, "Timer Control##timer-control-5") != 0) return 18;
     if (std::strcmp(SEUIWindowSpecFor(SEUIWindowId::TimerControl).defaultDock,
-        "right-lower") != 0) return 19;
+        "right-middle") != 0) return 19;
+    if (std::strcmp(SEUIWindowSpecFor(SEUIWindowId::Customize).defaultDock, "right-lower") != 0 ||
+        std::strcmp(SEUIWindowSpecFor(SEUIWindowId::FileManager).defaultDock, "left-inspector") != 0) return 40;
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::TextEditor, 5);
+    if (std::strcmp(title, "CSV Editor##text-editor-5") != 0) return 41;
+    FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::CodeEditor, 5);
+    if (std::strcmp(title, "Text Editor##code-editor-5") != 0) return 42;
     const SEUISurfaceSpec& saveOlrSkin =
         SEUISurfaceSpecFor(SEUISurfaceId::SaveOlrSkin);
     if (std::strcmp(saveOlrSkin.key, "save-olrskin") != 0 ||

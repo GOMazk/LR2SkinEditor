@@ -132,6 +132,8 @@ void WORKSPACE::drawLayoutFirstImageDialog() {
             wPreview = wObjectBrowser = wObjectInspector = true;
             char focusTitle[96];
             if (layoutFirstOpenPaint) {
+                wImgManager = true;
+                imageManagerRevealRequested = true;
                 imagePixelPaintMode = true;
                 imagePixelPaintLastX = imagePixelPaintLastY = imagePixelPaintLastButton = -1;
             }
@@ -499,7 +501,7 @@ int WORKSPACE::drawAssetBrowser() {
                         SEUIWindowId::ImageManager, num);
                     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                         SelectIMGAsset(imageIndex, true);
-                        ImGui::SetWindowFocus(managerTitle);
+                        imageManagerRevealRequested = true;
                     }
 
                     const ImVec2 cardMin = ImGui::GetItemRectMin();
@@ -636,7 +638,7 @@ int WORKSPACE::drawAssetBrowser() {
                     if (ImGui::BeginPopupContextItem("##AssetContext")) {
                         if (ImGui::MenuItem("Open in Image Manager")) {
                             SelectIMGAsset(imageIndex, true);
-                            ImGui::SetWindowFocus(managerTitle);
+                            imageManagerRevealRequested = true;
                         }
                         if (ImGui::MenuItem("Pixel paint in Image Manager")) {
                             SelectIMGAsset(imageIndex, true);
@@ -644,7 +646,7 @@ int WORKSPACE::drawAssetBrowser() {
                             imagePixelPaintLastX = -1;
                             imagePixelPaintLastY = -1;
                             imagePixelPaintLastButton = -1;
-                            ImGui::SetWindowFocus(managerTitle);
+                            imageManagerRevealRequested = true;
                         }
                         if (ImGui::MenuItem("Use in selected Object", NULL,
                             false, hasAssignableObject)) {

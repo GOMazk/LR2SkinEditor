@@ -1198,9 +1198,11 @@ int WORKSPACE::draw() {
         { SEUIWindowId::Preview, &wPreview },
         { SEUIWindowId::TimerControl, &wTimerControl },
         { SEUIWindowId::Customize, &wCustomize },
+        { SEUIWindowId::CustomFiles, &wCustomFiles },
         { SEUIWindowId::ImageManager, &wImgManager },
         { SEUIWindowId::AssetBrowser, &wAssetBrowser },
         { SEUIWindowId::TextEditor, &wTextEdit },
+        { SEUIWindowId::CodeEditor, &wCodeEditor },
         { SEUIWindowId::FileManager, &wFileManager },
         { SEUIWindowId::SimpleMode, &wSimpleMode },
         { SEUIWindowId::DstView, &wDstView },
@@ -1673,8 +1675,8 @@ int WORKSPACE::draw() {
             // Restore the editing layout used while Object Editor was split:
             // Object Browser | Object Inspector | Preview tools | Option List.
             // Browser and Inspector keep their full height. Asset Browser stays
-            // below Preview, while Customize and Timer Control share the lower
-            // part of the compact right column.
+            // below Preview. The right column has three independent panes:
+            // Option List, Timer Control, then Customize.
             ImGuiID objectBrowserDock = 0;
             ImGuiID remainingDock = dockspaceId;
             ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Left, 0.17f,
@@ -1686,14 +1688,17 @@ int WORKSPACE::draw() {
 
             ImGuiID opListDock = 0;
             ImGuiID centerDock = remainingDock;
-            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Right, 0.18f,
+            ImGui::DockBuilderSplitNode(remainingDock, ImGuiDir_Right, 0.22f,
                 &opListDock, &centerDock);
 
             ImGuiID rightLowerDock = 0;
             ImGuiID opListUpperDock = opListDock;
-            ImGui::DockBuilderSplitNode(opListDock, ImGuiDir_Down, 0.32f,
+            ImGui::DockBuilderSplitNode(opListDock, ImGuiDir_Down, 0.60f,
                 &rightLowerDock, &opListUpperDock);
             opListDock = opListUpperDock;
+            ImGuiID timerDock = 0, customizeDock = 0;
+            ImGui::DockBuilderSplitNode(rightLowerDock, ImGuiDir_Down, 0.47f,
+                &customizeDock, &timerDock);
 
             ImGuiID assetBrowserDock = 0;
             ImGuiID previewDock = centerDock;
@@ -1722,6 +1727,11 @@ int WORKSPACE::draw() {
             FormatSEUIWindowTitle(imageManagerTitle, sizeof(imageManagerTitle), SEUIWindowId::ImageManager, num);
             FormatSEUIWindowTitle(assetBrowserTitle, sizeof(assetBrowserTitle), SEUIWindowId::AssetBrowser, num);
             FormatSEUIWindowTitle(textEditorTitle, sizeof(textEditorTitle), SEUIWindowId::TextEditor, num);
+            char codeEditorTitle[128];
+            FormatSEUIWindowTitle(codeEditorTitle, sizeof(codeEditorTitle), SEUIWindowId::CodeEditor, num);
+            char customFilesTitle[128];
+            FormatSEUIWindowTitle(customFilesTitle, sizeof(customFilesTitle), SEUIWindowId::CustomFiles, num);
+            ImGui::DockBuilderDockWindow(customFilesTitle, previewDock);
             FormatSEUIWindowTitle(fileManagerTitle, sizeof(fileManagerTitle), SEUIWindowId::FileManager, num);
             FormatSEUIWindowTitle(simpleModeTitle, sizeof(simpleModeTitle), SEUIWindowId::SimpleMode, num);
             FormatSEUIWindowTitle(dstViewTitle, sizeof(dstViewTitle), SEUIWindowId::DstView, num);
@@ -1734,12 +1744,13 @@ int WORKSPACE::draw() {
             FormatSEUIWindowTitle(historyTitle, sizeof(historyTitle), SEUIWindowId::History, num);
 
             ImGui::DockBuilderDockWindow(previewTitle, previewDock);
+            ImGui::DockBuilderDockWindow(codeEditorTitle, previewDock);
             ImGui::DockBuilderDockWindow(imageManagerTitle, previewDock);
             ImGui::DockBuilderDockWindow(textEditorTitle, previewDock);
             ImGui::DockBuilderDockWindow(simpleModeTitle, previewDock);
             ImGui::DockBuilderDockWindow(dstViewTitle, previewDock);
             ImGui::DockBuilderDockWindow(assetBrowserTitle, assetBrowserDock);
-            ImGui::DockBuilderDockWindow(fileManagerTitle, assetBrowserDock);
+            ImGui::DockBuilderDockWindow(fileManagerTitle, objectInspectorDock);
             ImGui::DockBuilderDockWindow(historyTitle, assetBrowserDock);
             ImGui::DockBuilderDockWindow(objectBrowserTitle, objectBrowserDock);
             ImGui::DockBuilderDockWindow(objectManagerTitle, objectBrowserDock);
@@ -1747,8 +1758,8 @@ int WORKSPACE::draw() {
             ImGui::DockBuilderDockWindow(objectInspectorTitle, objectInspectorDock);
             ImGui::DockBuilderDockWindow(objectPropertyTitle, objectInspectorDock);
             ImGui::DockBuilderDockWindow(opListTitle, opListDock);
-            ImGui::DockBuilderDockWindow(timerControlTitle, rightLowerDock);
-            ImGui::DockBuilderDockWindow(customizeTitle, rightLowerDock);
+            ImGui::DockBuilderDockWindow(timerControlTitle, timerDock);
+            ImGui::DockBuilderDockWindow(customizeTitle, customizeDock);
             ImGui::DockBuilderFinish(dockspaceId);
             dockLayoutBuilt = true;
         }
@@ -1806,10 +1817,12 @@ int WORKSPACE::draw() {
         if (wPreview) drawPreview();
     } else {
         if (wTextEdit) drawTextEdit();
+        if (wCodeEditor) drawCodeEditor();
         if (wPreview) drawPreview();
         // Runtime timers only exist after a skin has initialized its scene.
         if (loaded && wTimerControl) drawTimerControl();
         if (wCustomize) drawCustomize();
+        if (wCustomFiles) drawCustomFiles();
         if (wImgManager) drawImgManager();
         if (wAssetBrowser) drawAssetBrowser();
         if (wFileManager) drawFileManager();
@@ -3269,6 +3282,14 @@ static bool ResetEditorDerivedContainers(WORKSPACE& workspace) {
 }
 
 int WORKSPACE::ResetEditorDocumentForLoad() {
+    objectInspectorRevealRequested = imageManagerRevealRequested = codeEditorRevealRequested = false;
+    previewHiddenFiles.clear();
+    previewSelectedFileOnly = false;
+    previewFileDrawMask.clear();
+    customFilePreviewChoices.clear();
+    scriptDirectoryTree.clear();
+    scriptDirectoryStatus.clear();
+    scriptDirectoryRevision = ~0ULL;
     objectBrowserFile.clear();
     simpleFontTexture.reset();
     simpleFontBitmap = SEFontAtlasBitmap();
@@ -3854,6 +3875,19 @@ static bool SaveResolutionToSkinFile(const char* path, int width, int height) {
     return true;
 }
 
+static std::string CustomFileChoiceKey(SKINFILELINEREAD& row) {
+    return std::string(row.filename.body ? row.filename.body : "") + "\n" +
+        (row.csv.str[1].body ? row.csv.str[1].body : "") + "\n" +
+        (row.csv.str[2].body ? row.csv.str[2].body : "");
+}
+
+static std::string CustomFileComparablePath(const char* path) {
+    if (!path || !*path) return {};
+    std::error_code error;
+    const auto absolute = std::filesystem::absolute(std::filesystem::path(path), error);
+    return error ? std::string(path) : absolute.lexically_normal().string();
+}
+
 static std::vector<unsigned char> BuildPreviewRuntimeMask(ARR& skinfileLines, skstruct* sk) {
     struct ConditionalState {
         bool outerActive = true;
@@ -3988,6 +4022,13 @@ static int CalculateActiveTrailingGraphicId(ARR& skinfileLines, skstruct* sk) {
     return graphicId;
 }
 int RunOlrFileScopeSelfTest() {
+    const unsigned char fileMask[] = { 1, 0, 1, 1, 1 };
+    if (!LR2SEPreviewDrawVisible(0, fileMask, 5) ||
+        LR2SEPreviewDrawVisible(1, fileMask, 5) ||
+        !LR2SEPreviewDrawVisible(4, fileMask, 5) ||
+        LR2SEPreviewDrawVisible(-1, fileMask, 5) ||
+        LR2SEPreviewDrawVisible(5, fileMask, 5) ||
+        !LR2SEPreviewDrawVisible(99, nullptr, 0)) return 10;
     WORKSPACE workspace{};
     workspace.skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 20);
     const char* mainPath = "C:\\olr-scope-test\\main.lr2skin";
@@ -4102,6 +4143,8 @@ int RunOlrFileScopeSelfTest() {
 }
 
 int WORKSPACE::ReadSkinSE() {
+    previewDrawSourceRows.clear();
+    previewFileDrawMask.clear();
     
     CSTR dir(mainpath);
     dir.assign(dir.getDirectory());
@@ -4410,6 +4453,9 @@ int WORKSPACE::ReadSkinSE() {
             else if (fBuf.left(8).isSame("#DST_BGA") && sk->otherObject[4].srcSize > 0) {
                 SplitCSV(fBuf, &csv, ",");
                 ReadDST(&sk->otherObject[4].dst[sk->otherObject[4].srcSize - 1], &csv, tSkin_num);
+                // BGA's foreground draw uses order + 1, like LN's reserved
+                // slots. Do not let it acquire the next CSV file's ownership.
+                ++tSkin_num;
                 tSkin_num++;
             }
             else if (fBuf.left(11).isSame("#SRC_NUMBER")) {
@@ -4994,6 +5040,9 @@ int WORKSPACE::ReadSkinSE() {
                     csv.str[2].assign(siblingCustom);
                 sk->customfileRANDOM[sk->customfile_count].assign(&csv.str[2]);
                 sk->customfile[sk->customfile_count].assign("RANDOM");
+                const auto previewChoice = customFilePreviewChoices.find(CustomFileChoiceKey(read));
+                if (previewChoice != customFilePreviewChoices.end())
+                    sk->customfile[sk->customfile_count].assign(previewChoice->second.c_str());
                 if (sk->customfile[sk->customfile_count].isSame("RANDOM")) {
                     sk->customfile[sk->customfile_count].assign(GetRandomFile(sk->customfileRANDOM[sk->customfile_count], 1));
                 }
@@ -5056,6 +5105,9 @@ int WORKSPACE::ReadSkinSE() {
             }
         }
         tSkin_num++;
+        // Preserve LR2 order, including the two extra LN start/end slots.
+        // File isolation is presentation-only: all resources and DSTs still load.
+        previewDrawSourceRows.resize((size_t)tSkin_num, i);
     }
 
     if(flipside)ApplyFlipside(sk);
@@ -5222,11 +5274,182 @@ int WORKSPACE::drawTimerControl() {
 }
 
 
+void WORKSPACE::drawCustomFiles() {
+    char windowTitle[128];
+    FormatSEUIWindowTitle(windowTitle, sizeof(windowTitle), SEUIWindowId::CustomFiles, num);
+    ImGui::SetNextWindowSize(ImVec2(760, 600), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin(windowTitle, &wCustomFiles)) { ImGui::End(); return; }
+    if (!loaded) { ImGui::TextDisabled("Open a skin first."); ImGui::End(); return; }
+    const auto loadDraft = [&](int rowIndex) {
+        SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
+        const std::string draftTitle = Cp932ToUtf8(row.csv.str[1].body ? row.csv.str[1].body : "");
+        const std::string draftPattern = Cp932ToUtf8(row.csv.str[2].body ? row.csv.str[2].body : "");
+        const std::string draftDefault = Cp932ToUtf8(row.csv.str[3].body ? row.csv.str[3].body : "");
+        if (draftTitle.size() >= sizeof(customFileTitle) || draftPattern.size() >= sizeof(customFilePattern) ||
+            draftDefault.size() >= sizeof(customFileDefault)) {
+            customFileStatus = "Declaration exceeds this form's capacity. Use Text Editor.";
+            customFileDraftRow = -1;
+            return;
+        }
+        customFileDraftRow = rowIndex;
+        customFileDraftRevision = documentRevision;
+        customFileDraftDocument = mainpath;
+        customFileDraftOriginal = row.line.body;
+        snprintf(customFileTitle, sizeof(customFileTitle), "%s", draftTitle.c_str());
+        snprintf(customFilePattern, sizeof(customFilePattern), "%s", draftPattern.c_str());
+        snprintf(customFileDefault, sizeof(customFileDefault), "%s", draftDefault.c_str());
+        customFileDraftDirty = false;
+        customFileCandidates.clear();
+        std::string pattern;
+        const auto result = SEResolveSkinResourcePath(row.csv.str[2].body,
+            row.filename.body, mainpath, pattern);
+        if (result != SESkinResourcePathResult::Rejected) {
+            if (result != SESkinResourcePathResult::Resolved) pattern = row.csv.str[2].body ? row.csv.str[2].body : "";
+            WIN32_FIND_DATAA data = {};
+            HANDLE find = FindFirstFileA(pattern.c_str(), &data);
+            if (find != INVALID_HANDLE_VALUE) {
+                do {
+                    std::string label = data.cFileName;
+                    if (label == "." || label == ".." ||
+                        (label.size() >= 3 && label.substr(label.size() - 3) == "txt")) continue;
+                    // Match LR2 CUSTOMFILE's token rules, not an image-only list.
+                    if (!(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                        const size_t dot = label.find('.');
+                        if (dot != std::string::npos) label.resize(dot);
+                    }
+                    const std::string path = (std::filesystem::path(pattern).parent_path() / data.cFileName).string();
+                    customFileCandidates.push_back({label, CustomFileComparablePath(path.c_str()),
+                        (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0});
+                } while (FindNextFileA(find, &data));
+                FindClose(find);
+            }
+        }
+        customFileCandidates.push_back({"RANDOM", ""});
+    };
+    const bool current = customFileDraftDocument == mainpath &&
+        customFileDraftRevision == documentRevision && customFileDraftRow >= 0 &&
+        customFileDraftRow < skinfileLines.count;
+    if (!current && !customFileDraftDirty) customFileDraftRow = -1;
+    ImGui::BeginDisabled(customFileDraftDirty);
+    if (ImGui::BeginCombo("Declaration", customFileDraftRow >= 0 ? customFileTitle : "Choose #CUSTOMFILE")) {
+        for (int rowIndex = 0; rowIndex < skinfileLines.count; ++rowIndex) {
+            SKINFILELINEREAD& row = ((SKINFILELINEREAD*)skinfileLines.data)[rowIndex];
+            if (!row.csv.str[0].body || !row.csv.str[0].isSame("#CUSTOMFILE")) continue;
+            ImGui::PushID(rowIndex);
+            const std::string label = Cp932ToUtf8(row.csv.str[1].body) + "  (" +
+                Cp932ToUtf8(row.filename.body) + ")";
+            if (ImGui::Selectable(label.c_str(), customFileDraftRow == rowIndex)) loadDraft(rowIndex);
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::EndDisabled();
+    if (!current && customFileDraftDirty) {
+        ImGui::TextWrapped("The document changed. Discard this draft and reselect a declaration.");
+        if (ImGui::Button("Discard draft")) { customFileDraftDirty = false; customFileDraftRow = -1; }
+        ImGui::End(); return;
+    }
+    if (customFileDraftRow < 0) {
+        if (!customFileStatus.empty()) ImGui::TextWrapped("%s", customFileStatus.c_str());
+        ImGui::End(); return;
+    }
+    SKINFILELINEREAD& declaration = ((SKINFILELINEREAD*)skinfileLines.data)[customFileDraftRow];
+    ImGui::TextWrapped("CSV: %s", Cp932ToUtf8(declaration.filename.body).c_str());
+    customFileDraftDirty |= ImGui::InputText("Title", customFileTitle, sizeof(customFileTitle));
+    customFileDraftDirty |= ImGui::InputText("Pattern", customFilePattern, sizeof(customFilePattern));
+    customFileDraftDirty |= ImGui::InputText("Saved default", customFileDefault, sizeof(customFileDefault));
+    ImGui::BeginDisabled(!customFileDraftDirty);
+    if (ImGui::Button("Apply declaration")) {
+        if (ApplyCustomFileDraft()) loadDraft(customFileDraftRow);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(customFileDraftDirty ? "Discard / Reload" : "Refresh candidates")) loadDraft(customFileDraftRow);
+    if (!customFileStatus.empty()) ImGui::TextWrapped("%s", customFileStatus.c_str());
+    ImGui::TextDisabled("Apply changes the document; use Save to write CSV. Preview is temporary.");
+    const std::string key = CustomFileChoiceKey(declaration);
+    const auto choice = customFilePreviewChoices.find(key);
+    ImGui::Text("Preview: %s", choice == customFilePreviewChoices.end() ? "Automatic" : Cp932ToUtf8(choice->second.c_str()).c_str());
+    if (ImGui::Button("Reset preview choice")) {
+        customFilePreviewChoices.erase(key);
+        previewReloadPending = true; previewReloadRequestedAt = GetTickCount64();
+    }
+    if (customFileCandidates.size() == 1) ImGui::TextDisabled("No matching files.");
+    bool defaultFound = false;
+    for (const auto& candidate : customFileCandidates)
+        defaultFound |= Cp932ToUtf8(candidate.label.c_str()) == customFileDefault;
+    if (!defaultFound) ImGui::TextDisabled("Saved default does not match a candidate.");
+    ImGui::InputTextWithHint("##CustomFileSearch", "Search candidates...", customFileSearch, sizeof(customFileSearch));
+    ImGui::BeginDisabled(customFileDraftDirty);
+    if (ImGui::BeginChild("Candidates", ImVec2(0, 0), true)) {
+        for (size_t index = 0; index < customFileCandidates.size(); ++index) {
+            const auto& candidate = customFileCandidates[index];
+            const std::string candidateLabel = Cp932ToUtf8(candidate.label.c_str());
+            if (*customFileSearch && candidateLabel.find(customFileSearch) == std::string::npos) continue;
+            ImGui::PushID((int)index);
+            ImGui::Separator();
+            ImGui::TextUnformatted(Cp932ToUtf8(candidate.label.c_str()).c_str());
+            if (ImGui::Button("Preview")) {
+                customFilePreviewChoices[key] = candidate.label;
+                previewReloadPending = true; previewReloadRequestedAt = GetTickCount64();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Set default")) {
+                snprintf(customFileDefault, sizeof(customFileDefault), "%s", Cp932ToUtf8(candidate.label.c_str()).c_str());
+                customFileDraftDirty = true;
+            }
+            if (!candidate.path.empty()) {
+                ImGui::SameLine();
+                if (ImGui::Button("Folder")) OpenCp932PathInExplorer(candidate.path.c_str());
+                ImGui::TextWrapped("%s", Cp932ToUtf8(candidate.path.c_str()).c_str());
+            }
+            bool linked = false;
+            for (int textureIndex = 0; textureIndex < arr_SRCGR.count; ++textureIndex) {
+                SRCGR& texture = ((SRCGR*)arr_SRCGR.data)[textureIndex];
+                if (candidate.path.empty() || !texture.path.body) continue;
+                const std::string texturePath = CustomFileComparablePath(texture.path.body);
+                const bool exact = !_stricmp(texturePath.c_str(), candidate.path.c_str());
+                const std::string folderPrefix = candidate.path + "\\";
+                const bool inFolder = candidate.directory &&
+                    !_strnicmp(texturePath.c_str(), folderPrefix.c_str(), folderPrefix.size());
+                if (!exact && !inFolder) continue;
+                linked = true;
+                ImGui::PushID(textureIndex);
+                if (ImGui::IsRectVisible(ImVec2(100, 100)) && EnsureSRCGRTexture(textureIndex) && texture.texture && texture.sizeX > 0 && texture.sizeY > 0) {
+                    const float scale = 100.0f / (float)(std::max)(texture.sizeX, texture.sizeY);
+                    ImGui::Image((ImTextureID)texture.texture, ImVec2(texture.sizeX * scale, texture.sizeY * scale));
+                }
+                char usage[64]; snprintf(usage, sizeof(usage), "Image Manager: gr %d", texture.grID);
+                if (ImGui::Button(usage)) {
+                    wImgManager = true;
+                    imageManagerGraphicDeclarationFocusRequest = texture.declare;
+                    imageManagerRevealRequested = true;
+                    char imageTitle[128];
+                    FormatSEUIWindowTitle(imageTitle, sizeof(imageTitle), SEUIWindowId::ImageManager, num);
+                    ImGui::SetWindowFocus(imageTitle);
+                }
+                ImGui::PopID();
+            }
+            if (!linked && !candidate.path.empty()) ImGui::TextDisabled("No linked image texture.");
+            ImGui::PopID();
+        }
+    }
+    ImGui::EndChild();
+    ImGui::EndDisabled();
+    ImGui::End();
+}
+
 int WORKSPACE::drawCustomize() {
 
     char title[260];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Customize, num);
     ImGui::Begin(title, &wCustomize);
+    if (ImGui::Button("Manage files...")) {
+        wCustomFiles = true;
+        char managerTitle[128];
+        FormatSEUIWindowTitle(managerTitle, sizeof(managerTitle), SEUIWindowId::CustomFiles, num);
+        ImGui::SetWindowFocus(managerTitle);
+    }
 
     for (int i = 0; i < meta.custom_count; i++) {
         SkinCustom& cu = meta.customs[i];
@@ -7035,6 +7258,10 @@ bool WORKSPACE::OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY) {
 int WORKSPACE::drawImgManager() {
     char title[260];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::ImageManager, num);
+    if (imageManagerRevealRequested) {
+        SEUI::RevealWindowTab(title);
+        imageManagerRevealRequested = false;
+    }
     if (!ImGui::Begin(title, &wImgManager)) {
         ImGui::End();
         return 0;
@@ -10560,18 +10787,112 @@ int WORKSPACE::drawSaveOlrSkin() {
 int WORKSPACE::drawFileManager() {
     char title[260];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::FileManager, num);
+    ImGui::SetNextWindowSize(ImVec2(780, 640), ImGuiCond_FirstUseEver);
 
-    ImGui::Begin(title, &wFileManager);
-    //ImGui::Text("they are related files. %d scripts, %d images", arr_subpath.count, arr_imgpath.count);
-    ImGui::SeparatorText("Scripts");
-    for (int i = 0; i < arr_subpath.count; i++) {
-        CSTR& path = ((CSTR*)arr_subpath.data)[i];
-        ImGui::Text("%s", path.outstr());
-    }
-    ImGui::SeparatorText("Images");
-    for (int i = 0; i < arr_SRCGR.count; i++) {
-        SRCGR& img = ((SRCGR*)arr_SRCGR.data)[i];
-        ImGui::Text("(%03d)%02d - %s %s", img.isIf, img.grID, img.path.outstr(), img.fromWildcard? "from *":"");
+    if (!ImGui::Begin(title, &wFileManager)) { ImGui::End(); return 0; }
+    if (!loaded) { ImGui::TextUnformatted("Open a skin first."); ImGui::End(); return 0; }
+    if (scriptDirectoryRevision != documentRevision || scriptDirectoryDocument != mainpath ||
+        scriptDirectoryTree.empty()) RebuildScriptDirectoryTree();
+    if (ImGui::BeginTabBar("FileManagerTabs")) {
+        if (ImGui::BeginTabItem("Scripts")) {
+            const auto toolbarNext = [](const char* label) {
+                const float width = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
+                ImGui::SameLine();
+                if (ImGui::GetContentRegionAvail().x < width) ImGui::NewLine();
+            };
+            ImGui::Checkbox("Solo preview", &previewSelectedFileOnly);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                "Show only this CSV's drawing commands. Includes are separate files.\n"
+                "Eye toggles still apply. Resources and conditions remain shared.");
+            toolbarNext("Show all");
+            if (ImGui::Button("Show all")) ShowAllPreviewFiles();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Restore all CSVs in Preview and disable solo mode.");
+            toolbarNext("Browse");
+            if (ImGui::Button("Browse")) {
+                const char* path = objectBrowserFile.empty() ? mainpath : objectBrowserFile.c_str();
+                if (!OpenCp932PathInExplorer(path)) scriptDirectoryStatus = "Could not open Windows Explorer.";
+                else scriptDirectoryStatus.clear();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show selected CSV in Windows Explorer. All files: show the main skin file.");
+            if (!previewHiddenFiles.empty()) {
+                toolbarNext("000 hidden");
+                ImGui::TextDisabled("%d hidden", (int)previewHiddenFiles.size());
+            }
+            if (ImGui::Selectable("All files", objectBrowserFile.empty())) SetObjectBrowserFile("");
+            if (!scriptDirectoryStatus.empty()) ImGui::TextWrapped("%s", scriptDirectoryStatus.c_str());
+            const auto focusCode = [&]() {
+                char codeTitle[128];
+                FormatSEUIWindowTitle(codeTitle, sizeof(codeTitle), SEUIWindowId::CodeEditor, num);
+                ImGui::SetWindowFocus(codeTitle);
+            };
+            const auto drawNode = [&](const auto& self, int index) -> void {
+                const auto& node = scriptDirectoryTree[index];
+                ImGui::PushID(node.owner.empty() ? node.label.c_str() : node.owner.c_str());
+                const std::string label = Cp932ToUtf8(node.label.c_str());
+                if (node.owner.empty()) {
+                    if (ImGui::TreeNodeEx("folder", ImGuiTreeNodeFlags_DefaultOpen,
+                        "%s", label.c_str())) {
+                        for (int child : node.children) self(self, child);
+                        ImGui::TreePop();
+                    }
+                } else {
+                    const bool visible = !IsPreviewFileHidden(node.owner.c_str());
+                    if (SEUI::VisibilityButton("##PreviewFileVisibility", visible))
+                        SetPreviewFileVisible(node.owner, !visible);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                        "%s this CSV in Preview (not its child includes).\nDoes not change CSV or selection.%s",
+                        visible ? "Hide" : "Show", previewSelectedFileOnly ? "\nSelected-file-only mode also applies." : "");
+                    ImGui::SameLine();
+                    const bool selected = !_stricmp(objectBrowserFile.c_str(), node.owner.c_str());
+                    if (ImGui::Selectable(label.c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick,
+                        ImVec2(0, ImGui::GetFrameHeight()))) {
+                        SetObjectBrowserFile(node.owner);
+                        wObjectBrowser = true;
+                        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && OpenScriptInCodeEditor(node.owner))
+                            focusCode();
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s\nDouble-click: %s", Cp932ToUtf8(node.owner.c_str()).c_str(), SEUIWindowSpecFor(SEUIWindowId::CodeEditor).title);
+                    if (ImGui::BeginPopupContextItem("ScriptActions")) {
+                        if (ImGui::MenuItem("Browse in Explorer") && !OpenCp932PathInExplorer(node.owner.c_str()))
+                            scriptDirectoryStatus = "Could not open Windows Explorer.";
+                        if (ImGui::MenuItem(SEUIWindowSpecFor(SEUIWindowId::CodeEditor).title) && OpenScriptInCodeEditor(node.owner)) focusCode();
+                        if (ImGui::MenuItem(SEUIWindowSpecFor(SEUIWindowId::TextEditor).title)) {
+                            SetObjectBrowserFile(node.owner);
+                            wTextEdit = true;
+                            char textTitle[128];
+                            FormatSEUIWindowTitle(textTitle, sizeof(textTitle), SEUIWindowId::TextEditor, num);
+                            ImGui::SetWindowFocus(textTitle);
+                        }
+                        if (ImGui::MenuItem("New Object in file")) {
+                            SetObjectBrowserFile(node.owner);
+                            PrepareNewObjectInBrowserFile();
+                        }
+                        if (ImGui::MenuItem("Copy path"))
+                            ImGui::SetClipboardText(Cp932ToUtf8(node.owner.c_str()).c_str());
+                        ImGui::EndPopup();
+                    }
+                }
+                ImGui::PopID();
+            };
+            ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, ImGui::GetFontSize() * 0.8f);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, 1.0f));
+            if (ImGui::BeginChild("ScriptDirectoryTree", ImVec2(0, 0), false,
+                ImGuiWindowFlags_HorizontalScrollbar))
+                for (int child : scriptDirectoryTree[0].children) drawNode(drawNode, child);
+            ImGui::EndChild();
+            ImGui::PopStyleVar(2);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Images")) {
+            for (int i = 0; i < arr_SRCGR.count; ++i) {
+                SRCGR& img = ((SRCGR*)arr_SRCGR.data)[i];
+                ImGui::Text("(%03d)%02d - %s %s", img.isIf, img.grID,
+                    Cp932ToUtf8(img.path.outstr()).c_str(), img.fromWildcard ? "from *" : "");
+            }
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
     }
 
     ImGui::End();

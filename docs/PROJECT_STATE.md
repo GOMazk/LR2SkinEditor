@@ -11,9 +11,65 @@
 
 ## 1. 제품 목표
 
+편집기 표시 이름: 기존 행/열 편집 Text Editor는 **CSV Editor**, multiline
+Code Editor는 **Text Editor**로 변경했다. 내부 enum/key와 편집/저장 동작은 유지한다.
+
+명시적 Object 선택은 Inspector를 열고 해당 탭을 드러낸다. 복원/재빌드만으로
+탭을 강제로 바꾸지는 않는다. Asset 단일 클릭은 선택만 유지하고 더블클릭과
+편집 메뉴는 Image Manager를 드러낸다. CSV 편집 요청은 Text Editor를 드러내며
+기존 미적용 초안 보호는 유지한다. 도킹 탭 전환은 키보드 focus를 빼앗지 않는다.
+
+우측 기본 배치는 Option List / Timer Control / Customize의 독립된 세 칸이다.
+File Manager는 Object Inspector와 같은 도킹 영역의 탭으로 배치하며 CSV 트리 행 높이/들여쓰기는 작게 유지한다.
+트리에서는 메인 lr2skin 파일을 같은 폴더의 하위 CSV 폴더보다 먼저 표시한다.
+상단 Solo preview / Show all / Browse는 폭에 따라 줄바꿈한다. Browse는 선택 CSV를
+탐색기에 표시하며 All files에서는 메인 스킨 파일을 표시한다. 기존 배치는
+Layout > Rebuild current docking으로 재구성할 수 있다.
+
+Custom Files 창은 Customize의 Manage files... 또는 Windows > Data에서 연다.
+로드된 #CUSTOMFILE 선언의 title/path/default를 CP932 검증 후 기존 EditLine/Undo로
+수정하며 Apply 이후 Save가 필요하다. 문서 revision이 바뀐 초안은 적용을 막는다.
+후보는 LR2의 CUSTOMFILE 파일명 토큰 규칙으로 열거하며 비이미지도 유지한다
+(LR2에서 제외하는 txt는 제외). 후보 검색, 기본값 초안 지정, Explorer 열기,
+연결된 Image Manager gr 이동과 기존 텍스처 썸네일을 제공한다.
+Preview 선택은 선언 소유 파일/title/path 키의 일시적 override이며 저장 기본값을
+바꾸지 않고 다음 문서 로드 때 지운다. Image Manager에 없는 파일의 새 썸네일 로딩,
+선언 추가/삭제, 연결된 #IMAGE 경로 자동 수정은 이번 범위에 포함하지 않는다.
+기존 Customize의 후보 목록은 스킨을 열 때 읽은 목록이므로 선언 변경 후 새 후보는
+Custom Files에서 확인하며 기존 Customize 목록 갱신에는 스킨 다시 열기가 필요하다.
+
+File Manager의 Scripts 탭은 현재 로드된 script의 소유 경로를 폴더 트리로 표시한다.
+트리는 메인 스킨의 상위 LR2files부터 시작해 Theme/스킨 폴더 등을 보여준다.
+LR2files 밖의 참조는 External files로 분리하며 상위 LR2files가 없는 독립 스킨만
+기존 스킨 폴더 기준으로 표시한다. 디스크 전체가 아닌 로드된 CSV 목록만 표시한다.
+메인 파일도 포함하며 비활성 IF 안에서 파싱된 include도 제외하지 않는다. 클릭은
+Object Browser File 범위, 더블클릭은 Text Editor 열기다. 우클릭에서 기존 CSV Editor,
+New Object in file, 경로 복사를 사용할 수 있다. Text Editor 초안은 다른 파일 열기로
+덮어쓰지 않는다. 트리는 문서 revision별 캐시이며 디스크 전체 스캔이나 새 CSV/폴더
+생성은 하지 않는다. 스킨 밖의 참조는 External files 아래 표시하고 Images 목록은
+별도 탭에 유지한다.
+
+별도 `Text Editor` 창을 Windows > Data에 추가했다. 기존 CSV Editor는 유지한다.
+파일 단위 UTF-8 초안을 여러 줄로 편집하며 Apply 시 CP932로 엄격 변환하여 기존
+CSV 모델에 단일 snapshot Undo로 반영한다. Apply는 디스크 저장이 아니며 이후 Save를
+사용한다. 입력 중 Ctrl+Z는 텍스트 Undo이며 Workspace Undo와 분리된다. 닫아도 초안은
+유지하고 초안이 있으면 파일 전환을 막는다. 다른 편집/Undo/load 후에는 충돌을 표시하고
+초안을 자동 덮어쓰지 않는다. Discard draft는 명시적으로 최신 Workspace를 다시 읽는다.
+초기 버전은 4 MiB 이하 plain multiline 편집이며 문법 강조/정규식 찾기·바꾸기는 없다.
+INCLUDE 행과 순서는 유지해야 하고 반복 include 및 파일 경계를 넘는 IF 편집은 차단한다.
+자식 include는 현재 확장 내용을 보존한다. 새 파일 생성/분리는 기존 전용 기능을 쓴다.
+
 Object Browser의 File 필터는 All files 또는 원본 CSV 소유 경로를 선택한다.
-Type/Group/Active/Search와 교집합으로 적용하며 전체 스킨 Preview는 바꾸지 않는다.
-Text Editor도 같은 파일 범위로 표시하고 파일 변경 시 해당 파일 첫 행으로 이동한다.
+Type/Group/Active/Search와 교집합으로 적용한다. 기본 Preview는 전체 스킨이다.
+File Manager > Scripts의 `Solo preview`를 켜면 선택 CSV 소유의
+DST 그리기만 표시한다(자식 include는 별도 파일). All files 또는 체크 해제로 범위를 해제한다.
+CSV 트리의 눈 버튼은 해당 파일의 Preview 출력만 숨기거나 복구한다. 여러 파일을
+동시에 숨길 수 있으며 선택/CSV/History는 바뀌지 않는다. 자식 include는 독립적으로
+표시한다. 선택 파일만 보기와 숨김은 교집합이며 Show all은 둘 다 해제한다.
+숨김 파일은 Preview 우클릭 후보와 점멸 선택 영역에서도 제외한다. 상태는 Workspace별
+임시 설정으로, 다른 CSV 선택/Undo에는 유지하고 새 스킨 로드 때 초기화한다.
+리소스, 조건, 런타임 계산은 전체 스킨을 유지하며 저장 데이터는 바꾸지 않는다.
+CSV Editor도 같은 파일 범위로 표시하고 파일 변경 시 해당 파일 첫 행으로 이동한다.
 New in file은 선택 파일의 end marker 앞(그 위치의 IF 문맥)에 생성한다. 특정 분기
 안에 넣을 때는 기존 Branch/Object 우클릭 생성을 사용한다. Asset drop은 기존 이미지
 선언 순서 보호를 유지하므로 File 필터만으로 삽입 위치를 강제하지 않는다.
@@ -982,7 +1038,7 @@ TextEdit도 `GetCommandHelp()` schema를 사용해 `$type/$op/$st/$num/$timer`�
 ComboBox로 표시한다.
 
 Text 전용 로드 모드는 사용하지 않는다. 모든 스킨은 동일한 Workspace로 로드하며,
-TextEdit은 `Windows > Text Editor`에서 여는 일반 도킹 창이다.
+TextEdit은 `Windows > CSV Editor`에서 여는 일반 도킹 창이다.
 TextEdit의 Object 명령 행을 좌클릭하면 동일한 Workspace Object selection을 사용해
 Object Browser/Inspector를 열고 해당 Object로 자동 스크롤한다. Object에 속하지 않는
 IF 제어 행, 주석과 기타 행은 현재 Object 선택을 변경하지 않는다.

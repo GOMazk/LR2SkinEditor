@@ -2124,6 +2124,10 @@ void WORKSPACE::SetObjectSelection(const std::vector<int>& modelIndices,
     objectSelection.active = MakeObjectSelectionKey(activeModelIndex);
     objectSelection.anchor = MakeObjectSelectionKey(anchorModelIndex);
     objectSelection.focusBrowserRequested = requestBrowserFocus;
+    if (objectSelection.active.IsValid()) {
+        wObjectInspector = true;
+        objectInspectorRevealRequested = true;
+    }
     preview_selected_object_model_index = ResolveObjectSelectionKey(objectSelection.active);
     preview_selection_anchor_model_index = ResolveObjectSelectionKey(objectSelection.anchor);
     if (requestBrowserFocus && preview_selected_object_model_index >= 0)

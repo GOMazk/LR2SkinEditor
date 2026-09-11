@@ -11,10 +11,27 @@ of truth.
 
 ## Layers
 
+File Manager's Scripts tree is a revision-cached projection of authoritative row
+owners, built by RebuildScriptDirectoryTree. Nodes are directory labels or leaf
+paths beneath an explicit LR2files root found among the main skin's ancestors.
+External references stay in External files; standalone skins without LR2files
+fall back to the main directory. Ancestor/path containment is case-insensitive.
+Nodes retain their original
+owner paths, never a second editable document. Leaf actions reuse SetObjectBrowserFile,
+PrepareNewObjectInBrowserFile and OpenScriptInCodeEditor; the latter protects dirty
+drafts. Images remain in their own tab. Loading a skin invalidates the tree cache.
+
+`Text Editor` is a separate dockable pane, leaving CSV Editor intact. Its UTF-8
+buffer is an unapplied draft, not another authoritative model. LoadCodeEditorFile
+reads only owner rows without $FILE markers. ApplyCodeEditorDraft validates encoding,
+revision, IF balance and unchanged INCLUDE sequence, retains expanded child rows,
+and uses RestoreDocumentSnapshot plus one History entry. Normal Save remains the
+only disk write path. Native multiline input owns text undo while focused.
+
 File-scoped browsing uses `WORKSPACE::objectBrowserFile` (empty means All files).
 `ObjectMatchesFile` filters the existing model by row ownership; no per-file model
 or runtime is created. `SetObjectBrowserFile` clears stale selection and moves the
-shared text cursor. Text Editor reuses the owner filter with bounded wheel traversal.
+shared text cursor. CSV Editor reuses the owner filter with bounded wheel traversal.
 `PrepareNewObjectInBrowserFile` uses the file end marker and inherited IF context.
 File labels decode CP932 to UTF-8; full-path tooltips distinguish equal basenames.
 
@@ -127,21 +144,21 @@ share focus, scroll and docking state accidentally.
 The default workspace is intentionally asymmetric and follows this structure:
 
 ```text
-Object Browser | Object Inspector | Preview / Image Manager / DST View / Text Editor | Option List
-               |                  |--------------------------------------------------|------------
-               |                  | Asset Browser / File Manager / History           | Customize / Timer Control
+Object Browser | Inspector / Files | Preview / Image Manager / DST View / CSV Editor  | Option List
+               |                  |                                                   | Timer Control
+               |                  | Asset Browser / History                           | Customize
 ```
 
 Object Browser and Object Inspector are separate full-height columns. The wide
 center keeps the canvas above assets, and the narrow right column keeps option
 data above customization and timer controls. Legacy and developer windows are
-also assigned to one of these six tab groups, so `Layout > Show all windows`
+also assigned to one of these seven tab groups, so `Layout > Show all windows`
 stays organized instead of creating floating panels. `Layout > Balanced
 workspace` restores default visibility; `Rebuild current docking` preserves
 visibility and only repairs placement.
 
-The initial layout assigns about 17% each to Browser and Inspector, 54% to the
-center and 12% to the right column. Assets take the lower 23% of the center,
+The initial layout assigns about 17% each to Browser and Inspector, 52% to the
+center and 14% to the right column. Assets take the lower 23% of the center,
 leaving 77% for Preview. These ratios apply on load or an explicit layout
 rebuild; normal frames do not override user-adjusted splits.
 
@@ -157,7 +174,14 @@ creating a synthetic selection on load.
 Browser and Inspector use the full workspace height. ImageManager and dstView
 share Preview's tab node in the center. Asset Browser occupies the lower center
 node so Preview remains visible while an asset is dragged upward. The right
-column is split into OpList above and a Customize/Timer Control tab node below.
+column has separate Option List (40%), Timer Control (32%) and Customize (28%) nodes.
+File Manager shares the full-height Object Inspector dock, leaving Preview visible.
+The main lr2skin leaf sorts ahead of sibling directories (including csv); other
+entries retain folder-first, case-insensitive name ordering.
+Its Scripts toolbar wraps Solo preview, Show all and Browse on narrow docks.
+Browse reveals the selected CSV (or main skin when All files is selected) using
+the existing Unicode Explorer helper. CSV context menus also offer Browse.
+Compact tree padding/indentation saves space; full paths remain in tooltips.
 Timer manipulation is kept out of the Preview canvas. Keep this hierarchy when
 adjusting split ratios. `Layout > Rebuild current docking` rebuilds this exact
 layout through `DockBuilder`.
@@ -180,6 +204,14 @@ updates cannot diverge.
 
 ### Object selection
 
+SetObjectSelection queues a one-shot Inspector reveal and opens its visibility
+flag. RestoreObjectSelection only synchronizes data and does not request reveal.
+Asset double-click/edit actions queue Image Manager reveal; a single click does
+not, to preserve drag/drop. Successful OpenScriptInCodeEditor requests reveal,
+including reopening the same dirty draft. Each target consumes its request before
+Begin through SEUI::RevealWindowTab: existing dock tabs queue tab selection without
+keyboard focus changes; first-open/floating windows use normal focus/un-collapse.
+
 Object Browser filters use separate rows for draw order and active-only mode so
 narrow docks do not clip one checkbox behind the other. In short docks, the
 filter child scrolls independently and leaves room for the object list.
@@ -193,7 +225,7 @@ existing English/Korean preference and stable ImGui IDs. Disabled action buttons
 retain their explanatory tooltips.
 
 ```text
-Preview / right-click / DST View / Text Editor Object row
+Preview / right-click / DST View / CSV Editor Object row
   -> workspace ObjectSelection (`$SE_OBJECT_ID` 중심 key)
   -> current model index와 selection request를 계산
   -> Object Browser submits and scrolls to the target row
@@ -221,7 +253,7 @@ variables. The legacy `wObjectEditor` flag is a compatibility request that
 opens both panes; `wObjectBrowser` and `wObjectInspector` then control their
 visibility.
 
-A left click on an Object command row in Text Editor resolves that source row
+A left click on an Object command row in CSV Editor resolves that source row
 through `SEFindObjectForRow()` and enters the same workspace selection flow.
 The Browser and Inspector open, filters/search are cleared and the Browser
 scrolls to the Object. Control-flow, comment and other rows that do not belong
@@ -797,6 +829,34 @@ After a successful import, the source `.olrskin` path is retained only as local
 Workspace state to suggest the next Save OLRskin destination. The association
 is cleared at the next document-load boundary and is never serialized into the
 portable package or materialized LR2 tree.
+
+## Custom Files manager
+
+`WORKSPACE::drawCustomFiles` owns a revision-guarded declaration draft and a
+refreshable candidate list, not a second CSV model. `ApplyCustomFileDraft` uses
+strict CP932 conversion and `EditLine` for Undo. The per-workspace preview-choice
+map uses owner/title/pattern keys and is consulted at CUSTOMFILE runtime load;
+it never changes the stored default or LR2 customization files. Thumbnails
+reuse linked SRCGR textures. The manager neither rewrites IMAGE references nor
+creates/deletes files. Existing Customize metadata is refreshed by reopening
+the skin, not by applying this form. Use the manager for freshly edited paths.
+
+## Selected-file Preview controls
+
+File Manager > Scripts owns the `Solo preview` checkbox. It uses
+the shared `objectBrowserFile` selection; an empty selection removes solo scope.
+CSV leaf eye buttons call SetPreviewFileVisible with a full owner path, without
+selecting the file. A case-insensitive hidden-file list is local Workspace state.
+IsPreviewFileVisible/IsPreviewRowVisible combine hidden files with solo scope for
+render masks, hit tests and bounds. Setters invalidate only the presentation cache;
+ShowAllPreviewFiles clears both solo and hidden state, and load resets visibility.
+SEUI::VisibilityButton draws a font-independent eye/slashed-eye and returns intent.
+ReadSkinSE records source rows for runtime draw orders (including reserved LN
+slots). UpdatePreviewRuntime builds the owner mask; LR2SEDrawLoop filters the
+completed draw buffer before LRDraw sorts it. Parsing, resource numbering,
+relative coordinates and scene ticking remain unchanged. Hidden-file Objects
+are excluded from Preview hit tests and selection outlines. This is local UI
+state, not a CSV or OLRskin format change.
 
 ## Debugging checklist
 

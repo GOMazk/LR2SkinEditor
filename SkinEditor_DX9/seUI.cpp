@@ -1,4 +1,5 @@
 #include "seUI.h"
+#include "imgui/imgui_internal.h"
 
 #include <algorithm>
 
@@ -9,6 +10,18 @@ namespace {
 }
 
 namespace SEUI {
+    void RevealWindowTab(const char* title) {
+        ImGuiWindow* window = ImGui::FindWindowByName(title);
+        if (window && window->DockNode && window->DockNode->TabBar) {
+            ImGuiTabBar* tabs = window->DockNode->TabBar;
+            if (ImGuiTabItem* tab = ImGui::TabBarFindTabByID(tabs, window->TabId)) {
+                ImGui::TabBarQueueFocus(tabs, tab);
+                return; // Reveal without stealing keyboard focus or active drags.
+            }
+        }
+        ImGui::SetNextWindowCollapsed(false);
+        ImGui::SetNextWindowFocus(); // First opening or a floating tool window.
+    }
     ImVec4 Colors::Accent() { return ImVec4(0.31f, 0.62f, 0.98f, 1.00f); }
     ImVec4 Colors::Success() { return ImVec4(0.24f, 0.78f, 0.55f, 1.00f); }
     ImVec4 Colors::Warning() { return ImVec4(0.96f, 0.70f, 0.28f, 1.00f); }
@@ -203,5 +216,24 @@ namespace SEUI {
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
         }
+    }
+
+    bool VisibilityButton(const char* id, bool visible) {
+        const float size = ImGui::GetFrameHeight();
+        const bool pressed = ImGui::Button(id, ImVec2(size, size));
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 center(min.x + size * 0.5f, min.y + size * 0.5f);
+        const float radius = size * 0.32f;
+        const ImU32 color = ImGui::GetColorU32(visible ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        const ImVec2 left(center.x - radius, center.y), right(center.x + radius, center.y);
+        draw->AddBezierCubic(left, ImVec2(center.x - radius * 0.35f, center.y - radius),
+            ImVec2(center.x + radius * 0.35f, center.y - radius), right, color, 1.5f);
+        draw->AddBezierCubic(left, ImVec2(center.x - radius * 0.35f, center.y + radius),
+            ImVec2(center.x + radius * 0.35f, center.y + radius), right, color, 1.5f);
+        if (visible) draw->AddCircleFilled(center, radius * 0.3f, color);
+        else draw->AddLine(ImVec2(center.x - radius, center.y + radius),
+            ImVec2(center.x + radius, center.y - radius), ImGui::GetColorU32(Colors::Danger()), 2.0f);
+        return pressed;
     }
 }

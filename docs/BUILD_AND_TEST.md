@@ -990,7 +990,7 @@ $test.ExitCode # 0이면 두 Workspace의 load, 다중 frame scene 진행과 Pre
 
 ### Custom Files
 
-- Open Customize > Manage files..., choose a declaration, inspect candidates
+- Open Windows > Data > Custom Files (no Manage files button in Customize), choose a declaration, inspect candidates
   (including non-images), linked thumbnails/gr navigation and Folder.
 - Preview must not dirty CSV. Set default edits the draft; Apply creates one
   Undo step; Save persists to the original owner CSV.

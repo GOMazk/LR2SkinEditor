@@ -1644,6 +1644,8 @@ int RunUiCatalogSelfTest() {
     if (std::strcmp(title, "CSV Editor##text-editor-5") != 0) return 41;
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::CodeEditor, 5);
     if (std::strcmp(title, "Text Editor##code-editor-5") != 0) return 42;
+    if (std::strcmp(SEUIWindowSpecFor(SEUIWindowId::CustomFiles).group, "Data") != 0)
+        return 43;
     const SEUISurfaceSpec& saveOlrSkin =
         SEUISurfaceSpecFor(SEUISurfaceId::SaveOlrSkin);
     if (std::strcmp(saveOlrSkin.key, "save-olrskin") != 0 ||

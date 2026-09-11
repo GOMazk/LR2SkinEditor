@@ -1,13 +1,19 @@
 # SkinEditor 현재 개발 상태
 
 기준일: 2026-09-12
-기준 브랜치: `AI_2`
+기준 브랜치: `AI_experimental` (AI 스킨 제작 유틸 실험)
 주 대상: `Release | Win32(x86)`
 보조 빌드 대상: `Release | x64` (`SkinEditor_DX9\Release-x64`)
 
 이 문서는 지금까지 진행한 작업의 의도와 현재 구현 상태를 다음 작업자가 코드와
 함께 확인할 수 있도록 기록한다. 완료 표시는 현재 코드에 구현되어 있다는 뜻이며,
 모든 외부 스킨에 대한 수동 회귀 검증이 끝났다는 뜻은 아니다.
+
+이번 실험은 `AI_2`의 검증된 변경을 별도 브랜치로 가져온 뒤 추가한 로컬 제작 유틸이다.
+`tools/skin_agent.py`가 JSON 제작 지시를 검증하고 네이티브 preset 생성기·parser·Preview를
+호출한다. 새 폴더에 기본 스킨과 atlas를 생성하고 기존 Object ID의 배치/색을 지정할 수
+있으며, JSON 오브젝트 목록과 PNG 미리보기를 반환한다. 사용법과 범위는
+[AI 스킨 제작 유틸](AI_SKIN_AGENT.md)을 따른다. 외부 AI/API 호출과 OLRskin 포맷 변경은 없다.
 
 현재 저장소는 `GOMazk/LR2SkinEditor`다. `AI_1`의 `1b243bf`까지의 변경을
 `AI_2`에 fast-forward로 가져왔다. CSV 분리, 파일별 편집/Preview, Custom Files와

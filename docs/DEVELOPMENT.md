@@ -3,7 +3,8 @@
 LR2 스킨의 CSV 스크립트, 이미지 소스, 배치 정보와 조건 분기를 한 화면에서
 편집하고 Preview로 확인하는 Windows/DX9 편집기입니다.
 
-현재 개발 기준은 `AI_2` 브랜치의 Release x86 빌드입니다. 이 작업 트리에는
+현재 실험 기준은 `AI_experimental` 브랜치의 Release x86 빌드입니다. 기본 편집기
+`AI_2`와 분리해 [AI 스킨 제작 유틸](AI_SKIN_AGENT.md)을 개발합니다. 이 작업 트리에는
 Object Editor와 현대화 UI 관련 미커밋 변경이 포함될 수 있으므로, 다른 PC에서
 작업을 이어가기 전에 반드시 `git status`와 `git diff`를 먼저 확인하십시오.
 

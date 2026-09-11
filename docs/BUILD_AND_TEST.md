@@ -2,6 +2,12 @@
 
 ## 개발 환경
 
+AI_experimental의 로컬 제작 유틸은 Python 3.10+ 표준 라이브러리와 이 브랜치의
+Release Win32 실행 파일을 사용한다. `scripts/test-agent.ps1`은 레시피/인코딩/필드
+검사와 실제 생성→수정→native inspect→PNG render, 기존 출력 보존 및 실패 시 staging
+정리를 검사한다. Direct3D가 필요하다. 입력 지시는 `examples/agent/blue-play7.json`,
+실행 계약과 수동 검증 경계는 [AI 제작 유틸](AI_SKIN_AGENT.md)에 있다.
+
 Editor names: ui-contract checks CSV Editor (text-editor key) and Text Editor
 (code-editor key). Manually check Windows > Data and File Manager context menus.
 

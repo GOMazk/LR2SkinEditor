@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "scene": "play7",
+  "width": 1280,
+  "height": 720,
+  "title": "AI Blue Play 7K",
+  "maker": "SkinEditor experimental",
+  "objects": [
+    {"id": "preset_background", "set": {"r": 170, "g": 205, "b": 255}},
+    {"id": "preset_note_0", "set": {"r": 255, "g": 205, "b": 205}}
+  ]
+}

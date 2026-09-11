@@ -12075,6 +12075,12 @@ namespace {
     }
 }
 
+bool SECreateAgentPreset(int type, int width, int height, const std::string& title,
+    const std::string& maker, std::string& skin, std::string& atlas, std::string& error) {
+    return BuildInitialPreset(type, width, height, title, maker,
+        "Generated/skin.lr2skin", skin, atlas, error);
+}
+
 int RunDstColorSelfTest() {
     if (arr_CommandHelp.count <= 0 && LoadCommandHelp(nullptr) != 0) return 1;
 

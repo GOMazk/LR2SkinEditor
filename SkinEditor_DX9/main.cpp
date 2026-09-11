@@ -26,6 +26,7 @@
 #include "seUI.h"
 #include "selfTests.h"
 #include "uiCatalog.h"
+#include "agentUtility.h"
 
 
 // Data
@@ -72,6 +73,9 @@ static void DrawHelpWindow(bool* open)
 int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
 {
     SELoadUILanguageSetting();
+    const int earlyAgentResult = SERunAgentUtility(false);
+    if (earlyAgentResult >= 0) return earlyAgentResult;
+    const bool agentMode = SEAgentUtilityMode();
     if (cmdline && strstr(cmdline, "--self-test-schema-contract"))
         return RunSchemaContractSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-ui-contract"))
@@ -153,8 +157,10 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     }
 
     // Show the window
-    ::ShowWindow(hwnd, SW_MAXIMIZE);
-    ::UpdateWindow(hwnd);
+    if (!agentMode) {
+        ::ShowWindow(hwnd, SW_MAXIMIZE);
+        ::UpdateWindow(hwnd);
+    }
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -231,6 +237,18 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     SetWindowVisibleFlag(0);
     SetMainWindowText("skinPreview2");
     DxLib_Init();
+
+    if (agentMode) {
+        const int result = SERunAgentUtility(true);
+        ImGui_ImplDX9_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
+        CleanupDeviceD3D();
+        ::DestroyWindow(hwnd);
+        ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        if (DxLib_IsInit()) DxLib_End();
+        return result;
+    }
 
     // Optional real-skin regression probe. It is intentionally not part of CI
     // because the two paths refer to user-supplied LR2 trees.

@@ -61,7 +61,14 @@ CSV 모델에 단일 snapshot Undo로 반영한다. Apply는 디스크 저장이
 사용한다. 입력 중 Ctrl+Z는 텍스트 Undo이며 Workspace Undo와 분리된다. 닫아도 초안은
 유지하고 초안이 있으면 파일 전환을 막는다. 다른 편집/Undo/load 후에는 충돌을 표시하고
 초안을 자동 덮어쓰지 않는다. Discard draft는 명시적으로 최신 Workspace를 다시 읽는다.
-초기 버전은 4 MiB 이하 plain multiline 편집이며 문법 강조/정규식 찾기·바꾸기는 없다.
+4 MiB 이하 multiline 편집에 명령/심볼 값 자동완성과 현재 인자 도움말을 제공한다.
+`#SRC_`, `dst_n`, `note`처럼 명령의 일부를 입력하면 커서 아래에 후보가 나타난다.
+timer/option 등 schema가 정의한 값은 이름이나 번호로 검색하고 실제 CSV 번호를 넣는다.
+방향키로 선택하고 Tab/Enter 또는 마우스로 확정하며 Esc는 목록만 닫는다.
+Ctrl+Space 또는 Suggest로 다시 열 수 있다. 현재 명령의 인자 순서와 활성 인자를
+하단에서 확인한다. 자동완성은 초안만 변경하며 Apply/Save 순서를 유지한다.
+문법 강조/정규식 찾기·바꾸기는 없다. 사용법과 검증 범위는
+[Text Editor 입력 보조](TEXT_EDITOR_ASSIST.md)에 정리했다.
 INCLUDE 행과 순서는 유지해야 하고 반복 include 및 파일 경계를 넘는 IF 편집은 차단한다.
 자식 include는 현재 확장 내용을 보존한다. 새 파일 생성/분리는 기존 전용 기능을 쓴다.
 

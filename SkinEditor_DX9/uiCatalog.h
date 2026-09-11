@@ -47,7 +47,7 @@ inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
     { SEUIWindowId::ImageManager, "image-manager", "Image Manager", "Inspect source atlases and register, edit or generate image files.", "WORKSPACE::drawImgManager", "Assets", "center-tabs", true },
     { SEUIWindowId::AssetBrowser, "asset-browser", "Asset Browser", "Search, preview and drag tagged image crops.", "WORKSPACE::drawAssetBrowser", "Assets", "center-bottom", true },
     { SEUIWindowId::TextEditor, "text-editor", "CSV Editor", "Edit authoritative LR2 text in the shared file scope while preserving encoding.", "WORKSPACE::drawTextEdit", "Data", "center-tabs", false },
-    { SEUIWindowId::CodeEditor, "code-editor", "Text Editor", "Edit a file as a multiline draft; explicitly apply with conflict checks and snapshot Undo.", "WORKSPACE::drawCodeEditor", "Data", "center-tabs", false },
+    { SEUIWindowId::CodeEditor, "code-editor", "Text Editor", "Edit a multiline draft with LR2 command/value suggestions and argument hints; apply with conflict checks and Undo.", "WORKSPACE::drawCodeEditor", "Data", "center-tabs", false },
     { SEUIWindowId::FileManager, "file-manager", "File Manager", "Browse CSVs beside Object Browser in the Inspector dock, open Explorer and toggle Preview visibility.", "WORKSPACE::drawFileManager", "Data", "left-inspector", false },
     { SEUIWindowId::SimpleMode, "simple-mode", "Simple Mode", "Edit Selection layout and event effects in groups, or replace fonts, gear and note art.", "WORKSPACE::drawSimpleMode", "Workspace", "center-tabs", true },
     { SEUIWindowId::DstView, "dst-view", "DST View", "Inspect destination rows and preview their animation frames.", "WORKSPACE::drawDstView", "Assets", "center-tabs", true },
@@ -97,6 +97,7 @@ enum class SEUISurfaceId {
     SimpleFontTools,
     SimpleSelection,
     Help,
+    CodeSuggestions,
     Count
 };
 
@@ -123,7 +124,8 @@ inline constexpr SEUISurfaceSpec kSEUISurfaceSpecs[] = {
     { SEUISurfaceId::ObjectSplit, "object-split", "Split Objects to CSV", "Extract consecutive Objects into a new sibling include and save scripts without changing draw order.", "WORKSPACE::drawObjectSplitDialog", "dialog" },
     { SEUISurfaceId::SimpleFontTools, "simple-font-tools", "Simple Font Tools", "Generate and preview TTF number, combo and judgement atlases; apply existing PNG/CSV with Undo.", "WORKSPACE::drawSimpleModeFontTools", "flow" },
     { SEUISurfaceId::SimpleSelection, "simple-selection", "Selection layout and effects", "Group a loaded Selection skin's components, edit layout/tint, and apply event animations with shared Undo and Preview.", "WORKSPACE::drawSimpleSelection", "flow" },
-    { SEUISurfaceId::Help, "help", "Help", "Explain the editor workflow and the role of each primary workspace panel.", "DrawHelpWindow", "dialog" }
+    { SEUISurfaceId::Help, "help", "Help", "Explain the editor workflow and the role of each primary workspace panel.", "DrawHelpWindow", "dialog" },
+    { SEUISurfaceId::CodeSuggestions, "code-suggestions", "Text suggestions", "Complete LR2 commands and symbolic values while keeping the draft and existing CSV fields intact.", "SEDrawCodeEditorInput", "flow" }
 };
 
 inline constexpr std::size_t kSEUISurfaceSpecCount =

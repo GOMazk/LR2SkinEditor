@@ -27,6 +27,10 @@ New-Item -ItemType Directory -Force -Path $ResultsDirectory | Out-Null
 
 $tests = @(
     [pscustomobject]@{
+        Name = 'code-assist'
+        Argument = '--self-test-code-assist'
+    },
+    [pscustomobject]@{
         Name = 'simple-selection'
         Argument = '--self-test-simple-selection'
     },

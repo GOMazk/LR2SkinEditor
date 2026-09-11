@@ -440,6 +440,7 @@ bool WORKSPACE::LoadCodeEditorFile(const std::string& owner) {
     codeEditorRevision = documentRevision;
     codeEditorBuffer.assign(codeEditorCapacity, '\0');
     memcpy(codeEditorBuffer.data(), text.c_str(), text.size());
+    codeEditorAssist = {};
     codeEditorStatus.clear();
     return true;
 }
@@ -677,9 +678,9 @@ void WORKSPACE::drawCodeEditor() {
     if (codeEditorRevision != documentRevision || codeEditorDocument != mainpath)
         ImGui::TextWrapped("Workspace changed. Copy the draft before reloading; Apply is blocked.");
     if (!codeEditorBuffer.empty())
-        ImGui::InputTextMultiline("##CodeDraft", codeEditorBuffer.data(), codeEditorBuffer.size(),
+        SEDrawCodeEditorInput("##CodeDraft", codeEditorBuffer.data(), codeEditorBuffer.size(),
             ImVec2(-FLT_MIN, (std::max)(80.0f, ImGui::GetContentRegionAvail().y)),
-            ImGuiInputTextFlags_AllowTabInput);
+            codeEditorAssist, num);
     ImGui::End();
 }
 

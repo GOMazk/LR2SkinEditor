@@ -33,6 +33,15 @@ Ctrl+Z/redo within the field, Apply, unfocus then Workspace Undo, Save/reopen, c
 and reopen with a draft, and edit the same file in Inspector to check conflict blocking.
 Check Japanese text and tab/horizontal/vertical scrolling; the old CSV Editor stays available.
 
+Text assistance: `code-assist` checks partial/case-insensitive command matching,
+symbolic timer names, current-argument signatures, UTF-8 byte positions, preserving
+trailing CSV fields/whitespace and atomic capacity rejection. It replays real ImGui
+frames for Up/Down without moving the caret, Tab/Enter completion, native Ctrl+Z,
+Ctrl+Space, Escape without draft reversion, normal newline/tab and mouse selection.
+Run `--self-test-code-assist` directly for the focused check; it needs no D3D device.
+Manual checks: [Text Editor assistance](TEXT_EDITOR_ASSIST.md), including native IME,
+DPI, narrow docks and typing inside a long scrolled file.
+
 File filter manual checks: choose a split CSV in Object Browser, combine Type/Group/
 Active/Search, open CSV Editor, create with New in file, and return to All files.
 Preview must remain the full skin. Check an empty include and equal filenames in
@@ -117,6 +126,7 @@ DxLib의 `SkinEditor_DX9\Release\Log.txt`를 다시 쓰더라도 실행 전 바�
 복원하므로, 검증 자체가 작업 트리의 기존 런타임 로그를 변경하지 않는다.
 
 - `schema-contract`: 실행 파일에 포함된 command/object 스키마와 symbolic field
+- `code-assist`: schema 기반 자동완성, 인자 도움말과 실제 ImGui 입력 frame 회귀 검사
 - `simple-selection`: SELECT 묶음 발견과 기존 Object 선택, BAR 상대 좌표의 이중 이동
   방지, 텍스트 크기 포함 배치/색 편집, 기존 애니메이션 교체 gate, 곡 변경 이벤트와
   loop/조건/미지 필드 보존, 원자적 오류 처리, 단일 Undo/Redo와 Workspace 분리.

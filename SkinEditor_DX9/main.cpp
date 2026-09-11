@@ -76,6 +76,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunSchemaContractSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-ui-contract"))
         return RunUiCatalogSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-code-assist"))
+        return RunCodeEditorAssistSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-skin-browser"))
         return RunSkinBrowserSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-preview-simulator"))

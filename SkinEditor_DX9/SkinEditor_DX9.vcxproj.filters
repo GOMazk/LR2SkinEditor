@@ -75,6 +75,12 @@
     <ClCompile Include="seHelper.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="codeEditorAssist.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="codeEditorAssistTests.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="seLocalization.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
@@ -298,6 +304,9 @@
     </ClInclude>
     <ClInclude Include="seHelper.h">
       <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="codeEditorAssist.h">
+      <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="seLocalization.h">
       <Filter>소스 파일</Filter>

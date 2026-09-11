@@ -219,6 +219,8 @@
     <ClCompile Include="op.cpp" />
     <ClCompile Include="olrSkin.cpp" />
     <ClCompile Include="seHelper.cpp" />
+    <ClCompile Include="codeEditorAssist.cpp" />
+    <ClCompile Include="codeEditorAssistTests.cpp" />
     <ClCompile Include="seLocalization.cpp" />
     <ClCompile Include="seObjectEditor.cpp" />
     <ClCompile Include="selfTests.cpp" />
@@ -292,6 +294,7 @@
     <ClInclude Include="olrSkin.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="seHelper.h" />
+    <ClInclude Include="codeEditorAssist.h" />
     <ClInclude Include="seLocalization.h" />
     <ClInclude Include="seObjectEditor.h" />
     <ClInclude Include="simpleSelection.h" />

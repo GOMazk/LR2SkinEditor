@@ -18,10 +18,10 @@ void LR2SEResetRenderFault() {
 	g_previewRenderFaulted = false;
 }
 
-int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview) {
+int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview, const unsigned char* mask, int maskCount) {
 	if (g_previewRenderFaulted) return -1;
 	__try {
-		return LR2SEDrawLoop(g, gHandle, sizeX, sizeY, staticSpecialPreview);
+		return LR2SEDrawLoop(g, gHandle, sizeX, sizeY, staticSpecialPreview, mask, maskCount);
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER) {
 		g_previewRenderFaulted = true;
@@ -811,7 +811,7 @@ int LR2SEInit(game* g, bool initializeCore) {
 	return 0;
 }
 
-int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview) {
+int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview, const unsigned char* mask, int maskCount) {
 	SetDrawScreen(DX_SCREEN_BACK);
 	// RESULT charts are not generic positioned images. Their width, reveal
 	// timing and vertical samples are calculated from the finished score data.
@@ -1308,6 +1308,14 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 				h = g->txtStruct.readme.h;
 			}
 		}
+	}
+	// Filter before LRDraw(0): LRDraw sorts the entire buffer on its first call.
+	if (mask) {
+		int kept = 0;
+		for (int i = 0; i < g->skstruct.drBuf.count; ++i)
+			if (LR2SEPreviewDrawVisible(g->skstruct.drBuf.dstd[i].sortID, mask, maskCount))
+				g->skstruct.drBuf.dstd[kept++] = g->skstruct.drBuf.dstd[i];
+		g->skstruct.drBuf.count = kept;
 	}
 	for (int i = 0; i < g->skstruct.drBuf.count; i++) {
 		int quake_x = 0, quake_y = 0;

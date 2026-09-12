@@ -33,6 +33,12 @@ GUI 없이 동작한다. `build`와 `render`는 숨겨진 네이티브 graphics 
 각 요청의 실행 제한은 60초이며, 실패는 exit 1과 `{"ok":false,"error":"..."}`로 반환한다.
 잘못된 명령줄 인자는 argparse의 exit 2를 사용한다.
 
+게시 전 로컬 재검사에서 Direct3D 초기화 단계가 간헐적으로 exit 1로 끝나
+`Native create returned 1 without a report`가 발생했다. 코드 변경 없이 같은 통합
+검사를 다시 실행하면 7개 모두 통과했고 실제 스킨 렌더도 성공했지만, 간헐 실패의
+근본 원인은 아직 확정하지 못했다. 이 메시지는 성공이 아니며, 현재 도구는 자동으로
+재시도하거나 실패를 통과 처리하지 않는다. 반복되면 그래픽 실행 환경을 확인해야 한다.
+
 ## AI 작업 순서
 
 1. `schema`에서 네이티브 명령/열 정의를 읽는다. `--values`는 기존 심볼 값 표도 반환한다.
@@ -106,3 +112,11 @@ python -B -m unittest discover -s tests -p test_skin_agent.py -v
 
 이미지 생성 AI 연결, 외부 PNG를 새 Object로 추가하는 기능, 임의 기존 스킨의 in-place
 편집, 자동 설치/배포와 상시 실행 에이전트는 현재 버전에 포함하지 않는다.
+
+## 테마 제작 예제
+
+[BLOCKBEAT — OVERWORLD](../examples/agent/blockbeat/README.md)는 7키 + 스크래치용
+마인크래프트풍 테마다. 기본 유틸로 생성한 스킨에 예제 전용 제작 스크립트가
+일러스트와 픽셀 UI/노트 atlas를 붙인다. 생성·검사·렌더는 네이티브 유틸을 사용하며,
+범용 유틸 API나 OLRskin 포맷을 변경하지 않는다. 47개 Object와 실제 PNG 경로/영역을
+검사한다. 실제 LR2 플레이 검증은 별도로 필요하다.

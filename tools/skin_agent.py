@@ -12,6 +12,10 @@ import subprocess
 import sys
 import uuid
 
+from skin_agent_assets import AssetError, validate_assets, apply_assets
+from skin_agent_preview import (PreviewError, validate_state, default_states,
+                                require_capability, render_state, diagnose, preview_suite)
+
 SCENES = {"play7": 0, "play5": 1, "double14": 2, "double10": 3, "pms9": 4,
           "select": 5, "decide": 6, "result": 7, "battle7": 12,
           "battle5": 13, "battle9": 14, "course-result": 15}
@@ -33,7 +37,7 @@ def integer(value, low, high, label):
 def validate_recipe(recipe):
     if not isinstance(recipe, dict):
         raise AgentError("Recipe must be a JSON object.")
-    unknown = set(recipe) - {"version", "scene", "width", "height", "title", "maker", "objects"}
+    unknown = set(recipe) - {"version", "scene", "width", "height", "title", "maker", "objects", "assets"}
     if unknown:
         raise AgentError(f"Unknown recipe fields: {sorted(unknown)}")
     if type(recipe.get("version", 1)) is not int or recipe.get("version", 1) != 1:
@@ -70,6 +74,11 @@ def validate_recipe(recipe):
             raise AgentError(f"set must contain supported layout/color fields: {', '.join(LIMITS)}")
         result["objects"].append({"id": object_id, "set": {
             key: integer(value, *LIMITS[key], f"{object_id}.{key}") for key, value in fields.items()}})
+    if "assets" in recipe:
+        try:
+            result["assets"] = validate_assets(recipe["assets"])
+        except AssetError as error:
+            raise AgentError(str(error)) from error
     return result
 
 
@@ -159,7 +168,7 @@ def write_json(path: Path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def build_skin(editor: NativeEditor, recipe, output: Path, preview=True):
+def build_skin(editor: NativeEditor, recipe, output: Path, preview=True, recipe_dir: Path | None = None):
     recipe = validate_recipe(recipe)
     output = output.absolute()
     if output.exists() or output.is_symlink():
@@ -181,22 +190,42 @@ def build_skin(editor: NativeEditor, recipe, output: Path, preview=True):
             raise AgentError(f"Unknown preset Object IDs: {sorted(missing)}; inspect a base preset first.")
         original = skin.read_bytes().decode("cp932", errors="strict")
         modified = apply_object_edits(original, recipe["objects"], columns)
+        try:
+            modified, assets = apply_assets(modified, recipe.get("assets", []), recipe_dir or Path.cwd(), stage, columns)
+        except AssetError as error:
+            raise AgentError(str(error)) from error
         skin.write_bytes(modified.encode("cp932", errors="strict"))
         inspection = editor.request("inspect", skin)
-        if inspection["object_count"] != before["object_count"]:
+        if inspection["object_count"] != before["object_count"] + len(assets["added_object_ids"]):
             raise AgentError("Object count changed unexpectedly after layout/color edits.")
         verify_edits(inspection, recipe["objects"], columns)
+        missing_assets = set(assets["added_object_ids"]) - {obj["id"] for obj in inspection["objects"]}
+        if missing_assets:
+            raise AgentError(f"Native parser did not register imported image Objects: {sorted(missing_assets)}")
+        verify_asset_readback(inspection, assets, columns, modified, skin)
         if preview:
             editor.request("render", skin, stage / "preview.png")
             if not (stage / "preview.png").is_file():
                 raise AgentError("Preview was not produced.")
         write_json(stage / "recipe.json", recipe)
+        # Reports leave the staging directory together with the skin. Their
+        # locators must point at the final files, not the soon-renamed stage.
+        for obj in inspection["objects"]:
+            for row in obj["commands"]:
+                if row.get("file"):
+                    owner = Path(row["file"]).resolve()
+                    if owner.is_relative_to(stage.resolve()):
+                        row["file"] = str(output / owner.relative_to(stage.resolve()))
         write_json(stage / "objects.json", inspection)
+        if assets["assets"]:
+            write_json(stage / "assets.json", assets)
         relative_skin = skin.relative_to(stage.resolve()).as_posix()
         result = {"ok": True, "api": "lr2-agent/v1", "skin": str(output / relative_skin),
                   "object_count": inspection["object_count"], "parser_checked": True,
                   "preview": str(output / "preview.png") if preview else None,
                   "recipe": str(output / "recipe.json"), "objects": str(output / "objects.json")}
+        if assets["assets"]:
+            result["assets"] = str(output / "assets.json")
         write_json(stage / "build-report.json", result)
         # Windows rename is atomic and refuses an existing destination, including
         # one created concurrently. Staging never changes the caller's original.
@@ -209,6 +238,41 @@ def build_skin(editor: NativeEditor, recipe, output: Path, preview=True):
     finally:
         if stage.exists() and stage.resolve().parent == output.parent.resolve():
             shutil.rmtree(stage)
+
+
+def verify_asset_readback(inspection, assets, columns, text, skin):
+    # Native Objects split some indexed variants even though their authoring
+    # annotation has one ID. Match the real file/line back to that annotation.
+    row_owners, owner = {}, None
+    for line, contents in enumerate(text.splitlines(), 1):
+        if contents.startswith("$SE_OBJECT_ID,"):
+            owner = contents.split(",", 1)[1]
+        row_owners[line] = owner
+    sources = [row for obj in inspection["objects"] for row in obj["commands"] if row["command"].startswith("#SRC_")]
+    for asset in assets["assets"]:
+        expected = {key: asset[key] for key in ("gr", "x", "y", "w", "h", "div_x", "div_y", "cycle")}
+        for binding in asset["bindings"]:
+            fields = dict(expected)
+            if "index" in binding:
+                fields["index"] = binding["index"]
+            matches = []
+            for row in sources:
+                if row["command"] != binding["command"]:
+                    continue
+                if row_owners.get(row.get("line")) != binding["object"] or Path(row.get("file", "")).resolve() != skin.resolve():
+                    continue
+                native = columns[row["command"]]
+                if all(key in native and native[key]-1 < len(row["values"]) and
+                       row["values"][native[key]-1] == str(value) for key, value in fields.items()):
+                    matches.append(row)
+            if len(matches) != 1:
+                raise AgentError(f"Native asset binding readback failed for {asset['id']}/{binding['command']}.")
+
+
+def read_json(path):
+    if path.stat().st_size > 1024 * 1024:
+        raise AgentError("JSON request exceeds the 1 MiB limit.")
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def main(argv=None):
@@ -228,6 +292,18 @@ def main(argv=None):
     render = commands.add_parser("render", help="Render an existing skin to a new PNG")
     render.add_argument("skin", type=Path)
     render.add_argument("--out", type=Path, required=True)
+    render.add_argument("--state", type=Path, help="Fixed PLAY preview state JSON")
+    suite = commands.add_parser("preview-suite", help="Render PLAY states, diagnostic JSON and an HTML gallery")
+    suite.add_argument("skin", type=Path)
+    suite.add_argument("--states", type=Path, help="JSON array; default is the 14-state validation suite")
+    suite.add_argument("--out", type=Path, required=True)
+    diagnostic = commands.add_parser("diagnose", help="Explain visibility with native owner files and source line numbers")
+    diagnostic.add_argument("skin", type=Path)
+    diagnostic.add_argument("--state", type=Path, help="Optional fixed PLAY state JSON")
+    target = diagnostic.add_mutually_exclusive_group()
+    target.add_argument("--object", dest="object_id")
+    target.add_argument("--object-index", type=int)
+    commands.add_parser("states", help="Print the default fixed-state suite as JSON")
     args = parser.parse_args(argv)
     try:
         editor = NativeEditor(args.editor)
@@ -246,9 +322,13 @@ def main(argv=None):
                 if not result["objects"]:
                     raise AgentError("Object ID was not found.")
         elif args.operation == "build":
-            if args.recipe.stat().st_size > 1024 * 1024:
-                raise AgentError("Recipe exceeds the 1 MiB limit.")
-            result = build_skin(editor, json.loads(args.recipe.read_text(encoding="utf-8-sig")), args.out, not args.no_preview)
+            result = build_skin(editor, read_json(args.recipe), args.out, not args.no_preview, args.recipe.resolve().parent)
+        elif args.operation == "states":
+            result = default_states()
+        elif args.operation == "preview-suite":
+            result = preview_suite(editor, args.skin, read_json(args.states) if args.states else default_states(), args.out)
+        elif args.operation == "diagnose":
+            result = diagnose(editor, args.skin, read_json(args.state) if args.state else None, args.object_id, args.object_index)
         else:
             target = args.out.absolute()
             if target.exists() or target.is_symlink():
@@ -256,13 +336,18 @@ def main(argv=None):
             target.parent.mkdir(parents=True, exist_ok=True)
             with scratch_directory(editor.scratch) as temporary:
                 image = temporary / "preview.png"
-                result = editor.request("render", args.skin.resolve(), image)
+                if args.state:
+                    require_capability(editor, "state_render")
+                    result = render_state(editor, args.skin, read_json(args.state), image)
+                else:
+                    result = editor.request("render", args.skin.resolve(), image)
                 with image.open("rb") as source, target.open("xb") as destination:
                     shutil.copyfileobj(source, destination)
-            result = {"ok": True, "preview": str(target), "object_count": result["object_count"]}
+            result = {"ok": True, "preview": str(target), "object_count": result["object_count"],
+                      **({"state": result["state"], "diagnostics": result["diagnostics"]} if args.state else {})}
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0
-    except (AgentError, OSError, UnicodeError, json.JSONDecodeError, subprocess.SubprocessError) as error:
+        return 1 if isinstance(result, dict) and not result.get("ok", True) else 0
+    except (AgentError, AssetError, PreviewError, OSError, UnicodeError, json.JSONDecodeError, subprocess.SubprocessError) as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False))
         return 1
 

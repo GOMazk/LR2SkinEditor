@@ -10,10 +10,13 @@
 모든 외부 스킨에 대한 수동 회귀 검증이 끝났다는 뜻은 아니다.
 
 이번 실험은 `AI_2`의 검증된 변경을 별도 브랜치로 가져온 뒤 추가한 로컬 제작 유틸이다.
-`tools/skin_agent.py`가 JSON 제작 지시를 검증하고 네이티브 preset 생성기·parser·Preview를
-호출한다. 새 폴더에 기본 스킨과 atlas를 생성하고 기존 Object ID의 배치/색을 지정할 수
-있으며, JSON 오브젝트 목록과 PNG 미리보기를 반환한다. 사용법과 범위는
-[AI 스킨 제작 유틸](AI_SKIN_AGENT.md)을 따른다. 외부 AI/API 호출과 OLRskin 포맷 변경은 없다.
+v0.2의 `tools/skin_agent.py`는 Codex·Claude가 작성한 JSON을 검증하고 네이티브 preset
+생성기·parser·Preview를 호출한다. 새 폴더에 Object 배치/색 변경, PNG의 아틀라스 등록과
+SRC 연결/이미지 Object 추가, PLAY 고정 상태 14종의 갤러리와 상태별 JSON을 만든다.
+표시 진단은 원본 소유 파일/행과 숨김 근거를 반환하며 판단할 수 없는 특수 동작은
+`unknown`으로 남긴다. 상태 없는 진단은 다른 장면도 지원한다. 기존 version 1 레시피와
+OLRskin 0.9는 유지하며 원본의 in-place 편집, 외부 AI/API 호출, MCP 서버는 추가하지
+않는다. 사용법과 검증 경계는 [AI 스킨 제작 유틸](AI_SKIN_AGENT.md)을 따른다.
 
 현재 저장소는 `GOMazk/LR2SkinEditor`다. `AI_1`의 `1b243bf`까지의 변경을
 `AI_2`에 fast-forward로 가져왔다. CSV 분리, 파일별 편집/Preview, Custom Files와

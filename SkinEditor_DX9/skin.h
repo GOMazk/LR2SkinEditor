@@ -22,10 +22,20 @@ inline void LR2SEFilterPreviewDrawBuffer(DrawingBuf& buffer,
             buffer.dstd[kept++] = buffer.dstd[i];
     buffer.count = kept;
 }
+// Explicit CLI visual-test sample. A null pointer preserves the normal editor
+// preview. Runtime skin/CSV data is never changed to manufacture test frames.
+struct LR2SEPreviewSample {
+    int gauge = 100;
+    int combo = 123;
+    int judge = -1; // -1: no judgement; 0..5: actual LR2 judgement slot
+    int notes = 0; // 0 all, 1 normal, 2 long, 3 mine, 4 none
+};
 int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview,
-    const unsigned char* mask = nullptr, int maskCount = 0);
+    const unsigned char* mask = nullptr, int maskCount = 0,
+    const LR2SEPreviewSample* sample = nullptr);
 int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview,
-    const unsigned char* mask = nullptr, int maskCount = 0);
+    const unsigned char* mask = nullptr, int maskCount = 0,
+    const LR2SEPreviewSample* sample = nullptr);
 void LR2SEResetRenderFault();
 void LR2SEPreparePreviewState(game* g, int type);
 

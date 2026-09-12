@@ -1,0 +1,13 @@
+{
+  "name": "perfect-clear",
+  "time_ms": 1000,
+  "gauge": 100,
+  "score": 123456,
+  "exscore": 2468,
+  "combo": 321,
+  "max_combo": 321,
+  "bpm": 180,
+  "judge": "perfect",
+  "notes": "long",
+  "timers": {"100": 100, "101": 100}
+}

@@ -2,11 +2,16 @@
 
 ## 개발 환경
 
-AI_experimental의 로컬 제작 유틸은 Python 3.10+ 표준 라이브러리와 이 브랜치의
-Release Win32 실행 파일을 사용한다. `scripts/test-agent.ps1`은 레시피/인코딩/필드
-검사와 실제 생성→수정→native inspect→PNG render, 기존 출력 보존 및 실패 시 staging
-정리를 검사한다. Direct3D가 필요하다. 입력 지시는 `examples/agent/blue-play7.json`,
-실행 계약과 수동 검증 경계는 [AI 제작 유틸](AI_SKIN_AGENT.md)에 있다.
+AI_experimental의 로컬 제작 유틸 v0.2는 Python 3.10+와 이 브랜치에서 빌드한
+Release Win32 실행 파일을 사용한다. PNG 등록과 전체 테스트에는 선택 의존성
+`tools/requirements-agent.txt`의 Pillow를 설치한다. 이미지가 없는 기존 레시피는
+표준 라이브러리만 사용한다. `scripts/test-agent.ps1`은 레시피/인코딩/아틀라스 픽셀과
+바인딩/고정 상태/진단 검사, 실제 생성→native inspect→PNG render, 기존 출력 보존과
+실패 시 staging 정리를 다룬다. 렌더·상태 묶음·진단에는 Direct3D가 필요하다.
+고정 상태는 PLAY 계열만 지원하며 상태 없는 진단은 다른 장면도 검사한다. 초기화 실패는
+네이티브 `graphics_initialization_failed` 보고서로 구분하지만 간헐 실패 원인이 해결됐다는
+의미는 아니다. 입력 지시는 `examples/agent/blue-play7.json`, Codex·Claude 실행 계약과
+14개 기본 상태 갤러리/진단 해석/수동 검증 경계는 [AI 제작 유틸](AI_SKIN_AGENT.md)에 있다.
 
 Editor names: ui-contract checks CSV Editor (text-editor key) and Text Editor
 (code-editor key). Manually check Windows > Data and File Manager context menus.

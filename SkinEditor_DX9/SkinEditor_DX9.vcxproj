@@ -220,6 +220,7 @@
     <ClCompile Include="olrSkin.cpp" />
     <ClCompile Include="seHelper.cpp" />
     <ClCompile Include="agentUtility.cpp" />
+    <ClCompile Include="agentDiagnostics.cpp" />
     <ClCompile Include="codeEditorAssist.cpp" />
     <ClCompile Include="codeEditorAssistTests.cpp" />
     <ClCompile Include="seLocalization.cpp" />
@@ -296,6 +297,7 @@
     <ClInclude Include="resource.h" />
     <ClInclude Include="seHelper.h" />
     <ClInclude Include="agentUtility.h" />
+    <ClInclude Include="agentDiagnostics.h" />
     <ClInclude Include="codeEditorAssist.h" />
     <ClInclude Include="seLocalization.h" />
     <ClInclude Include="seObjectEditor.h" />

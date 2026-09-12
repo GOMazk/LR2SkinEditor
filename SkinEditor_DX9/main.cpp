@@ -120,6 +120,7 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     {
         CleanupDeviceD3D();
         ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+        if (agentMode) return SEAgentStartupFailure("Direct3D 9 device initialization failed before the operation started.");
         return 1;
     }
 

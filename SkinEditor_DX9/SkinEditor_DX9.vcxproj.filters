@@ -78,6 +78,9 @@
     <ClCompile Include="agentUtility.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="agentDiagnostics.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="codeEditorAssist.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
@@ -309,6 +312,9 @@
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="agentUtility.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="agentDiagnostics.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="codeEditorAssist.h">

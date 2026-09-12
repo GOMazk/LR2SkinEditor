@@ -536,6 +536,8 @@ typedef struct WORKSPACE {
     std::vector<CustomFileCandidate> customFileCandidates;
     std::map<std::string, std::string> customFilePreviewChoices;
     std::vector<int> previewDrawSourceRows;
+    // Snapshot of the native IF/include decision used by the last runtime load.
+    std::vector<unsigned char> previewRuntimeLineMask;
     std::vector<unsigned char> previewFileDrawMask;
     std::string previewDrawOwner;
     bool previewChartFull = false;

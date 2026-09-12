@@ -11,7 +11,7 @@ $previousEditor = $env:LR2_AGENT_EDITOR
 Push-Location $repositoryRoot
 try {
     $env:LR2_AGENT_EDITOR = $ExecutablePath
-    & python -B -m unittest discover -s tests -p test_skin_agent.py -v
+    & python -B -m unittest discover -s tests -p 'test_skin_agent*.py' -v
     if ($LASTEXITCODE -ne 0) { throw 'Agent utility unit/integration tests failed.' }
 }
 finally {

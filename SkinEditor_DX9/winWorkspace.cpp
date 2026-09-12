@@ -3284,6 +3284,7 @@ static bool ResetEditorDerivedContainers(WORKSPACE& workspace) {
 int WORKSPACE::ResetEditorDocumentForLoad() {
     objectInspectorRevealRequested = imageManagerRevealRequested = codeEditorRevealRequested = false;
     previewHiddenFiles.clear();
+    previewRuntimeLineMask.clear();
     previewSelectedFileOnly = false;
     previewFileDrawMask.clear();
     customFilePreviewChoices.clear();
@@ -4185,6 +4186,7 @@ int RunOlrFileScopeSelfTest() {
 
 int WORKSPACE::ReadSkinSE() {
     previewDrawSourceRows.clear();
+    previewRuntimeLineMask.clear();
     previewFileDrawMask.clear();
     
     CSTR dir(mainpath);
@@ -4202,6 +4204,7 @@ int WORKSPACE::ReadSkinSE() {
     skstruct* sk = &g.skstruct;
     const std::vector<unsigned char> runtimeLineEnabled =
         BuildPreviewRuntimeMask(skinfileLines, sk);
+    previewRuntimeLineMask = runtimeLineEnabled;
 
 
     for (int i = 0; i < skinfileLines.count; i++) {

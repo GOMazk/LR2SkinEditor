@@ -18,10 +18,10 @@ void LR2SEResetRenderFault() {
 	g_previewRenderFaulted = false;
 }
 
-int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview, const unsigned char* mask, int maskCount) {
+int LR2SEDrawLoopSafe(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview, const unsigned char* mask, int maskCount, const LR2SEPreviewSample* sample) {
 	if (g_previewRenderFaulted) return -1;
 	__try {
-		return LR2SEDrawLoop(g, gHandle, sizeX, sizeY, staticSpecialPreview, mask, maskCount);
+		return LR2SEDrawLoop(g, gHandle, sizeX, sizeY, staticSpecialPreview, mask, maskCount, sample);
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER) {
 		g_previewRenderFaulted = true;
@@ -811,7 +811,7 @@ int LR2SEInit(game* g, bool initializeCore) {
 	return 0;
 }
 
-int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview, const unsigned char* mask, int maskCount) {
+int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecialPreview, const unsigned char* mask, int maskCount, const LR2SEPreviewSample* sample) {
 	SetDrawScreen(DX_SCREEN_BACK);
 	// RESULT charts are not generic positioned images. Their width, reveal
 	// timing and vertical samples are calculated from the finished score data.
@@ -1114,7 +1114,7 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 			image(g->skstruct.src_JUDGELINE[i], g->skstruct.dst_JUDGELINE[i]);
 			if (g->skstruct.src_GROOVEGAUGE[i].graphcount > 0 && visible(g->skstruct.dst_GROOVEGAUGE[i]))
 				AddDrawingBuffer_Gauge(&g->skstruct.drBuf, &g->skstruct.src_GROOVEGAUGE[i],
-					&g->skstruct.dst_GROOVEGAUGE[i], &g->timer1, 50, 0);
+					&g->skstruct.dst_GROOVEGAUGE[i], &g->timer1, sample ? sample->gauge / 2 : 50, 0);
 		}
 		if (g->procSelecter != 5) {
 			resultGaugeChart(g->skstruct.src_GAUGECHART_1P,
@@ -1129,6 +1129,14 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 		// Pick the first valid slot so the preview does not stack all states.
 		auto judgeCombo = [&](SRCstruct* judgeSrc, DSTstruct* judgeDst,
 			SRCstruct* comboSrc, DSTstruct* comboDst) {
+			if (sample) {
+				const int index = sample->judge;
+				if (index >= 0 && index < 6 && judgeSrc[index].graphcount > 0 && visible(judgeDst[index]))
+					AddDrawingBuffer_JudgeCombo(&g->skstruct.drBuf, &judgeSrc[index], &judgeDst[index],
+						&comboSrc[index], &comboDst[index], &g->timer1, index >= 3 ? sample->combo : 0,
+						g->skstruct.adjust.judge_x, g->skstruct.adjust.judge_y);
+				return;
+			}
 			for (int i = 0; i < 6; ++i) {
 				if (judgeSrc[i].graphcount > 0 && visible(judgeDst[i])) {
 					AddDrawingBuffer_Object(&g->skstruct.drBuf, &judgeSrc[i], &judgeDst[i], &g->timer1, 0, 0);
@@ -1151,6 +1159,7 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 		// small deterministic chart so lane direction, spacing, mines and long
 		// notes can be checked without loading a BMS file.
 		for (int i = 0; i < 20; ++i) {
+			if (sample && sample->notes == 4) break;
 			g_previewRenderIndex = i;
 			SRCstruct* laneSample = &g->skstruct.src_NOTE[i];
 			if (laneSample->graphcount <= 0) laneSample = &g->skstruct.src_AUTO_NOTE[i];
@@ -1176,13 +1185,14 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 			const bool longNoteVisible = !g->skstruct.horizontal &&
 				lnStart->graphcount > 0 && lnEnd->graphcount > 0 &&
 				lnBody->graphcount > 0;
-			for (int sample = 0; sample <
+			for (int sampleIndex = 0; sampleIndex <
 				(int)(sizeof(LR2SEStaticNormalSampleFractions) /
-					sizeof(LR2SEStaticNormalSampleFractions[0])); ++sample) {
-				if (!LR2SEShouldDrawStaticNormalSample(sample, longNoteVisible))
+					sizeof(LR2SEStaticNormalSampleFractions[0])); ++sampleIndex) {
+				if (sample && sample->notes != 0 && sample->notes != 1) break;
+				if (!LR2SEShouldDrawStaticNormalSample(sampleIndex, longNoteVisible && (!sample || sample->notes == 0)))
 					continue;
 				const float shift = -laneTravel *
-					LR2SEStaticNormalSampleFractions[sample];
+					LR2SEStaticNormalSampleFractions[sampleIndex];
 				AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, laneSample,
 					&g->skstruct.dst_NOTE[i], &g->timer1,
 					g->skstruct.horizontal ? shift : 0.0f,
@@ -1191,15 +1201,15 @@ int LR2SEDrawLoop(game* g, int gHandle, int sizeX, int sizeY, bool staticSpecial
 
 			SRCstruct* mine = g->skstruct.src_MINE[i].graphcount > 0
 				? &g->skstruct.src_MINE[i] : &g->skstruct.src_AUTO_MINE[i];
-			if (mine->graphcount > 0) {
-				const float shift = -laneTravel * 0.92f;
+			if (mine->graphcount > 0 && (!sample || sample->notes == 0 || sample->notes == 3)) {
+				const float shift = -laneTravel * (sample ? 0.45f : 0.92f);
 				AddDrawingBuffer_PlayArea(&g->skstruct.drBuf, mine,
 					&g->skstruct.dst_NOTE[i], &g->timer1,
 					g->skstruct.horizontal ? shift : 0.0f,
 					g->skstruct.horizontal ? 0.0f : shift, 255, 0, 0, 1);
 			}
 
-			if (longNoteVisible)
+			if (longNoteVisible && (!sample || sample->notes == 0 || sample->notes == 2))
 				AddDrawingBuffer_LN(&g->skstruct.drBuf, lnStart, lnEnd, lnBody,
 					&g->skstruct.dst_NOTE[i], &g->timer1, 0.0f,
 					-laneTravel * LR2SEStaticLongNoteNearFraction,

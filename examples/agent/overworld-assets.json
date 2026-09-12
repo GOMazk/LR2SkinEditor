@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "scene": "play7",
+  "title": "Overworld asset example",
+  "maker": "SkinEditor experimental",
+  "width": 1280,
+  "height": 720,
+  "objects": [
+    {"id": "preset_background", "set": {"r": 255, "g": 255, "b": 255}}
+  ],
+  "assets": [
+    {
+      "id": "overworld",
+      "path": "blockbeat/overworld.png",
+      "bind": [{"object": "preset_background", "command": "#SRC_IMAGE"}],
+      "image": {"x": 990, "y": 535, "w": 240, "h": 135, "layer": "front"}
+    }
+  ]
+}

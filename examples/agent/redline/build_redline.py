@@ -102,14 +102,22 @@ def main(editor_path, output):
         result = dict(object=obj, command=command)
         if index is not None: result['index'] = index
         return result
-    # Keep generated artwork unchanged. LR2 scales it and samples the top cap.
-    art = HERE/'armored-console.png'
+    # Keep generated artwork unchanged; the play aperture is open to y=0.
+    art = HERE/'armored-console-expanded.png'
     shutil.copyfile(art,inputs/'terminal.png')
     assets.append(dict(id='terminal',path='terminal.png',bind=[bind('preset_background','#SRC_IMAGE')]))
-    asset('entry-cap', Image.new('RGBA',(1,1)), target=(18,0,565,116))
+    labels=Image.new('RGBA',(580,245)); ld=ImageDraw.Draw(labels)
+    for i,word in enumerate(('PERFECT','GREAT','GOOD','BAD','POOR')):
+        text(ld,10,20+42*i,word,2)
+    for x,y,word in ((207,20,'EX SCORE'),(401,20,'BPM'),(207,96,'COMBO'),
+                     (401,96,'MAX COMBO'),(207,176,'FAST'),(401,176,'SLOW')):
+        text(ld,x,y,word,2)
+    ld.line((190,8,190,232),fill='#573232')
+    ld.line((383,8,383,232),fill='#343b26')
+    asset('telemetry-labels',labels,target=(640,411,580,245))
     starts, widths = [69]+[149+59*i for i in range(7)], [80]+[59]*7
     edits = [{'id':'preset_background','set':dict(r=255,g=255,b=255)},
-             {'id':'preset_bga','set':dict(x=638,y=128,w=566,h=232)}]
+             {'id':'preset_bga','set':dict(x=640,y=48,w=560,h=315)}]
     for i,(x,w) in enumerate(zip(starts,widths)):
         edits += [dict(id=f'preset_note_{i}',set=dict(x=x+2,y=452,w=w-4,h=12)),
                   dict(id=f'preset_bomb_{i}',set=dict(x=x+(w-60)//2,y=422,w=60,h=60))]
@@ -119,8 +127,8 @@ def main(editor_path, output):
         'nowjudge_0':dict(x=175,y=355,w=280,h=28),
         'nowcombo_0':dict(x=140,y=34,w=18,h=24),
         'gauge_0':dict(x=70,y=631,w=7,h=25),
-        'fast':dict(x=687,y=584,w=18,h=24),
-        'slow':dict(x=880,y=584,w=18,h=24),
+        'fast':dict(x=920,y=611,w=18,h=24),
+        'slow':dict(x=1116,y=611,w=18,h=24),
     }.items(): edits.append(dict(id='preset_'+name,set=values))
     for name,color,commands,indices in [
         ('scratch','#dd4c46',['#SRC_NOTE'],[0]),
@@ -172,20 +180,16 @@ def main(editor_path, output):
         if p[0]=='#SRC_NOWJUDGE_1P': p[columns[p[0]]['noshift']]='1'
         lines[n]=','.join(p)
     manifest=json.loads((output/'assets.json').read_text(encoding='utf-8'))
-    plate=next(a for a in manifest['assets'] if a['id']=='terminal')
-    current=''
-    for n,line in enumerate(lines):
-        if line.startswith('$SE_OBJECT_ID,'): current=line.split(',')[1]
-        if current=='asset_entry-cap' and line.startswith('#SRC_IMAGE,'):
-            p=line.split(','); c=columns[p[0]]
-            rect=(plate['gr'],plate['x']+round(18*plate['w']/1280),plate['y'],round(565*plate['w']/1280),round(116*plate['h']/720))
-            for f,v in zip(('gr','x','y','w','h'),rect): p[c[f]]=str(v)
-            lines[n]=','.join(p)
     digit=next(a for a in manifest['assets'] if a['id']=='digits')
     rect=','.join(str(digit[k]) for k in ('gr','x','y','w','h'))
-    for identity,num,x,y,count in [('exscore',101,669,476,8),('bpm',160,897,476,4),('combo',104,1098,476,7),('maxcombo',105,1122,584,7),('gauge',107,459,628,3)]:
+    number_layout=[('exscore',101,848,455,8,18),('bpm',160,1092,455,4,18),
+                   ('combo',104,866,532,7,18),('maxcombo',105,1050,532,7,18),
+                   ('gauge',107,459,628,3,18)]
+    number_layout += [(name,110+i,747,431+42*i,6,10)
+                      for i,name in enumerate(('perfect','great','good','bad','poor'))]
+    for identity,num,x,y,count,digit_width in number_layout:
         lines += [f'$SE_OBJECT_NAME,{identity}',f'$SE_OBJECT_ID,redline_{identity}',
-                  f'#SRC_NUMBER,0,{rect},10,1,0,0,{num},0,{count}',dst('#DST_NUMBER',x,y,12 if identity=='maxcombo' else 18,24)]
+                  f'#SRC_NUMBER,0,{rect},10,1,0,0,{num},0,{count}',dst('#DST_NUMBER',x,y,digit_width,24)]
     named=[]
     for line in lines:
         p=line.split(',')
@@ -215,7 +219,12 @@ def main(editor_path, output):
         write_json(report,remap(json.loads(report.read_text(encoding='utf-8'))))
     inspection=editor.request('inspect',skin)
     ids=[o['id'] for o in inspection['objects']]
-    assert len(ids)==38 and all(ids) and len(set(ids))==38
+    assert len(ids)==43 and all(ids) and len(set(ids))==43
+    numbers={int(row.split(',')[11]) for row in lines if row.startswith('#SRC_NUMBER,')}
+    assert {110,111,112,113,114}.issubset(numbers)
+    bga=next(row.split(',') for row in lines if row.startswith('#DST_BGA,'))
+    assert int(bga[5])*9==int(bga[6])*16
+    assert not any('entry-cap' in row for row in lines)
     for command in ('#SRC_NOTE','#SRC_MINE','#SRC_LN_START','#SRC_LN_BODY','#SRC_LN_END','#DST_NOTE'):
         assert sorted(int(row.split(',')[1]) for row in lines if row.startswith(command+','))==list(range(8))
     write_json(output/'objects.json',inspection)

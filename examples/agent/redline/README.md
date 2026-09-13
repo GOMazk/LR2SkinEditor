@@ -3,8 +3,10 @@
 스타크래프트 1의 붉은 프레임/녹색 군용 터미널 분위기에서 착안한
 1280 x 720 PLAY 7KEY + SCRATCH 스킨. 원작 로고, 이미지, 폰트, 음원은 포함하지 않는다.
 금속 프레임은 내장 imagegen으로 새로 생성한 독자 그래픽이다. 원본 PNG는 그대로
-사용하고 LR2의 SRC/DST로 배율과 상단 가림 영역을 지정한다. 프롬프트는
+사용하고 LR2의 SRC/DST로 배율을 지정한다. 최초 프롬프트는
 `armored-console-prompt.txt`, 원본은 `armored-console.png`에 남겼다.
+현재 배경은 `armored-console-expanded.png`이며 수정 프롬프트는
+`armored-console-expanded-prompt.txt`에 남겼다. 제목을 제거하고 레인 상단을 개방했다.
 실시간 숫자와 판정은 Windows Bahnschrift로 래스터화하며 폰트 파일은 배포하지 않는다.
 
 ## 사용
@@ -17,6 +19,8 @@ LR2의 동일 경로에 새 폴더로 복사한다. PLAY 7KEY에서 REDLINE을 �
 - 붉은 스크래치, 밝은 일반 건반/짙은 녹색 검은 건반, 녹색 롱노트, 주황 지뢰.
 - 판정 6종과 상대좌표 NOWCOMBO, 판정 타이머 기반 녹색 폭발 효과.
 - 실제 EX SCORE/BPM/COMBO/MAX COMBO/FAST/SLOW/GROOVE 수치 연결.
+- PERFECT/GREAT/GOOD/BAD/POOR 누적 수치(type 110..114)를 왼쪽 세로 열에 표시.
+- BGA는 560 x 315의 16:9 영역을 사용한다.
 - 50칸 게이지, 장갑 프레임에 매립한 검은 BGA 화면.
 - `preview.png`는 정지 샘플, `states/index.html`은 PLAY 고정 상태 갤러리.
 - 네이티브 parser 및 Preview는 확인한다. 실제 LR2 곡 플레이는 미검증이다.
@@ -37,7 +41,7 @@ python -B examples/agent/redline/build_redline.py --editor SkinEditor_DX9/Releas
 
 ## 이번 제작 검증
 
-- 38개 Object의 고유 ID와 노트/LN/지뢰의 index 0..7 구성을 검사했다.
+- 생성 스크립트는 43개 Object의 고유 ID, 판정 수치, BGA 비율과 노트/LN/지뢰의 index 0..7 구성을 검사한다.
 - 네이티브 Preview 14개 고정 상태를 모두 렌더링했고 최대 숫자 화면을 직접 확인했다.
 - 진단에는 특수 명령의 bounds_unknown/special_runtime_semantics와 비활성 bomb timer가
   남는다. BGA의 프리셋 zero-size SRC도 crop 경고를 내므로 진단 0건이라는 뜻은 아니다.

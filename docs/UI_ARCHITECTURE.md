@@ -100,7 +100,14 @@ All six still operate on the same `WORKSPACE`, CSV rows, stable Object IDs and
 History. A panel source file must not introduce a second document or selection
 store merely because its draw routine is compiled separately.
 
-Asset Browser's blank-area context menu opens `drawLayoutFirstImageDialog()`.
+Asset Browser's toolbar/blank-area context menu opens `New layout Object`
+(`drawLayoutFirstImageDialog()`). The default creates ordinary SRC/DST and ID/name
+metadata only: built-in gr 111 with a zero-size crop is invisible, consumes no
+user image slot, and needs no PNG or new serialized metadata. Creation enables
+Preview Layout boxes; Inspector explains the pending-artwork state and can show
+the boxes after reopening. `Images from layout` later replaces only SRC image
+fields using the existing transaction. Optional `Create image now` preserves
+direct PNG creation and Pixel Paint, but is off for each new modal.
 The modal owns only draft name/rectangle/options and a stable target selection
 key, then calls `CreateImageObjectFromLayout()`. It also works with no assets
 or no search results. The popup is submitted once by the workspace after all
@@ -110,6 +117,52 @@ stores only a draft rectangle, blocks normal move/resize/drop input, and queues
 the same modal on release. `SELayoutImageSize()` validates shared sheet limits;
 source fields use GetCommandHelp rather than positional UI copies.
 The `layout-first-image` surface is catalogued in `uiCatalog.h`.
+
+The `dst-asset` modal is queued from Asset Browser's toolbar/blank-area menu and
+submitted by the same workspace-level dialog pass, including when there are no Assets.
+It retains draft stable selection keys, filter, output mode and document revision.
+Browser selection seeds supported checks; changing checks never changes the document
+selection. Candidates/dimensions are derived from the Object model. Inspector has no
+duplicate creation entry. `CreateImagesFromDst` chooses shared or separate output;
+separate output composes existing single-image commands into one snapshot History,
+adjusts row fallback keys after metadata insertion and rolls back files/bindings on failure.
+`ReadDstAssetPlan` derives sizes through GetCommandHelp-backed field lookup;
+`CreateAssetFromDst` wraps `CreateAtlasFromDst` for a single Object. The batch planner
+packs intact animation sheets with 28px caption bands and 8px gutters, creates a paintable-guide PNG and an
+annotated SVG, registers one new gr and rebinds only selected SRC gr/x/y/w/h fields
+as one snapshot transaction. First-DST layout
+and other source semantics remain authoritative. Failed transactions remove only
+new files; successful Undo preserves generated outputs for subsequent paint and Redo.
+The default `paintableGuide=true` writes guide pixels directly into the artwork PNG.
+The modal offers `paintableGuide=false` for transparent artwork plus a `_guide.png`
+reference. Both modes retain `_guide.svg`. Default output has no PNG sidecar, so
+an erased border cannot reappear through the guide overlay on reload/reopen.
+PNG and SVG guides use transparent backgrounds, red contours and names directly
+below each sheet; all generated files share canvas dimensions and crop coordinates.
+Every frame owns a 1px inner border: outer edges stay 1px and shared seams are
+2px (one pixel from each frame). PNG borders are opaque exact pixels; SVG paths
+are inset by 0.5px with a 1px crisp stroke. One-pixel-wide/high SVG cells use
+filled strips because zero-sized stroked rectangles are not rendered. There is
+no additional sheet-wide contour. Existing guide files are not rewritten.
+GDI+ renders CP932 names as Unicode on a straight-alpha PNG. Caption space is outside
+SRC crops; individual SRC grids are unchanged. Atlas registration does not create
+a full-canvas Asset: `RegisterGeneratedImage(..., registerFullImageAsset=false)`
+writes `#IMAGE` plus an editor-only `$SE_IMAGE_GR` binding. `ReadImageGraphicBinding`
+reads this annotation or legacy adjacent `$SRC_IMAGE` metadata from raw text,
+with owner/range checks. `DeleteIMG` converts a legacy binding-bearing crop into
+that non-Asset annotation in one undoable edit instead of losing the active gr
+number. The PNG, other SRC/DST rows, image slot and Object count stay unchanged.
+This is CSV editor metadata only, not an OLRskin package or LR2 format change.
+Image Manager caches the matching `_guide.png` as a separate managed texture.
+`UpdateImageManagerGuide` invalidates on path/dimension changes or grReload, validates
+the sidecar dimensions, and clears the cache on document reset. Its draw-list overlay
+uses the same canvas origin/size/clip and does not submit an input item. Pixel Paint,
+eyedropper, Save image and runtime continue to use the original texture only.
+`previewLayoutMode` is view-only WORKSPACE state. `GetObjectLayoutBounds` derives
+first-DST boxes from the same five supported types, with NUMBER keta expansion.
+Layout boxes ignore IF/OP gates but honor Preview file visibility. Hit selection
+uses the common selection owner; movement still uses existing CSV/History commands.
+This view is not a second runtime or a copy of the Object model.
 
 `seUI` is deliberately stateless. A component may return a click or edited
 value, but it must not load skins, mutate CSV, select objects, or push History.

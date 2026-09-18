@@ -1,5 +1,75 @@
 # SkinEditor 현재 개발 상태
 
+## 시나리오 D: DST 기반 Asset 생성 (AI_1)
+
+권장 흐름은 Asset Browser의 `New layout Object...` → Preview에서 배치 →
+`Images from layout...`에서 대상 체크/이미지 생성이다. 처음에는 PNG를 만들지 않는다.
+`New layout Object...`는 기존 `New blank image Object...`를 대체하며 상단 버튼과
+빈 공간 우클릭 모두에서 연다. IMAGE/NUMBER/SLIDER/BUTTON/BARGRAPH의 이름·DST·
+분할/유형 설정만 먼저 정하고 생성하면 Preview의 `Layout boxes`가 자동으로 켜진다.
+배치용 Object는 기존 SRC/DST와 Object ID로 저장한다. SRC는 LR2 내장 gr 111의
+0×0 crop이므로 사용자 이미지/gr 슬롯을 소비하지 않으며 아직 실제 그림은 없다.
+저장/재열기와 Undo/Redo가 가능하고 Inspector의 Layout에서 이 상태를 안내한다.
+재열기 후에는 Preview의 `Layout boxes` 또는 Inspector의 `Show layout boxes`로 본다.
+`Create image now (optional)`을 켜면 종전처럼 즉시 개별 투명 PNG를 만드는 흐름도
+사용할 수 있다. 이미지 생성 이후에는 실제 PNG에 그려야 일반 Preview에 표시된다.
+
+Asset Browser 상단/빈 공간 우클릭의 `Images from layout...`(배치에서 이미지 만들기)는
+창 안에서 대상 Object를 체크해 고른다. Browser의 기존 선택은 지원 항목만 미리
+체크하며 사전 선택 없이도 검색/표시 항목 선택/모두 해제로 대상을 정할 수 있다.
+목록은 이름·유형·프레임 크기·개수를 표시한다. Inspector 생성 버튼은 제거했다.
+배치된 Object의 첫 DST
+W/H 절댓값을 프레임 크기로 사용한다. SRC의 div_x/div_y와 라벨용 여백을 포함한
+PNG를 스킨 폴더에 고유 이름으로 생성한다. 기본 `Paint over borders in PNG`는
+투명 배경의 실제 PNG에 빨간 테두리와 각 영역 아래 이름을 넣는다. Image Manager
+상단 경로의 PNG 하나를 외부 편집기에서 열고, 테두리를 덮어 그리거나 지우면 된다.
+남겨 둔 테두리는 실제 Preview/LR2에도 나오므로 완성 그림에 남기지 않는다.
+이름은 SRC crop 밖에 있으므로 지우지 않아도 게임에는 나오지 않는다.
+`Transparent PNG + separate guide`를 고르면 종전처럼 실제 PNG는 완전히 투명하고
+동일 크기의 `_guide.png`를 별도 참고 레이어로 만든다. 기본 모드에는 이 PNG
+sidecar를 만들지 않아, 지운 테두리가 Image Manager overlay로 다시 나타나지 않는다.
+PNG/SVG 모두 각 프레임 안쪽에 불투명 1px 테두리를 그린다. 따라서 전체 외곽은
+1px, BUTTON/NUMBER 등의 인접 프레임 경계는 두 테두리가 붙어 2px이다.
+기존 가이드 파일은 자동 수정하지 않으며 새로 생성하는 가이드부터 적용한다.
+NUMBER의 DST W는 한 자리 폭이며 keta를 곱하지 않는다. 별도 가이드 파일은 스킨에
+등록하지 않는다. Create 후 Pixel Paint가 열리며 Preview는 실제 이미지 표시로 돌아온다.
+Image Manager는 별도 가이드 모드에서 같은 폴더의 `원본이름_guide.png`를 겹쳐 보여준다.
+`Guide`(가이드) 체크로 숨길 수 있고 grReload로 가이드도 다시 읽는다. 기존에 만든
+파일에도 적용되며 가이드가 없거나 크기가 다르면 표시하지 않는다. 가이드는 화면에만
+표시되므로 Pixel Paint 저장·색 추출·LR2 Preview에는 포함되지 않는다.
+
+현재 IMAGE/NUMBER/SLIDER/BUTTON/BARGRAPH 단일 SRC Object를 지원한다.
+선택 Object의 SRC gr/x/y/w/h만 새 이미지로 연결하고 DST 전체, IF/파일 소유권,
+SRC 분할·cycle·timer·type·align·keta는 보존한다. 기존 이미지 파일은 수정하지 않는다.
+Undo 한 번으로 기존 연결을 복원하며 생성 PNG/가이드는 그림 작업·Redo를 위해 남긴다.
+다중 SRC, DST 없음, 0 크기, 잘못된 분할, 16MP/16384 초과, 미저장 Pixel Paint는 차단한다.
+확인창을 연 뒤 문서가 바뀌면 취소 후 다시 열어야 한다.
+
+`One shared image`(한 이미지에 모으기)는 체크한 Object의
+애니메이션 시트를 각각 유지하며 이름용 28px 밴드와 8px 간격을 두고 atlas에 배치한다. 새 gr 하나를
+공유하며 전체 연결 변경은 단일 Undo/Redo다. 최대 512 Object/8192 프레임이며
+atlas에도 위 크기 제한을 적용한다. 지원하지 않는 Object가 섞이면 전체 작업을 차단한다.
+통합 이미지 전체를 감싸는 별도 Asset은 생성하지 않고 각 Object의 SRC crop만 표시한다.
+`#IMAGE` 다음의 편집기 전용 `$SE_IMAGE_GR` 주석은 기존 `$SRC_IMAGE`에 섞여 있던
+활성 gr 번호 보정만 보존한다. Object/Asset이 아니며 LR2 명령이나 OLRskin 0.9의
+package schema를 바꾸지 않는다. 이전에 생성된 전체 이미지 Asset을 삭제하면 이
+번호 보정만 남기므로 다른 crop의 텍스처 연결이 유지된다. PNG 파일은 삭제하지 않는다.
+`Separate images`(각각 만들기)는 Object마다 PNG/gr을 생성하고 전체를 한 번의
+Undo/Redo로 처리한다. 중간 실패 시 연결을 모두 복원하고 해당 작업의 새 파일만
+정리한다. LR2 gr 0~99 한도를 넘을 수 없다. 생성 크기/장수는 실행 전에 표시하며
+Pixel Paint에는 마지막 생성 이미지가 열린다. 나머지는 Image Manager에서 선택한다.
+단일/일괄 생성 모두 `_guide.svg`도 만든다. SVG 역시 투명 배경/빨간 테두리/영역 아래
+이름이며 프레임 번호는 0부터 행 우선 순서다. 프레임 크기·분할 수·IF group은 title에
+보존한다. SVG와 PNG 모두 실제 atlas와 같은 크기/좌표다. 라벨 여백은 SRC crop에
+포함하지 않으며 긴 이름은 PNG에서 말줄임, SVG에서 영역 폭으로 잘린다(title에 전체 이름).
+
+Preview의 `Layout boxes`는 텍스처 대신 이름과 색 사각형으로 위 5개 유형의 첫 DST
+배치를 표시한다. IF/OP 활성 여부와 무관하게 표시하되 파일 숨김/단독 보기 설정은
+적용한다. 클릭·Ctrl 다중 선택·우클릭 목록과 기존 이동/크기 편집을 사용한다.
+실제 runtime의 애니메이션/회전/slider 이동을 재현하는 모드가 아니다. 생성 후 이
+모드를 자동으로 켜며 끄면 기존 Preview로 돌아간다. 특수 NOWJUDGE/NOWCOMBO/
+NOTE/TEXT 등의 배치 표시와 atlas 생성은 아직 지원하지 않는다.
+
 기준일: 2026-09-12
 기준 브랜치: `AI_experimental` (AI 스킨 제작 유틸 실험)
 주 대상: `Release | Win32(x86)`
@@ -592,7 +662,8 @@ Browser 순서 변경:
 #### Layout-first IMAGE core
 
 `WORKSPACE::CreateImageObjectFromLayout()`은 먼저 정한 DST `x/y/w/h`로
-image-backed Object를 생성한다. 기본 IMAGE는 같은 크기의 투명 PNG를 main skin 폴더에 고유 이름으로
+Object를 생성한다. UI 기본인 `createImageNow=false`는 파일 없이 0×0 SRC와 실제
+DST 크기만 저장한다. `true`(기존 API 호출 기본값)이면 투명 PNG를 main skin 폴더에 고유 이름으로
 만들고, 기존 `RegisterGeneratedImage()`로 `#IMAGE`와 `$SRC_IMAGE` crop을 등록한다.
 SRC는 `(0,0,w,h)`, `div_x=div_y=1`, DST는 지정한 위치·크기와 불투명 ARGB,
 timer/OP 0으로 생성한다. PNG 내용은 기존 Pixel Paint에서 나중에 그릴 수 있다.
@@ -603,13 +674,14 @@ timer/OP 0으로 생성한다. PNG 내용은 기존 Pixel Paint에서 나중에 
 유지하므로 이후 그린 그림과 Redo가 보존된다. 실패하면 이번에 생성한 PNG와 문서
 변경을 복구한다. 크기는 양수, 한 변 16384 이하 및 전체 16메가픽셀 이하로 제한한다.
 
-Asset Browser 빈 공간 우클릭의 `New blank image Object...`에서 Name, 위치 X/Y,
+Asset Browser 상단/빈 공간 우클릭의 `New layout Object...`에서 Name, 위치 X/Y,
 크기 W/H를 입력해 생성한다. Asset이 없거나 검색 결과가 비어 있어도 사용할 수 있다.
 기본은 main skin / ALWAYS이며 선택 Object의 파일·IF 뒤에 생성하는 옵션을 제공한다.
-`Open Pixel Paint after creation`은 기본 켜짐이며 새 이미지를 선택해 Image Manager의
-Pixel Paint를 연다. 끄면 Preview로 이동해 선택 사각형으로 배치를 확인한다.
-Type에서 IMAGE, NUMBER, SLIDER, BUTTON, BARGRAPH를 고른다. IMAGE 등은 DST 한 칸
-크기에 div_x/div_y를 곱한 투명 sheet를 만들고 cycle을 SRC와 Asset metadata에 쓴다.
+`Create image now (optional)`은 기본 꺼짐이다. 켜면 `Open Pixel Paint after creation`을
+선택할 수 있으며 새 이미지를 선택해 Image Manager의 Pixel Paint를 연다. 이미지를
+만들지 않으면 Preview의 배치 사각형 모드로 이동한다.
+Type에서 IMAGE, NUMBER, SLIDER, BUTTON, BARGRAPH를 고른다. 이미지도 바로 만드는
+경우 DST 한 칸 크기에 div_x/div_y를 곱한 투명 sheet를 만들고 cycle을 SRC와 Asset metadata에 쓴다.
 NUMBER는 왼쪽부터 0~9를 그릴 10칸이며 W/H는 숫자 한 자리의 크기다. keta와
 NUMBER 전용 align을 별도로 설정한다. Value는 기존 command-value 콤보를 사용한다.
 BUTTON 기본 sheet는 두 상태이며 click/panel 등 추가 설정은 Inspector에서 편집한다.

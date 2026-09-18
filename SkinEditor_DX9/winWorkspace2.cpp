@@ -1753,7 +1753,17 @@ int WORKSPACE::DeleteIMG(int pos) {
             ((SKINFILELINEREAD*)skinfileLines.data)[metadataRow];
         const char* text = metadata.line.body ? metadata.line.outstr() : "";
         if (strncmp(text, "$SRC_IMAGE,", 11) == 0) {
-            DeleteLine(metadataRow);
+            int boundGraphic = -1;
+            if (ReadImageGraphicBinding(metadataRow - 1, boundGraphic)) {
+                // Older generated full-image crops also hold the #IMAGE's
+                // active LR2 slot. Deleting the crop must not renumber that
+                // shared texture when other Objects still use its subregions.
+                CSTR previous(metadata.line);
+                const std::string binding = "$SE_IMAGE_GR," + std::to_string(boundGraphic);
+                if (EditLine(metadataRow, previous, CSTR(binding.c_str())) != 0) return -1;
+                SplitCSV(metadata.line, &metadata.csv, ",");
+                metadata.csvColumnCount = CountCsvColumns(metadata.line);
+            } else if (DeleteLine(metadataRow) != 0) return -1;
         }
     }
 

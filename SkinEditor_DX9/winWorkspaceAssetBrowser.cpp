@@ -14,6 +14,7 @@
 #include "op.h"
 #include "seHelper.h"
 #include "seUI.h"
+#include "seLocalization.h"
 #include "skinPathResolver.h"
 #include "inputwrap.h"
 #include "uiCatalog.h"
@@ -29,7 +30,135 @@
 
 extern PDIRECT3DTEXTURE9 transBackground;
 
+void WORKSPACE::RequestDstAssetDialog() {
+    dstAtlasTargets.clear();
+    for (const auto& key : objectSelection.selected) {
+        int w, h, dx, dy; std::string error;
+        if (GetDstAssetSize(ResolveObjectSelectionKey(key), w, h, dx, dy, error))
+            dstAtlasTargets.push_back(key);
+    }
+    dstAssetRevision = documentRevision;
+    dstAssetSeparate = false;
+    dstAssetPaintableGuide = true;
+    dstAssetFilter.Clear();
+    dstAssetError.clear();
+    dstAssetRequested = true;
+}
+
+void WORKSPACE::drawDstAssetDialog() {
+    const auto& spec = SEUISurfaceSpecFor(SEUISurfaceId::DstAsset);
+    char popup[128];
+    snprintf(popup, sizeof(popup), "%s###%s-%d", SEText(spec.title, u8"\ubc30\uce58\uc5d0\uc11c \uc774\ubbf8\uc9c0 \ub9cc\ub4e4\uae30"), spec.key, num);
+    if (dstAssetRequested) {
+        dstAssetRequested = false;
+        dstAssetError.clear();
+        ImGui::OpenPopup(popup);
+    }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    const ImVec2 available = ImGui::GetMainViewport()->WorkSize;
+    ImGui::SetNextWindowSize(ImVec2((std::min)(720.0f, available.x - 40),
+        (std::min)(650.0f, available.y - 40)), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal(popup)) return;
+    const bool stale = dstAssetRevision != documentRevision;
+    ImGui::TextWrapped(SEText("Choose Objects to draw images for. Browser selections are pre-checked.",
+        u8"\uadf8\ub9bc\uc744 \ub9cc\ub4e4 \uc624\ube0c\uc81d\ud2b8\ub97c \uace0\ub974\uc138\uc694. Object Browser\uc5d0\uc11c \uc120\ud0dd\ud55c \ud56d\ubaa9\uc740 \ubbf8\ub9ac \uccb4\ud06c\ub429\ub2c8\ub2e4."));
+    ImGui::TextDisabled("IMAGE / NUMBER / SLIDER / BUTTON / BARGRAPH");
+    ImGui::BeginDisabled(stale);
+    dstAssetFilter.Draw(SEText("Search", u8"\uac80\uc0c9"), -90);
+    struct Candidate { int model, w, h, dx, dy; std::string label; };
+    std::vector<Candidate> candidates;
+    const auto& objects = objectEditorModel.Objects();
+    for (int i = 0; i < (int)objects.size(); ++i) {
+        Candidate item{}; item.model = i; std::string reason;
+        if (!GetDstAssetSize(i, item.w, item.h, item.dx, item.dy, reason)) continue;
+        const auto* group = objectEditorModel.Group(objects[i].group);
+        item.label = std::to_string(i) + "  [" + (group ? group->name : "Object") + "] " +
+            Cp932ToUtf8(objects[i].name.empty() ? "(unnamed)" : objects[i].name.c_str());
+        if (dstAssetFilter.PassFilter(item.label.c_str())) candidates.push_back(item);
+    }
+    std::set<int> checkedModels;
+    for (const auto& key : dstAtlasTargets) checkedModels.insert(ResolveObjectSelectionKey(key));
+    if (ImGui::Button(SEText("Select shown", u8"\ud45c\uc2dc\ub41c \ud56d\ubaa9 \uc120\ud0dd"))) {
+        for (const auto& item : candidates) {
+            if (checkedModels.insert(item.model).second) dstAtlasTargets.push_back(MakeObjectSelectionKey(item.model));
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(SEText("Clear selection", u8"\ubaa8\ub450 \ud574\uc81c"))) { dstAtlasTargets.clear(); checkedModels.clear(); }
+    const float listHeight = (std::max)(80.0f, ImGui::GetContentRegionAvail().y - 285.0f);
+    if (ImGui::BeginTable("LayoutImageObjects", 3, ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_Resizable, ImVec2(0, listHeight))) {
+        ImGui::TableSetupColumn(SEText("Object", u8"\uc624\ube0c\uc81d\ud2b8"), ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(SEText("Frame size", u8"\ud504\ub808\uc784 \ud06c\uae30"), ImGuiTableColumnFlags_WidthFixed, 110);
+        ImGui::TableSetupColumn(SEText("Frames", u8"\uac1c\uc218"), ImGuiTableColumnFlags_WidthFixed, 85);
+        ImGui::TableSetupScrollFreeze(0, 1); ImGui::TableHeadersRow();
+        for (const auto& item : candidates) {
+            ImGui::PushID(item.model);
+            ImGui::TableNextRow(); ImGui::TableNextColumn();
+            bool checked = checkedModels.count(item.model) != 0;
+            if (ImGui::Checkbox("##include", &checked)) {
+                if (checked) dstAtlasTargets.push_back(MakeObjectSelectionKey(item.model));
+                else dstAtlasTargets.erase(std::remove_if(dstAtlasTargets.begin(), dstAtlasTargets.end(),
+                    [&](const auto& key) { return ResolveObjectSelectionKey(key) == item.model; }), dstAtlasTargets.end());
+            }
+            ImGui::SameLine(); ImGui::TextUnformatted(item.label.c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s | IF %d", item.label.c_str(), objects[item.model].ifgroup);
+            ImGui::TableNextColumn(); ImGui::Text("%d x %d", item.w, item.h);
+            ImGui::TableNextColumn(); ImGui::Text("%d (%d x %d)", item.dx * item.dy, item.dx, item.dy);
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    if (ImGui::RadioButton(SEText("One shared image", u8"\ud55c \uc774\ubbf8\uc9c0\uc5d0 \ubaa8\uc73c\uae30"), !dstAssetSeparate)) dstAssetSeparate = false;
+    ImGui::SameLine();
+    if (ImGui::RadioButton(SEText("Separate images", u8"\uac01\uac01 \ub9cc\ub4e4\uae30"), dstAssetSeparate)) dstAssetSeparate = true;
+    ImGui::Separator();
+    if (ImGui::RadioButton(SEText("Paint over borders in PNG (default)", u8"PNG \ud14c\ub450\ub9ac \uc704\uc5d0 \uadf8\ub9ac\uae30 (\uae30\ubcf8)"), dstAssetPaintableGuide)) dstAssetPaintableGuide = true;
+    if (ImGui::RadioButton(SEText("Transparent PNG + separate guide", u8"\ud22c\uba85 PNG + \ubcc4\ub3c4 \uac00\uc774\ub4dc"), !dstAssetPaintableGuide)) dstAssetPaintableGuide = false;
+    ImGui::EndDisabled();
+    std::vector<int> models;
+    for (const auto& key : dstAtlasTargets) models.push_back(ResolveObjectSelectionKey(key));
+    int w = 0, h = 0; std::string reason;
+    bool valid = !models.empty() && models.size() <= 512;
+    if (valid && !dstAssetSeparate) valid = GetDstAtlasSize(models, w, h, reason);
+    else if (valid) for (int model : models) if (!GetDstAtlasSize({model}, w, h, reason)) { valid = false; break; }
+    if (!valid && reason.empty()) reason = SEText("Select 1 to 512 Objects.", u8"\uc624\ube0c\uc81d\ud2b8\ub97c 1~512\uac1c \uc120\ud0dd\ud558\uc138\uc694.");
+    if (valid && !dstAssetSeparate) ImGui::Text(SEText("%d Objects -> 1 PNG (%d x %d)", u8"%d\uac1c \uc624\ube0c\uc81d\ud2b8 \u2192 PNG 1\uc7a5 (%d x %d)"), (int)models.size(), w, h);
+    else if (valid) ImGui::Text(SEText("%d Objects -> %d PNG files", u8"%d\uac1c \uc624\ube0c\uc81d\ud2b8 \u2192 PNG %d\uc7a5"), (int)models.size(), (int)models.size());
+    else ImGui::TextWrapped("%s", reason.c_str());
+    ImGui::TextWrapped(dstAssetPaintableGuide
+        ? SEText("Edit the PNG shown in Image Manager. Paint over or erase red borders: any remaining border appears in Preview.",
+            u8"Image Manager\uc758 PNG\ub97c \uc9c1\uc811 \ud3b8\uc9d1\ud558\uc138\uc694. \ube68\uac04 \ud14c\ub450\ub9ac\ub294 \ub367\uadf8\ub9ac\uac70\ub098 \uc9c0\uc6b0\uc138\uc694. \ub0a8\uc740 \ud14c\ub450\ub9ac\ub294 Preview\uc5d0\ub3c4 \ub098\uc635\ub2c8\ub2e4.")
+        : SEText("Paint the transparent PNG; use _guide.png as a reference layer. The guide is not part of the skin.",
+            u8"\ud22c\uba85 PNG\uc5d0 \uadf8\ub9ac\uace0 _guide.png\ub294 \ucc38\uace0 \ub808\uc774\uc5b4\ub85c \uc4f0\uc138\uc694. \uac00\uc774\ub4dc\ub294 \uc2a4\ud0a8\uc5d0 \ud3ec\ud568\ub418\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4."));
+    ImGui::TextWrapped(SEText("Only SRC image bindings change. DST stays intact. Undo restores bindings; files remain.",
+        u8"SRC \uc774\ubbf8\uc9c0 \uc5f0\uacb0\ub9cc \ubcc0\uacbd\ud558\uace0 DST\ub294 \uc720\uc9c0\ud569\ub2c8\ub2e4. Undo\ub294 \uc5f0\uacb0\ub9cc \ubcf5\uc6d0\ud558\uba70 \ud30c\uc77c\uc740 \ub0a8\uc2b5\ub2c8\ub2e4."));
+    if (stale) ImGui::TextWrapped(SEText("The document changed. Cancel and reopen this dialog.", u8"\ubb38\uc11c\uac00 \ubcc0\uacbd\ub418\uc5c8\uc2b5\ub2c8\ub2e4. \ucde8\uc18c \ud6c4 \ub2e4\uc2dc \uc5f4\uc5b4\uc8fc\uc138\uc694."));
+    if (!dstAssetError.empty()) ImGui::TextWrapped("%s", dstAssetError.c_str());
+    ImGui::BeginDisabled(!valid || stale);
+    if (ImGui::Button(SEText("Create images and paint", u8"\uc774\ubbf8\uc9c0 \ub9cc\ub4e4\uace0 \uadf8\ub9ac\uae30"))) {
+        std::vector<std::string> paths;
+        if (CreateImagesFromDst(models, dstAssetSeparate, paths, dstAssetError, dstAssetPaintableGuide)) {
+            previewLayoutMode = false;
+            imagePixelPaintMode = true;
+            imageManagerShowGuide = !dstAssetPaintableGuide;
+            imagePixelPaintLastX = imagePixelPaintLastY = imagePixelPaintLastButton = -1;
+            wImgManager = wAssetBrowser = true;
+            imageManagerRevealRequested = true;
+            imageToolStatus = "Created " + std::to_string(paths.size()) + (dstAssetPaintableGuide
+                ? " PNG(s). Edit this image directly; paint over or erase red borders. Use grReload after external edits."
+                : " transparent PNG(s) plus PNG/SVG guides. Paint the transparent image; use grReload after external edits.");
+            ImGui::CloseCurrentPopup();
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(SEText("Cancel", u8"\ucde8\uc18c")) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
 void WORKSPACE::drawLayoutFirstImageDialog() {
+    drawDstAssetDialog();
     const SEUISurfaceSpec& spec = SEUISurfaceSpecFor(SEUISurfaceId::LayoutFirstImage);
     char popup[128];
     snprintf(popup, sizeof(popup), "%s##%s-%d", spec.title, spec.key, num);
@@ -43,6 +172,7 @@ void WORKSPACE::drawLayoutFirstImageDialog() {
             layoutFirstSize[0] = layoutFirstSize[1] = 64;
             layoutFirstUseSelection = false;
             layoutFirstOpenPaint = true;
+            layoutFirstCreateImageNow = false;
             layoutFirstAnchor = objectSelection.active;
             layoutFirstError.clear();
         }
@@ -88,7 +218,10 @@ void WORKSPACE::drawLayoutFirstImageDialog() {
     int sheetWidth = 0, sheetHeight = 0;
     const bool validSize = SELayoutImageSize(layoutFirstSize[0], layoutFirstSize[1],
         layoutFirstOptions, sheetWidth, sheetHeight);
-    ImGui::TextDisabled("Transparent PNG: %d x %d pixels", sheetWidth, sheetHeight);
+    ImGui::Checkbox("Create image now (optional)", &layoutFirstCreateImageNow);
+    if (layoutFirstCreateImageNow)
+        ImGui::TextDisabled("Transparent PNG: %d x %d pixels", sheetWidth, sheetHeight);
+    else ImGui::TextWrapped("Layout only: no PNG or #IMAGE is created. Arrange boxes in Preview, then use Asset Browser > Images from layout to create artwork.");
     if (ImGui::Button("Draw rectangle in Preview")) {
         layoutFirstPlacement = true;
         layoutFirstDragging = false;
@@ -109,7 +242,7 @@ void WORKSPACE::drawLayoutFirstImageDialog() {
     } else if (!layoutFirstUseSelection) {
         ImGui::TextDisabled("Destination: main skin / ALWAYS");
     }
-    ImGui::Checkbox("Open Pixel Paint after creation", &layoutFirstOpenPaint);
+    if (layoutFirstCreateImageNow) ImGui::Checkbox("Open Pixel Paint after creation", &layoutFirstOpenPaint);
     if (!validSize)
         ImGui::TextWrapped("Use a positive size, up to 16384 per side and 16 megapixels total.");
     if (layoutFirstUseSelection && anchor < 0)
@@ -127,18 +260,19 @@ void WORKSPACE::drawLayoutFirstImageDialog() {
         } else if (CreateImageObjectFromLayout(layoutFirstPosition[0],
             layoutFirstPosition[1], layoutFirstSize[0], layoutFirstSize[1],
             name.c_str(), path, layoutFirstError, layoutFirstUseSelection ? anchor : -1,
-            layoutFirstOptions)) {
+            layoutFirstOptions, layoutFirstCreateImageNow)) {
             assetShowUnusedOnly = false;
             wPreview = wObjectBrowser = wObjectInspector = true;
             char focusTitle[96];
-            if (layoutFirstOpenPaint) {
+            const bool openPaint = layoutFirstCreateImageNow && layoutFirstOpenPaint;
+            if (openPaint) {
                 wImgManager = true;
                 imageManagerRevealRequested = true;
                 imagePixelPaintMode = true;
                 imagePixelPaintLastX = imagePixelPaintLastY = imagePixelPaintLastButton = -1;
             }
             FormatSEUIWindowTitle(focusTitle, sizeof(focusTitle),
-                layoutFirstOpenPaint ? SEUIWindowId::ImageManager : SEUIWindowId::Preview, num);
+                openPaint ? SEUIWindowId::ImageManager : SEUIWindowId::Preview, num);
             ImGui::CloseCurrentPopup();
             ImGui::SetWindowFocus(focusTitle);
         }
@@ -158,6 +292,12 @@ int WORKSPACE::drawAssetBrowser() {
         return 0;
     }
 
+    ImGui::BeginDisabled(!loaded);
+    if (ImGui::Button("New layout Object...")) layoutFirstDialogPending = true;
+    if (ImGui::GetContentRegionAvail().x > 370.0f) ImGui::SameLine();
+    if (ImGui::Button(SEText("Images from layout...", u8"\ubc30\uce58\uc5d0\uc11c \uc774\ubbf8\uc9c0 \ub9cc\ub4e4\uae30\u2026"))) RequestDstAssetDialog();
+    ImGui::EndDisabled();
+
     auto drawBackgroundMenu = [&](bool emptySurface = false) {
         // Empty-state children are presentation only, so their whole area
         // counts as blank space. Real cards keep their own item context menu.
@@ -169,7 +309,9 @@ int WORKSPACE::drawAssetBrowser() {
             ImGui::BeginPopupContextWindow("##AssetBackground",
                 ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems);
         if (open) {
-            if (ImGui::MenuItem("New blank image Object...", nullptr, false, loaded))
+            if (ImGui::MenuItem(SEText("Images from layout...", u8"\ubc30\uce58\uc5d0\uc11c \uc774\ubbf8\uc9c0 \ub9cc\ub4e4\uae30\u2026"), nullptr, false, loaded))
+                RequestDstAssetDialog();
+            if (ImGui::MenuItem("New layout Object...", nullptr, false, loaded))
                 layoutFirstDialogPending = true;
             ImGui::EndPopup();
         }

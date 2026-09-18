@@ -90,7 +90,43 @@ void WORKSPACE::ShowAllPreviewFiles() {
     RefreshPreviewSelectionBounds();
 }
 
+bool WORKSPACE::GetObjectLayoutBounds(int model, float& x, float& y, float& w, float& h) {
+    int fw = 0, fh = 0, dx = 0, dy = 0;
+    std::string error;
+    if (!GetDstAssetSize(model, fw, fh, dx, dy, error)) return false;
+    const auto& object = objectEditorModel.Objects()[model];
+    const int row = object.firstDstRow;
+    if (row < 0 || row >= skinfileLines.count || !IsPreviewRowVisible(row)) return false;
+    auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[row];
+    auto field = [&](const char* name) {
+        const int column = FindCommandFieldColumn(line.csv.str[0].outstr(), name);
+        return column > 0 ? line.csv.val[column] : 0;
+    };
+    DST_ANIMATION frame = {};
+    frame.x = (float)field("x"); frame.y = (float)field("y");
+    frame.w = (float)field("w"); frame.h = (float)field("h");
+    ResolvePreviewObjectFrameBounds(object, frame, x, y, w, h);
+    if (w < 0) { x += w; w = -w; }
+    if (h < 0) { y += h; h = -h; }
+    return w > 0 && h > 0;
+}
+
 int WORKSPACE::RefreshPreviewSelectionBounds() {
+    if (previewLayoutMode) {
+        bool first = true;
+        float left = 0, top = 0, right = 0, bottom = 0;
+        for (int model : preview_selected_object_model_indices) {
+            float x, y, w, h;
+            if (!GetObjectLayoutBounds(model, x, y, w, h)) continue;
+            if (first) { left = x; top = y; right = x + w; bottom = y + h; first = false; }
+            else { left = (std::min)(left, x); top = (std::min)(top, y);
+                right = (std::max)(right, x + w); bottom = (std::max)(bottom, y + h); }
+        }
+        preview_selected_obj_valid = !first;
+        preview_selected_obj_last_valid = false;
+        if (!first) preview_selected_obj = {left, top, right - left, bottom - top};
+        return first ? -1 : 0;
+    }
     bool firstBounds = true;
     bool lastBounds = true;
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
@@ -408,6 +444,12 @@ int WORKSPACE::drawPreview() {
     nextToolbarItem(buttonWidth(fullscreenLabel));
     if (ImGui::Button(fullscreenLabel))
         previewCanvasFullscreen = !previewCanvasFullscreen;
+    nextToolbarItem(130.0f);
+    if (ImGui::Checkbox("Layout boxes", &previewLayoutMode)) {
+        preview_object_dragging = preview_object_resizing = false;
+        RefreshPreviewSelectionBounds();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Static first-DST boxes for IMAGE/NUMBER/SLIDER/BUTTON/BARGRAPH. All IF/OP states are shown; file visibility still applies. Click or right-click to select. Not a runtime preview.");
     nextToolbarItem(110.0f);
     ImGui::SetNextItemWidth(110.0f);
     char snapLabel[32];
@@ -508,6 +550,71 @@ int WORKSPACE::drawPreview() {
     EndSharpMagnifiedCanvas(sharpPreview);
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar();
+
+    if (previewLayoutMode && !placingLayout) {
+        if (!preview_object_dragging && !preview_object_resizing) RefreshPreviewSelectionBounds();
+        const bool canvasHovered = ImGui::IsItemHovered();
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        if (canvasHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) previewLayoutPickPoint = mouse;
+        const ImVec2 pick = ImGui::IsPopupOpen("##LayoutBoxSelection") ? previewLayoutPickPoint : mouse;
+        auto* list = ImGui::GetWindowDrawList();
+        const ImVec2 end(p.x + previewCanvasSize.x, p.y + previewCanvasSize.y);
+        list->PushClipRect(p, end, true);
+        list->AddRectFilled(p, end, IM_COL32(20, 24, 31, 255));
+        std::vector<int> order;
+        for (int i = 0; i < (int)objectEditorModel.Objects().size(); ++i) order.push_back(i);
+        std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+            return objectEditorModel.Objects()[a].drawOrder < objectEditorModel.Objects()[b].drawOrder;
+        });
+        std::vector<int> hits;
+        for (int model : order) {
+            float x, y, w, h;
+            if (!GetObjectLayoutBounds(model, x, y, w, h)) continue;
+            const auto& object = objectEditorModel.Objects()[model];
+            const ImVec2 lo(p.x + x * previewCanvasScale, p.y + y * previewCanvasScale);
+            const ImVec2 hi(lo.x + w * previewCanvasScale, lo.y + h * previewCanvasScale);
+            if (hi.x < p.x || hi.y < p.y || lo.x > end.x || lo.y > end.y) continue;
+            const int hue = (model * 47) % 150;
+            const ImU32 color = IM_COL32(80 + hue, 200 - hue / 2, 180, 220);
+            list->AddRectFilled(lo, hi, (color & 0x00ffffff) | (40u << 24));
+            list->AddRect(lo, hi, color);
+            std::string label = std::to_string(model) + " " + Cp932ToUtf8(object.name.c_str());
+            list->PushClipRect(lo, hi, true);
+            list->AddText(ImVec2(lo.x + 3, lo.y + 2), IM_COL32(240, 245, 255, 255), label.c_str());
+            list->PopClipRect();
+            if (pick.x >= lo.x && pick.x <= hi.x && pick.y >= lo.y && pick.y <= hi.y) hits.push_back(model);
+        }
+        list->PopClipRect();
+        const bool onSelectedHandle = preview_selected_obj_valid && preview_selected_object_model_indices.size() == 1 &&
+            fabsf(mouse.x - (p.x + (preview_selected_obj.x + preview_selected_obj.w) * previewCanvasScale)) <= 8.0f &&
+            fabsf(mouse.y - (p.y + (preview_selected_obj.y + preview_selected_obj.h) * previewCanvasScale)) <= 8.0f;
+        if (canvasHovered && !onSelectedHandle && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !hits.empty() &&
+            !preview_object_dragging && !preview_object_resizing) {
+            const int model = hits.back();
+            std::vector<int> selected;
+            const bool alreadySelected = std::find(preview_selected_object_model_indices.begin(),
+                preview_selected_object_model_indices.end(), model) != preview_selected_object_model_indices.end();
+            if (ImGui::GetIO().KeyCtrl || alreadySelected) for (const auto& key : objectSelection.selected) {
+                const int previous = ResolveObjectSelectionKey(key);
+                if (previous >= 0) selected.push_back(previous);
+            }
+            if (std::find(selected.begin(), selected.end(), model) == selected.end()) selected.push_back(model);
+            SetObjectSelection(selected, model, model, true);
+            RefreshPreviewSelectionBounds();
+        }
+        if (ImGui::BeginPopupContextItem("##LayoutBoxSelection")) {
+            ImGui::TextDisabled("Layout Objects (all IF/OP states)");
+            for (auto i = hits.rbegin(); i != hits.rend(); ++i) {
+                const int model = *i;
+                ImGui::PushID(model);
+                const auto name = Cp932ToUtf8(objectEditorModel.Objects()[model].name.c_str());
+                if (ImGui::Selectable(name.empty() ? "Unnamed Object" : name.c_str()))
+                    SetObjectSelection(std::vector<int>(1, model), model, model, true);
+                ImGui::PopID();
+            }
+            ImGui::EndPopup();
+        }
+    }
 
     if (placingLayout && layoutFirstPlacement) {
         const bool hovered = ImGui::IsItemHovered();
@@ -663,7 +770,12 @@ int WORKSPACE::drawPreview() {
 
     // Drag the highlighted Object. All DST animation rows receive the same
     // delta, preserving animation while EditValue records CSV and History.
-    if (!placingLayout && preview_selected_obj_valid) {
+    bool layoutSelectionEditable = true;
+    if (previewLayoutMode) for (int model : preview_selected_object_model_indices) {
+        float x, y, w, h;
+        if (!GetObjectLayoutBounds(model, x, y, w, h)) { layoutSelectionEditable = false; break; }
+    }
+    if (!placingLayout && preview_selected_obj_valid && layoutSelectionEditable) {
         const float previewScale = 1.0f / zoom;
         float hitX1 = preview_selected_obj.x;
         float hitY1 = preview_selected_obj.y;
@@ -717,14 +829,16 @@ int WORKSPACE::drawPreview() {
 
         // Read MouseDown directly. The preview Image may already own the
         // frame's click, so relying on IsMouseClicked can miss the drag start.
-        if (!preview_object_dragging && !preview_object_resizing && overResizeHandle &&
+        const bool allowLayoutDrag = !previewLayoutMode ||
+            (!ImGui::IsPopupOpen("##LayoutBoxSelection") && !ImGui::GetIO().KeyCtrl);
+        if (allowLayoutDrag && !preview_object_dragging && !preview_object_resizing && overResizeHandle &&
             ImGui::GetIO().MouseDown[ImGuiMouseButton_Left]) {
             preview_object_resizing = true;
             preview_drag_mouse_start = mousePos;
             preview_resize_object_start_w = preview_selected_obj.w;
             preview_resize_object_start_h = preview_selected_obj.h;
         }
-        else if (!preview_object_dragging && !preview_object_resizing &&
+        else if (allowLayoutDrag && !preview_object_dragging && !preview_object_resizing &&
             overSelectedObject && ImGui::GetIO().MouseDown[ImGuiMouseButton_Left]) {
             preview_object_dragging = true;
             preview_drag_mouse_start = mousePos;
@@ -766,9 +880,20 @@ int WORKSPACE::drawPreview() {
                         int heightColumn = FindCommandFieldColumn(command, "h");
                         if (heightColumn < 0) heightColumn = FindCommandFieldColumn(command, "size");
                         if (widthColumn >= 0 && heightColumn >= 0) {
-                            if (EditValue(row, widthColumn, resizedWidth) == 0)
+                            int dstWidth = resizedWidth, dstHeight = resizedHeight;
+                            if (previewLayoutMode) {
+                                // NUMBER's box spans keta cells; DST w is still one cell.
+                                // Preserve signed dimensions of mirrored layout rectangles.
+                                dstWidth = (int)std::round(resizedWidth * (double)line.csv.val[widthColumn] /
+                                    preview_resize_object_start_w);
+                                dstHeight = (int)std::round(resizedHeight * (double)line.csv.val[heightColumn] /
+                                    preview_resize_object_start_h);
+                                if (!dstWidth) dstWidth = line.csv.val[widthColumn] < 0 ? -1 : 1;
+                                if (!dstHeight) dstHeight = line.csv.val[heightColumn] < 0 ? -1 : 1;
+                            }
+                            if (EditValue(row, widthColumn, dstWidth) == 0)
                                 ++historyEditCount;
-                            if (EditValue(row, heightColumn, resizedHeight) == 0)
+                            if (EditValue(row, heightColumn, dstHeight) == 0)
                                 ++historyEditCount;
                             previewReloadPending = true;
                             previewReloadRequestedAt = GetTickCount64();
@@ -995,7 +1120,7 @@ int WORKSPACE::drawPreview() {
     // processed later in this function; clearing it first skipped the entire
     // popup block on the exact frame a Selectable was clicked.
     preview_hover_obj_valid = false;
-    if(!placingLayout && drawRightClick){
+    if(!placingLayout && !previewLayoutMode && drawRightClick){
         ImGui::PushID(num);
         if (ImGui::BeginPopupContextWindow()) {
             auto branchConditionMatches = [&](int ifgroup) -> bool {

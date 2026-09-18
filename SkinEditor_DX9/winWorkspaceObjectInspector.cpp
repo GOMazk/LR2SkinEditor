@@ -423,6 +423,18 @@ int WORKSPACE::drawObjectInspector() {
                     }
 
                     if (ImGui::BeginTabItem("Layout")) {
+                        if (IsLayoutOnlyObject(inspectorModelIndex)) {
+                            ImGui::TextWrapped("Layout only - no image yet. Create artwork in Asset Browser > Images from layout.");
+                            if (!previewLayoutMode && ImGui::Button("Show layout boxes")) {
+                                previewLayoutMode = true;
+                                preview_object_dragging = preview_object_resizing = false;
+                                wPreview = true;
+                                RefreshPreviewSelectionBounds();
+                                char title[96];
+                                FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Preview, num);
+                                ImGui::SetWindowFocus(title);
+                            }
+                        }
                         ImGui::TextDisabled("The first destination rectangle is the static layout authority.");
                         if (semanticDstRows.empty()) {
                             ImGui::TextDisabled("No DST layout is available.");

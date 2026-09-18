@@ -40,7 +40,7 @@ struct SEUIWindowSpec {
 };
 
 inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
-    { SEUIWindowId::Preview, "preview", "Preview", "Fit, zoom and manipulate the skin; File Manager can isolate the selected CSV without changing shared resources.", "WORKSPACE::drawPreview", "Workspace", "center-tabs", true },
+    { SEUIWindowId::Preview, "preview", "Preview", "Fit, zoom and manipulate the skin; Layout boxes expose image-backed first-DST placeholders; File Manager isolates CSV visibility.", "WORKSPACE::drawPreview", "Workspace", "center-tabs", true },
     { SEUIWindowId::TimerControl, "timer-control", "Timer Control", "Restart playback, reset to the initial static preview, and inspect or override LR2 timers.", "WORKSPACE::drawTimerControl", "Workspace", "right-middle", true },
     { SEUIWindowId::Customize, "customize", "Customize", "Choose skin-defined customization options.", "WORKSPACE::drawCustomize", "Data", "right-lower", true },
     { SEUIWindowId::CustomFiles, "custom-files", "Custom Files", "Edit CUSTOMFILE declarations, inspect candidates, preview choices and set saved defaults.", "WORKSPACE::drawCustomFiles", "Data", "center-tabs", false },
@@ -92,6 +92,7 @@ enum class SEUISurfaceId {
     NewSkin,
     NewObject,
     LayoutFirstImage,
+    DstAsset,
     ObjectMoveConfirmation,
     ObjectSplit,
     SimpleFontTools,
@@ -119,7 +120,8 @@ inline constexpr SEUISurfaceSpec kSEUISurfaceSpecs[] = {
     { SEUISurfaceId::OlrImport, "olr-import", "Import OLR", "Validate and extract an .olrskin package to a new LR2 folder, then load it.", "WORKSPACE::ImportOlrSkinInteractive", "flow" },
     { SEUISurfaceId::NewSkin, "new-skin", "New Skin", "Create a protected initial skin preset for a scene and resolution.", "WORKSPACE::drawNewskin", "dialog" },
     { SEUISurfaceId::NewObject, "new-object", "New Object", "Create an Object or raw command in the selected file and branch.", "WORKSPACE::drawNewObject", "dialog" },
-    { SEUISurfaceId::LayoutFirstImage, "layout-first-image", "New blank image Object", "Place an image-backed Object numerically or by Preview rectangle; create a transparent sprite sheet for painting.", "WORKSPACE::drawLayoutFirstImageDialog", "dialog" },
+    { SEUISurfaceId::LayoutFirstImage, "layout-first-image", "New layout Object", "Place an Object without creating images; generate artwork later in Images from layout, or optionally create a blank PNG now.", "WORKSPACE::drawLayoutFirstImageDialog", "dialog" },
+    { SEUISurfaceId::DstAsset, "dst-asset", "Images from layout", "Choose Objects and create shared or separate PNGs with paint-over borders by default, or transparent PNGs with separate guides.", "WORKSPACE::drawDstAssetDialog", "dialog" },
     { SEUISurfaceId::ObjectMoveConfirmation, "object-move-confirmation", "Move Object to another file?", "Confirm moving an Object and its editor metadata between include files.", "WORKSPACE::draw", "dialog" },
     { SEUISurfaceId::ObjectSplit, "object-split", "Split Objects to CSV", "Extract consecutive Objects into a new sibling include and save scripts without changing draw order.", "WORKSPACE::drawObjectSplitDialog", "dialog" },
     { SEUISurfaceId::SimpleFontTools, "simple-font-tools", "Simple Font Tools", "Generate and preview TTF number, combo and judgement atlases; apply existing PNG/CSV with Undo.", "WORKSPACE::drawSimpleModeFontTools", "flow" },

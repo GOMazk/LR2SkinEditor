@@ -12,9 +12,15 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <objidl.h>
+#include <gdiplus.h>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
+
+#pragma comment(lib, "gdiplus.lib")
 
 namespace {
 
@@ -794,7 +800,7 @@ bool SELayoutImageSize(int width, int height, const SELayoutImageOptions& option
 
 bool WORKSPACE::CreateImageObjectFromLayout(int x, int y, int width,
     int height, const char* name, std::string& imagePath,
-    std::string& errorText, int afterObject, const SELayoutImageOptions& options) {
+    std::string& errorText, int afterObject, const SELayoutImageOptions& options, bool createImageNow) {
     imagePath.clear();
     errorText.clear();
     int sheetWidth = 0, sheetHeight = 0;
@@ -844,29 +850,33 @@ bool WORKSPACE::CreateImageObjectFromLayout(int x, int y, int width,
 
     namespace fs = std::filesystem;
     std::error_code pathError;
-    const fs::path directory = fs::absolute(fs::path(mainpath), pathError)
-        .parent_path();
-    if (pathError || !fs::is_directory(directory, pathError)) {
-        errorText = "The skin directory is unavailable.";
-        return false;
-    }
     std::string objectId;
     std::string generatedPath;
-    do {
-        objectId = GenerateObjectId(*this);
-        generatedPath = (directory / ("layout_" + objectId + ".png")).string();
-    } while (fs::exists(generatedPath, pathError) && !pathError);
-    if (pathError || generatedPath.size() >= MAX_PATH ||
-        generatedPath.find(',') != std::string::npos) {
-        errorText = "The generated PNG path cannot be represented in LR2 CSV.";
-        return false;
-    }
+    if (createImageNow) {
+        const fs::path directory = fs::absolute(fs::path(mainpath), pathError)
+            .parent_path();
+        if (pathError || !fs::is_directory(directory, pathError)) {
+            errorText = "The skin directory is unavailable.";
+            return false;
+        }
+        do {
+            objectId = GenerateObjectId(*this);
+            generatedPath = (directory / ("layout_" + objectId + ".png")).string();
+        } while (fs::exists(generatedPath, pathError) && !pathError);
+        if (pathError || generatedPath.size() >= MAX_PATH ||
+            generatedPath.find(',') != std::string::npos) {
+            errorText = "The generated PNG path cannot be represented in LR2 CSV.";
+            return false;
+        }
 
-    char imageError[256] = {};
-    if (!CreateSolidImageFileAtomic(generatedPath.c_str(), sheetWidth, sheetHeight,
-        D3DCOLOR_ARGB(0, 0, 0, 0), imageError, sizeof(imageError))) {
-        errorText = imageError;
-        return false;
+        char imageError[256] = {};
+        if (!CreateSolidImageFileAtomic(generatedPath.c_str(), sheetWidth, sheetHeight,
+            D3DCOLOR_ARGB(0, 0, 0, 0), imageError, sizeof(imageError))) {
+            errorText = imageError;
+            return false;
+        }
+    } else {
+        objectId = GenerateObjectId(*this);
     }
     const SkinDocumentSnapshot before = CaptureDocumentSnapshot();
     const auto oldRedo = redoDocumentSnapshots;
@@ -874,8 +884,10 @@ bool WORKSPACE::CreateImageObjectFromLayout(int x, int y, int width,
     const int oldGraphicFocus = imageManagerGeneratedGrFocusRequest;
     applyingHistory = true;
     const int oldCount = skinfileLines.count;
-    const int graphicId = RegisterGeneratedImage(generatedPath.c_str(),
-        sheetWidth, sheetHeight, errorText, options.divX, options.divY, options.cycle);
+    // An empty crop of LR2's built-in white slot is a valid, non-rendering SRC.
+    // It does not reference an arbitrary user texture or consume a #IMAGE slot.
+    const int graphicId = createImageNow ? RegisterGeneratedImage(generatedPath.c_str(),
+        sheetWidth, sheetHeight, errorText, options.divX, options.divY, options.cycle) : 111;
     // RegisterGeneratedImage inserts #IMAGE and its reusable crop at root end.
     if (insertAt >= rootEnd) insertAt += skinfileLines.count - oldCount;
 
@@ -900,8 +912,8 @@ bool WORKSPACE::CreateImageObjectFromLayout(int x, int y, int width,
             help.trimWhiteSpace();
             const char* field = help.outstr();
             int value = 0;
-            if (!strcmp(field, "w")) value = source ? sheetWidth : width;
-            else if (!strcmp(field, "h")) value = source ? sheetHeight : height;
+            if (!strcmp(field, "w")) value = source ? (createImageNow ? sheetWidth : 0) : width;
+            else if (!strcmp(field, "h")) value = source ? (createImageNow ? sheetHeight : 0) : height;
             else if (source && !strcmp(field, "gr")) value = graphicId;
             else if (source && !strcmp(field, "div_x")) value = options.divX;
             else if (source && !strcmp(field, "div_y")) value = options.divY;
@@ -938,7 +950,7 @@ bool WORKSPACE::CreateImageObjectFromLayout(int x, int y, int width,
         documentRevision = oldRevision;
         imageManagerGeneratedGrFocusRequest = oldGraphicFocus;
         // Only this call's newly created file is removed on failed creation.
-        fs::remove(generatedPath, pathError);
+        if (!generatedPath.empty()) fs::remove(generatedPath, pathError);
         if (errorText.empty()) errorText = "Could not create the IMAGE Object.";
         if (pathError) errorText += " The unused PNG could not be removed: " + generatedPath;
         return false;
@@ -948,6 +960,7 @@ bool WORKSPACE::CreateImageObjectFromLayout(int x, int y, int width,
     HISTORY* history = (HISTORY*)arr_history.Get_new();
     history->op = restoreDocument;
     history->target = snapshotIndex;
+    if (!createImageNow) previewLayoutMode = true;
     RebuildObjectModel();
     const auto& rebuilt = objectEditorModel.Objects();
     for (int model = 0; model < (int)rebuilt.size(); ++model) {
@@ -960,9 +973,571 @@ bool WORKSPACE::CreateImageObjectFromLayout(int x, int y, int width,
     return true;
 }
 
+namespace {
+struct DstAssetPlan {
+    int source = -1, width = 0, height = 0, columns = 1, rows = 1, cycle = 0;
+    int sheetWidth = 0, sheetHeight = 0;
+    int tileWidth = 0, tileHeight = 0;
+    int atlasX = 0, atlasY = 0;
+    int model = -1;
+    std::string name;
+};
+
+bool ReadDstAssetPlan(WORKSPACE& workspace, int model, DstAssetPlan& plan, std::string& error) {
+    error.clear();
+    const auto& objects = workspace.objectEditorModel.Objects();
+    if (!workspace.loaded || model < 0 || model >= (int)objects.size()) {
+        error = "Select an image-backed Object in an open skin."; return false;
+    }
+    plan.model = model;
+    plan.name = objects[model].name;
+    int destination = -1;
+    std::string type;
+    for (int row : objects[model].rows) {
+        if (row < 0 || row >= workspace.skinfileLines.count) continue;
+        auto& line = ((SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        const std::string command = line.csv.str[0].body ? line.csv.str[0].outstr() : "";
+        if (command.compare(0, 5, "#SRC_") == 0) {
+            if (plan.source >= 0) { error = "Objects with multiple SRC commands are not supported yet."; return false; }
+            plan.source = row;
+            type = command.substr(5);
+        }
+    }
+    if (plan.source < 0 || (type != "IMAGE" && type != "NUMBER" && type != "SLIDER" &&
+        type != "BUTTON" && type != "BARGRAPH")) {
+        error = "Supported types: IMAGE, NUMBER, SLIDER, BUTTON and BARGRAPH (one SRC)."; return false;
+    }
+    for (int row : objects[model].rows) {
+        auto& line = ((SKINFILELINEREAD*)workspace.skinfileLines.data)[row];
+        if (line.csv.str[0].isSame(("#DST_" + type).c_str())) { destination = row; break; }
+    }
+    if (destination < 0) { error = "This Object has no matching DST rectangle."; return false; }
+    auto& src = ((SKINFILELINEREAD*)workspace.skinfileLines.data)[plan.source];
+    auto& dst = ((SKINFILELINEREAD*)workspace.skinfileLines.data)[destination];
+    auto field = [](SKINFILELINEREAD& line, const char* name, int fallback) {
+        const int column = FindCommandFieldColumn(line.csv.str[0].outstr(), name);
+        return column > 0 ? line.csv.val[column] : fallback;
+    };
+    const long long w = field(dst, "w", 0), h = field(dst, "h", 0);
+    const long long aw = w < 0 ? -w : w, ah = h < 0 ? -h : h;
+    if (aw <= 0 || ah <= 0 || aw > 16384 || ah > 16384) {
+        error = "The first DST needs nonzero W/H, at most 16384 pixels per side."; return false;
+    }
+    plan.width = (int)aw; plan.height = (int)ah;
+    plan.columns = field(src, "div_x", 1); plan.rows = field(src, "div_y", 1);
+    plan.cycle = field(src, "cycle", 0);
+    SELayoutImageOptions options;
+    options.divX = plan.columns; options.divY = plan.rows;
+    if (!SELayoutImageSize(plan.width, plan.height, options, plan.sheetWidth, plan.sheetHeight)) {
+        error = "SRC divisions must be positive; the sheet limit is 16384 per side and 16 megapixels."; return false;
+    }
+    return true;
+}
+}
+
+bool WORKSPACE::GetDstAssetSize(int model, int& width, int& height,
+    int& columns, int& rows, std::string& error) {
+    DstAssetPlan plan;
+    if (!ReadDstAssetPlan(*this, model, plan, error)) return false;
+    width = plan.width; height = plan.height; columns = plan.columns; rows = plan.rows;
+    return true;
+}
+
+bool WORKSPACE::IsLayoutOnlyObject(int model) {
+    DstAssetPlan plan; std::string error;
+    if (!ReadDstAssetPlan(*this, model, plan, error)) return false;
+    auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[plan.source];
+    const char* command = line.csv.str[0].outstr();
+    const int gr = FindCommandFieldColumn(command, "gr");
+    const int w = FindCommandFieldColumn(command, "w"), h = FindCommandFieldColumn(command, "h");
+    return gr > 0 && w > 0 && h > 0 && line.csv.val[gr] == 111 &&
+        line.csv.val[w] == 0 && line.csv.val[h] == 0;
+}
+
+namespace {
+bool PlanDstAtlas(WORKSPACE& workspace, const std::vector<int>& models,
+    std::vector<DstAssetPlan>& plans, int& width, int& height, std::string& error) {
+    plans.clear(); error.clear();
+    width = height = 0;
+    if (models.empty() || models.size() > 512) { error = "Select 1 to 512 supported Objects."; return false; }
+    std::set<int> seen;
+    long long area = 0, cells = 0;
+    int widest = 1;
+    for (int model : models) {
+        if (!seen.insert(model).second) continue;
+        DstAssetPlan plan;
+        if (!ReadDstAssetPlan(workspace, model, plan, error)) return false;
+        // Reserve a caption band outside SRC crops so guides can be overlaid 1:1.
+        const int captionWidth = (int)(std::min)(size_t(512), (std::max)(size_t(128), plan.name.size() * 10));
+        plan.tileWidth = (std::max)(plan.sheetWidth, captionWidth);
+        plan.tileHeight = plan.sheetHeight + 28;
+        if (plan.tileHeight > 16384) { error = "Leave 28 pixels below the sheet for its name."; return false; }
+        area += (long long)(plan.tileWidth + 8) * (plan.tileHeight + 8);
+        cells += (long long)plan.columns * plan.rows;
+        widest = (std::max)(widest, plan.tileWidth);
+        plans.push_back(plan);
+    }
+    if (cells > 8192) { error = "The drawing guide supports at most 8192 frames per batch."; return false; }
+    // Deterministic shelf packing. Each animation sheet stays contiguous.
+    std::stable_sort(plans.begin(), plans.end(), [](const DstAssetPlan& a, const DstAssetPlan& b) {
+        return a.sheetHeight > b.sheetHeight;
+    });
+    int limit = widest;
+    while ((long long)limit * limit < area && limit < 16384) limit = (std::min)(16384, limit * 2);
+    for (;;) {
+        int x = 0, y = 0, shelfHeight = 0; width = 0;
+        for (auto& plan : plans) {
+            if (x && x + plan.tileWidth > limit) { y += shelfHeight + 8; x = shelfHeight = 0; }
+            plan.atlasX = x; plan.atlasY = y;
+            width = (std::max)(width, x + plan.tileWidth);
+            x += plan.tileWidth + 8;
+            shelfHeight = (std::max)(shelfHeight, plan.tileHeight);
+        }
+        height = y + shelfHeight;
+        if (height <= 16384 && (long long)width * height <= 16 * 1024 * 1024) return true;
+        if (limit == 16384) { error = "Packed atlas exceeds 16384 per side or 16 megapixels. Select fewer Objects."; return false; }
+        limit = (std::min)(16384, limit * 2);
+    }
+}
+std::string DstGuideXml(const std::string& cp932) {
+    const std::string utf8 = Cp932ToUtf8(cp932.c_str());
+    std::string result;
+    for (unsigned char ch : utf8) {
+        if (ch == '&') result += "&amp;";
+        else if (ch == '<') result += "&lt;";
+        else if (ch == '>') result += "&gt;";
+        else if (ch == '"') result += "&quot;";
+        else if (ch >= 32 || ch == '\t') result += (char)ch;
+    }
+    return result;
+}
+
+bool RenderDstGuide(const std::vector<DstAssetPlan>& plans, int width, int height,
+    std::vector<D3DCOLOR>& pixels, std::string& error) {
+    struct Session {
+        ULONG_PTR token = 0;
+        ~Session() { if (token) Gdiplus::GdiplusShutdown(token); }
+    } session;
+    Gdiplus::GdiplusStartupInput startup;
+    if (Gdiplus::GdiplusStartup(&session.token, &startup, nullptr) != Gdiplus::Ok) {
+        error = "Could not initialize drawing-guide text rendering."; return false;
+    }
+    try { pixels.assign((size_t)width * height, 0); }
+    catch (const std::exception&) { error = "Not enough memory for the drawing guide."; return false; }
+    // PixelFormat32bppARGB is straight alpha, matching the existing PNG writer.
+    Gdiplus::Bitmap bitmap(width, height, width * 4, PixelFormat32bppARGB, (BYTE*)pixels.data());
+    Gdiplus::Graphics graphics(&bitmap);
+    Gdiplus::Font font(L"Segoe UI", 18.0f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+    if (bitmap.GetLastStatus() != Gdiplus::Ok || graphics.GetLastStatus() != Gdiplus::Ok ||
+        font.GetLastStatus() != Gdiplus::Ok) { error = "Could not allocate the drawing guide or font."; return false; }
+    graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
+    Gdiplus::SolidBrush red(Gdiplus::Color(255, 240, 30, 45));
+    Gdiplus::StringFormat format;
+    format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+    format.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
+    for (const auto& plan : plans) {
+        // Each frame owns a 1px inner border. Adjacent right/left (or
+        // bottom/top) edges occupy separate pixels, making a 2px shared seam.
+        for (int y = 0; y < plan.sheetHeight; ++y) for (int x = 0; x < plan.sheetWidth; ++x) {
+            const int frameX = x % plan.width, frameY = y % plan.height;
+            const bool border = frameX == 0 || frameY == 0 ||
+                frameX == plan.width - 1 || frameY == plan.height - 1;
+            if (border) pixels[(size_t)(plan.atlasY + y) * width + plan.atlasX + x] =
+                D3DCOLOR_ARGB(255, 240, 30, 45);
+        }
+        const std::string name = plan.name.empty() ? "Unnamed Object" : plan.name;
+        const int size = MultiByteToWideChar(932, 0, name.c_str(), -1, nullptr, 0);
+        if (size <= 0) { error = "Could not decode an Object name."; return false; }
+        std::vector<wchar_t> label(size);
+        MultiByteToWideChar(932, 0, name.c_str(), -1, label.data(), size);
+        const Gdiplus::RectF box((float)plan.atlasX, (float)(plan.atlasY + plan.sheetHeight + 3),
+            (float)plan.tileWidth, 25.0f);
+        if (graphics.DrawString(label.data(), -1, &font, box, &format, &red) != Gdiplus::Ok) {
+            error = "Could not draw an Object name."; return false;
+        }
+        graphics.Flush(Gdiplus::FlushIntentionSync);
+    }
+    return true;
+}
+
+void WriteDstGuideFrameBorder(std::ostream& svg, int x, int y, int width, int height) {
+    if (width == 1 || height == 1) {
+        // A one-pixel-wide/high frame consists entirely of border pixels.
+        // SVG ignores zero-sized rect strokes, so use a filled strip here.
+        svg << "<rect x=\"" << x << "\" y=\"" << y << "\" width=\"" << width
+            << "\" height=\"" << height << "\" fill=\"#f01e2d\" shape-rendering=\"crispEdges\"/>\n";
+    } else {
+        // SVG strokes straddle the path. Inset the path by half a pixel so
+        // its 1px stroke stays inside the same pixels as the PNG border.
+        svg << "<rect x=\"" << x + 0.5 << "\" y=\"" << y + 0.5
+            << "\" width=\"" << width - 1 << "\" height=\"" << height - 1
+            << "\" fill=\"none\" stroke=\"#f01e2d\" stroke-width=\"1\" shape-rendering=\"crispEdges\"/>\n";
+    }
+}
+}
+
+bool WORKSPACE::GetDstAtlasSize(const std::vector<int>& models, int& width, int& height, std::string& error) {
+    std::vector<DstAssetPlan> plans;
+    return PlanDstAtlas(*this, models, plans, width, height, error);
+}
+
+bool WORKSPACE::CreateAssetFromDst(int model, std::string& imagePath, std::string& error, bool paintableGuide) {
+    return CreateAtlasFromDst(std::vector<int>(1, model), imagePath, error, paintableGuide);
+}
+
+bool WORKSPACE::CreateAtlasFromDst(const std::vector<int>& models, std::string& imagePath, std::string& error, bool paintableGuide) {
+    imagePath.clear(); error.clear();
+    if (!imagePixelPaintDirtyPaths.empty()) { error = "Save or revert Pixel Paint edits first."; return false; }
+    if (applyingHistory || pendingHistorySnapshotRestore >= 0 || !*mainpath) {
+        error = "Finish the pending document operation first."; return false;
+    }
+    std::vector<DstAssetPlan> plans;
+    int width = 0, height = 0;
+    if (!PlanDstAtlas(*this, models, plans, width, height, error)) return false;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path directory = fs::absolute(fs::path(mainpath), ec).parent_path();
+    if (ec || !fs::is_directory(directory, ec)) { error = "The skin directory is unavailable."; return false; }
+    std::string path, guide, annotated;
+    do {
+        const std::string stem = "dst_" + GenerateObjectId(*this);
+        path = (directory / (stem + ".png")).string();
+        guide = (directory / (stem + "_guide.png")).string();
+        annotated = (directory / (stem + "_guide.svg")).string();
+    } while (!ec && (fs::exists(path, ec) || fs::exists(guide, ec) || fs::exists(annotated, ec)));
+    if (ec || annotated.size() >= MAX_PATH || path.find(',') != std::string::npos) {
+        error = "The new image path cannot be represented in LR2."; return false;
+    }
+    // Cleanup is restricted to fresh outputs owned by this invocation.
+    const auto cleanup = [&]() { fs::remove(path, ec); fs::remove(guide, ec); fs::remove(annotated, ec); };
+    std::vector<D3DCOLOR> pixels;
+    if (!RenderDstGuide(plans, width, height, pixels, error)) return false;
+    std::ofstream svg(annotated, std::ios::binary);
+    if (!svg) { error = "Could not create the annotated guide."; return false; }
+    const int guideWidth = width;
+    const int guideHeight = height;
+    svg << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << guideWidth
+        << "\" height=\"" << guideHeight << "\" viewBox=\"0 0 " << guideWidth << " " << guideHeight << "\">\n"
+        << "<g font-family=\"Segoe UI,sans-serif\" fill=\"#f01e2d\">\n";
+    int ordinal = 0;
+    for (const auto& plan : plans) {
+        ++ordinal;
+        svg << "<g><title>" << DstGuideXml(plan.name) << " | Frame " << plan.width << " x " << plan.height
+            << " | Grid " << plan.columns << " x " << plan.rows << " | Frames 0.." << plan.columns * plan.rows - 1
+            << " | IF group " << objectEditorModel.Objects()[plan.model].ifgroup << "</title>\n";
+        for (int row = 0; row < plan.rows; ++row) for (int col = 0; col < plan.columns; ++col) {
+            const int x = plan.atlasX + col * plan.width, y = plan.atlasY + row * plan.height;
+            const int frame = row * plan.columns + col;
+            const float font = (std::max)(1.0f, (std::min)(12.0f, (std::min)(plan.width / 7.0f, plan.height / 3.0f)));
+            WriteDstGuideFrameBorder(svg, x, y, plan.width, plan.height);
+            svg << "<text x=\"" << x + 1 << "\" y=\"" << y + font << "\" font-size=\"" << font << "\">"
+                << ordinal << ":" << frame << "</text>\n";
+        }
+        svg << "<svg x=\"" << plan.atlasX << "\" y=\"" << plan.atlasY + plan.sheetHeight
+            << "\" width=\"" << plan.tileWidth << "\" height=\"28\" overflow=\"hidden\">"
+            << "<text x=\"0\" y=\"21\" font-size=\"18\">"
+            << DstGuideXml(plan.name.empty() ? "Unnamed Object" : plan.name) << "</text></svg></g>\n";
+    }
+    svg << "</g></svg>\n"; svg.close();
+    if (!svg) { cleanup(); error = "Could not finish the annotated guide."; return false; }
+    char fileError[256] = {};
+    // Default: edit this PNG directly, painting over the red borders. No PNG
+    // sidecar in this mode, so a later reload cannot resurrect erased borders
+    // through Image Manager's guide overlay. Names stay outside every SRC crop.
+    const bool written = paintableGuide
+        ? CreateArgbImageFileAtomic(path.c_str(), width, height, pixels.data(), pixels.size(), fileError, sizeof(fileError))
+        : (CreateSolidImageFileAtomic(path.c_str(), width, height, D3DCOLOR_ARGB(0, 0, 0, 0), fileError, sizeof(fileError)) &&
+            CreateArgbImageFileAtomic(guide.c_str(), width, height, pixels.data(), pixels.size(), fileError, sizeof(fileError)));
+    if (!written) {
+        cleanup(); error = fileError; return false;
+    }
+    CSTR rootOwner;
+    AssignRootFileOwner(skinfileLines, mainpath, rootOwner);
+    const int insertAt = FindOwnerFileEndRow(skinfileLines, rootOwner.outstr());
+    const auto before = CaptureDocumentSnapshot();
+    const auto oldRedo = redoDocumentSnapshots;
+    const auto oldRevision = documentRevision;
+    const int oldFocus = imageManagerGeneratedGrFocusRequest;
+    const int oldRows = skinfileLines.count;
+    applyingHistory = true;
+    // Object SRC rows already define the crops. Keep the #IMAGE/gr binding
+    // without adding an unused full-canvas Asset (including the caption padding).
+    const int gr = RegisterGeneratedImage(path.c_str(), width, height, error, 1, 1, 0, 0, 0, false);
+    bool ok = gr >= 0;
+    std::vector<int> sources;
+    for (const auto& plan : plans) {
+        if (!ok) break;
+        const int source = plan.source + (plan.source >= insertAt ? skinfileLines.count - oldRows : 0);
+        if (source < 0 || source >= skinfileLines.count) { ok = false; break; }
+        auto& line = ((SKINFILELINEREAD*)skinfileLines.data)[source];
+        CSVbuf values; SplitCSV(line.line, &values, ",");
+        const std::string command = values.str[0].outstr();
+        const char* names[] = { "gr", "x", "y", "w", "h" };
+        const int data[] = { gr, plan.atlasX, plan.atlasY, plan.sheetWidth, plan.sheetHeight };
+        for (int i = 0; i < 5; ++i) {
+            const int column = FindCommandFieldColumn(command.c_str(), names[i]);
+            if (column <= 0) { ok = false; break; }
+            values.str[column].assign(std::to_string(data[i]).c_str()); values.val[column] = data[i];
+        }
+        if (ok) {
+            CSTR replacement; CsvToCSTR(values, replacement);
+            CSTR previous(line.line);
+            ok = EditLine(source, previous, replacement) == 0;
+            sources.push_back(source);
+        }
+    }
+    applyingHistory = false;
+    if (!ok) {
+        const bool replay = replayingHistory; replayingHistory = true;
+        RestoreDocumentSnapshot(before); replayingHistory = replay;
+        redoDocumentSnapshots = oldRedo; documentRevision = oldRevision;
+        imageManagerGeneratedGrFocusRequest = oldFocus; cleanup();
+        if (error.empty()) error = "Could not bind the shared atlas. No Objects were changed.";
+        return false;
+    }
+    const int snapshot = (int)historyDocumentSnapshots.size();
+    historyDocumentSnapshots.push_back(before);
+    auto* history = (HISTORY*)arr_history.Get_new(); history->op = restoreDocument; history->target = snapshot;
+    RebuildObjectModel();
+    std::vector<int> selected;
+    for (int i = 0; i < (int)objectEditorModel.Objects().size(); ++i)
+        for (int source : sources) {
+            const auto& rows = objectEditorModel.Objects()[i].rows;
+            if (std::find(rows.begin(), rows.end(), source) != rows.end()) { selected.push_back(i); break; }
+        }
+    if (!selected.empty()) SetObjectSelection(selected, selected.front(), selected.front(), true);
+    imagePath = path; return true;
+}
+
+bool WORKSPACE::CreateImagesFromDst(const std::vector<int>& models, bool separate,
+    std::vector<std::string>& paths, std::string& error, bool paintableGuide) {
+    paths.clear(); error.clear();
+    if (!imagePixelPaintDirtyPaths.empty() || !*mainpath) {
+        error = "Open a skin and save or revert Pixel Paint edits first."; return false;
+    }
+    if (!separate) {
+        std::string path;
+        if (!CreateAtlasFromDst(models, path, error, paintableGuide)) return false;
+        paths.push_back(path); return true;
+    }
+    if (models.empty() || models.size() > 512 || applyingHistory || pendingHistorySnapshotRestore >= 0) {
+        error = "Select 1 to 512 Objects and finish pending document operations."; return false;
+    }
+    // Validate the entire selection before creating any files. Keep stable keys,
+    // adjusting row fallbacks when root #IMAGE metadata is inserted before an include.
+    std::vector<SEObjectSelectionKey> keys;
+    std::set<int> seen;
+    for (int model : models) {
+        if (!seen.insert(model).second) continue;
+        int w, h;
+        if (!GetDstAtlasSize({model}, w, h, error)) return false;
+        keys.push_back(MakeObjectSelectionKey(model));
+    }
+    const auto before = CaptureDocumentSnapshot();
+    const auto oldRedo = redoDocumentSnapshots;
+    const auto oldRevision = documentRevision;
+    const int oldFocus = imageManagerGeneratedGrFocusRequest;
+    const int historyCount = arr_history.count;
+    const size_t snapshotCount = historyDocumentSnapshots.size();
+    bool success = true;
+    for (size_t i = 0; i < keys.size(); ++i) {
+        const int model = ResolveObjectSelectionKey(keys[i]);
+        CSTR owner; AssignRootFileOwner(skinfileLines, mainpath, owner);
+        const int insertion = FindOwnerFileEndRow(skinfileLines, owner.outstr());
+        const int oldRows = skinfileLines.count;
+        std::string path;
+        if (!CreateAssetFromDst(model, path, error, paintableGuide)) { success = false; break; }
+        paths.push_back(path);
+        const int added = skinfileLines.count - oldRows;
+        for (auto& key : keys) if (key.anchorRow >= insertion) key.anchorRow += added;
+    }
+    arr_history.count = historyCount;
+    historyDocumentSnapshots.resize(snapshotCount);
+    if (!success) {
+        const bool replay = replayingHistory; replayingHistory = true;
+        RestoreDocumentSnapshot(before); replayingHistory = replay;
+        redoDocumentSnapshots = oldRedo; documentRevision = oldRevision;
+        imageManagerGeneratedGrFocusRequest = oldFocus;
+        // Only files generated by this operation are removed on failure.
+        std::error_code ec;
+        for (const auto& path : paths) {
+            const std::string stem = path.substr(0, path.size() - 4);
+            std::filesystem::remove(path, ec);
+            std::filesystem::remove(stem + "_guide.png", ec);
+            std::filesystem::remove(stem + "_guide.svg", ec);
+        }
+        paths.clear(); return false;
+    }
+    historyDocumentSnapshots.push_back(before);
+    auto* history = (HISTORY*)arr_history.Get_new();
+    history->op = restoreDocument; history->target = (int)snapshotCount;
+    std::vector<int> selected;
+    for (const auto& key : keys) {
+        const int model = ResolveObjectSelectionKey(key);
+        if (model >= 0) selected.push_back(model);
+    }
+    if (!selected.empty()) SetObjectSelection(selected, selected.front(), selected.front(), true);
+    return true;
+}
+
+static int TestDstGuideFrameBorders() {
+    // Horizontal BUTTON/NUMBER sheets, a 2D animation and very small cells.
+    const int grids[][4] = { {8, 6, 2, 1}, {8, 6, 10, 1}, {8, 6, 3, 2},
+        {1, 1, 2, 2}, {1, 5, 3, 2}, {5, 1, 2, 3}, {2, 2, 3, 2} };
+    for (const auto& grid : grids) {
+        DstAssetPlan plan;
+        plan.width = grid[0]; plan.height = grid[1];
+        plan.columns = grid[2]; plan.rows = grid[3];
+        plan.sheetWidth = plan.width * plan.columns;
+        plan.sheetHeight = plan.height * plan.rows;
+        plan.atlasX = 3; plan.atlasY = 4;
+        plan.tileWidth = (std::max)(128, plan.sheetWidth);
+        plan.name = "Frame borders";
+        const int width = plan.tileWidth + 6, height = plan.sheetHeight + 32;
+        std::vector<D3DCOLOR> pixels;
+        std::string error;
+        if (!RenderDstGuide({plan}, width, height, pixels, error)) return 400;
+        // Construct expectations as four distinct edges per frame, independently
+        // of the renderer's modulo-based implementation. Include clear gutters.
+        const int checkedHeight = plan.atlasY + plan.sheetHeight + 1;
+        std::vector<D3DCOLOR> expected((size_t)width * checkedHeight, 0);
+        const D3DCOLOR red = D3DCOLOR_ARGB(255, 240, 30, 45);
+        for (int row = 0; row < plan.rows; ++row) for (int col = 0; col < plan.columns; ++col) {
+            const int x0 = plan.atlasX + col * plan.width, y0 = plan.atlasY + row * plan.height;
+            const int x1 = x0 + plan.width - 1, y1 = y0 + plan.height - 1;
+            for (int x = x0; x <= x1; ++x) expected[(size_t)y0 * width + x] = expected[(size_t)y1 * width + x] = red;
+            for (int y = y0; y <= y1; ++y) expected[(size_t)y * width + x0] = expected[(size_t)y * width + x1] = red;
+        }
+        if (!std::equal(expected.begin(), expected.end(), pixels.begin())) return 401;
+        std::ostringstream svg;
+        WriteDstGuideFrameBorder(svg, 3, 4, plan.width, plan.height);
+        const std::string text = svg.str();
+        if (plan.width == 1 || plan.height == 1) {
+            const std::string rectangle = "x=\"3\" y=\"4\" width=\"" + std::to_string(plan.width) +
+                "\" height=\"" + std::to_string(plan.height) + "\" fill=\"#f01e2d\"";
+            if (text.find(rectangle) == std::string::npos || text.find("stroke=") != std::string::npos) return 402;
+        } else {
+            const std::string rectangle = "x=\"3.5\" y=\"4.5\" width=\"" + std::to_string(plan.width - 1) +
+                "\" height=\"" + std::to_string(plan.height - 1) + "\"";
+            if (text.find(rectangle) == std::string::npos ||
+                text.find("stroke-width=\"1\"") == std::string::npos) return 403;
+        }
+    }
+    return 0;
+}
+
+static int TestAtlasCropDeletion(const std::filesystem::path& directory) {
+    // The active gr count is 2, but the all-branch editor count is 4. This is
+    // the important case: losing the legacy full-crop binding silently selects
+    // a different texture after reparsing (consecutive IFs as used by tricoro).
+    auto workspace = std::make_unique<WORKSPACE>();
+    if (workspace->ResetEditorDocumentForLoad() != 0) return 380;
+    const std::string root = (directory / "atlas-delete.lr2skin").string();
+    strncpy_s(workspace->mainpath, root.c_str(), _TRUNCATE);
+    const auto append = [&](const std::string& text) {
+        auto* row = (SKINFILELINEREAD*)workspace->skinfileLines.Get_new();
+        row->line.assign(text.c_str()); row->filename.assign(root.c_str());
+        row->numTotal = workspace->skinfileLines.count - 1;
+        row->isComment = text[0] != '#'; row->isSEcomment = text[0] == '$';
+        SplitCSV(row->line, &row->csv, ","); row->csvColumnCount = CountCsvColumns(row->line);
+    };
+    append("$FILE '" + root + "' start");
+    append("#INFORMATION,0,Atlas deletion,test");
+    append("#IMAGE,missing-base.png");
+    append("#IF,900"); append("#IMAGE,missing-left.png"); append("#ENDIF");
+    append("#IF,901"); append("#IMAGE,missing-right-a.png");
+    append("#IMAGE,missing-right-b.png"); append("#ENDIF");
+    append("$FILE '" + root + "' end");
+    workspace->g.skstruct.op[0] = workspace->g.skstruct.op[900] = 1;
+    workspace->g.skstruct.op[901] = 0;
+    if (workspace->RebuildEditorDerivedState() != 0 ||
+        !workspace->objectEditorModel.LoadGroups(nullptr)) return 381;
+    workspace->RebuildObjectModel(); workspace->loaded = true;
+    std::vector<SEObjectSelectionKey> keys;
+    std::vector<std::string> destinations;
+    std::string path, error;
+    for (int index = 0; index < 3; ++index) {
+        if (!workspace->CreateImageObjectFromLayout(index * 20, 17, 8 + index, 12,
+            ("Box " + std::to_string(index)).c_str(), path, error, -1, SELayoutImageOptions(), false) ||
+            !path.empty() || workspace->RebuildEditorDerivedState() != 0) return 382;
+        workspace->RebuildObjectModel(); keys.push_back(workspace->objectSelection.active);
+        const auto object = workspace->objectEditorModel.Objects()[workspace->ResolveObjectSelectionKey(keys.back())];
+        destinations.emplace_back(((SKINFILELINEREAD*)workspace->skinfileLines.data)[object.rows.back()].line.outstr());
+    }
+    std::vector<int> models;
+    for (const auto& key : keys) models.push_back(workspace->ResolveObjectSelectionKey(key));
+    if (!workspace->CreateAtlasFromDst(models, path, error) ||
+        workspace->RebuildEditorDerivedState() != 0) return 383;
+    workspace->RebuildObjectModel();
+    const auto validateObjects = [&](WORKSPACE& ws) {
+        if (ws.objectEditorModel.Objects().size() != 3) return false;
+        for (int index = 0; index < 3; ++index) {
+            const int model = ws.ResolveObjectSelectionKey(keys[index]);
+            if (model < 0) return false;
+            const auto& object = ws.objectEditorModel.Objects()[model];
+            auto* rows = (SKINFILELINEREAD*)ws.skinfileLines.data;
+            if (rows[object.rows.front()].csv.val[2] != 2 ||
+                destinations[index] != rows[object.rows.back()].line.outstr()) return false;
+            const int asset = ws.FindImageAssetForObject(model);
+            if (asset < 0) return false;
+            const int texture = ws.ResolveIMGTextureIndex(asset);
+            if (texture < 0 || !((SRCGR*)ws.arr_SRCGR.data)[texture].path.isSame(path.c_str())) return false;
+        }
+        return true;
+    };
+    // New atlases expose only the three real crops, not an enclosing fourth.
+    if (workspace->arr_IMG.count != 3 || !validateObjects(*workspace)) return 384;
+    int bindingRow = -1;
+    for (int row = 0; row < workspace->skinfileLines.count; ++row) {
+        auto& line = ((SKINFILELINEREAD*)workspace->skinfileLines.data)[row];
+        if (line.line.isSame("$SE_IMAGE_GR,2")) bindingRow = row;
+    }
+    if (bindingRow < 0) return 385;
+    int width, height;
+    if (!GetImageSizeFromFile(path.c_str(), &width, &height)) return 386;
+    const std::string legacy = "$SRC_IMAGE,0,2,0,0," + std::to_string(width) + "," +
+        std::to_string(height) + ",1,1,0,0,0,0,0";
+    CSTR previous(((SKINFILELINEREAD*)workspace->skinfileLines.data)[bindingRow].line);
+    if (workspace->EditLine(bindingRow, previous, CSTR(legacy.c_str())) != 0 ||
+        workspace->RebuildEditorDerivedState() != 0) return 387;
+    workspace->RebuildObjectModel();
+    const int enclosing = workspace->FindIMG(2, 0, 0, width, height, 0);
+    if (workspace->arr_IMG.count != 4 || enclosing >= workspace->arr_IMG.count ||
+        !workspace->CanDeleteIMG(enclosing) || !validateObjects(*workspace)) return 388;
+    const auto beforeDelete = workspace->CaptureDocumentSnapshot();
+    const int history = workspace->arr_history.count;
+    if (workspace->DeleteIMG(enclosing) != 0 || workspace->arr_history.count != history + 1 ||
+        workspace->RebuildEditorDerivedState() != 0) return 389;
+    workspace->RebuildObjectModel();
+    if (workspace->arr_IMG.count != 3 || !validateObjects(*workspace)) return 390;
+    const auto afterDelete = workspace->CaptureDocumentSnapshot();
+    if (beforeDelete.lines.size() != afterDelete.lines.size()) return 391;
+    for (int row = 0; row < (int)beforeDelete.lines.size(); ++row)
+        if (row != bindingRow && (beforeDelete.lines[row].line != afterDelete.lines[row].line ||
+            beforeDelete.lines[row].filename != afterDelete.lines[row].filename)) return 392;
+    if (workspace->UndoLastEdit() != 0 || workspace->RebuildEditorDerivedState() != 0) return 393;
+    workspace->RebuildObjectModel();
+    if (workspace->arr_IMG.count != 4 || !validateObjects(*workspace)) return 394;
+    if (workspace->RedoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->RebuildEditorDerivedState() != 0) return 395;
+    workspace->RebuildObjectModel();
+    if (workspace->arr_IMG.count != 3 || !validateObjects(*workspace) ||
+        workspace->SaveSkinScript(workspace->mainpath, true, true) != 0) return 396;
+    auto reopened = std::make_unique<WORKSPACE>();
+    if (reopened->ResetEditorDocumentForLoad() != 0) return 397;
+    strncpy_s(reopened->mainpath, root.c_str(), _TRUNCATE);
+    if (reopened->LoadSkinScript(reopened->mainpath) < 0 || reopened->RebuildEditorDerivedState() != 0 ||
+        !reopened->objectEditorModel.LoadGroups(nullptr)) return 398;
+    reopened->RebuildObjectModel(); reopened->loaded = true;
+    if (reopened->arr_IMG.count != 3 || !validateObjects(*reopened)) return 399;
+    return 0;
+}
+
 int RunLayoutFirstObjectSelfTest() {
     namespace fs = std::filesystem;
     if (LoadCommandHelp(nullptr) != 0) return 1;
+    const int borderResult = TestDstGuideFrameBorders();
+    if (borderResult != 0) return borderResult;
     char tempRoot[MAX_PATH] = {};
     char uniqueFile[MAX_PATH] = {};
     if (!GetTempPathA(MAX_PATH, tempRoot) ||
@@ -974,6 +1549,15 @@ int RunLayoutFirstObjectSelfTest() {
         fs::path directory;
         ~Cleanup() { std::error_code ec; fs::remove_all(directory, ec); }
     } cleanup{directory};
+
+    // Use a separate directory: the older layout-only test asserts its output
+    // directory stays completely empty until explicit image generation.
+    const fs::path deletionDirectory = directory / "deletion-test";
+    fs::create_directory(deletionDirectory);
+    const int deletionResult = TestAtlasCropDeletion(deletionDirectory);
+    if (deletionResult != 0) return deletionResult;
+    std::error_code deletionError;
+    fs::remove_all(deletionDirectory, deletionError);
 
     auto workspace = std::make_unique<WORKSPACE>();
     if (workspace->imageAddAutoCrops || workspace->imageAddCropsAttempted ||
@@ -1020,6 +1604,110 @@ int RunLayoutFirstObjectSelfTest() {
     if (workspace->CreateImageObjectFromLayout(0, 0, 0, 16, "Bad",
         imagePath, error) || workspace->skinfileLines.count != originalRows ||
         workspace->arr_history.count != 0) return 5;
+
+    // Layout-only Objects must not allocate PNGs or logical image slots. They
+    // retain ordinary SRC/DST, stable IDs and include/IF ownership across Save.
+    std::vector<SEObjectSelectionKey> layoutKeys;
+    std::vector<std::string> layoutDestinations;
+    for (int kind = 0; kind < 5; ++kind) {
+        SELayoutImageOptions options;
+        options.kind = kind;
+        options.divX = kind == 1 ? 10 : 2;
+        options.divY = kind == 1 ? 1 : 2;
+        options.cycle = 600;
+        options.digits = 4;
+        options.align = 1;
+        if (!workspace->CreateImageObjectFromLayout(21, 32, 8, 12,
+            ("Layout " + std::to_string(kind)).c_str(), imagePath, error, 0, options, false) ||
+            !imagePath.empty() || !fs::is_empty(directory) || !workspace->previewLayoutMode ||
+            workspace->skinfileLines.count != originalRows + (kind + 1) * 4 ||
+            workspace->arr_history.count != kind + 1 ||
+            workspace->RebuildEditorDerivedState() != 0) return 340 + kind;
+        workspace->RebuildObjectModel();
+        layoutKeys.push_back(workspace->objectSelection.active);
+        const int model = workspace->ResolveObjectSelectionKey(layoutKeys.back());
+        if (!workspace->IsLayoutOnlyObject(model)) return 345 + kind;
+        const auto object = workspace->objectEditorModel.Objects()[model];
+        auto* lines = (SKINFILELINEREAD*)workspace->skinfileLines.data;
+        auto& src = lines[object.rows.front()];
+        auto& dst = lines[object.rows.back()];
+        float x, y, w, h;
+        if (object.ifgroup != anchorBranch || !src.filename.isSame(include.c_str()) ||
+            !dst.filename.isSame(include.c_str()) || src.csv.val[7] != options.divX ||
+            src.csv.val[8] != options.divY || src.csv.val[9] != 600 ||
+            !workspace->GetObjectLayoutBounds(model, x, y, w, h) ||
+            x != 21 || y != 32 || w != (kind == 1 ? 32 : 8) || h != 12) return 350 + kind;
+        layoutDestinations.emplace_back(dst.line.outstr());
+        for (int row = 0; row < workspace->skinfileLines.count; ++row)
+            if (lines[row].csv.str[0].isSame("#IMAGE") ||
+                lines[row].csv.str[0].isSame("$SRC_IMAGE")) return 355;
+    }
+    if (workspace->SaveSkinScript(workspace->mainpath, true, false) != 0) return 356;
+    {
+        auto layoutReopened = std::make_unique<WORKSPACE>();
+        if (layoutReopened->ResetEditorDocumentForLoad() != 0) return 357;
+        strncpy_s(layoutReopened->mainpath, root.c_str(), _TRUNCATE);
+        if (layoutReopened->LoadSkinScript(layoutReopened->mainpath) < 0 ||
+            layoutReopened->RebuildEditorDerivedState() != 0 ||
+            !layoutReopened->objectEditorModel.LoadGroups(nullptr)) return 358;
+        layoutReopened->RebuildObjectModel();
+        layoutReopened->loaded = true;
+        for (int kind = 0; kind < 5; ++kind) {
+            const int model = layoutReopened->ResolveObjectSelectionKey(layoutKeys[kind]);
+            if (!layoutReopened->IsLayoutOnlyObject(model)) return 359;
+            const auto object = layoutReopened->objectEditorModel.Objects()[model];
+            auto* lines = (SKINFILELINEREAD*)layoutReopened->skinfileLines.data;
+            if (!lines[object.rows.front()].filename.isSame(include.c_str()) ||
+                object.ifgroup != anchorBranch ||
+                layoutDestinations[kind] != lines[object.rows.back()].line.outstr()) return 360;
+        }
+    }
+    // One shared image is generated only after placement, without new Objects
+    // or changes to their DST. Undo returns to the no-image layout state.
+    std::vector<int> layoutModels;
+    for (const auto& key : layoutKeys) layoutModels.push_back(workspace->ResolveObjectSelectionKey(key));
+    std::vector<std::string> layoutPaths;
+    if (!workspace->CreateImagesFromDst(layoutModels, false, layoutPaths, error) ||
+        layoutPaths.size() != 1 || !fs::exists(layoutPaths[0]) ||
+        workspace->skinfileLines.count != originalRows + 22 ||
+        workspace->arr_history.count != 6 || workspace->RebuildEditorDerivedState() != 0) return 361;
+    unsigned char bakedAlpha = 0;
+    int bakedWidth = 0, bakedHeight = 0;
+    const std::string bakedGuide = layoutPaths[0].substr(0, layoutPaths[0].size() - 4) + "_guide.png";
+    if (!workspace->dstAssetPaintableGuide || fs::exists(bakedGuide) ||
+        !ReadImageFilePixelAlpha(layoutPaths[0].c_str(), 0, 0, &bakedAlpha) || bakedAlpha != 255 ||
+        !ReadImageFilePixelAlpha(layoutPaths[0].c_str(), 1, 1, &bakedAlpha) || bakedAlpha != 0 ||
+        !GetImageSizeFromFile(layoutPaths[0].c_str(), &bakedWidth, &bakedHeight) ||
+        workspace->UpdateImageManagerGuide(layoutPaths[0].c_str(), bakedWidth, bakedHeight)) return 426;
+    workspace->RebuildObjectModel();
+    for (int kind = 0; kind < 5; ++kind) {
+        const int model = workspace->ResolveObjectSelectionKey(layoutKeys[kind]);
+        if (model < 0 || workspace->IsLayoutOnlyObject(model)) return 362;
+        const auto object = workspace->objectEditorModel.Objects()[model];
+        auto* lines = (SKINFILELINEREAD*)workspace->skinfileLines.data;
+        if (layoutDestinations[kind] != lines[object.rows.back()].line.outstr()) return 363;
+    }
+    if (workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->RebuildEditorDerivedState() != 0) return 364;
+    workspace->RebuildObjectModel();
+    for (const auto& key : layoutKeys)
+        if (!workspace->IsLayoutOnlyObject(workspace->ResolveObjectSelectionKey(key))) return 365;
+    if (workspace->RedoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->RebuildEditorDerivedState() != 0) return 366;
+    for (int undo = 0; undo < 6; ++undo)
+        if (workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+            workspace->RebuildEditorDerivedState() != 0) return 367;
+    workspace->RebuildObjectModel();
+    if (workspace->skinfileLines.count != originalRows || workspace->arr_history.count != 0) return 368;
+    if (workspace->RedoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->RebuildEditorDerivedState() != 0) return 369;
+    workspace->RebuildObjectModel();
+    if (!workspace->IsLayoutOnlyObject(workspace->ResolveObjectSelectionKey(layoutKeys.front())) ||
+        workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->RebuildEditorDerivedState() != 0) return 370;
+    workspace->RebuildObjectModel();
+    workspace->previewLayoutMode = false;
+
     if (!workspace->CreateImageObjectFromLayout(-7, 23, 32, 16, "Draw later",
         imagePath, error, 0)) return 6;
     if (workspace->arr_history.count != 1 ||
@@ -1209,12 +1897,183 @@ int RunLayoutFirstObjectSelfTest() {
             src.val[8] != options.divY || src.val[9] != options.cycle ||
             dst.val[5] != 8 || dst.val[6] != 9 ||
             (kind == 1 && (src.val[12] != 1 || src.val[13] != 4))) return 37 + kind;
+        const auto assetKey = workspace->MakeObjectSelectionKey(model);
+        const std::string oldSource = lines[object.rows[0]].line.outstr();
+        const std::string oldDst = lines[object.rows[1]].line.outstr();
+        const int beforeAssetHistory = workspace->arr_history.count;
+        const size_t beforeAssetObjects = workspace->objectEditorModel.Objects().size();
+        int fw = 0, fh = 0, dx = 0, dy = 0;
+        if (!workspace->GetDstAssetSize(model, fw, fh, dx, dy, error) || fw != 8 || fh != 9 ||
+            dx != options.divX || dy != options.divY) return 230 + kind;
+        std::string blankPath;
+        int canvasWidth = 0, canvasHeight = 0;
+        if (!workspace->GetDstAtlasSize({model}, canvasWidth, canvasHeight, error)) return 334;
+        if (!workspace->CreateAssetFromDst(model, blankPath, error, false) ||
+            workspace->arr_history.count != beforeAssetHistory + 1 ||
+            !GetImageSizeFromFile(blankPath.c_str(), &width, &height) ||
+            width != canvasWidth || height != canvasHeight ||
+            !ReadImageFilePixelAlpha(blankPath.c_str(), 0, 0, &alpha) || alpha != 0 ||
+            workspace->RebuildEditorDerivedState() != 0) return 240 + kind;
+        const std::string guidePath = blankPath.substr(0, blankPath.size() - 4) + "_guide.png";
+        if (!GetImageSizeFromFile(guidePath.c_str(), &width, &height) ||
+            width != canvasWidth || height != canvasHeight ||
+            !ReadImageFilePixelAlpha(guidePath.c_str(), 0, 0, &alpha) || alpha != 255 ||
+            !ReadImageFilePixelAlpha(guidePath.c_str(), 1, 1, &alpha) || alpha != 0 ||
+            !ReadImageFilePixelAlpha(guidePath.c_str(), 3, 3, &alpha) || alpha != 0) return 250 + kind;
+        if (dx > 1 && (!ReadImageFilePixelAlpha(guidePath.c_str(), fw - 1, 3, &alpha) || alpha != 255 ||
+            !ReadImageFilePixelAlpha(guidePath.c_str(), fw, 3, &alpha) || alpha != 255 ||
+            !ReadImageFilePixelAlpha(guidePath.c_str(), fw + 1, 3, &alpha) || alpha != 0)) return 404;
+        if (dy > 1 && (!ReadImageFilePixelAlpha(guidePath.c_str(), 3, fh - 1, &alpha) || alpha != 255 ||
+            !ReadImageFilePixelAlpha(guidePath.c_str(), 3, fh, &alpha) || alpha != 255 ||
+            !ReadImageFilePixelAlpha(guidePath.c_str(), 3, fh + 1, &alpha) || alpha != 0)) return 405;
+        // Check the exact guide pixel buffer as well as encoded PNG alpha.
+        std::vector<DstAssetPlan> guidePlans; std::vector<D3DCOLOR> guidePixels;
+        if (!PlanDstAtlas(*workspace, {model}, guidePlans, width, height, error) ||
+            !RenderDstGuide(guidePlans, width, height, guidePixels, error) ||
+            guidePixels[0] != D3DCOLOR_ARGB(255, 240, 30, 45) ||
+            !std::any_of(guidePixels.begin() + (size_t)(fh * dy) * width, guidePixels.end(),
+                [](D3DCOLOR pixel) { return (pixel >> 24) != 0; })) return 335;
+        // The editor must expose the sidecar without binding it as skin artwork.
+        if (!workspace->UpdateImageManagerGuide(blankPath.c_str(), width, height) ||
+            !workspace->imageManagerGuideTexture) return 336;
+        auto* cachedGuide = workspace->imageManagerGuideTexture.get();
+        D3DCOLOR guideColor = 0;
+        if (!ReadTexturePixel(cachedGuide, 0, 0, &guideColor) || guideColor != D3DCOLOR_ARGB(255, 240, 30, 45) ||
+            !workspace->UpdateImageManagerGuide(blankPath.c_str(), width, height) ||
+            cachedGuide != workspace->imageManagerGuideTexture.get() ||
+            !ReadImageFilePixelAlpha(blankPath.c_str(), 0, 0, &alpha) || alpha != 0) return 337;
+        if (workspace->UpdateImageManagerGuide(blankPath.c_str(), width + 1, height, true) ||
+            workspace->imageManagerGuideTexture || workspace->imageManagerGuideStatus.empty()) return 338;
+        if (!workspace->UpdateImageManagerGuide(blankPath.c_str(), width, height, true) ||
+            workspace->UpdateImageManagerGuide(imagePath.c_str(), width, height) ||
+            workspace->imageManagerGuideTexture || !workspace->imageManagerGuideStatus.empty()) return 339;
+        workspace->RebuildObjectModel();
+        const int boundModel = workspace->ResolveObjectSelectionKey(assetKey);
+        if (boundModel < 0 || workspace->objectEditorModel.Objects().size() != beforeAssetObjects) return 260 + kind;
+        const auto bound = workspace->objectEditorModel.Objects()[boundModel];
+        auto* boundLines = (SKINFILELINEREAD*)workspace->skinfileLines.data;
+        auto& boundSrc = boundLines[bound.rows[0]].csv;
+        if (oldDst != boundLines[bound.rows[1]].line.outstr() ||
+            oldSource == boundLines[bound.rows[0]].line.outstr() ||
+            boundSrc.val[7] != options.divX || boundSrc.val[8] != options.divY ||
+            boundSrc.val[9] != options.cycle ||
+            (kind == 1 && (boundSrc.val[12] != 1 || boundSrc.val[13] != 4))) return 270 + kind;
+        if (workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+            workspace->RebuildEditorDerivedState() != 0 || !fs::exists(blankPath) || !fs::exists(guidePath)) return 280 + kind;
+        workspace->RebuildObjectModel();
+        const int restored = workspace->ResolveObjectSelectionKey(assetKey);
+        if (restored < 0 || oldSource != ((SKINFILELINEREAD*)workspace->skinfileLines.data)
+            [workspace->objectEditorModel.Objects()[restored].rows[0]].line.outstr()) return 290 + kind;
         if (workspace->UndoLastEdit() != 0 ||
             workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
             workspace->skinfileLines.count != rowCount || !fs::exists(imagePath) ||
             workspace->RebuildEditorDerivedState() != 0) return 42 + kind;
         workspace->RebuildObjectModel();
     }
+    // Batch atlas: contiguous animation sheets, one gr, annotated guide and one Undo.
+    const int batchStartRows = workspace->skinfileLines.count;
+    SELayoutImageOptions aOptions; aOptions.divX = aOptions.divY = 2; aOptions.cycle = 400;
+    if (!workspace->CreateImageObjectFromLayout(21, 32, 20, 12, "Atlas A <&>", imagePath, error, -1, aOptions) ||
+        workspace->RebuildEditorDerivedState() != 0) return 310;
+    workspace->RebuildObjectModel();
+    const auto aKey = workspace->objectSelection.active;
+    SELayoutImageOptions bOptions; bOptions.kind = 1; bOptions.divX = 10; bOptions.digits = 4;
+    if (!workspace->CreateImageObjectFromLayout(100, 60, 6, 10, "Atlas B", imagePath, error, -1, bOptions) ||
+        workspace->RebuildEditorDerivedState() != 0) return 311;
+    workspace->RebuildObjectModel();
+    const auto bKey = workspace->objectSelection.active;
+    const int aModel = workspace->ResolveObjectSelectionKey(aKey), bModel = workspace->ResolveObjectSelectionKey(bKey);
+    if (aModel < 0 || bModel < 0) return 323;
+    float bx, by, bw, bh;
+    if (!workspace->GetObjectLayoutBounds(bModel, bx, by, bw, bh) || bx != 100 || by != 60 || bw != 24 || bh != 10) return 312;
+    workspace->previewLayoutMode = true;
+    workspace->SetObjectSelection({aModel, bModel}, bModel, bModel, false);
+    if (workspace->RefreshPreviewSelectionBounds() != 0 || workspace->preview_selected_obj.x != 21 ||
+        workspace->preview_selected_obj.y != 32 || workspace->preview_selected_obj.w != 103 ||
+        workspace->preview_selected_obj.h != 38 || workspace->preview_selected_obj_last_valid) return 313;
+    workspace->previewLayoutMode = false;
+    const auto aObject = workspace->objectEditorModel.Objects()[aModel];
+    const auto bObject = workspace->objectEditorModel.Objects()[bModel];
+    const std::string aDst = ((SKINFILELINEREAD*)workspace->skinfileLines.data)[aObject.rows.back()].line.outstr();
+    const std::string bDst = ((SKINFILELINEREAD*)workspace->skinfileLines.data)[bObject.rows.back()].line.outstr();
+    const int batchRows = workspace->skinfileLines.count, batchHistory = workspace->arr_history.count;
+    std::string batchPath;
+    if (workspace->GetDstAtlasSize({aModel, -1}, width, height, error) ||
+        workspace->CreateAtlasFromDst({aModel, -1}, batchPath, error) ||
+        workspace->skinfileLines.count != batchRows) return 314;
+    if (!workspace->CreateAtlasFromDst({aModel, bModel, aModel}, batchPath, error) ||
+        workspace->skinfileLines.count != batchRows + 2 || workspace->arr_history.count != batchHistory + 1 ||
+        workspace->RebuildEditorDerivedState() != 0) return 315;
+    workspace->RebuildObjectModel();
+    const int packedAModel = workspace->ResolveObjectSelectionKey(aKey), packedBModel = workspace->ResolveObjectSelectionKey(bKey);
+    if (packedAModel < 0 || packedBModel < 0) return 324;
+    const auto packedA = workspace->objectEditorModel.Objects()[packedAModel];
+    const auto packedB = workspace->objectEditorModel.Objects()[packedBModel];
+    auto* packedLines = (SKINFILELINEREAD*)workspace->skinfileLines.data;
+    auto& ac = packedLines[packedA.rows.front()].csv;
+    auto& bc = packedLines[packedB.rows.front()].csv;
+    if (ac.val[2] != bc.val[2] || ac.val[5] != 40 || ac.val[6] != 24 ||
+        bc.val[5] != 60 || bc.val[6] != 10 || ac.val[7] != 2 || ac.val[8] != 2 || ac.val[9] != 400 ||
+        bc.val[7] != 10 || bc.val[13] != 4 ||
+        aDst != packedLines[packedA.rows.back()].line.outstr() || bDst != packedLines[packedB.rows.back()].line.outstr()) return 316;
+    if (!(ac.val[3] + ac.val[5] <= bc.val[3] || bc.val[3] + bc.val[5] <= ac.val[3] ||
+        ac.val[4] + ac.val[6] <= bc.val[4] || bc.val[4] + bc.val[6] <= ac.val[4])) return 317;
+    const std::string svgPath = batchPath.substr(0, batchPath.size() - 4) + "_guide.svg";
+    std::ifstream svgInput(svgPath, std::ios::binary);
+    const std::string svgText((std::istreambuf_iterator<char>(svgInput)), std::istreambuf_iterator<char>());
+    if (svgText.find("Atlas A &lt;&amp;&gt;") == std::string::npos || svgText.find("Frame 6 x 10") == std::string::npos ||
+        svgText.find("#181a1e") != std::string::npos || svgText.find("#f01e2d") == std::string::npos ||
+        svgText.find("stroke-width=\"2\"") != std::string::npos ||
+        svgText.find("stroke-opacity=") != std::string::npos ||
+        svgText.find("shape-rendering=\"crispEdges\"") == std::string::npos ||
+        svgText.find("fill=\"none\"") == std::string::npos ||
+        svgText.find(":9</text>") == std::string::npos || svgText.find("Frames 0..3") == std::string::npos) return 318;
+    if (workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->skinfileLines.count != batchRows || workspace->RebuildEditorDerivedState() != 0 ||
+        !fs::exists(batchPath) || !fs::exists(svgPath)) return 319;
+    if (workspace->RedoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->skinfileLines.count != batchRows + 2 || workspace->RebuildEditorDerivedState() != 0) return 320;
+    if (workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->RebuildEditorDerivedState() != 0) return 325;
+    workspace->RebuildObjectModel();
+    const int separateA = workspace->ResolveObjectSelectionKey(aKey), separateB = workspace->ResolveObjectSelectionKey(bKey);
+    if (separateA < 0 || separateB < 0) return 326;
+    workspace->SetObjectSelection({separateA, separateB}, separateB, separateB, false);
+    workspace->RequestDstAssetDialog();
+    if (!workspace->dstAssetRequested || workspace->dstAtlasTargets.size() != 2 || workspace->dstAssetSeparate ||
+        workspace->dstAssetRevision != workspace->documentRevision) return 327;
+    workspace->dstAssetRequested = false;
+    const int separateHistory = workspace->arr_history.count;
+    std::vector<std::string> separatePaths;
+    if (workspace->CreateImagesFromDst({separateA, -1}, true, separatePaths, error) || !separatePaths.empty() ||
+        workspace->skinfileLines.count != batchRows) return 328;
+    if (!workspace->CreateImagesFromDst({separateA, separateB, separateA}, true, separatePaths, error, false) ||
+        separatePaths.size() != 2 || separatePaths[0] == separatePaths[1] ||
+        workspace->skinfileLines.count != batchRows + 4 || workspace->arr_history.count != separateHistory + 1 ||
+        workspace->objectSelection.selected.size() != 2 || workspace->RebuildEditorDerivedState() != 0) return 329;
+    for (const auto& path : separatePaths)
+        if (!ReadImageFilePixelAlpha(path.c_str(), 0, 0, &alpha) || alpha != 0 ||
+            !fs::exists(path.substr(0, path.size() - 4) + "_guide.png")) return 427;
+    workspace->RebuildObjectModel();
+    const int imageA = workspace->ResolveObjectSelectionKey(aKey), imageB = workspace->ResolveObjectSelectionKey(bKey);
+    if (imageA < 0 || imageB < 0) return 330;
+    auto* separateLines = (SKINFILELINEREAD*)workspace->skinfileLines.data;
+    const auto sa = workspace->objectEditorModel.Objects()[imageA];
+    const auto sb = workspace->objectEditorModel.Objects()[imageB];
+    if (separateLines[sa.rows.front()].csv.val[2] == separateLines[sb.rows.front()].csv.val[2] ||
+        aDst != separateLines[sa.rows.back()].line.outstr() || bDst != separateLines[sb.rows.back()].line.outstr() ||
+        !GetImageSizeFromFile(separatePaths[0].c_str(), &width, &height) || width < 40 || height != 24 + 28 ||
+        !GetImageSizeFromFile(separatePaths[1].c_str(), &width, &height) || width < 60 || height != 10 + 28) return 331;
+    if (workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->skinfileLines.count != batchRows || workspace->RebuildEditorDerivedState() != 0 ||
+        !fs::exists(separatePaths[0]) || !fs::exists(separatePaths[1])) return 332;
+    if (workspace->RedoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+        workspace->skinfileLines.count != batchRows + 4 || workspace->RebuildEditorDerivedState() != 0) return 333;
+    for (int undo = 0; undo < 3; ++undo)
+        if (workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+            workspace->RebuildEditorDerivedState() != 0) return 321;
+    if (workspace->skinfileLines.count != batchStartRows) return 322;
+    workspace->RebuildObjectModel();
     SELayoutImageOptions invalid;
     invalid.divX = INT_MAX;
     if (SELayoutImageSize(64, 64, invalid, width, height)) return 47;

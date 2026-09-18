@@ -413,11 +413,32 @@ typedef struct WORKSPACE {
     char objectSplitFilename[128] = "objects.csv";
     std::string objectSplitError;
     unsigned long long objectSplitRevision = 0;
-    // Layout-first image-backed creation. PNG remains on Undo for later paint
-    // edits and Redo; no new serialized metadata or OLRskin contract is needed.
+    // Layout-first creation; UI defaults to no image, legacy callers keep PNG
+    // creation. Undo keeps any generated PNG for paint/Redo. No new file format.
     bool CreateImageObjectFromLayout(int x, int y, int width, int height,
         const char* name, std::string& imagePath, std::string& errorText,
-        int afterObject = -1, const SELayoutImageOptions& options = SELayoutImageOptions());
+        int afterObject = -1, const SELayoutImageOptions& options = SELayoutImageOptions(),
+        bool createImageNow = true);
+    bool GetDstAssetSize(int modelIndex, int& width, int& height,
+        int& columns, int& rows, std::string& error);
+    bool IsLayoutOnlyObject(int modelIndex);
+    bool CreateAssetFromDst(int modelIndex, std::string& imagePath, std::string& error, bool paintableGuide = true);
+    bool GetDstAtlasSize(const std::vector<int>& models, int& width, int& height, std::string& error);
+    bool CreateAtlasFromDst(const std::vector<int>& models, std::string& imagePath, std::string& error, bool paintableGuide = true);
+    bool CreateImagesFromDst(const std::vector<int>& models, bool separate,
+        std::vector<std::string>& paths, std::string& error, bool paintableGuide = true);
+    bool GetObjectLayoutBounds(int model, float& x, float& y, float& w, float& h);
+    bool previewLayoutMode = false;
+    ImVec2 previewLayoutPickPoint = ImVec2(0, 0);
+    void drawDstAssetDialog();
+    void RequestDstAssetDialog();
+    bool dstAssetRequested = false;
+    std::vector<SEObjectSelectionKey> dstAtlasTargets;
+    bool dstAssetSeparate = false;
+    bool dstAssetPaintableGuide = true;
+    ImGuiTextFilter dstAssetFilter;
+    unsigned long long dstAssetRevision = 0;
+    std::string dstAssetError;
     bool HasCopiedObjects() const;
     SkinDocumentSnapshot CaptureDocumentSnapshot() const;
     int RestoreDocumentSnapshot(const SkinDocumentSnapshot& snapshot);
@@ -561,6 +582,12 @@ typedef struct WORKSPACE {
     int drawImgManager();
     float ImageManagerZoom = 0.0f;
     bool imagePixelPaintMode = false;
+    bool imageManagerShowGuide = true;
+    std::shared_ptr<IDirect3DTexture9> imageManagerGuideTexture;
+    std::string imageManagerGuideSourcePath;
+    std::string imageManagerGuideStatus;
+    int imageManagerGuideWidth = 0, imageManagerGuideHeight = 0;
+    bool UpdateImageManagerGuide(const char* imagePath, int width, int height, bool force = false);
     ImVec4 imagePixelPaintColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
     int imagePixelPaintLastX = -1;
     int imagePixelPaintLastY = -1;
@@ -654,6 +681,7 @@ typedef struct WORKSPACE {
     int layoutFirstSize[2] = { 64, 64 };
     bool layoutFirstUseSelection = false;
     bool layoutFirstOpenPaint = true;
+    bool layoutFirstCreateImageNow = false;
     SEObjectSelectionKey layoutFirstAnchor;
     std::string layoutFirstError;
     float assetThumbnailSize = 96.0f;
@@ -687,7 +715,8 @@ typedef struct WORKSPACE {
     int RegisterGeneratedImage(const char* diskPath, int width, int height,
         std::string& errorText, int divX = 1, int divY = 1,
         int cycle = 0, int displayFrameWidth = 0,
-        int displayFrameHeight = 0);
+        int displayFrameHeight = 0, bool registerFullImageAsset = true);
+    bool ReadImageGraphicBinding(int declarationRow, int& graphicId);
     int RegisterExistingImageAsset(int declarationRow, const char* diskPath,
         int width, int height, std::string& errorText, bool cropPlaceholder = false);
     bool ReplaceImageDeclarationPath(int graphicIndex, const char* diskPath,

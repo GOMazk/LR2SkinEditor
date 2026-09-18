@@ -1,5 +1,63 @@
 # 빌드, 실행 및 회귀 테스트
 
+Atlas-deletion regression uses three layout Objects and consecutive IF blocks
+whose structural gr count (4) differs from the active LR2 count (2). New shared
+output must contain exactly three crops/Objects. It simulates a legacy enclosing
+Asset, deletes it, checks every Object's resolved texture and unchanged DST/ID,
+then verifies Undo/Redo and save/reopen with comment removal enabled. The image
+binding survives as `$SE_IMAGE_GR`; the PNG and source commands remain intact.
+Manual: create a three-Object atlas, confirm no enclosing fourth card in Asset
+Browser/Image Manager, and delete an old unused full-canvas Asset in either pane.
+
+Layout-only regression creates all five supported types without disk files,
+`#IMAGE` or `$SRC_IMAGE`, verifies first-DST boxes and include/IF ownership, saves
+and reopens the layouts, then creates one shared image for all of them. SRC
+binding, unchanged DST/IDs, single-step atlas Undo/Redo and layout creation
+Undo/Redo are checked. Direct PNG creation remains covered by the older cases.
+Manual: New layout Object defaults to no PNG, Create enables Layout boxes;
+place/move/resize several Objects, save/reopen, then choose Images from layout.
+Inspector must explain pending artwork and offer Show layout boxes when needed.
+
+DST Assets: layout-first self-test explicitly selects separate blank/guide PNGs for all five supported
+types, verifies dimensions/alpha, SRC semantics, unchanged DST and Object count,
+single-entry History and restored SRC on Undo. Manually verify Asset Browser's
+Images from layout modal, stale-document rejection, Pixel Paint opening and
+external editing + grReload. Sidecar guide files are not bound to rendered Objects.
+Default shared-image tests check opaque guide borders in the artwork, transparent
+interiors and no `_guide.png` overlay sidecar. Shared and separate generation keep
+the same SRC/DST/History assertions. Manually paint over/erase the default PNG's
+red borders, leave names below the crops, and verify that erased borders do not
+reappear when switching/reopening Image Manager. Remaining borders intentionally
+appear in Preview. Optional transparent output must retain overlay-only behavior.
+Guide tests verify transparent crop interiors, exact red contour pixels, name glyph
+coverage below each sheet and matching PNG/canvas dimensions. SVG has no opaque
+background and keeps names and frame metadata. Manually overlay the guide on its
+blank PNG to verify 1:1 alignment, Japanese names and clipped/ellipsized long names.
+Frame-border tests compare every PNG border/interior/gutter pixel for BUTTON-like
+2-frame, NUMBER-like 10-frame, 2D and 1/2px-sized grids. Encoded PNGs verify 1px
+outer contours and 2px horizontal/vertical seams. SVG tests check half-pixel
+insets, 1px crisp strokes, tiny filled strips and absence of the old 2px contour.
+Layout-first also loads the real guide texture, checks red pixels/cache reuse,
+rejects mismatched dimensions/missing sidecars, and verifies the artwork stays transparent.
+Manual: existing generated PNGs must automatically show the guide in Image Manager;
+toggle Guide, zoom/scroll, paint/erase/pick/save, switch textures and grReload.
+In separate-guide mode saved art and the game Preview must never contain the overlay.
+The batch case verifies one gr/two metadata rows, non-overlapping sheets, preserved
+div/cycle/keta/DST, deduplicated selection, unsupported-input rejection, escaped SVG
+names and frame numbers, and one-entry Undo/Redo. Layout-box tests check NUMBER
+keta bounds and multi-selection union without a runtime texture.
+Manual: enable Layout boxes, click/Ctrl-click/right-click overlapping boxes, move
+and resize, toggle IF and file visibility, and switch back to normal Preview.
+Select IMAGE + NUMBER, create a shared atlas, inspect both guide files, paint/reload,
+then save/reopen. Resize a four-digit NUMBER and verify DST w remains a single
+digit width; Ctrl-selection must not accidentally begin moving Objects. Native
+GUI interactions and external drawing require manual QA.
+Separate-image tests check preselected draft keys, distinct PNG/gr per Object,
+dimensions, unchanged DST, duplicate exclusion and single-step Undo/Redo.
+Manual: open from the toolbar and empty-area menu (including zero Assets); choose
+Objects without Browser preselection, search/check/uncheck and switch shared/separate.
+Cancel must not alter document/selection. Inspector's old buttons must be absent.
+
 Image import auto-detection: Add image defaults to full-image registration;
 opting into Auto crops must show detected regions. Check two different files, candidate
 exclusion, full-image opt-out, transparent/opaque images and failed detection retry.
@@ -224,10 +282,11 @@ Ctrl+Z로 등록 전체가 복구되는지 확인한다. 기존 fixed/wildcard �
   Direct3D 장치가 필요하며 사용자 드래그 UI 검증은 포함하지 않는다.
 
 Layout-first UI 수동 검증: Asset Browser 빈 공간 우클릭 →
-`New blank image Object...`에서 이름·X/Y/W/H를 지정해 Create한다. Asset 0개,
+`New layout Object...`에서 이름·X/Y/W/H를 지정해 Create한다. Asset 0개,
 검색 결과 0개 및 일반 grid의 빈 공간을 각각 확인한다. 카드 우클릭은 기존 메뉴를
-유지해야 한다. Pixel Paint 옵션을 켜면 새 PNG를 그릴 수 있어야 하며, 끄면 Preview의
-선택 사각형과 Inspector DST 위치·크기가 일치해야 한다. Cancel 및 잘못된 크기는
+유지해야 한다. 기본은 파일 없이 Layout boxes에 나타나야 한다. `Create image now`와
+Pixel Paint 옵션을 켜면 새 PNG를 그릴 수 있어야 하며, 끄면 Preview의
+배치 사각형과 Inspector DST 위치·크기가 일치해야 한다. Cancel 및 잘못된 크기는
 문서/PNG를 생성하지 않아야 한다.
 
 `Draw rectangle in Preview`를 누른 뒤 50%/100%/1600% 및 스크롤한 화면에서 양방향

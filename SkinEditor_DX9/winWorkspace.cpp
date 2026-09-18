@@ -2476,6 +2476,30 @@ int WORKSPACE::ParseSkinConditions() {
     return 0;
 }
 
+bool WORKSPACE::ReadImageGraphicBinding(int declarationRow, int& graphicId) {
+    graphicId = -1;
+    if (declarationRow < 0 || declarationRow + 1 >= skinfileLines.count) return false;
+    auto* lines = (SKINFILELINEREAD*)skinfileLines.data;
+    auto& declaration = lines[declarationRow];
+    auto& metadata = lines[declarationRow + 1];
+    if (!declaration.csv.str[0].isSame("#IMAGE") || !metadata.isSEcomment ||
+        (declaration.filename.body && metadata.filename.body &&
+            !IsSameOwnerPath(declaration.filename.outstr(), metadata.filename.outstr()))) return false;
+    const char* text = metadata.line.body ? metadata.line.outstr() : "";
+    const bool bindingOnly = strncmp(text, "$SE_IMAGE_GR,", 13) == 0;
+    if (!bindingOnly && strncmp(text, "$SRC_IMAGE,", 11) != 0) return false;
+    // Read raw metadata: generic $SE_ comments have no CSV cache after load.
+    CSVbuf values; SplitCSV(metadata.line, &values, ",");
+    CSTR number(values.str[bindingOnly ? 1 : 2]);
+    number.trimWhiteSpace();
+    if (!number.body || !*number.outstr()) return false;
+    char* end = nullptr;
+    const long value = strtol(number.outstr(), &end, 10);
+    if (*end || value < 0 || value >= 100) return false;
+    graphicId = (int)value;
+    return true;
+}
+
 int WORKSPACE::ParseSkinGraphics() {
     struct GraphicConditionFrame {
         int grCountBeforeBlock;
@@ -2568,26 +2592,15 @@ int WORKSPACE::ParseSkinGraphics() {
             else if (resourceResolution == SESkinResourcePathResult::Rejected)
                 line.assign("ERROR");
 
-            // Generated images carry an editor-only full-image Asset directly
-            // after their #IMAGE row. Its gr value is the active LR2 slot,
+            // Generated images carry an editor-only binding directly after
+            // #IMAGE (legacy files use a full-image Asset). This is the active LR2 slot,
             // which can differ from grCount when earlier mutually exclusive
             // layouts are expressed as consecutive #IF blocks (tricoro).
             // Keep the structural counter for ordinary declarations, but bind
             // this declaration to the explicit runtime-compatible slot.
             int logicalGraphicId = grCount;
-            if (i + 1 < skinfileLines.count) {
-                SKINFILELINEREAD& metadata =
-                    ((SKINFILELINEREAD*)skinfileLines.data)[i + 1];
-                const char* metadataText = metadata.line.body
-                    ? metadata.line.outstr() : "";
-                if (metadata.isSEcomment &&
-                    strncmp(metadataText, "$SRC_IMAGE,", 11) == 0 &&
-                    (!read.filename.body || !metadata.filename.body ||
-                        IsSameOwnerPath(read.filename.outstr(),
-                            metadata.filename.outstr()))) {
-                    logicalGraphicId = metadata.csv.val[2];
-                }
-            }
+            int boundGraphicId = -1;
+            if (ReadImageGraphicBinding(i, boundGraphicId)) logicalGraphicId = boundGraphicId;
 
             const int wildcardPosition = line.findStrPos("*");
             if (wildcardPosition < 0) {
@@ -3282,6 +3295,10 @@ static bool ResetEditorDerivedContainers(WORKSPACE& workspace) {
 }
 
 int WORKSPACE::ResetEditorDocumentForLoad() {
+    imageManagerGuideTexture.reset();
+    imageManagerGuideSourcePath.clear();
+    imageManagerGuideStatus.clear();
+    imageManagerGuideWidth = imageManagerGuideHeight = 0;
     objectInspectorRevealRequested = imageManagerRevealRequested = codeEditorRevealRequested = false;
     previewHiddenFiles.clear();
     previewRuntimeLineMask.clear();
@@ -6551,7 +6568,7 @@ bool WORKSPACE::SelectIMGAsset(int imageIndex, bool requestImageManagerScroll) {
 
 int WORKSPACE::RegisterGeneratedImage(const char* diskPath, int width, int height,
     std::string& errorText, int divX, int divY, int cycle,
-    int displayFrameWidth, int displayFrameHeight) {
+    int displayFrameWidth, int displayFrameHeight, bool registerFullImageAsset) {
     errorText.clear();
     if (!diskPath || !*diskPath || width <= 0 || height <= 0 || divX <= 0 ||
         divY <= 0 || divX > width || divY > height || cycle < 0 ||
@@ -6594,7 +6611,11 @@ int WORKSPACE::RegisterGeneratedImage(const char* diskPath, int width, int heigh
     }
 
     char assetLine[256] = {};
-    if (displayFrameWidth > 0 && displayFrameHeight > 0) {
+    if (!registerFullImageAsset) {
+        // Layout Objects already define every crop. Persist only the editor
+        // graphic binding, not a redundant full-atlas Asset the user can delete.
+        snprintf(assetLine, sizeof(assetLine), "$SE_IMAGE_GR,%d", newGraphicId);
+    } else if (displayFrameWidth > 0 && displayFrameHeight > 0) {
         // Column 14 is the optional Asset name. Keep it empty and store the
         // logical display size in editor-only extension columns 15/16. This
         // lets a memory-safe downscaled GIF texture still default its DST to
@@ -7313,6 +7334,39 @@ bool WORKSPACE::OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY) {
 
     newObjectFocusRequest = true;
     wNewObject = true;
+    return true;
+}
+
+bool WORKSPACE::UpdateImageManagerGuide(const char* imagePath, int width, int height, bool force) {
+    const std::string source = imagePath ? imagePath : "";
+    if (!force && source == imageManagerGuideSourcePath &&
+        width == imageManagerGuideWidth && height == imageManagerGuideHeight)
+        return imageManagerGuideTexture != nullptr;
+    imageManagerGuideTexture.reset();
+    imageManagerGuideSourcePath = source;
+    imageManagerGuideWidth = width; imageManagerGuideHeight = height;
+    imageManagerGuideStatus.clear();
+    if (source.empty() || width <= 0 || height <= 0) return false;
+    namespace fs = std::filesystem;
+    const fs::path original(source);
+    const std::string stem = original.stem().string();
+    if (_stricmp(original.extension().string().c_str(), ".png") ||
+        (stem.size() >= 6 && _stricmp(stem.c_str() + stem.size() - 6, "_guide") == 0)) return false;
+    const std::string guide = (original.parent_path() / (stem + "_guide.png")).string();
+    std::error_code ec;
+    if (!fs::is_regular_file(guide, ec)) return false;
+    int guideWidth = 0, guideHeight = 0;
+    if (!GetImageSizeFromFile(guide.c_str(), &guideWidth, &guideHeight) ||
+        guideWidth != width || guideHeight != height || (long long)width * height > 16 * 1024 * 1024) {
+        imageManagerGuideStatus = "Guide not shown: its size must match the image (up to 16 megapixels).";
+        return false;
+    }
+    PDIRECT3DTEXTURE9 texture = nullptr;
+    if (!g_pd3dDevice || !LoadTextureFromFile(guide.c_str(), &texture, &guideWidth, &guideHeight)) {
+        imageManagerGuideStatus = "Could not load the guide overlay. Try grReload.";
+        return false;
+    }
+    imageManagerGuideTexture.reset(texture, [](IDirect3DTexture9* value) { value->Release(); });
     return true;
 }
 
@@ -8104,6 +8158,7 @@ int WORKSPACE::drawImgManager() {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("%s", imagePathUtf8.c_str());
     const bool hasImageDiskPath = img.path.body && *img.path.outstr();
+    UpdateImageManagerGuide(hasImageDiskPath ? img.path.outstr() : "", img.sizeX, img.sizeY);
     snprintf(title, sizeof(title), "grReload##%d", num);
     ImGui::BeginDisabled(!hasImageDiskPath);
     if (ImGui::Button(title)) {
@@ -8116,6 +8171,7 @@ int WORKSPACE::drawImgManager() {
                 "Save or revert pixel edits before reloading this texture.";
         } else {
             imageManagerReloadPathRequest = reloadPath;
+            UpdateImageManagerGuide(reloadPath.c_str(), img.sizeX, img.sizeY, true);
             imageToolStatus = "Texture reload queued.";
         }
     }
@@ -8821,6 +8877,13 @@ int WORKSPACE::drawImgManager() {
     if (ImGui::Button("100%##imageManagerZoomReset")) ImageManagerZoom = 1.0f;
     imageToolbarNext("Background", ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize("Background").x);
     ImGui::ColorEdit4("Background##3", (float*)&bgColor, ImGuiColorEditFlags_NoInputs);
+    if (imageManagerGuideTexture) {
+        const char* label = SEText("Guide", u8"\uac00\uc774\ub4dc");
+        imageToolbarNext(label, ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(label).x);
+        ImGui::Checkbox(label, &imageManagerShowGuide);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Display-only overlay. Painting, color picking and Save image use the original pixels. grReload also reloads the guide.");
+    }
+    if (!imageManagerGuideStatus.empty()) ImGui::TextWrapped("%s", imageManagerGuideStatus.c_str());
 
     const std::string paintPath = img.path.body ? img.path.outstr() : "";
     const bool paintDirty = !paintPath.empty() &&
@@ -8912,6 +8975,9 @@ int WORKSPACE::drawImgManager() {
         ImGui::SetCursorScreenPos(pb);
         if (img.texture)
             ImGui::ImageWithBg(img.texture, imageDisplaySize, { 0,0 }, { 1, 1 }, bgColor);
+        if (img.texture && imageManagerShowGuide && imageManagerGuideTexture)
+            ImGui::GetWindowDrawList()->AddImage(imageManagerGuideTexture.get(), pb,
+                ImVec2(pb.x + imageDisplaySize.x, pb.y + imageDisplaySize.y));
         EndSharpMagnifiedCanvas(sharpImageManager);
         // Own left drags so selecting a crop cannot drag the dock window.
         bool imageCanvasHovered = false;

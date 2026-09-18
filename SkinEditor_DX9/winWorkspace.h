@@ -595,6 +595,21 @@ typedef struct WORKSPACE {
     std::map<std::string, bool> imagePixelPaintDirtyPaths;
     std::string imagePixelPaintStatus;
     std::string imageManagerReloadPathRequest;
+    bool imageManagerRevertRequested = false;
+    // Disk observations only: CSV, selection and History remain authoritative.
+    struct ImagePathLess {
+        bool operator()(const std::string& a, const std::string& b) const { return _stricmp(a.c_str(), b.c_str()) < 0; }
+    };
+    struct ExternalImageState {
+        unsigned long long loadedWrite = 0, loadedSize = 0;
+        unsigned long long observedWrite = 0, observedSize = 0, observedAt = 0;
+    };
+    std::map<std::string, ExternalImageState, ImagePathLess> externalImageStates;
+    unsigned long long externalImagePolledAt = 0;
+    void RememberImageFile(const char* path, bool updated = false);
+    bool HasUnsavedImageEdits(const char* path) const;
+    bool ReloadImageFile(const char* path, bool discardEdits = false);
+    void PollExternalImageChanges(unsigned long long now);
     bool imageAddDialogRequested = false;
     bool imageAssetNewArmed = false;
     std::string imageManagerManualTexturePath;

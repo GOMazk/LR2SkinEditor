@@ -127,10 +127,10 @@ void WORKSPACE::drawDstAssetDialog() {
     else if (valid) ImGui::Text(SEText("%d Objects -> %d PNG files", u8"%d\uac1c \uc624\ube0c\uc81d\ud2b8 \u2192 PNG %d\uc7a5"), (int)models.size(), (int)models.size());
     else ImGui::TextWrapped("%s", reason.c_str());
     ImGui::TextWrapped(dstAssetPaintableGuide
-        ? SEText("Edit the PNG shown in Image Manager. Paint over or erase red borders: any remaining border appears in Preview.",
-            u8"Image Manager\uc758 PNG\ub97c \uc9c1\uc811 \ud3b8\uc9d1\ud558\uc138\uc694. \ube68\uac04 \ud14c\ub450\ub9ac\ub294 \ub367\uadf8\ub9ac\uac70\ub098 \uc9c0\uc6b0\uc138\uc694. \ub0a8\uc740 \ud14c\ub450\ub9ac\ub294 Preview\uc5d0\ub3c4 \ub098\uc635\ub2c8\ub2e4.")
-        : SEText("Paint the transparent PNG; use _guide.png as a reference layer. The guide is not part of the skin.",
-            u8"\ud22c\uba85 PNG\uc5d0 \uadf8\ub9ac\uace0 _guide.png\ub294 \ucc38\uace0 \ub808\uc774\uc5b4\ub85c \uc4f0\uc138\uc694. \uac00\uc774\ub4dc\ub294 \uc2a4\ud0a8\uc5d0 \ud3ec\ud568\ub418\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4."));
+        ? SEText("Edit the PNG shown in Image Manager. Paint over or erase red borders: any remaining border appears in Preview. External PNG saves reload automatically.",
+            u8"Image Manager\uc758 PNG\ub97c \uc9c1\uc811 \ud3b8\uc9d1\ud558\uc138\uc694. \ube68\uac04 \ud14c\ub450\ub9ac\ub294 \ub367\uadf8\ub9ac\uac70\ub098 \uc9c0\uc6b0\uc138\uc694. \ub0a8\uc740 \ud14c\ub450\ub9ac\ub294 Preview\uc5d0\ub3c4 \ub098\uc635\ub2c8\ub2e4. \uc678\ubd80 PNG \uc800\uc7a5\uc740 \uc790\ub3d9 \uac31\uc2e0\ub429\ub2c8\ub2e4.")
+        : SEText("Paint the transparent PNG; use _guide.png as a reference layer. The guide is not part of the skin. External PNG saves reload automatically.",
+            u8"\ud22c\uba85 PNG\uc5d0 \uadf8\ub9ac\uace0 _guide.png\ub294 \ucc38\uace0 \ub808\uc774\uc5b4\ub85c \uc4f0\uc138\uc694. \uac00\uc774\ub4dc\ub294 \uc2a4\ud0a8\uc5d0 \ud3ec\ud568\ub418\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4. \uc678\ubd80 PNG \uc800\uc7a5\uc740 \uc790\ub3d9 \uac31\uc2e0\ub429\ub2c8\ub2e4."));
     ImGui::TextWrapped(SEText("Only SRC image bindings change. DST stays intact. Undo restores bindings; files remain.",
         u8"SRC \uc774\ubbf8\uc9c0 \uc5f0\uacb0\ub9cc \ubcc0\uacbd\ud558\uace0 DST\ub294 \uc720\uc9c0\ud569\ub2c8\ub2e4. Undo\ub294 \uc5f0\uacb0\ub9cc \ubcf5\uc6d0\ud558\uba70 \ud30c\uc77c\uc740 \ub0a8\uc2b5\ub2c8\ub2e4."));
     if (stale) ImGui::TextWrapped(SEText("The document changed. Cancel and reopen this dialog.", u8"\ubb38\uc11c\uac00 \ubcc0\uacbd\ub418\uc5c8\uc2b5\ub2c8\ub2e4. \ucde8\uc18c \ud6c4 \ub2e4\uc2dc \uc5f4\uc5b4\uc8fc\uc138\uc694."));
@@ -146,8 +146,8 @@ void WORKSPACE::drawDstAssetDialog() {
             wImgManager = wAssetBrowser = true;
             imageManagerRevealRequested = true;
             imageToolStatus = "Created " + std::to_string(paths.size()) + (dstAssetPaintableGuide
-                ? " PNG(s). Edit this image directly; paint over or erase red borders. Use grReload after external edits."
-                : " transparent PNG(s) plus PNG/SVG guides. Paint the transparent image; use grReload after external edits.");
+                ? " PNG(s). Edit this image directly; paint over or erase red borders. External saves reload automatically."
+                : " transparent PNG(s) plus PNG/SVG guides. Paint the transparent image; external saves reload automatically.");
             ImGui::CloseCurrentPopup();
         }
     }

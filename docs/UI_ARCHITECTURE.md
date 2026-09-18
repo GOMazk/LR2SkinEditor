@@ -158,6 +158,17 @@ Image Manager caches the matching `_guide.png` as a separate managed texture.
 the sidecar dimensions, and clears the cache on document reset. Its draw-list overlay
 uses the same canvas origin/size/clip and does not submit an input item. Pixel Paint,
 eyedropper, Save image and runtime continue to use the original texture only.
+`PollExternalImageChanges` runs at WORKSPACE frame start, before UI texture pointers
+are submitted. `RememberImageFile` tracks PNGs loaded by editor or runtime (not all
+wildcard candidates), keyed by normalized absolute paths with case-insensitive
+comparison. A 500ms poll plus stable-stamp debounce limits work to two decodes per
+poll. `ReloadImageFile` decodes and rechecks size/mtime before replacing aliases;
+missing/partial files keep the previous texture. Dirty Pixel Paint blocks reload;
+explicit Revert clears dirty state only after a successful decode. Matching runtime
+captions are invalidated and the existing delayed Scene rebuild recreates derived
+graphs (restarts a playing Scene). CSV/selection/History and parser semantics stay
+unchanged. Document reset clears watches; unchanged files do not reload. Guide
+overlays are invalidated with their artwork or explicitly with grReload.
 `previewLayoutMode` is view-only WORKSPACE state. `GetObjectLayoutBounds` derives
 first-DST boxes from the same five supported types, with NUMBER keta expansion.
 Layout boxes ignore IF/OP gates but honor Preview file visibility. Hit selection

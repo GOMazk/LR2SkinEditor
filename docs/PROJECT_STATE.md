@@ -38,6 +38,15 @@ Image Manager는 별도 가이드 모드에서 같은 폴더의 `원본이름_gu
 파일에도 적용되며 가이드가 없거나 크기가 다르면 표시하지 않는다. 가이드는 화면에만
 표시되므로 Pixel Paint 저장·색 추출·LR2 Preview에는 포함되지 않는다.
 
+외부에서 저장한 사용 중 PNG는 500ms 간격으로 변경 시간/크기를 검사하고, 다음
+검사에서도 안정된 파일만 자동으로 다시 읽는다(대략 0.5~1초, 한 번에 최대 두 파일).
+Image Manager/Asset Browser의 같은 파일 별칭과 Preview가 함께 갱신된다. 모든
+wildcard 후보를 읽지는 않는다. 미저장 Pixel Paint는 자동/수동 reload로 덮어쓰지
+않고 Save/Revert를 기다린다. 저장 중·누락·손상 파일은 기존 텍스처를 유지하고 재시도한다.
+Revert도 새 파일 읽기에 성공한 뒤에만 미저장 표시를 해제한다. 이미지 변경은 CSV,
+선택, History를 수정하지 않는다. Preview는 기존 안전한 Scene 재구성 경로를 사용하므로
+재생 중에는 Scene이 다시 시작된다. 별도 가이드 자체의 편집은 grReload로 다시 읽는다.
+
 현재 IMAGE/NUMBER/SLIDER/BUTTON/BARGRAPH 단일 SRC Object를 지원한다.
 선택 Object의 SRC gr/x/y/w/h만 새 이미지로 연결하고 DST 전체, IF/파일 소유권,
 SRC 분할·cycle·timer·type·align·keta는 보존한다. 기존 이미지 파일은 수정하지 않는다.

@@ -1166,23 +1166,11 @@ int WORKSPACE::draw() {
         RefreshPreviewSelectionBounds();
     }
     if (loaded && !imageManagerReloadPathRequest.empty()) {
-        int reloadIndex = -1;
-        for (int graphicIndex = 0; graphicIndex < arr_SRCGR.count;
-            ++graphicIndex) {
-            SRCGR& graphic = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
-            if (!graphic.path.body || _stricmp(graphic.path.outstr(),
-                imageManagerReloadPathRequest.c_str()) != 0) continue;
-            if (reloadIndex < 0) reloadIndex = graphicIndex;
-            if (graphic.texture) graphic.texture->Release();
-            graphic.texture = NULL;
-            graphic.loaded = false;
-        }
-        if (reloadIndex >= 0 && EnsureSRCGRTexture(reloadIndex))
-            imageToolStatus = "Reloaded the current texture.";
-        else
-            imageToolStatus = "The current texture could not be reloaded.";
+        ReloadImageFile(imageManagerReloadPathRequest.c_str(), imageManagerRevertRequested);
         imageManagerReloadPathRequest.clear();
+        imageManagerRevertRequested = false;
     }
+    if (loaded) PollExternalImageChanges(GetTickCount64());
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(viewport->WorkSize, ImGuiCond_Always);
@@ -3295,6 +3283,9 @@ static bool ResetEditorDerivedContainers(WORKSPACE& workspace) {
 }
 
 int WORKSPACE::ResetEditorDocumentForLoad() {
+    externalImageStates.clear();
+    externalImagePolledAt = 0;
+    imageManagerRevertRequested = false;
     imageManagerGuideTexture.reset();
     imageManagerGuideSourcePath.clear();
     imageManagerGuideStatus.clear();
@@ -4395,6 +4386,8 @@ int WORKSPACE::ReadSkinSE() {
                             CSTR temp(GetRandomFileNoError(csv.str[1], dir), 0);
                             sk->GrHandle[sk->count] = LoadGraph(temp);
                             sk->caption[sk->count].assign(&temp);
+                            if (sk->GrHandle[sk->count] >= 0 && !sk->grIsMovie[sk->count])
+                                RememberImageFile(temp.outstr());
                         }
                         sk->count++;
                     }
@@ -6012,6 +6005,130 @@ int WORKSPACE::drawTextEdit() {
     return 0;
 }
 
+namespace {
+std::string ImageDiskPath(const char* path) {
+    if (!path || !*path) return {};
+    char full[MAX_PATH] = {};
+    const DWORD size = GetFullPathNameA(path, MAX_PATH, full, nullptr);
+    return size && size < MAX_PATH ? std::string(full) : std::string();
+}
+bool ReadImageDiskStamp(const char* path, unsigned long long& write, unsigned long long& size) {
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &data) ||
+        (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return false;
+    write = ((unsigned long long)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
+    size = ((unsigned long long)data.nFileSizeHigh << 32) | data.nFileSizeLow;
+    return size != 0;
+}
+}
+
+void WORKSPACE::RememberImageFile(const char* path, bool updated) {
+    const std::string key = ImageDiskPath(path);
+    if (key.size() < 4 || _stricmp(key.c_str() + key.size() - 4, ".png") != 0) return;
+    if (!updated && externalImageStates.find(key) != externalImageStates.end()) return;
+    ExternalImageState state;
+    if (!ReadImageDiskStamp(key.c_str(), state.loadedWrite, state.loadedSize)) return;
+    state.observedWrite = state.loadedWrite; state.observedSize = state.loadedSize;
+    externalImageStates[key] = state;
+}
+
+bool WORKSPACE::HasUnsavedImageEdits(const char* path) const {
+    const std::string key = ImageDiskPath(path);
+    for (const auto& dirty : imagePixelPaintDirtyPaths)
+        if (_stricmp(ImageDiskPath(dirty.first.c_str()).c_str(), key.c_str()) == 0) return true;
+    return false;
+}
+
+bool WORKSPACE::ReloadImageFile(const char* path, bool discardEdits) {
+    const std::string key = ImageDiskPath(path);
+    if (key.empty()) return false;
+    if (!discardEdits && HasUnsavedImageEdits(key.c_str())) {
+        imageToolStatus = "External image change waiting: save or revert Pixel Paint edits first.";
+        return false;
+    }
+    unsigned long long write = 0, size = 0, afterWrite = 0, afterSize = 0;
+    PDIRECT3DTEXTURE9 replacement = nullptr;
+    int width = 0, height = 0;
+    // Decode before releasing anything. Half-written/deleted PNGs keep the last
+    // usable texture, and the watcher retries once the file becomes stable.
+    if (!ReadImageDiskStamp(key.c_str(), write, size) ||
+        !LoadTextureFromFile(key.c_str(), &replacement, &width, &height) ||
+        !ReadImageDiskStamp(key.c_str(), afterWrite, afterSize) || write != afterWrite || size != afterSize) {
+        if (replacement) replacement->Release();
+        imageToolStatus = "Image reload waiting: file is missing, busy or incomplete. Keeping the previous image.";
+        return false;
+    }
+    for (int index = 0; index < arr_SRCGR.count; ++index) {
+        auto& image = ((SRCGR*)arr_SRCGR.data)[index];
+        if (!image.path.body || _stricmp(ImageDiskPath(image.path.outstr()).c_str(), key.c_str()) != 0) continue;
+        if (image.texture) image.texture->Release();
+        replacement->AddRef(); image.texture = replacement;
+        image.sizeX = width; image.sizeY = height; image.loaded = true;
+    }
+    replacement->Release();
+    if (discardEdits) {
+        for (auto it = imagePixelPaintDirtyPaths.begin(); it != imagePixelPaintDirtyPaths.end();) {
+            if (_stricmp(ImageDiskPath(it->first.c_str()).c_str(), key.c_str()) == 0)
+                it = imagePixelPaintDirtyPaths.erase(it);
+            else ++it;
+        }
+        imagePixelPaintStatus = "Reverted unsaved pixel edits.";
+    }
+    // Runtime SRCs own derived graphs. Use the existing safe scene rebuild to
+    // recreate them, forcing only matching cached #IMAGE entries to load again.
+    // No CSV/model/History rebuild, and no changes to IF or gr resolution.
+    for (int slot = 0; slot < (std::min)(100, g.skstruct.count); ++slot) {
+        if (g.skstruct.grIsMovie[slot] || !g.skstruct.caption[slot].body ||
+            _stricmp(ImageDiskPath(g.skstruct.caption[slot].outstr()).c_str(), key.c_str()) != 0) continue;
+        g.skstruct.caption[slot].assign("");
+        previewReloadPending = true; previewReloadRequestedAt = GetTickCount64();
+    }
+    if (_stricmp(ImageDiskPath(imageManagerGuideSourcePath.c_str()).c_str(), key.c_str()) == 0) {
+        imageManagerGuideTexture.reset(); imageManagerGuideSourcePath.clear();
+    }
+    imageAssetDragging = false; imageAssetDragTexture = nullptr;
+    imagePixelPaintLastX = imagePixelPaintLastY = imagePixelPaintLastButton = -1;
+    previewTextureDirty = true; previewLastRenderAt = 0;
+    RememberImageFile(key.c_str(), true);
+    imageToolStatus = "Reloaded image from disk: " + Cp932ToUtf8(key.c_str());
+    return true;
+}
+
+void WORKSPACE::PollExternalImageChanges(unsigned long long now) {
+    if (now - externalImagePolledAt < 500) return;
+    externalImagePolledAt = now;
+    // Watch only images in use, not thousands of unused wildcard candidates.
+    std::set<std::string, ImagePathLess> active;
+    for (int index = 0; index < arr_SRCGR.count; ++index) {
+        const auto& image = ((SRCGR*)arr_SRCGR.data)[index];
+        if (image.texture && image.path.body) active.insert(ImageDiskPath(image.path.body));
+    }
+    for (int slot = 0; slot < (std::min)(100, g.skstruct.count); ++slot)
+        if (g.skstruct.GrHandle[slot] >= 0 && !g.skstruct.grIsMovie[slot] && g.skstruct.caption[slot].body)
+            active.insert(ImageDiskPath(g.skstruct.caption[slot].outstr()));
+    for (const auto& path : active) RememberImageFile(path.c_str());
+    int attempts = 0;
+    for (auto it = externalImageStates.begin(); it != externalImageStates.end();) {
+        if (!active.count(it->first)) { it = externalImageStates.erase(it); continue; }
+        const std::string path = it->first;
+        auto& state = (it++)->second;
+        unsigned long long write = 0, size = 0;
+        if (!ReadImageDiskStamp(path.c_str(), write, size)) continue;
+        if (state.loadedWrite == write && state.loadedSize == size) continue;
+        if (state.observedWrite != write || state.observedSize != size) {
+            state.observedWrite = write; state.observedSize = size; state.observedAt = now;
+            continue;
+        }
+        if (now - state.observedAt < 500) continue;
+        if (HasUnsavedImageEdits(path.c_str())) {
+            imageToolStatus = "External image change waiting: save or revert Pixel Paint edits first.";
+            continue;
+        }
+        if (++attempts > 2) break;
+        ReloadImageFile(path.c_str());
+    }
+}
+
 bool WORKSPACE::EnsureSRCGRTexture(int iSRCGR) {
     if (iSRCGR < 0 || iSRCGR >= arr_SRCGR.count) return false;
     SRCGR& img = ((SRCGR*)arr_SRCGR.data)[iSRCGR];
@@ -6020,8 +6137,10 @@ bool WORKSPACE::EnsureSRCGRTexture(int iSRCGR) {
 
     // Mark the attempt so missing optional files are not retried every frame.
     img.loaded = true;
-    if (LoadTextureFromFile(img.path.outstr(), &img.texture, &img.sizeX, &img.sizeY))
+    if (LoadTextureFromFile(img.path.outstr(), &img.texture, &img.sizeX, &img.sizeY)) {
+        RememberImageFile(img.path.outstr());
         return true;
+    }
 
     int dxf = DxLib::FileRead_open(img.path);
     if (dxf < 0) return false;
@@ -6033,6 +6152,7 @@ bool WORKSPACE::EnsureSRCGRTexture(int iSRCGR) {
             &img.texture, &img.sizeX, &img.sizeY);
     DxLib::FileRead_close(dxf);
     if (buffer) free(buffer);
+    if (loaded) RememberImageFile(img.path.outstr());
     return loaded;
 }
 
@@ -8163,14 +8283,13 @@ int WORKSPACE::drawImgManager() {
     ImGui::BeginDisabled(!hasImageDiskPath);
     if (ImGui::Button(title)) {
         const std::string reloadPath = img.path.body ? img.path.outstr() : "";
-        const bool reloadDirty = !reloadPath.empty() &&
-            imagePixelPaintDirtyPaths.find(reloadPath) !=
-                imagePixelPaintDirtyPaths.end();
+        const bool reloadDirty = HasUnsavedImageEdits(reloadPath.c_str());
         if (reloadDirty) {
             imageToolStatus =
                 "Save or revert pixel edits before reloading this texture.";
         } else {
             imageManagerReloadPathRequest = reloadPath;
+            imageManagerRevertRequested = false;
             UpdateImageManagerGuide(reloadPath.c_str(), img.sizeX, img.sizeY, true);
             imageToolStatus = "Texture reload queued.";
         }
@@ -8906,6 +9025,7 @@ int WORKSPACE::drawImgManager() {
         if (SaveTextureToImageFileAtomic(paintPath.c_str(), img.texture,
             saveError, sizeof(saveError))) {
             imagePixelPaintDirtyPaths.erase(paintPath);
+            RememberImageFile(paintPath.c_str(), true);
             imagePixelPaintStatus =
                 "Saved. Original backup: .skineditor-pixel.bak";
             for (int graphicIndex = 0; graphicIndex < arr_SRCGR.count; ++graphicIndex) {
@@ -8930,20 +9050,12 @@ int WORKSPACE::drawImgManager() {
     }
     imageToolbarNext("Revert");
     if (ImGui::Button("Revert##imagePixelPaintRevert")) {
-        for (int graphicIndex = 0; graphicIndex < arr_SRCGR.count; ++graphicIndex) {
-            SRCGR& sibling = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
-            if (!sibling.path.body || _stricmp(sibling.path.outstr(),
-                paintPath.c_str()) != 0) continue;
-            if (sibling.texture) sibling.texture->Release();
-            sibling.texture = NULL;
-            sibling.loaded = false;
-        }
-        imagePixelPaintDirtyPaths.erase(paintPath);
         imagePixelPaintLastX = -1;
         imagePixelPaintLastY = -1;
         imagePixelPaintLastButton = -1;
-        imagePixelPaintStatus = "Reverted unsaved pixel edits.";
-        EnsureSRCGRTexture(gr_selected);
+        imageManagerReloadPathRequest = paintPath;
+        imageManagerRevertRequested = true;
+        imagePixelPaintStatus = "Revert queued; reload the saved image next frame.";
     }
     ImGui::EndDisabled();
     if (imagePixelPaintMode)

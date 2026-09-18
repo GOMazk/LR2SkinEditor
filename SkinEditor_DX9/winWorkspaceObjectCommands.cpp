@@ -1533,6 +1533,94 @@ static int TestAtlasCropDeletion(const std::filesystem::path& directory) {
     return 0;
 }
 
+static int TestExternalImageReload(const std::filesystem::path& directory) {
+    const std::string path = (directory / "watched.png").string();
+    const std::string staged = (directory / "staged.png").string();
+    auto workspace = std::make_unique<WORKSPACE>();
+    if (workspace->ResetEditorDocumentForLoad() != 0) return 410;
+    struct ReleaseTextures { WORKSPACE& ws; ~ReleaseTextures() { ws.ResetEditorDocumentForLoad(); } } release{*workspace};
+    char error[256] = {};
+    FILETIME initialTime{}; GetSystemTimeAsFileTime(&initialTime);
+    unsigned long long stamp = ((unsigned long long)initialTime.dwHighDateTime << 32) | initialTime.dwLowDateTime;
+    const auto writeFile = [&](int width, D3DCOLOR color, bool valid = true) {
+        if (valid) {
+            if (!CreateSolidImageFileAtomic(staged.c_str(), width, 4, color, error, sizeof(error)) ||
+                !MoveFileExA(staged.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return false;
+        } else {
+            std::ofstream broken(path, std::ios::binary | std::ios::trunc);
+            broken << "incomplete external PNG"; broken.close();
+            if (!broken) return false;
+        }
+        HANDLE file = CreateFileA(path.c_str(), FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr, OPEN_EXISTING, 0, nullptr);
+        if (file == INVALID_HANDLE_VALUE) return false;
+        stamp += 10000000;
+        FILETIME time{(DWORD)stamp, (DWORD)(stamp >> 32)};
+        const bool ok = SetFileTime(file, nullptr, nullptr, &time) != 0;
+        CloseHandle(file); return ok;
+    };
+    const D3DCOLOR red = D3DCOLOR_ARGB(255, 255, 0, 0), blue = D3DCOLOR_ARGB(255, 0, 0, 255);
+    if (!writeFile(4, red)) return 411;
+    // Relative components and filename case must resolve to the same image.
+    const std::string alias = (directory / "." / "WATCHED.PNG").string();
+    auto* first = (SRCGR*)workspace->arr_SRCGR.Get_new(); first->path.assign(path.c_str());
+    auto* second = (SRCGR*)workspace->arr_SRCGR.Get_new(); second->path.assign(alias.c_str());
+    if (!workspace->EnsureSRCGRTexture(0) || !workspace->EnsureSRCGRTexture(1) ||
+        workspace->externalImageStates.size() != 1) return 412;
+    const auto matches = [&](int width, D3DCOLOR expected) {
+        for (int index = 0; index < 2; ++index) {
+            const auto& image = ((SRCGR*)workspace->arr_SRCGR.data)[index]; D3DCOLOR pixel = 0;
+            if (image.sizeX != width || image.sizeY != 4 || !ReadTexturePixel(image.texture, 0, 0, &pixel) || pixel != expected) return false;
+        }
+        return true;
+    };
+    // A caption fixture checks invalidation of the runtime cache and the common
+    // safe rebuild request without starting/changing a real user's Scene.
+    workspace->g.skstruct.count = 1;
+    workspace->g.skstruct.GrHandle[0] = -1;
+    workspace->g.skstruct.caption[0].assign(alias.c_str());
+    workspace->objectSelection.active.editorId = "keep-selection";
+    const auto revision = workspace->documentRevision;
+    const int history = workspace->arr_history.count;
+    workspace->PollExternalImageChanges(1000);
+    if (!writeFile(6, blue)) return 413;
+    workspace->PollExternalImageChanges(1500);
+    workspace->PollExternalImageChanges(1750);
+    if (!matches(4, red) || workspace->previewReloadPending) return 414;
+    workspace->PollExternalImageChanges(2000);
+    if (!matches(6, blue) || !workspace->previewReloadPending ||
+        !workspace->g.skstruct.caption[0].isSame("") || workspace->documentRevision != revision ||
+        workspace->arr_history.count != history || workspace->objectSelection.active.editorId != "keep-selection") return 415;
+    workspace->previewReloadPending = false;
+    // Unsaved paint blocks auto/manual reload, including differently spelled aliases.
+    workspace->imagePixelPaintDirtyPaths[alias] = true;
+    if (!writeFile(7, red)) return 416;
+    workspace->PollExternalImageChanges(2500); workspace->PollExternalImageChanges(3000);
+    if (!matches(6, blue) || workspace->ReloadImageFile(path.c_str()) ||
+        !workspace->HasUnsavedImageEdits(path.c_str())) return 417;
+    if (!workspace->ReloadImageFile(path.c_str(), true) || !matches(7, red) ||
+        !workspace->imagePixelPaintDirtyPaths.empty()) return 418;
+    // Partial writes and failed Revert preserve both the valid texture and edits.
+    if (!writeFile(0, 0, false)) return 419;
+    workspace->imagePixelPaintDirtyPaths[alias] = true;
+    if (workspace->ReloadImageFile(path.c_str(), true) || !matches(7, red) ||
+        workspace->imagePixelPaintDirtyPaths.empty()) return 420;
+    workspace->imagePixelPaintDirtyPaths.clear();
+    workspace->PollExternalImageChanges(3500); workspace->PollExternalImageChanges(4000);
+    if (!matches(7, red) || workspace->previewReloadPending) return 421;
+    if (!DeleteFileA(path.c_str())) return 422;
+    workspace->PollExternalImageChanges(4500);
+    if (!matches(7, red) || !writeFile(8, blue)) return 423;
+    workspace->PollExternalImageChanges(5000); workspace->PollExternalImageChanges(5500);
+    if (!matches(8, blue)) return 424;
+    // No reload/release loop when the disk image has not changed.
+    auto* texture = ((SRCGR*)workspace->arr_SRCGR.data)[0].texture;
+    workspace->PollExternalImageChanges(6000);
+    if (texture != ((SRCGR*)workspace->arr_SRCGR.data)[0].texture) return 425;
+    workspace->g.skstruct.count = 0;
+    return 0;
+}
+
 int RunLayoutFirstObjectSelfTest() {
     namespace fs = std::filesystem;
     if (LoadCommandHelp(nullptr) != 0) return 1;
@@ -1556,6 +1644,8 @@ int RunLayoutFirstObjectSelfTest() {
     fs::create_directory(deletionDirectory);
     const int deletionResult = TestAtlasCropDeletion(deletionDirectory);
     if (deletionResult != 0) return deletionResult;
+    const int reloadResult = TestExternalImageReload(deletionDirectory);
+    if (reloadResult != 0) return reloadResult;
     std::error_code deletionError;
     fs::remove_all(deletionDirectory, deletionError);
 

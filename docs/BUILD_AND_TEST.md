@@ -22,13 +22,19 @@ DST Assets: layout-first self-test explicitly selects separate blank/guide PNGs 
 types, verifies dimensions/alpha, SRC semantics, unchanged DST and Object count,
 single-entry History and restored SRC on Undo. Manually verify Asset Browser's
 Images from layout modal, stale-document rejection, Pixel Paint opening and
-external editing + grReload. Sidecar guide files are not bound to rendered Objects.
+external editing + automatic reload. Sidecar guide files are not bound to rendered Objects.
 Default shared-image tests check opaque guide borders in the artwork, transparent
 interiors and no `_guide.png` overlay sidecar. Shared and separate generation keep
 the same SRC/DST/History assertions. Manually paint over/erase the default PNG's
 red borders, leave names below the crops, and verify that erased borders do not
 reappear when switching/reopening Image Manager. Remaining borders intentionally
 appear in Preview. Optional transparent output must retain overlay-only behavior.
+External-reload regression uses owned temporary PNGs and deterministic timestamps:
+two path/case aliases, debounce/throttle, dimension/pixel updates, runtime caption
+invalidation and rebuild request, unchanged document/selection/History, dirty-paint
+blocking, successful/failed Revert, partial PNG, delete/recreate and unchanged-file
+stability. Manual: externally save while Image Manager is hidden, check Preview,
+confirm playing Scene restarts and test a real paint-editor save/rename sequence.
 Guide tests verify transparent crop interiors, exact red contour pixels, name glyph
 coverage below each sheet and matching PNG/canvas dimensions. SVG has no opaque
 background and keeps names and frame metadata. Manually overlay the guide on its

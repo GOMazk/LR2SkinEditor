@@ -829,6 +829,20 @@ reloads the workspace. It reuses an existing active or previously inert row;
 only a script with neither form receives a new row after `#INFORMATION`.
 Panel components must not duplicate any of these file operations.
 
+`winWorkspace_save.cpp` owns `CommitSkinSave`: it preflights recovery backups,
+copies originals with fail-if-exists, replaces prepared files and verifies their
+fingerprints. Only backups created by this invocation are eligible for cleanup.
+Rollback checks every restore/delete result and continues past individual failures;
+failed restores keep their backups. A leftover backup blocks future saves, including
+from a fresh Workspace/process. Internal injectable file operations support failure
+tests without a production fault switch. The shared serializer and include ownership
+remain unchanged; this is not a crash-recovery journal or an all-files atomic commit.
+`scriptSaveReport` contains UTF-8 paths, failing stages and Windows errors, including
+cleanup warnings on successful saves. Save/Save As/split propagate it without claiming
+all originals survived. The failure status remains visible until success/reload, with
+wrapped hover details; Save As also offers a copy-details button. Document revisions
+are marked saved only when the transaction returns success.
+
 `skinResolution.cpp` owns the loaded canvas resolution decision. `LoadSkin()`
 passes it the fully expanded script after includes have been read, and applies
 the result before LR2 graph handles are created. The precedence is valid

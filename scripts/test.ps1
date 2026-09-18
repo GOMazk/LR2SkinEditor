@@ -75,6 +75,10 @@ $tests = @(
         Argument = '--self-test-reload-lifecycle'
     },
     [pscustomobject]@{
+        Name = 'save-recovery'
+        Argument = '--self-test-save-recovery'
+    },
+    [pscustomobject]@{
         Name = 'dst-color'
         Argument = '--self-test-dst-color'
     },

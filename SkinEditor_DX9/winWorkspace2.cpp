@@ -2592,11 +2592,12 @@ int WORKSPACE::SaveCurrentSkin() {
     // explicit place to choose whether scripts should be merged.
     if (SaveSkinScript(mainpath, true, false) != 0) {
         lastSaveState = -1;
-        lastSaveMessage = "Save failed; original files were preserved";
+        lastSaveMessage = scriptSaveReport.empty() ? "Save failed." : scriptSaveReport;
         lastSaveMessageAt = GetTickCount64();
         return -1;
     }
     MarkDocumentSaved();
+    if (!scriptSaveReport.empty()) lastSaveMessage += "\n" + scriptSaveReport;
     return 0;
 }
 

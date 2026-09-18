@@ -1160,7 +1160,17 @@ IF 제어 행, 주석과 기타 행은 현재 Object 선택을 변경하지 않�
 - toolbar/File의 Save와 Ctrl+S는 현재 main path에 저장하며 include 구조와 memo를
   유지한다. 성공하면 현재 `documentRevision`을 saved revision으로 확정한다.
 - 편집 revision이 saved revision과 다르면 하단 status bar는 `MODIFIED`, 같으면
-  `SAVED`다. 저장 실패는 일정 시간 `SAVE FAILED`로 표시하며 dirty 상태는 유지한다.
+  `SAVED`다. 저장 실패는 다음 저장 성공/문서 재열기까지 `SAVE FAILED`로 표시하며
+  dirty 상태를 유지한다. 상태에 마우스를 올리면 실패 경로와 Windows 오류를 확인한다.
+- `SaveSkinScript`는 복구용 `.skineditor.bak`가 남아 있으면 덮어쓰거나 삭제하지 않고
+  저장을 중단한다. 사용자가 백업을 확인·복구하거나 안전한 별도 위치로 옮긴 뒤 재시도한다.
+  백업 생성은 fail-if-exists이며 이번 호출에서 생성한 백업만 정리한다. 복구 MoveFileEx
+  실패 시 해당 백업을 보존하고 나머지 파일의 복구는 계속한다. 새 파일 삭제 실패도
+  별도로 보고하며, 실패 상황에서 원본 보존을 단정하는 안내는 사용하지 않는다.
+  저장 자체는 성공했어도 백업 정리가 실패하면 성공 상태에 경고/백업 경로를 남긴다.
+- Save As 결과 창은 상세 오류와 `Copy save details`를 제공한다. CSV 분리 저장 실패는
+  메모리 문서 복원과 디스크 파일 복구를 구분해 보고한다. 다중 파일 저장 도중 강제 종료에
+  대한 전체 원자성/자동 재시작 복구 저널은 이번 수정에 포함하지 않는다.
 - Pixel paint의 texture 변경은 script revision과 별도로 `IMAGE EDIT`로 표시한다.
 - Save As의 BROWSE는 Windows 파일 선택기와 overwrite 확인을 사용한다.
 - Save As merged mode는 확장된 행을 새 메인 파일에 합친다.

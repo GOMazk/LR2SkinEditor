@@ -354,7 +354,9 @@ bool WORKSPACE::SplitSelectedObjects(const char* filename, std::string& error) {
     }
     RebuildObjectModel();
     if (SaveSkinScript(mainpath, true, false) != 0) {
-        rollback(); error = "Save failed; split was rolled back."; return false;
+        const std::string report = scriptSaveReport;
+        rollback(); error = "Save failed; the in-memory split was rolled back.\n" + report;
+        return false;
     }
     const int snapshot = (int)historyDocumentSnapshots.size();
     historyDocumentSnapshots.push_back(before);
@@ -362,6 +364,7 @@ bool WORKSPACE::SplitSelectedObjects(const char* filename, std::string& error) {
     history->op = restoreDocument;
     history->target = snapshot;
     MarkDocumentSaved();
+    if (!scriptSaveReport.empty()) lastSaveMessage += "\n" + scriptSaveReport;
     return true;
 }
 

@@ -1753,8 +1753,7 @@ int WORKSPACE::draw() {
         }
 
         if (SEUI::BeginStatusBar("##WorkspaceStatusBar")) {
-            const bool recentSaveFailure = lastSaveState < 0 &&
-                GetTickCount64() - lastSaveMessageAt < 8000;
+            const bool recentSaveFailure = lastSaveState < 0;
             const char* statusLabel = recentSaveFailure ? "SAVE FAILED" :
                 IsDocumentDirty() ? "MODIFIED" :
                 !imagePixelPaintDirtyPaths.empty() ? "IMAGE EDIT" : "SAVED";
@@ -1762,8 +1761,13 @@ int WORKSPACE::draw() {
                 (IsDocumentDirty() || !imagePixelPaintDirtyPaths.empty())
                     ? SEUI::Colors::Warning() : SEUI::Colors::Success();
             SEUI::StatusPill(statusLabel, statusColor);
-            if (!lastSaveMessage.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-                ImGui::SetTooltip("%s", lastSaveMessage.c_str());
+            if (!lastSaveMessage.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                ImGui::BeginTooltip();
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 600.0f);
+                ImGui::TextUnformatted(lastSaveMessage.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::EndTooltip();
+            }
             ImGui::SameLine(0.0f, 10.0f);
             ImGui::TextDisabled("%s  |  %d x %d%s  |  %d objects", SKINTYPESTR[meta.type],
                 meta.targetX, meta.targetY,
@@ -3674,6 +3678,7 @@ int WORKSPACE::LoadSkin(char* path) {
     savedDocumentRevision = 0;
     lastSaveState = 0;
     lastSaveMessage.clear();
+    scriptSaveReport.clear();
     lastSaveMessageAt = 0;
     olrPackageMessage.clear();
     olrPackageState = 0;
@@ -9538,9 +9543,10 @@ int WORKSPACE::drawSaveMenu() {
             if (success) {
                 MarkDocumentSaved();
                 lastSaveMessage = "Saved As and switched the workspace path";
+                if (!scriptSaveReport.empty()) lastSaveMessage += "\n" + scriptSaveReport;
             } else {
                 lastSaveState = -1;
-                lastSaveMessage = "Save As failed; original files were preserved";
+                lastSaveMessage = scriptSaveReport.empty() ? "Save As failed." : scriptSaveReport;
                 lastSaveMessageAt = GetTickCount64();
             }
             ImGui::OpenPopup(result);
@@ -9551,7 +9557,13 @@ int WORKSPACE::drawSaveMenu() {
                 ImGui::TextUnformatted("Saved successfully.");
                 ImGui::TextWrapped("The workspace is now using: %s", mainpath);
             } else {
-                ImGui::TextUnformatted("Save failed - original files were preserved.");
+                ImGui::TextUnformatted("Save failed.");
+            }
+            if (!scriptSaveReport.empty()) {
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + (std::min)(600.0f, ImGui::GetMainViewport()->WorkSize.x - 80.0f));
+                ImGui::TextUnformatted(scriptSaveReport.c_str());
+                ImGui::PopTextWrapPos();
+                if (ImGui::Button("Copy save details")) ImGui::SetClipboardText(scriptSaveReport.c_str());
             }
             if (ImGui::Button("OK")) {
                 wSaveMenu = 0;

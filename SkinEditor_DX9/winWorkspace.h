@@ -316,6 +316,9 @@ typedef struct WORKSPACE {
     unsigned long long savedDocumentRevision = 0;
     int lastSaveState = 0; // 0: no result, 1: saved, -1: failed
     std::string lastSaveMessage;
+    // UTF-8 details from script I/O, including retained recovery-backup paths.
+    // Nonempty on failure or successful-save cleanup warnings.
+    std::string scriptSaveReport;
     unsigned long long lastSaveMessageAt = 0;
     std::string olrPackageMessage;
     int olrPackageState = 0;
@@ -981,6 +984,7 @@ int RunAssetMetadataSelfTest();
 int RunSimpleModeProjectionSelfTest();
 int RunSimpleModeScopeRuleSelfTest();
 int RunWorkspaceReloadLifecycleSelfTest();
+int RunScriptSaveRecoverySelfTest();
 int RunDstColorSelfTest();
 int RunObjectReorderSelfTest();
 int RunWorkspaceRuntimeMultiWorkspaceSmokeTest(const char* firstPath,

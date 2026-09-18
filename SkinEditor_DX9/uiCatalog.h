@@ -113,9 +113,9 @@ struct SEUISurfaceSpec {
 
 inline constexpr SEUISurfaceSpec kSEUISurfaceSpecs[] = {
     { SEUISurfaceId::ApplicationShell, "application-shell", "Application Shell", "Own the application menu and workspace lifecycle.", "WinMain", "shell" },
-    { SEUISurfaceId::WorkspaceShell, "workspace-shell", "Workspace Shell", "Own file commands, the toolbar, tool visibility and default docking.", "WORKSPACE::draw", "shell" },
+    { SEUISurfaceId::WorkspaceShell, "workspace-shell", "Workspace Shell", "Own file commands, persistent save-failure details, the toolbar, tool visibility and default docking.", "WORKSPACE::draw", "shell" },
     { SEUISurfaceId::SkinBrowser, "skin-browser", "Skin Browser", "Choose a registered LR2 skin or recursively scan another folder.", "WORKSPACE::drawSkinList", "dialog" },
-    { SEUISurfaceId::SaveAs, "save-as", "Save As", "Choose the output script and switch the active working path.", "WORKSPACE::drawSaveMenu", "dialog" },
+    { SEUISurfaceId::SaveAs, "save-as", "Save As", "Choose the output script and switch paths only after success; show copyable I/O errors and retained recovery-backup paths.", "WORKSPACE::drawSaveMenu", "dialog" },
     { SEUISurfaceId::SaveOlrSkin, "save-olrskin", "Save OLRskin", "Save semantic JSON, LR2 compatibility data and resolved images into one .olrskin file.", "WORKSPACE::drawSaveOlrSkin", "dialog" },
     { SEUISurfaceId::OlrImport, "olr-import", "Import OLR", "Validate and extract an .olrskin package to a new LR2 folder, then load it.", "WORKSPACE::ImportOlrSkinInteractive", "flow" },
     { SEUISurfaceId::NewSkin, "new-skin", "New Skin", "Create a protected initial skin preset for a scene and resolution.", "WORKSPACE::drawNewskin", "dialog" },

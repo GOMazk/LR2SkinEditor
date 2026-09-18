@@ -1,5 +1,20 @@
 # 빌드, 실행 및 회귀 테스트
 
+`--self-test-save-recovery` runs before graphics initialization and is included in
+`scripts/test.ps1`. It exercises the same internal transaction as `SaveSkinScript`
+using 11 isolated temporary-directory cases: success; first/later replacement
+failure; real Windows file locks causing replacement AND rollback failure;
+verification hash/read failures; continued restoration after one failure; partial
+backup creation; a check/copy race with an unowned backup; removal of new files and
+failed removal; successful save with failed backup cleanup. Assertions cover exact
+original bytes (including CP932/CRLF), output/temp/backup existence, retained backup
+contents and detailed errors. Retrying the transaction or SaveCurrentSkin from a
+fresh Workspace must preserve the recovery copy and dirty/revision/History state.
+Manual: trigger a Save/Save As failure on a disposable skin, hover the persistent
+SAVE FAILED status, copy details in Save As, and verify the displayed file/error.
+Existing tests cover normal merged/split serialization. No test modifies real LR2
+user skins; forced process/power loss and automatic recovery are outside this fix.
+
 Atlas-deletion regression uses three layout Objects and consecutive IF blocks
 whose structural gr count (4) differs from the active LR2 count (2). New shared
 output must contain exactly three crops/Objects. It simulates a legacy enclosing

@@ -885,6 +885,15 @@ state, not a CSV or OLRskin format change.
 
 ## Debugging checklist
 
+Image Manager's `Auto assets...` opens the existing Add image modal with the
+currently displayed SRCGR path/declaration, without a file picker. Dirty pixel
+edits block this disk-based scan. Import defaults remain opt-in. Registration
+uses `RegisterImageWithTransparentCrops` and the shared `FindIMG` identity
+(gr/IF group/rectangle), plus candidate deduplication. The temporary full-size
+row used by the crop transaction may coexist with an existing full-size Asset;
+it is replaced before the single snapshot Undo is recorded. All-duplicate
+requests leave CSV and History unchanged.
+
 When a UI change causes a regression, check in this order:
 
 1. **ImGui ID collision** — run with the ImGui debug tool and inspect duplicate

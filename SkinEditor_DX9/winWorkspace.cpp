@@ -6639,6 +6639,18 @@ int WORKSPACE::RegisterImageWithTransparentCrops(int declarationRow, const char*
     int width, int height, const std::vector<TransparentAssetCrop>& crops,
     std::string& error) {
     if (applyingHistory || pendingHistorySnapshotRestore >= 0 || !loaded) return -1;
+    error.clear();
+    int targetGr = -1, targetBranch = -1;
+    if (declarationRow >= 0) {
+        std::vector<SEImageDeclarationChoice> choices;
+        CollectImageDeclarationChoices(skinfileLines, arr_CustomFile, choices);
+        for (const auto& choice : choices) if (choice.row == declarationRow) {
+            targetGr = choice.graphicId;
+            targetBranch = choice.ifGroup;
+            break;
+        }
+        if (targetGr < 0) { error = "The selected #IMAGE target is invalid."; return -1; }
+    }
     std::vector<TransparentAssetCrop> selected;
     for (const auto& crop : crops) if (crop.selected) {
         if (crop.x < 0 || crop.y < 0 || crop.w <= 0 || crop.h <= 0 ||
@@ -6646,10 +6658,20 @@ int WORKSPACE::RegisterImageWithTransparentCrops(int declarationRow, const char*
             error = "A crop is outside the image.";
             return -1;
         }
-        selected.push_back(crop);
+        if (targetGr >= 0) {
+            // FindIMG returns arr_IMG.count (not -1) when no match exists.
+            const int existing = FindIMG(targetGr, crop.x, crop.y, crop.w, crop.h, targetBranch);
+            if (existing >= 0 && existing < arr_IMG.count) continue;
+        }
+        const bool duplicate = std::any_of(selected.begin(), selected.end(),
+            [&](const TransparentAssetCrop& value) {
+                return value.x == crop.x && value.y == crop.y &&
+                    value.w == crop.w && value.h == crop.h;
+            });
+        if (!duplicate) selected.push_back(crop);
     }
     if (selected.empty() || selected.size() > 1024) {
-        error = "Select between 1 and 1024 crops.";
+        error = "No new crops selected (matching gr/branch/rectangle Assets are skipped), or more than 1024 crops.";
         return -1;
     }
     const auto before = CaptureDocumentSnapshot();
@@ -6661,7 +6683,7 @@ int WORKSPACE::RegisterImageWithTransparentCrops(int declarationRow, const char*
     applyingHistory = true;
     const int gr = declarationRow < 0
         ? RegisterGeneratedImage(path, width, height, error)
-        : RegisterExistingImageAsset(declarationRow, path, width, height, error);
+        : RegisterExistingImageAsset(declarationRow, path, width, height, error, true);
     int row = declarationRow < 0 ? -1 : imageManagerAssetDeclarationFocusRequest;
     if (gr >= 0 && declarationRow < 0) {
         for (int i = skinfileLines.count - 1; i >= 0; --i) {
@@ -6717,7 +6739,8 @@ int WORKSPACE::RegisterImageWithTransparentCrops(int declarationRow, const char*
 }
 
 int WORKSPACE::RegisterExistingImageAsset(int declarationRow,
-    const char* diskPath, int width, int height, std::string& errorText) {
+    const char* diskPath, int width, int height, std::string& errorText,
+    bool cropPlaceholder) {
     errorText.clear();
     if (declarationRow < 0 || declarationRow >= skinfileLines.count ||
         !diskPath || !*diskPath || width <= 0 || height <= 0) {
@@ -6776,7 +6799,7 @@ int WORKSPACE::RegisterExistingImageAsset(int declarationRow,
 
     const int existingImage = FindIMG(target->graphicId, 0, 0, width, height,
         target->ifGroup);
-    if (existingImage >= 0 && existingImage < arr_IMG.count) {
+    if (!cropPlaceholder && existingImage >= 0 && existingImage < arr_IMG.count) {
         SelectIMGAsset(existingImage, true);
         assetBrowserFocusRequest = existingImage;
         wAssetBrowser = true;
@@ -7330,6 +7353,7 @@ int WORKSPACE::drawImgManager() {
         imageAddCrops.clear();
         imageAddCropError.clear();
         imageAddAutoCrops = false;
+        imageAddCropsAttempted = false;
         imageAddCropsReady = false;
         imageAddWidth = imageWidth;
         imageAddHeight = imageHeight;
@@ -7477,13 +7501,16 @@ int WORKSPACE::drawImgManager() {
                     "This file is not a current candidate of the selected wildcard.");
         } else {
             canRegister = canRegister && selectedFileBelongsToTarget;
-            ImGui::TextWrapped("Fixed target: this reuses the selected #IMAGE and adds only a full-size Asset row.");
+            ImGui::TextWrapped("Fixed target: this reuses the selected #IMAGE and adds Asset rows.");
             if (!selectedFileBelongsToTarget)
                 ImGui::TextColored(SEUI::Colors::Danger(),
                     "This is a different file. Choose the new gr target or use Replace.");
         }
-        if (ImGui::Checkbox("Auto crops from transparent spacing", &imageAddAutoCrops) &&
-            imageAddAutoCrops && !imageAddCropsReady) {
+        ImGui::Checkbox("Auto crops from transparent spacing", &imageAddAutoCrops);
+        // Detection is opt-in, once per file unless explicitly retried.
+        // Failed/empty detection must not reload the texture every UI frame.
+        if (imageAddAutoCrops && !imageAddCropsAttempted) {
+            imageAddCropsAttempted = true;
             imageAddCropError.clear();
             if ((long long)imageAddWidth * imageAddHeight > 16 * 1024 * 1024) {
                 imageAddCropError = "Automatic detection supports images up to 16 megapixels.";
@@ -7501,8 +7528,14 @@ int WORKSPACE::drawImgManager() {
             }
         }
         if (imageAddAutoCrops) {
-            ImGui::TextWrapped("Alpha 0 is spacing. Click a box or uncheck a candidate to exclude it. No Objects or image files are created.");
+            ImGui::TextWrapped("Alpha 0 is spacing. Click a box or uncheck a candidate to exclude it. Existing gr/branch/rectangle Assets are skipped on registration. No Objects or image files are created.");
             if (!imageAddCropError.empty()) ImGui::TextWrapped("%s", imageAddCropError.c_str());
+            if (imageAddCropsReady && imageAddCrops.empty())
+                ImGui::TextWrapped("No visible pixels found. Turn off auto crops to register the full image.");
+            if (!imageAddCropsReady) {
+                ImGui::TextWrapped("Turn off auto crops to register the full image, or retry detection.");
+                if (ImGui::Button("Retry detection")) imageAddCropsAttempted = false;
+            }
             if (imageAddPreview && imageAddCropsReady) {
                 const float scale = (std::min)(1.0f, (std::min)(
                     620.0f / imageAddWidth, 180.0f / imageAddHeight));
@@ -8175,6 +8208,26 @@ int WORKSPACE::drawImgManager() {
         requestExistingImage(img.path.body ? img.path.outstr() : mainpath);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
         ImGui::SetTooltip("Choose a new or existing logical gr after checking its fixed/wildcard declaration.");
+    imageToolbarNext("Auto assets...");
+    ImGui::BeginDisabled(!hasImageDiskPath || selectedPaintDirty || img.declare < 0);
+    if (ImGui::Button("Auto assets...##imageToolDetect")) {
+        imageAddDiskPath = img.path.outstr();
+        imageAddWidth = img.sizeX;
+        imageAddHeight = img.sizeY;
+        imageAddTargetDeclarationRow = img.declare;
+        imageAddPreview.reset();
+        imageAddCrops.clear();
+        imageAddCropError.clear();
+        imageToolStatus.clear();
+        imageAddAutoCrops = true;
+        imageAddCropsAttempted = false;
+        imageAddCropsReady = false;
+        imageAddDialogRequested = true;
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(selectedPaintDirty ? "Save or revert pixel edits before detecting Assets."
+            : "Detect Assets in the current texture without choosing the file again. Existing crops are skipped.");
     imageToolbarNext("GIF to sprite...");
     if (ImGui::Button("GIF to sprite...##imageToolGif"))
         requestGifSprite(img.path.body ? img.path.outstr() : mainpath);

@@ -1,5 +1,15 @@
 # 빌드, 실행 및 회귀 테스트
 
+Image import auto-detection: Add image defaults to full-image registration;
+opting into Auto crops must show detected regions. Check two different files, candidate
+exclusion, full-image opt-out, transparent/opaque images and failed detection retry.
+Register then Undo and Save/reopen to verify `$SRC_IMAGE` persistence. Pixel-paint
+self-test covers empty, separated, diagonal-connected and fully opaque regions.
+Layout-first also checks repeated crop registration is a no-op, mixed duplicate/new
+candidates add only one row, existing full-size Assets allow subregions, and Undo.
+Manual: Auto assets on current fixed/wildcard texture, switch candidates, and check
+unsaved paint blocks detection; Cancel must leave the document untouched.
+
 ## 개발 환경
 
 AI_experimental의 로컬 제작 유틸 v0.2는 Python 3.10+와 이 브랜치에서 빌드한

@@ -976,6 +976,8 @@ int RunLayoutFirstObjectSelfTest() {
     } cleanup{directory};
 
     auto workspace = std::make_unique<WORKSPACE>();
+    if (workspace->imageAddAutoCrops || workspace->imageAddCropsAttempted ||
+        workspace->imageAddCropsReady) return 120;
     workspace->skinfileLines.Alloc(sizeof(SKINFILELINEREAD), 16);
     workspace->arr_CustomFile.Alloc(sizeof(CSTR), 2);
     workspace->arr_SRCGR.Alloc(sizeof(SRCGR), 2);
@@ -1141,6 +1143,37 @@ int RunLayoutFirstObjectSelfTest() {
         detected, error) < 0 || workspace->arr_history.count != cropHistoryBefore + 1 ||
         workspace->skinfileLines.count != cropRowsBefore + 3 ||
         workspace->RebuildEditorDerivedState() != 0) return 50;
+    workspace->RebuildObjectModel();
+    int cropDeclaration = -1;
+    for (int i = workspace->skinfileLines.count - 1; i >= 0; --i)
+        if (((SKINFILELINEREAD*)workspace->skinfileLines.data)[i].csv.str[0].isSame("#IMAGE")) {
+            cropDeclaration = i; break;
+        }
+    const int dedupRows = workspace->skinfileLines.count;
+    const int dedupHistory = workspace->arr_history.count;
+    if (cropDeclaration < 0 || workspace->RegisterImageWithTransparentCrops(
+        cropDeclaration, imagePath.c_str(), 32, 16, detected, error) >= 0 ||
+        workspace->skinfileLines.count != dedupRows ||
+        workspace->arr_history.count != dedupHistory) return 221;
+    // An existing full-size Asset must not prevent adding smaller regions.
+    std::vector<TransparentAssetCrop> fullCrop = {{0, 0, 32, 16, true}};
+    const bool addedFullCrop = workspace->RegisterImageWithTransparentCrops(
+        cropDeclaration, imagePath.c_str(), 32, 16, fullCrop, error) >= 0;
+    if (!addedFullCrop && error.find("No new crops selected") != 0) return 222;
+    if (workspace->RebuildEditorDerivedState() != 0) return 225;
+    std::vector<TransparentAssetCrop> mixedCrops = {{0, 0, 4, 4, true},
+        {24, 8, 2, 2, true}, {24, 8, 2, 2, true}};
+    if (workspace->RegisterImageWithTransparentCrops(cropDeclaration, imagePath.c_str(),
+        32, 16, mixedCrops, error) < 0 ||
+        workspace->skinfileLines.count != dedupRows + 1 + (addedFullCrop ? 1 : 0) ||
+        workspace->RebuildEditorDerivedState() != 0) {
+        printf("Auto asset mixed: %s; rows %d expected %d\n", error.c_str(),
+            workspace->skinfileLines.count, dedupRows + 1 + (addedFullCrop ? 1 : 0));
+        return 223;
+    }
+    for (int i = 0; i < 1 + (addedFullCrop ? 1 : 0); ++i)
+        if (workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||
+            workspace->RebuildEditorDerivedState() != 0) return 224;
     workspace->RebuildObjectModel();
     if ((int)workspace->objectEditorModel.Objects().size() != cropObjectsBefore ||
         workspace->UndoLastEdit() != 0 || workspace->ApplyPendingHistorySnapshotRestore() != 0 ||

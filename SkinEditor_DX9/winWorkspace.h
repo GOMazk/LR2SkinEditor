@@ -577,6 +577,7 @@ typedef struct WORKSPACE {
     ImVec2 imageAssetDragStart;
     IDirect3DTexture9* imageAssetDragTexture = nullptr; // comparison only during a gesture
     bool imageAddAutoCrops = false;
+    bool imageAddCropsAttempted = false;
     bool imageAddCropsReady = false;
     std::vector<TransparentAssetCrop> imageAddCrops;
     std::shared_ptr<IDirect3DTexture9> imageAddPreview;
@@ -688,7 +689,7 @@ typedef struct WORKSPACE {
         int cycle = 0, int displayFrameWidth = 0,
         int displayFrameHeight = 0);
     int RegisterExistingImageAsset(int declarationRow, const char* diskPath,
-        int width, int height, std::string& errorText);
+        int width, int height, std::string& errorText, bool cropPlaceholder = false);
     bool ReplaceImageDeclarationPath(int graphicIndex, const char* diskPath,
         std::string& errorText);
     bool RegisterImageAssetGrid(int imageIndex, int columns, int rows,

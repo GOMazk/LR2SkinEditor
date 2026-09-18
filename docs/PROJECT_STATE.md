@@ -907,13 +907,21 @@ replace한다. 최초 저장 전 같은 경로에 `.skineditor-pixel.bak` 원본
 다시 불러온다. 현재 직접 편집은 lock 가능한 32-bit D3D texture에 한정한다.
 
 ImageManager의 `Add image...`는 기존 이미지 파일을 고른 뒤 대상 논리 gr를 선택하는
-modal에서 `Auto crops from transparent spacing`을 지원한다. alpha=0을 여백으로,
+modal에서 `Auto crops from transparent spacing`을 선택 옵션으로 제공한다(기본 꺼짐).
+켜면 파일마다 한 번 자동 인식하고 등록 전에 후보를 확인한다. 실패는 매 프레임 재시도하지 않으며
+`Retry detection`으로 재시도하거나 체크를 해제해 전체 이미지로 등록한다. alpha=0을 여백으로,
 8방향으로 연결된 alpha>0 픽셀마다 최소 사각형을 검출한다. 원본 파일은 수정하지
 않으며 Object 없이 선택한 `$SRC_IMAGE`만 저장한다. 후보 사각형 클릭 또는 목록
 체크로 제외할 수 있다. 불투명 이미지는 전체 한 후보, 완전 투명은 후보 0개다.
 떨어진 글자 획은 별도 후보가 될 수 있다. 16메가픽셀/1024후보 한도를 넘으면 자동
 분할을 중단하고 전체 이미지 등록을 안내한다. 등록은 단일 snapshot Undo이며
 중간 실패 시 문서를 복구한다. 이번 기능에는 새 격자 분할을 추가하지 않는다.
+
+이미 등록한 텍스처는 Image Manager의 `Auto assets...`로 파일 선택 없이 같은
+후보 확인창을 연다. 현재 표시 중인 wildcard 후보와 #IMAGE 선언을 사용하며,
+미저장 Pixel paint가 있으면 저장/되돌리기 후 실행한다. 등록 시 기존 Asset과
+gr/IF 그룹/x/y/w/h가 같은 영역 및 후보끼리의 중복은 건너뛴다. 전체 이미지 Asset이
+이미 있어도 더 작은 영역을 추가할 수 있다. 모두 중복이면 문서와 Undo를 변경하지 않는다.
 
 Image Manager atlas에서 Pixel paint가 꺼져 있을 때 더블클릭하면 해당 불투명 픽셀의
 8방향 연결 영역을 확장 탐색해 Asset으로 등록한다. 좌클릭 드래그는 지정 범위 안의

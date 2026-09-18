@@ -1766,6 +1766,18 @@ int RunPixelPaintSelfTest()
     PDIRECT3DTEXTURE9 texture = NULL;
     if (FAILED(g_pd3dDevice->CreateTexture(4, 4, 1, 0, D3DFMT_A8R8G8B8,
         D3DPOOL_MANAGED, &texture, NULL))) return 42;
+    // An imported image without transparent spacing is one full-image Asset.
+    for (int y = 0; y < 4; ++y)
+        if (!PaintTextureLine(texture, 0, y, 3, y, D3DCOLOR_ARGB(255, 7, 8, 9))) {
+            texture->Release(); return 95;
+        }
+    std::vector<TransparentAssetCrop> opaqueCrops;
+    std::string opaqueError;
+    if (!FindTransparentAssetCrops(texture, opaqueCrops, opaqueError) ||
+        opaqueCrops.size() != 1 || opaqueCrops[0].x != 0 || opaqueCrops[0].y != 0 ||
+        opaqueCrops[0].w != 4 || opaqueCrops[0].h != 4 || !opaqueCrops[0].selected) {
+        texture->Release(); return 96;
+    }
     for (int y = 0; y < 4; ++y)
         if (!PaintTextureLine(texture, 0, y, 3, y,
             D3DCOLOR_ARGB(0, 0, 0, 0))) {

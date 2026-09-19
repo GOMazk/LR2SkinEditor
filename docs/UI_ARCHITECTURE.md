@@ -1,5 +1,31 @@
 # SkinEditor UI architecture and debugging
 
+Workflow entry points and exit review live in `workflow.cpp`. PendingWork is a
+transient projection of the existing document revision, text/custom drafts,
+painted paths and font draft; no second dirty flag or undo stack exists.
+`WM_CLOSE` requests an exit review, finishes active property edits, then the main
+loop renders `SEDrawPendingChanges` after all visible workspaces. Hidden workspaces
+still participate in the check. Save failure cannot authorize exit; drafts need
+explicit review/apply, and discard requires confirmation. This is not crash recovery.
+Object resource actions reuse SelectIMGAsset, the Preview font provenance,
+Simple Mode projection and OpenScriptInCodeEditor. One-shot tab reveal requests
+do not overwrite selection or drafts. Image import is deferred to the Image Manager
+owner, which still owns the existing file picker and registration popup.
+`SEUI::RevealWindowTab` transfers navigation focus when it is on another tab in
+the same dock node; otherwise ImGui restores that old tab on the next frame.
+Focus and active input/drag in a different pane remain untouched. Back to Preview
+uses this shared path from Simple Mode, Image Manager and Image Font Editor.
+Default specialized tabs are closed; all remain in Windows. User dock geometry
+is preserved. See [Workflow UI](WORKFLOW_UI.md) for navigation and save semantics.
+
+Asset Browser's first-user and individual usage menu actions share
+`SelectImageAssetUsageObject`: SetObjectSelection synchronizes Browser/Inspector,
+then RefreshPreviewSelectionBounds recalculates the CSV-owned bounds and
+RequestPreview reveals the canvas tab. Selection alone does not reload the runtime;
+clearing bounds without refreshing them leaves non-slider Objects without a highlight.
+The action cancels stale move/resize state but does not edit CSV, History, conditions
+or Preview file visibility.
+
 Image Font Editor is an optional Assets/center-tabs window. WORKSPACE owns its
 external-file draft and form state; the panel never edits runtime arrays directly
 while typing. A successful Save font invalidates/reloads matching image-font caches,

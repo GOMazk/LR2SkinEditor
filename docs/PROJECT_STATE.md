@@ -1,5 +1,34 @@
 # SkinEditor 현재 개발 상태
 
+## Workflow UI 1차 정리 (AI_1)
+
+- 기본 중심 창은 Preview / Object Browser / Object Inspector / Asset Browser다.
+  Image Manager, Simple Mode, DST View는 필요할 때 열며 Windows 메뉴의 기능은 유지한다.
+  기존 도킹 위치를 변경하지 않고 새 스킨 로드/기본 배치에서 창 노출만 줄인다.
+  Focus workspace도 Asset Browser를 유지한다.
+- Asset Browser의 `Import image...`는 기존 Image Manager 등록 대화상자로 연결한다.
+  자동 Asset 인식은 여전히 선택 사항이다. `New layout Object...` → 배치 →
+  `Images from layout...`는 그림보다 배치를 먼저 만드는 기존 흐름을 사용한다.
+- Inspector의 `Source image`, `Edit text font`, `Appearance...`, `Edit CSV`는 선택
+  Object의 기존 Asset/Preview font slot/semantic slot/소유 CSV로 이동한다. 배치용
+  Object는 `Create artwork...`를 제공한다. TEXT/BAR_TITLE과 NUMBER/NOWCOMBO의
+  서로 다른 폰트 경로를 구분하며, 다중 SRC의 원본 이미지 이동은 첫 대응 Asset이다.
+  기존 Text Editor/폰트 초안을 덮어쓰지 않고, 폰트는 기존 Save/discard/cancel을 사용한다.
+- 상단 `Pending (n)` 또는 File > Review pending changes에서 모든 Workspace의
+  CSV, Text Editor 초안, Custom Files 초안, Pixel Paint, image font를 확인한다.
+  `Save file`은 선택한 파일 종류만 기존 안전 저장 경로로 저장한다. 초안은 Review로
+  해당 편집기에 돌아가 Apply해야 하며 저장 검토창이 자동 적용하지 않는다.
+  `SAVED`는 폰트/초안이 남아 있을 때 표시하지 않는다. 파일별 저장은 전체 트랜잭션이 아니다.
+- 앱 닫기/Alt+F4는 같은 검토창을 거친다. 숨겨진 Workspace와 스킨이 없어도 남은
+  폰트 초안이 포함된다. 모두 저장한 뒤 종료하거나 Keep working/Esc로 취소한다.
+  저장하지 않고 종료는 추가 확인을 거친다. 저장 실패는 변경 내용을 유지하며 종료를 막는다.
+  Workspace 숨기기는 삭제가 아니며, OS 강제 종료/정전 복구는 이 기능의 범위 밖이다.
+- 기능 연결은 `workflow.cpp`에 두고 CSV/선택/각 편집기의 History는 복제하지 않는다.
+  Pixel Paint 저장은 기존 원자 저장을 공유하며, 한 파일 저장 때문에 다른 미저장
+  이미지나 현재 ImGui draw command의 texture를 해제하지 않는다.
+
+사용 흐름과 수동 확인: [Workflow UI](WORKFLOW_UI.md).
+
 ## Image Font Editor (AI_1)
 
 Windows > Assets > Image Font Editor에서 현재 Preview의 실제 #LR2FONT 슬롯 또는

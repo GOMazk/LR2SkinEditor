@@ -790,6 +790,33 @@ int RunObjectReorderSelfTest() {
         std::abs(workspace.preview_selected_obj_last.y - 2.0f) >= 0.5f)
         return 42;
 
+    // Asset Browser's first-user and individual-user actions must refresh the
+    // same CSV-owned bounds without waiting for a runtime reload or slider tick.
+    const auto revisionBeforeUsageSelection = workspace.documentRevision;
+    const int historyBeforeUsageSelection = workspace.arr_history.count;
+    workspace.wObjectBrowser = workspace.wObjectInspector = workspace.wPreview = false;
+    workspace.previewRevealRequested = false;
+    workspace.preview_selected_obj_valid = workspace.preview_selected_obj_last_valid = false;
+    workspace.preview_object_dragging = workspace.preview_object_resizing = true;
+    if (!workspace.SelectImageAssetUsageObject(source) ||
+        !workspace.wObjectBrowser || !workspace.wObjectInspector || !workspace.wPreview ||
+        !workspace.previewRevealRequested || !workspace.objectInspectorRevealRequested ||
+        workspace.preview_object_dragging || workspace.preview_object_resizing ||
+        workspace.object_editor_select_request != source ||
+        workspace.ResolveObjectSelectionKey(workspace.objectSelection.active) != source ||
+        workspace.preview_selected_object_model_indices != std::vector<int>(1, source)) return 100;
+    if (!workspace.preview_selected_obj_valid || !workspace.preview_selected_obj_last_valid ||
+        workspace.preview_selected_obj.x != 1 || workspace.preview_selected_obj.y != 2 ||
+        workspace.preview_selected_obj.w != 1 || workspace.preview_selected_obj.h != 1 ||
+        workspace.preview_selected_obj_last.x != 1 || workspace.preview_selected_obj_last.y != 2)
+        return 101;
+    if (workspace.SelectImageAssetUsageObject(-1) ||
+        workspace.SelectImageAssetUsageObject((int)crossFileObjects.size()) ||
+        workspace.ResolveObjectSelectionKey(workspace.objectSelection.active) != source ||
+        !workspace.preview_selected_obj_valid) return 102;
+    if (workspace.documentRevision != revisionBeforeUsageSelection ||
+        workspace.arr_history.count != historyBeforeUsageSelection) return 103;
+
     if (workspace.UndoLastEdit() != 0 ||
         workspace.pendingHistorySnapshotRestore < 0) return 31;
     if (workspace.ApplyPendingHistorySnapshotRestore() != 0) return 32;

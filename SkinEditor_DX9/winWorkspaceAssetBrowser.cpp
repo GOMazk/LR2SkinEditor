@@ -30,6 +30,20 @@
 
 extern PDIRECT3DTEXTURE9 transBackground;
 
+bool WORKSPACE::SelectImageAssetUsageObject(int modelIndex) {
+    if (modelIndex < 0 || modelIndex >= (int)objectEditorModel.Objects().size())
+        return false;
+    wObjectBrowser = true;
+    SetObjectSelection(std::vector<int>(1, modelIndex), modelIndex, modelIndex, true);
+    preview_object_dragging = false;
+    preview_object_resizing = false;
+    // Selection changes do not rebuild the runtime. Non-slider Objects rely
+    // on the selection owner to refresh these bounds, just like Browser clicks.
+    RefreshPreviewSelectionBounds();
+    RequestPreview();
+    return true;
+}
+
 void WORKSPACE::RequestDstAssetDialog() {
     dstAtlasTargets.clear();
     for (const auto& key : objectSelection.selected) {
@@ -292,9 +306,19 @@ int WORKSPACE::drawAssetBrowser() {
         return 0;
     }
 
+    const auto toolbarNext = [](const char* label) {
+        const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x +
+            ImGui::CalcTextSize(label).x + 2 * ImGui::GetStyle().FramePadding.x <= right)
+            ImGui::SameLine();
+    };
     ImGui::BeginDisabled(!loaded);
+    if (ImGui::Button(SEText("Import image...", u8"\uC774\uBBF8\uC9C0 \uAC00\uC838\uC624\uAE30\u2026"))) RequestImageImport();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Image-first: import, optionally detect crops, then drag an Asset into Preview.");
+    toolbarNext("New layout Object...");
     if (ImGui::Button("New layout Object...")) layoutFirstDialogPending = true;
-    if (ImGui::GetContentRegionAvail().x > 370.0f) ImGui::SameLine();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Layout-first: place an empty Object, then create artwork using Images from layout.");
+    toolbarNext(SEText("Images from layout...", u8"\uBC30\uCE58\uC5D0\uC11C \uC774\uBBF8\uC9C0 \uB9CC\uB4E4\uAE30\u2026"));
     if (ImGui::Button(SEText("Images from layout...", u8"\ubc30\uce58\uc5d0\uc11c \uc774\ubbf8\uc9c0 \ub9cc\ub4e4\uae30\u2026"))) RequestDstAssetDialog();
     ImGui::EndDisabled();
 
@@ -309,6 +333,7 @@ int WORKSPACE::drawAssetBrowser() {
             ImGui::BeginPopupContextWindow("##AssetBackground",
                 ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems);
         if (open) {
+            if (ImGui::MenuItem(SEText("Import image...", u8"\uC774\uBBF8\uC9C0 \uAC00\uC838\uC624\uAE30\u2026"), nullptr, false, loaded)) RequestImageImport();
             if (ImGui::MenuItem(SEText("Images from layout...", u8"\ubc30\uce58\uc5d0\uc11c \uc774\ubbf8\uc9c0 \ub9cc\ub4e4\uae30\u2026"), nullptr, false, loaded))
                 RequestDstAssetDialog();
             if (ImGui::MenuItem("New layout Object...", nullptr, false, loaded))
@@ -318,8 +343,8 @@ int WORKSPACE::drawAssetBrowser() {
     };
 
     if (arr_IMG.count <= 0) {
-        SEUI::EmptyState("No image crops",
-            "Image crops parsed from #SRC commands will appear here as reusable assets.");
+        SEUI::EmptyState("Start with artwork or layout",
+            "Import image: detect crops, then drag them into Preview.\nNew layout Object: arrange boxes first, then use Images from layout to create artwork.");
         drawBackgroundMenu(true);
         ImGui::End();
         return 0;
@@ -328,16 +353,6 @@ int WORKSPACE::drawAssetBrowser() {
     const std::vector<std::vector<int>>& assetUsage = ImageAssetUsage();
     const std::vector<SEObjectInstance>& usageObjects =
         objectEditorModel.Objects();
-    auto selectUsageObject = [&](int modelIndex) {
-        if (modelIndex < 0 || modelIndex >= (int)usageObjects.size()) return;
-        wObjectBrowser = true;
-        wObjectInspector = true;
-        SetObjectSelection(std::vector<int>(1, modelIndex), modelIndex,
-            modelIndex, true);
-        preview_object_dragging = false;
-        preview_selected_obj_valid = false;
-        preview_selected_obj_last_valid = false;
-    };
     const int activeObjectIndex =
         ResolveObjectSelectionKey(objectSelection.active);
     std::vector<int> activeSourceRows;
@@ -797,7 +812,7 @@ int WORKSPACE::drawAssetBrowser() {
                         ImGui::Separator();
                         if (ImGui::MenuItem("Select first using Object", NULL,
                             false, !users.empty())) {
-                            selectUsageObject(users.front());
+                            SelectImageAssetUsageObject(users.front());
                         }
                         char usageMenuLabel[64];
                         snprintf(usageMenuLabel, sizeof(usageMenuLabel),
@@ -820,7 +835,7 @@ int WORKSPACE::drawAssetBrowser() {
                                     "%03d  %s", modelIndex,
                                     objectName.c_str());
                                 if (ImGui::MenuItem(objectLabel))
-                                    selectUsageObject(modelIndex);
+                                    SelectImageAssetUsageObject(modelIndex);
                             }
                             if ((int)users.size() > shownUsers)
                                 ImGui::TextDisabled("... %d more",

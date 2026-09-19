@@ -107,6 +107,8 @@
     <ClCompile Include="imageFontArchiveTests.cpp"><Filter>소스 파일</Filter></ClCompile>
     <ClCompile Include="imageFontTests.cpp"><Filter>소스 파일</Filter></ClCompile>
     <ClCompile Include="winWorkspaceImageFont.cpp"><Filter>소스 파일</Filter></ClCompile>
+    <ClCompile Include="workflow.cpp"><Filter>소스 파일</Filter></ClCompile>
+    <ClCompile Include="workflowTests.cpp"><Filter>소스 파일</Filter></ClCompile>
     <ClCompile Include="fontAtlasTests.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
@@ -491,6 +493,7 @@
     <ClInclude Include="selfTests.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
+    <ClInclude Include="workflow.h"><Filter>헤더 파일</Filter></ClInclude>
     <ClInclude Include="uiCatalog.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>

@@ -241,6 +241,10 @@ void WORKSPACE::drawImageFontEditor() {
     auto& e = imageFontEditor;
     char title[128];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::ImageFontEditor, num);
+    if (imageFontRevealRequested) {
+        SEUI::RevealWindowTab(title);
+        imageFontRevealRequested = false;
+    }
     ImGui::SetNextWindowSize(ImVec2(900, 700), ImGuiCond_FirstUseEver);
     const bool visible = ImGui::Begin(title, &wImageFontEditor, e.Dirty() ? ImGuiWindowFlags_UnsavedDocument : 0);
     e.focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -349,6 +353,7 @@ void WORKSPACE::drawImageFontEditor() {
         if (e.document.archive) DxLib::DXArchiveRelease(e.document.archive->path.c_str());
         e.textures.clear();
     }
+    if (button("Back to Preview", loaded)) RequestPreview();
     ImGui::NewLine();
     if (!e.status.empty()) {
         ImGui::BeginChild("##fontStatus", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 2.5f));

@@ -45,14 +45,14 @@ inline constexpr SEUIWindowSpec kSEUIWindowSpecs[] = {
     { SEUIWindowId::TimerControl, "timer-control", "Timer Control", "Restart playback, reset to the initial static preview, and inspect or override LR2 timers.", "WORKSPACE::drawTimerControl", "Workspace", "right-middle", true },
     { SEUIWindowId::Customize, "customize", "Customize", "Choose skin-defined customization options.", "WORKSPACE::drawCustomize", "Data", "right-lower", true },
     { SEUIWindowId::CustomFiles, "custom-files", "Custom Files", "Edit CUSTOMFILE declarations, inspect candidates, preview choices and set saved defaults.", "WORKSPACE::drawCustomFiles", "Data", "center-tabs", false },
-    { SEUIWindowId::ImageManager, "image-manager", "Image Manager", "Inspect source atlases; optionally detect non-duplicate transparent-separated Assets on import or from the current texture, edit or generate image files.", "WORKSPACE::drawImgManager", "Assets", "center-tabs", true },
+    { SEUIWindowId::ImageManager, "image-manager", "Image Manager", "Inspect source atlases; optionally detect non-duplicate transparent-separated Assets on import or from the current texture, edit or generate image files.", "WORKSPACE::drawImgManager", "Assets", "center-tabs", false },
     { SEUIWindowId::ImageFontEditor, "image-font-editor", "Image Font Editor", "Inspect LR2 image fonts or legacy DXA members, edit glyph rectangles, texture pages and metrics in a draft, preview text and safely save the font without changing skin CSVs.", "WORKSPACE::drawImageFontEditor", "Assets", "center-tabs", false },
-    { SEUIWindowId::AssetBrowser, "asset-browser", "Asset Browser", "Search, preview and drag tagged image crops.", "WORKSPACE::drawAssetBrowser", "Assets", "center-bottom", true },
+    { SEUIWindowId::AssetBrowser, "asset-browser", "Asset Browser", "Start image-first or layout-first creation; search, preview and drag tagged image crops.", "WORKSPACE::drawAssetBrowser", "Assets", "center-bottom", true },
     { SEUIWindowId::TextEditor, "text-editor", "CSV Editor", "Edit authoritative LR2 text in the shared file scope while preserving encoding.", "WORKSPACE::drawTextEdit", "Data", "center-tabs", false },
     { SEUIWindowId::CodeEditor, "code-editor", "Text Editor", "Edit a multiline draft with LR2 command/value suggestions and argument hints; apply with conflict checks and Undo.", "WORKSPACE::drawCodeEditor", "Data", "center-tabs", false },
     { SEUIWindowId::FileManager, "file-manager", "File Manager", "Browse CSVs beside Object Browser in the Inspector dock, open Explorer and toggle Preview visibility.", "WORKSPACE::drawFileManager", "Data", "left-inspector", false },
-    { SEUIWindowId::SimpleMode, "simple-mode", "Simple Mode", "Edit Selection layout and event effects in groups, or replace fonts, gear and note art.", "WORKSPACE::drawSimpleMode", "Workspace", "center-tabs", true },
-    { SEUIWindowId::DstView, "dst-view", "DST View", "Inspect destination rows and preview their animation frames.", "WORKSPACE::drawDstView", "Assets", "center-tabs", true },
+    { SEUIWindowId::SimpleMode, "simple-mode", "Simple Mode", "Edit Selection layout and event effects in groups, or replace fonts, gear and note art.", "WORKSPACE::drawSimpleMode", "Workspace", "center-tabs", false },
+    { SEUIWindowId::DstView, "dst-view", "DST View", "Inspect destination rows and preview their animation frames.", "WORKSPACE::drawDstView", "Assets", "center-tabs", false },
     { SEUIWindowId::ObjectBrowser, "object-browser", "Object Browser", "Filter by source CSV, type and group; create in file, search, select and reorder Objects.", "WORKSPACE::drawObjectBrowser", "Workspace", "left-browser", true },
     { SEUIWindowId::ObjectInspector, "object-inspector", "Object Inspector", "Edit properties of the shared Object Browser selection.", "WORKSPACE::drawObjectInspector", "Workspace", "left-inspector", true },
     { SEUIWindowId::ObjectManager, "object-manager", "Object Manager", "Inspect the legacy object list and property editor.", "WORKSPACE::drawObjectManager", "Advanced", "left-browser", false },
@@ -101,6 +101,8 @@ enum class SEUISurfaceId {
     SimpleSelection,
     Help,
     CodeSuggestions,
+    PendingChanges,
+    ObjectWorkflow,
     Count
 };
 
@@ -129,7 +131,9 @@ inline constexpr SEUISurfaceSpec kSEUISurfaceSpecs[] = {
     { SEUISurfaceId::SimpleFontTools, "simple-font-tools", "Simple Font Tools", "Generate and preview TTF number, combo and judgement atlases; apply existing PNG/CSV with Undo.", "WORKSPACE::drawSimpleModeFontTools", "flow" },
     { SEUISurfaceId::SimpleSelection, "simple-selection", "Selection layout and effects", "Group a loaded Selection skin's components, edit layout/tint, and apply event animations with shared Undo and Preview.", "WORKSPACE::drawSimpleSelection", "flow" },
     { SEUISurfaceId::Help, "help", "Help", "Explain the editor workflow and the role of each primary workspace panel.", "DrawHelpWindow", "dialog" },
-    { SEUISurfaceId::CodeSuggestions, "code-suggestions", "Text suggestions", "Complete LR2 commands and symbolic values while keeping the draft and existing CSV fields intact.", "SEDrawCodeEditorInput", "flow" }
+    { SEUISurfaceId::CodeSuggestions, "code-suggestions", "Text suggestions", "Complete LR2 commands and symbolic values while keeping the draft and existing CSV fields intact.", "SEDrawCodeEditorInput", "flow" },
+    { SEUISurfaceId::PendingChanges, "pending-changes", "Pending changes", "Review and independently save scripts, images and fonts across all workspaces; protect unapplied drafts and confirm application exit.", "SEDrawPendingChanges", "dialog" },
+    { SEUISurfaceId::ObjectWorkflow, "object-workflow", "Object resource actions", "Open the selected Object's image, text font, appearance tools or CSV without replacing its selection or unsaved drafts.", "WORKSPACE::drawObjectWorkflowActions", "flow" }
 };
 
 inline constexpr std::size_t kSEUISurfaceSpecCount =

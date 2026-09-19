@@ -16,7 +16,15 @@ namespace SEUI {
             ImGuiTabBar* tabs = window->DockNode->TabBar;
             if (ImGuiTabItem* tab = ImGui::TabBarFindTabByID(tabs, window->TabId)) {
                 ImGui::TabBarQueueFocus(tabs, tab);
-                return; // Reveal without stealing keyboard focus or active drags.
+                // DockNodeUpdateTabBar reapplies NavWindow on the next frame.
+                // Leaving focus on a sibling tab makes a reveal bounce back.
+                // Only transfer focus inside this node; other panes retain
+                // their active input/drag (e.g. Object Browser -> Inspector).
+                ImGuiWindow* focused = ImGui::GetCurrentContext()->NavWindow;
+                if (focused && focused->RootWindow != window &&
+                    focused->RootWindow->DockNode == window->DockNode)
+                    ImGui::FocusWindow(window, ImGuiFocusRequestFlags_UnlessBelowModal);
+                return;
             }
         }
         ImGui::SetNextWindowCollapsed(false);

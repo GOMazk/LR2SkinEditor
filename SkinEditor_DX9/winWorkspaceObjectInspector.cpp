@@ -108,6 +108,8 @@ int WORKSPACE::drawObjectInspector() {
                     renamedObjectName = obj.name;
                 }
 
+                drawObjectWorkflowActions(inspectorModelIndex);
+
                 auto drawTaggedImageSelector = [&](int row, const char* command) {
                     if (!command || strncmp(command, "#SRC", 4) != 0 || arr_IMG.count <= 0) return;
                     SKINFILELINEREAD& srcLine = ((SKINFILELINEREAD*)skinfileLines.data)[row];

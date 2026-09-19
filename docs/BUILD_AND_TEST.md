@@ -1,5 +1,23 @@
 # 빌드, 실행 및 회귀 테스트
 
+`object-reorder` also checks Asset Browser usage navigation: selecting a normal
+IMAGE opens/reveals Preview and Inspector, requests Browser scrolling, resets stale
+move/resize state and immediately restores first/last bounds from the selected
+Object's rows (not a polluted legacy DST cache). Invalid indices preserve selection;
+navigation leaves document revision and History unchanged. Manual: select both
+`Select first using Object` and a `Used by Objects` entry while Preview is closed
+or behind Image Manager, and check the blinking bounds without restarting the Scene.
+
+`workflow` / `--self-test-workflow` checks all pending-state sources (including
+hidden workspaces), explicit draft handling, failed image/font saves and retry,
+Object font navigation without replacing dirty drafts, and headless ImGui exit
+review/Escape cancellation. It is included in scripts/test.ps1. Native window
+close/Alt+F4 and workflow navigation checks are listed in [Workflow UI](WORKFLOW_UI.md).
+The workflow test also builds a real headless ImGui dockspace, clicks Back to
+Preview from three focused sibling tabs, and checks that Preview stays visible
+over eight frames. Cross-pane navigation must preserve a Browser child window's
+focus and active ID. This reproduced the old Simple Mode tab bounce (exit 28).
+
 `--self-test-image-font` is included in `scripts/test.ps1`. It checks CP932/LR2
 character mapping, lossless font rows and trailing data, duplicate-code rename/delete,
 draft validation and Undo/Redo, external-file atomic save/reopen, stale-source and

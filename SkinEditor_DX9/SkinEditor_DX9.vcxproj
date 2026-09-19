@@ -209,6 +209,8 @@
     <ClCompile Include="imageFontArchiveTests.cpp" />
     <ClCompile Include="imageFontTests.cpp" />
     <ClCompile Include="winWorkspaceImageFont.cpp" />
+    <ClCompile Include="workflow.cpp" />
+    <ClCompile Include="workflowTests.cpp" />
     <ClCompile Include="fontAtlasTests.cpp" />
     <ClCompile Include="winWorkspaceSimpleFonts.cpp" />
     <ClCompile Include="simpleSelection.cpp" />
@@ -310,6 +312,7 @@
     <ClInclude Include="seObjectEditor.h" />
     <ClInclude Include="simpleSelection.h" />
     <ClInclude Include="selfTests.h" />
+    <ClInclude Include="workflow.h" />
     <ClInclude Include="seUI.h" />
     <ClInclude Include="fontAtlas.h" />
     <ClInclude Include="imageFontDocument.h" />

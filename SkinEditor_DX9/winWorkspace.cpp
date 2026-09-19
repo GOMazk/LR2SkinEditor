@@ -1230,6 +1230,7 @@ int WORKSPACE::draw() {
                 ImportOlrSkinInteractive();
             if (loaded) {
                 if (ImGui::MenuItem("Save", "Ctrl+S")) SaveCurrentSkin();
+                if (ImGui::MenuItem(SEText("Review pending changes...", u8"\uBBF8\uC800\uC7A5 \uC791\uC5C5 \uAC80\uD1A0\u2026"))) pendingChangesRequested = true;
                 if (ImGui::MenuItem("Save as", "Ctrl+Shift+S")) {
                     newPath[0] = '\0';
                     wSaveMenu = true;
@@ -1276,6 +1277,7 @@ int WORKSPACE::draw() {
                     setWindowVisible(SEUIWindowId::Preview, true);
                     setWindowVisible(SEUIWindowId::ObjectBrowser, true);
                     setWindowVisible(SEUIWindowId::ObjectInspector, true);
+                    setWindowVisible(SEUIWindowId::AssetBrowser, true);
                     dockLayoutBuilt = false;
                 }
                 if (ImGui::MenuItem("Asset workspace")) {
@@ -1404,6 +1406,11 @@ int WORKSPACE::draw() {
         }
         ImGui::SameLine();
         SEUI::HelpMarker("Use Layout for task-focused arrangements and Windows for individual panels. Save As remains in File.");
+        ImGui::SameLine();
+        const auto pending = PendingWork();
+        char pendingLabel[80];
+        snprintf(pendingLabel, sizeof(pendingLabel), "%s (%d)", SEText("Pending", u8"\uBBF8\uC800\uC7A5"), (int)pending.size());
+        if (ImGui::Button(pendingLabel)) pendingChangesRequested = true;
     }
     SEUI::EndToolbar();
 
@@ -1758,11 +1765,13 @@ int WORKSPACE::draw() {
 
         if (SEUI::BeginStatusBar("##WorkspaceStatusBar")) {
             const bool recentSaveFailure = lastSaveState < 0;
+            const bool draftPending = (!codeEditorBuffer.empty() && codeEditorBase != codeEditorBuffer.data()) || customFileDraftDirty;
             const char* statusLabel = recentSaveFailure ? "SAVE FAILED" :
                 IsDocumentDirty() ? "MODIFIED" :
-                !imagePixelPaintDirtyPaths.empty() ? "IMAGE EDIT" : "SAVED";
+                !imagePixelPaintDirtyPaths.empty() ? "IMAGE EDIT" :
+                imageFontEditor.Dirty() ? "FONT EDIT" : draftPending ? "DRAFT" : "SAVED";
             const ImVec4 statusColor = recentSaveFailure ? SEUI::Colors::Danger() :
-                (IsDocumentDirty() || !imagePixelPaintDirtyPaths.empty())
+                (IsDocumentDirty() || !imagePixelPaintDirtyPaths.empty() || imageFontEditor.Dirty() || draftPending)
                     ? SEUI::Colors::Warning() : SEUI::Colors::Success();
             SEUI::StatusPill(statusLabel, statusColor);
             if (!lastSaveMessage.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
@@ -1846,7 +1855,8 @@ int WORKSPACE::draw() {
     drawLayoutFirstImageDialog();
 
     ImGuiIO& shortcutIO = ImGui::GetIO();
-    if (loaded && shortcutIO.KeyCtrl && !shortcutIO.WantTextInput && !imageFontEditor.focused) {
+    if (loaded && shortcutIO.KeyCtrl && !shortcutIO.WantTextInput && !imageFontEditor.focused &&
+        !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup)) {
         if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
             if (shortcutIO.KeyShift) RedoLastEdit();
             else UndoLastEdit();
@@ -3607,10 +3617,14 @@ int WORKSPACE::LoadSkin(char* path) {
     previewAutoFit = true;
     wObjectEditor = true;
     ClearObjectSelection();
-    wImgManager = true;
+    wImgManager = SEUIWindowSpecFor(SEUIWindowId::ImageManager).defaultVisible;
     wAssetBrowser = true;
-    wSimpleMode = true;
-    wDstView = true;
+    wSimpleMode = SEUIWindowSpecFor(SEUIWindowId::SimpleMode).defaultVisible;
+    wDstView = SEUIWindowSpecFor(SEUIWindowId::DstView).defaultVisible;
+    workflowStatus.clear();
+    previewRevealRequested = true;
+    imageImportRequested = false;
+    simpleModeRevealRequested = customFilesRevealRequested = false;
     layoutFirstDialogPending = layoutFirstResume = false;
     layoutFirstPlacement = layoutFirstDragging = false;
     ImageManagerZoom = 0.0f;
@@ -5342,6 +5356,10 @@ int WORKSPACE::drawTimerControl() {
 void WORKSPACE::drawCustomFiles() {
     char windowTitle[128];
     FormatSEUIWindowTitle(windowTitle, sizeof(windowTitle), SEUIWindowId::CustomFiles, num);
+    if (customFilesRevealRequested) {
+        SEUI::RevealWindowTab(windowTitle);
+        customFilesRevealRequested = false;
+    }
     ImGui::SetNextWindowSize(ImVec2(760, 600), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin(windowTitle, &wCustomFiles)) { ImGui::End(); return; }
     if (!loaded) { ImGui::TextDisabled("Open a skin first."); ImGui::End(); return; }
@@ -6048,6 +6066,43 @@ bool WORKSPACE::HasUnsavedImageEdits(const char* path) const {
     for (const auto& dirty : imagePixelPaintDirtyPaths)
         if (_stricmp(ImageDiskPath(dirty.first.c_str()).c_str(), key.c_str()) == 0) return true;
     return false;
+}
+
+bool WORKSPACE::SavePaintImage(const std::string& path, std::string& error) {
+    error.clear();
+    if (!HasUnsavedImageEdits(path.c_str())) return true;
+    const std::string key = ImageDiskPath(path.c_str());
+    PDIRECT3DTEXTURE9 texture = nullptr;
+    for (int i = 0; i < arr_SRCGR.count; ++i) {
+        auto& image = ((SRCGR*)arr_SRCGR.data)[i];
+        if (image.texture && image.path.body &&
+            _stricmp(ImageDiskPath(image.path.body).c_str(), key.c_str()) == 0) {
+            texture = image.texture; break;
+        }
+    }
+    if (!texture) { error = "Edited texture is unavailable. Nothing was saved."; return false; }
+    char saveError[256] = {};
+    if (!SaveTextureToImageFileAtomic(path.c_str(), texture, saveError, sizeof(saveError))) {
+        error = saveError; imagePixelPaintStatus = error; return false;
+    }
+    for (auto it = imagePixelPaintDirtyPaths.begin(); it != imagePixelPaintDirtyPaths.end();) {
+        if (_stricmp(ImageDiskPath(it->first.c_str()).c_str(), key.c_str()) == 0)
+            it = imagePixelPaintDirtyPaths.erase(it);
+        else ++it;
+    }
+    RememberImageFile(path.c_str(), true);
+    // Painting already mirrors aliases. Do not release a texture referenced by
+    // this frame's Image Manager/Asset Browser draw commands, or rebuild other
+    // unsaved painted images merely because one file was saved.
+    // Refresh only this file and its aliases at next frame start, including
+    // native graph captions, rather than rebuilding all edited textures.
+    imageManagerReloadPathRequest = path;
+    imageManagerRevertRequested = false;
+    previewReloadPending = true;
+    previewReloadRequestedAt = GetTickCount64();
+    previewTextureDirty = true;
+    error = imagePixelPaintStatus = "Saved. Original backup: .skineditor-pixel.bak";
+    return true;
 }
 
 bool WORKSPACE::ReloadImageFile(const char* path, bool discardEdits) {
@@ -7546,6 +7601,11 @@ int WORKSPACE::drawImgManager() {
         imageAddDialogRequested = true;
     };
 
+    if (imageImportRequested) {
+        imageImportRequested = false;
+        requestExistingImage(mainpath);
+    }
+
     auto drawImageAddDialog = [&]() {
         if (imageAddDialogRequested) {
             ImGui::OpenPopup(addImagePopup);
@@ -8373,6 +8433,8 @@ int WORKSPACE::drawImgManager() {
             ? "Save or revert pixel edits before replacing this texture."
             : "Change only this #IMAGE path; logical gr and crop coordinates stay unchanged.");
     }
+    imageToolbarNext("Back to Preview");
+    if (ImGui::Button(SEText("Back to Preview", u8"Preview\uB85C \uB3CC\uC544\uAC00\uAE30"))) RequestPreview();
     imageToolbarNext("Usage");
     if (ImGui::Button("Usage##imageManagerUsage"))
         openImageStatusRequest = true;
@@ -9032,32 +9094,9 @@ int WORKSPACE::drawImgManager() {
     imageToolbarNext("Save image");
     ImGui::BeginDisabled(!paintDirty);
     if (ImGui::Button("Save image##imagePixelPaintSave")) {
-        char saveError[256] = {};
-        if (SaveTextureToImageFileAtomic(paintPath.c_str(), img.texture,
-            saveError, sizeof(saveError))) {
-            imagePixelPaintDirtyPaths.erase(paintPath);
-            RememberImageFile(paintPath.c_str(), true);
-            imagePixelPaintStatus =
-                "Saved. Original backup: .skineditor-pixel.bak";
-            for (int graphicIndex = 0; graphicIndex < arr_SRCGR.count; ++graphicIndex) {
-                if (graphicIndex == gr_selected) continue;
-                SRCGR& sibling = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
-                if (!sibling.path.body || _stricmp(sibling.path.outstr(),
-                    paintPath.c_str()) != 0) continue;
-                if (sibling.texture) sibling.texture->Release();
-                sibling.texture = NULL;
-                sibling.loaded = false;
-            }
-            // The script itself did not change. Rebuild texture-backed editor
-            // state without marking the document as modified.
-            editorDerivedRebuildPending = true;
-            editorDerivedRebuildRequestedAt = 0;
-            previewReloadPending = true;
-            previewReloadRequestedAt = GetTickCount64();
-            previewTextureDirty = true;
-        } else {
-            imagePixelPaintStatus = saveError;
-        }
+        std::string message;
+        SavePaintImage(paintPath, message);
+        imagePixelPaintStatus = message;
     }
     imageToolbarNext("Revert");
     if (ImGui::Button("Revert##imagePixelPaintRevert")) {
@@ -9174,7 +9213,8 @@ int WORKSPACE::drawImgManager() {
                     ++graphicIndex) {
                     SRCGR& sibling = ((SRCGR*)arr_SRCGR.data)[graphicIndex];
                     if (!sibling.path.body ||
-                        _stricmp(sibling.path.outstr(), paintPath.c_str()) != 0)
+                        _stricmp(ImageDiskPath(sibling.path.outstr()).c_str(),
+                            ImageDiskPath(paintPath.c_str()).c_str()) != 0)
                         continue;
                     EnsureSRCGRTexture(graphicIndex);
                     if (!sibling.texture || sibling.sizeX != img.sizeX ||
@@ -13544,11 +13584,16 @@ int WORKSPACE::GenerateSimpleModeColorVariant(int targetRow, int applyScope,
 int WORKSPACE::drawSimpleMode() {
     char title[260];
     FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::SimpleMode, num);
+    if (simpleModeRevealRequested) {
+        SEUI::RevealWindowTab(title);
+        simpleModeRevealRequested = false;
+    }
     if (!ImGui::Begin(title, &wSimpleMode)) {
         ImGui::End();
         return 0;
     }
 
+    if (ImGui::SmallButton(SEText("Back to Preview", u8"Preview\uB85C \uB3CC\uC544\uAC00\uAE30"))) RequestPreview();
     if (meta.type == SKINTYPE_SELECT) {
         if (ImGui::RadioButton(SEText("Selection layout & effects", u8"\uC120\uACE1 \uD654\uBA74 \uBC30\uCE58\u00B7\uD6A8\uACFC"), simpleModeShowSelection))
             simpleModeShowSelection = true;

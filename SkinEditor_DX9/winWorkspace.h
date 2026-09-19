@@ -7,6 +7,7 @@
 #include "skinResolution.h"
 #include "fontAtlas.h"
 #include "imageFontEditor.h"
+#include "workflow.h"
 #include "simpleSelection.h"
 #include "codeEditorAssist.h"
 #include <algorithm>
@@ -377,6 +378,24 @@ typedef struct WORKSPACE {
     bool IsDocumentDirty() const;
     void MarkDocumentSaved();
     int SaveCurrentSkin();
+    std::vector<SEPendingWork> PendingWork() const;
+    bool SavePendingWork(const SEPendingWork& item, std::string& error);
+    void ReviewPendingWork(const SEPendingWork& item);
+    bool pendingChangesRequested = false;
+    // Navigation intents only. Existing tools retain draft/selection ownership.
+    bool previewRevealRequested = false;
+    bool imageFontRevealRequested = false;
+    bool simpleModeRevealRequested = false;
+    bool customFilesRevealRequested = false;
+    bool imageImportRequested = false;
+    void RequestImageImport();
+    void RequestPreview();
+    bool OpenObjectImage(int modelIndex);
+    bool OpenObjectFont(int modelIndex);
+    bool OpenObjectAppearance(int modelIndex);
+    bool SavePaintImage(const std::string& path, std::string& error);
+    void drawObjectWorkflowActions(int modelIndex);
+    std::string workflowStatus;
     int ExportOlrSkin(const char* packagePath, std::string& resultMessage);
     int SaveOlrSkin(const char* packagePath, std::string& resultMessage);
     int ImportOlrSkinInteractive();
@@ -737,6 +756,7 @@ typedef struct WORKSPACE {
     void SynchronizeNewObjectAutoName(const char* command,
         bool assetDropModal);
     bool SelectIMGAsset(int imageIndex, bool requestImageManagerScroll = false);
+    bool SelectImageAssetUsageObject(int modelIndex);
     bool OpenNewObjectFromAsset(int imageIndex, int dropX, int dropY);
     int RegisterGeneratedImage(const char* diskPath, int width, int height,
         std::string& errorText, int divX = 1, int divY = 1,

@@ -1620,6 +1620,35 @@ static int TestExternalImageReload(const std::filesystem::path& directory) {
     auto* texture = ((SRCGR*)workspace->arr_SRCGR.data)[0].texture;
     workspace->PollExternalImageChanges(6000);
     if (texture != ((SRCGR*)workspace->arr_SRCGR.data)[0].texture) return 425;
+    // Saving one painted file must retain the other unsaved image and all
+    // textures referenced by this frame. Alias refresh is deferred to draw().
+    const std::string otherPath = (directory / "other-paint.png").string();
+    if (!CreateSolidImageFileAtomic(otherPath.c_str(), 4, 4, red, error, sizeof(error))) return 426;
+    auto* other = (SRCGR*)workspace->arr_SRCGR.Get_new();
+    other->path.assign(otherPath.c_str());
+    if (!workspace->EnsureSRCGRTexture(2)) return 427;
+    auto* otherTexture = ((SRCGR*)workspace->arr_SRCGR.data)[2].texture;
+    for (int i = 0; i < 3; ++i) {
+        auto& image = ((SRCGR*)workspace->arr_SRCGR.data)[i];
+        if (!PaintTextureLine(image.texture, 0, 0, 0, 0, red)) return 428;
+    }
+    workspace->imagePixelPaintDirtyPaths[path] = true;
+    workspace->imagePixelPaintDirtyPaths[alias] = true;
+    workspace->imagePixelPaintDirtyPaths[otherPath] = true;
+    std::string saveError;
+    HANDLE lock = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (lock == INVALID_HANDLE_VALUE) return 429;
+    const bool lockedSave = workspace->SavePaintImage(path, saveError);
+    CloseHandle(lock);
+    if (lockedSave || !workspace->HasUnsavedImageEdits(path.c_str())) return 430;
+    if (!workspace->SavePaintImage(path, saveError) || workspace->HasUnsavedImageEdits(path.c_str()) ||
+        !workspace->HasUnsavedImageEdits(otherPath.c_str()) || workspace->editorDerivedRebuildPending ||
+        texture != ((SRCGR*)workspace->arr_SRCGR.data)[0].texture ||
+        otherTexture != ((SRCGR*)workspace->arr_SRCGR.data)[2].texture ||
+        workspace->imageManagerReloadPathRequest != path || workspace->documentRevision != revision) return 431;
+    if (!workspace->ReloadImageFile(path.c_str()) ||
+        !workspace->HasUnsavedImageEdits(otherPath.c_str()) ||
+        otherTexture != ((SRCGR*)workspace->arr_SRCGR.data)[2].texture) return 432;
     workspace->g.skstruct.count = 0;
     return 0;
 }

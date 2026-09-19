@@ -5,6 +5,10 @@ UI 지도는 ImGui 코드를 모두 읽지 않고도 창의 의도, 소유 함�
 
 ## 생성
 
+`pending-changes`는 SEDrawPendingChanges가 소유하는 앱 전체 저장/종료 검토창이며,
+`object-workflow`는 Inspector의 WORKSPACE::drawObjectWorkflowActions다.
+기본 전문 탭의 노출과 두 제작 시작점은 [Workflow UI](WORKFLOW_UI.md)를 따른다.
+
 Image Font Editor는 Assets 그룹의 선택적 center-tabs 창이다. 폰트 문서/문자
 매핑/미리보기/안전 저장은 WORKSPACE::drawImageFontEditor에서 시작한다.
 Open font / DXA는 압축 내부 폰트 선택을 제공하고 Save font는 해당 정의만 저장한다.

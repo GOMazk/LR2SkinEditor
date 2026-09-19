@@ -388,6 +388,10 @@ int WORKSPACE::drawPreview() {
     } else {
         FormatSEUIWindowTitle(title, sizeof(title), SEUIWindowId::Preview, num);
     }
+    if (previewRevealRequested) {
+        SEUI::RevealWindowTab(title);
+        previewRevealRequested = false;
+    }
     const bool previewWindowVisible = ImGui::Begin(
         title, previewCanvasFullscreen ? NULL : &wPreview, previewWindowFlags);
 

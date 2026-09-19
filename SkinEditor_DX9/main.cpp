@@ -9,6 +9,7 @@
 #include <WinSock2.h>
 
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
 #include "imgui/imgui_impl_dx9.h"
 #include "imgui/imgui_impl_win32.h"
 #include <d3d9.h>
@@ -33,6 +34,8 @@
 static LPDIRECT3D9              g_pD3D = nullptr;
 //static LPDIRECT3DDEVICE9        g_pd3dDevice = nullptr; //moved to imageLoader.cpp
 static bool                     g_DeviceLost = false;
+static bool                     g_ExitRequested = false;
+static bool                     g_ExitReviewStarted = false;
 static UINT                     g_ResizeWidth = 0, g_ResizeHeight = 0;
 static D3DPRESENT_PARAMETERS    g_d3dpp = {};
 
@@ -83,6 +86,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunUiCatalogSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-code-assist"))
         return RunCodeEditorAssistSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-workflow"))
+        return RunWorkflowSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-skin-browser"))
         return RunSkinBrowserSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-preview-simulator"))
@@ -336,6 +341,13 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
+        if (g_ExitRequested && !g_ExitReviewStarted) {
+            // Finish active property edits (e.g. Object Name commits on
+            // deactivation) before measuring unsaved work at frame end.
+            ImGui::ClearActiveID();
+            g_ExitReviewStarted = true;
+        }
+
         if (show_help_window)
             DrawHelpWindow(&show_help_window);
 
@@ -403,6 +415,11 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
                 workspace.draw();
             }
         }
+
+        // All workspaces (including hidden ones) participate in the close guard.
+        // Never destroy the HWND from WM_CLOSE before this frame can review drafts.
+        if (SEDrawPendingChanges(workspaceList, g_ExitRequested)) done = true;
+        if (!g_ExitRequested) g_ExitReviewStarted = false;
 
         // Rendering
         ImGui::EndFrame();
@@ -512,6 +529,9 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     switch (msg)
     {
+    case WM_CLOSE:
+        g_ExitRequested = true;
+        return 0;
     case WM_SIZE:
         if (wParam == SIZE_MINIMIZED)
             return 0;

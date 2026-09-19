@@ -6,6 +6,7 @@
 #include "seObjectEditor.h"
 #include "skinResolution.h"
 #include "fontAtlas.h"
+#include "imageFontEditor.h"
 #include "simpleSelection.h"
 #include "codeEditorAssist.h"
 #include <algorithm>
@@ -581,6 +582,13 @@ typedef struct WORKSPACE {
     signed char timerManualOverride[200] = {};
 
     //ImgManager
+    bool wImageFontEditor = false;
+    SEImageFontEditor imageFontEditor;
+    std::vector<std::string> imageFontRuntimePaths = std::vector<std::string>(10);
+    void drawImageFontEditor();
+    bool OpenImageFont(const std::string& path);
+    bool SaveImageFont();
+    void ReloadRuntimeImageFont(const std::string& path);
     bool wImgManager;
     int drawImgManager();
     float ImageManagerZoom = 0.0f;

@@ -79,6 +79,14 @@ $tests = @(
         Argument = '--self-test-save-recovery'
     },
     [pscustomobject]@{
+        Name = 'image-font'
+        Argument = '--self-test-image-font'
+    },
+    [pscustomobject]@{
+        Name = 'image-font-dxa'
+        Argument = '--self-test-image-font-dxa'
+    },
+    [pscustomobject]@{
         Name = 'dst-color'
         Argument = '--self-test-dst-color'
     },

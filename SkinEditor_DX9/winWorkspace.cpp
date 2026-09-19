@@ -1188,6 +1188,7 @@ int WORKSPACE::draw() {
         { SEUIWindowId::Customize, &wCustomize },
         { SEUIWindowId::CustomFiles, &wCustomFiles },
         { SEUIWindowId::ImageManager, &wImgManager },
+        { SEUIWindowId::ImageFontEditor, &wImageFontEditor },
         { SEUIWindowId::AssetBrowser, &wAssetBrowser },
         { SEUIWindowId::TextEditor, &wTextEdit },
         { SEUIWindowId::CodeEditor, &wCodeEditor },
@@ -1411,7 +1412,7 @@ int WORKSPACE::draw() {
     // confirmation bound to the same Object if the model is rebuilt while the
     // dialog is waiting for input.
     ImGuiIO& workspaceIO = ImGui::GetIO();
-    if (loaded && !workspaceIO.WantTextInput && !ImGui::IsAnyItemActive() &&
+    if (loaded && !imageFontEditor.focused && !workspaceIO.WantTextInput && !ImGui::IsAnyItemActive() &&
         !wNewObject && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) &&
         ImGui::IsKeyPressed(ImGuiKey_Delete, false)) {
         const int activeObject = ResolveObjectSelectionKey(objectSelection.active);
@@ -1734,6 +1735,9 @@ int WORKSPACE::draw() {
             ImGui::DockBuilderDockWindow(previewTitle, previewDock);
             ImGui::DockBuilderDockWindow(codeEditorTitle, previewDock);
             ImGui::DockBuilderDockWindow(imageManagerTitle, previewDock);
+            char imageFontTitle[128];
+            FormatSEUIWindowTitle(imageFontTitle, sizeof(imageFontTitle), SEUIWindowId::ImageFontEditor, num);
+            ImGui::DockBuilderDockWindow(imageFontTitle, previewDock);
             ImGui::DockBuilderDockWindow(textEditorTitle, previewDock);
             ImGui::DockBuilderDockWindow(simpleModeTitle, previewDock);
             ImGui::DockBuilderDockWindow(dstViewTitle, previewDock);
@@ -1816,6 +1820,8 @@ int WORKSPACE::draw() {
         if (wCustomize) drawCustomize();
         if (wCustomFiles) drawCustomFiles();
         if (wImgManager) drawImgManager();
+        if (wImageFontEditor) drawImageFontEditor();
+        else imageFontEditor.focused = false;
         if (wAssetBrowser) drawAssetBrowser();
         if (wFileManager) drawFileManager();
         if (wSimpleMode) drawSimpleMode();
@@ -1840,7 +1846,7 @@ int WORKSPACE::draw() {
     drawLayoutFirstImageDialog();
 
     ImGuiIO& shortcutIO = ImGui::GetIO();
-    if (loaded && shortcutIO.KeyCtrl && !shortcutIO.WantTextInput) {
+    if (loaded && shortcutIO.KeyCtrl && !shortcutIO.WantTextInput && !imageFontEditor.focused) {
         if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
             if (shortcutIO.KeyShift) RedoLastEdit();
             else UndoLastEdit();
@@ -3287,6 +3293,8 @@ static bool ResetEditorDerivedContainers(WORKSPACE& workspace) {
 }
 
 int WORKSPACE::ResetEditorDocumentForLoad() {
+    imageFontRuntimePaths.assign(10, "");
+    imageFontEditor.textures.clear(); // keep external draft even across skin reloads
     externalImageStates.clear();
     externalImagePolledAt = 0;
     imageManagerRevertRequested = false;
@@ -4198,6 +4206,8 @@ int RunOlrFileScopeSelfTest() {
 }
 
 int WORKSPACE::ReadSkinSE() {
+    const auto previousFontPaths = imageFontRuntimePaths;
+    imageFontRuntimePaths.assign(10, "");
     previewDrawSourceRows.clear();
     previewRuntimeLineMask.clear();
     previewFileDrawMask.clear();
@@ -4998,19 +5008,15 @@ int WORKSPACE::ReadSkinSE() {
                                 break;
                             }
                         }
-                        std::string resolvedFont;
-                        const SESkinResourcePathResult fontResolution =
-                            SEResolveSkinResourcePath(csv.str[1].outstr(),
+                        const std::string fontPath = SEFindPreviewImageFontPath(csv.str[1].outstr(),
                             read.filename.body ? read.filename.outstr() : mainpath,
-                            mainpath, resolvedFont);
-                        if (fontResolution == SESkinResourcePathResult::Resolved)
-                            csv.str[1].assign(resolvedFont.c_str());
-                        else if (fontResolution ==
-                            SESkinResourcePathResult::Rejected)
-                            csv.str[1].assign("ERROR");
-                        ReadImageFont(GetRandomFileNoError(csv.str[1], dir),
-                            &sk->ImageFonts[sk->num_of_ImageFont]);
+                            mainpath);
+                        imageFontRuntimePaths[sk->num_of_ImageFont] = fontPath;
+                        if (!fontPath.empty())
+                            ReadImageFont(CSTR(fontPath.c_str()), &sk->ImageFonts[sk->num_of_ImageFont]);
+                        else InitImageFont(&sk->ImageFonts[sk->num_of_ImageFont]);
                     }
+                    else imageFontRuntimePaths[sk->num_of_ImageFont] = previousFontPaths[sk->num_of_ImageFont];
                     sk->num_of_ImageFont++;
                 }
                 else {

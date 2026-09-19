@@ -76,6 +76,7 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     const int earlyAgentResult = SERunAgentUtility(false);
     if (earlyAgentResult >= 0) return earlyAgentResult;
     const bool agentMode = SEAgentUtilityMode();
+    const bool checkPreviewFonts = cmdline && strstr(cmdline, "--check-preview-image-fonts");
     if (cmdline && strstr(cmdline, "--self-test-schema-contract"))
         return RunSchemaContractSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-ui-contract"))
@@ -98,6 +99,12 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
         return RunWorkspaceReloadLifecycleSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-save-recovery"))
         return RunScriptSaveRecoverySelfTest();
+    if (cmdline && strstr(cmdline, "--check-image-font-dxa"))
+        return CheckImageFontArchiveCommand();
+    if (cmdline && strstr(cmdline, "--self-test-image-font-dxa"))
+        return RunImageFontArchiveSelfTest();
+    if (cmdline && strstr(cmdline, "--self-test-image-font"))
+        return RunImageFontEditorSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-dst-color"))
         return RunDstColorSelfTest();
     if (cmdline && strstr(cmdline, "--self-test-object-reorder"))
@@ -160,7 +167,7 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     }
 
     // Show the window
-    if (!agentMode) {
+    if (!agentMode && !checkPreviewFonts) {
         ::ShowWindow(hwnd, SW_MAXIMIZE);
         ::UpdateWindow(hwnd);
     }
@@ -241,8 +248,8 @@ int WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow)
     SetMainWindowText("skinPreview2");
     DxLib_Init();
 
-    if (agentMode) {
-        const int result = SERunAgentUtility(true);
+    if (agentMode || checkPreviewFonts) {
+        const int result = checkPreviewFonts ? CheckPreviewImageFontsCommand() : SERunAgentUtility(true);
         ImGui_ImplDX9_Shutdown();
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();

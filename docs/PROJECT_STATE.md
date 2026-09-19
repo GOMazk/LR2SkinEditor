@@ -1,5 +1,17 @@
 # SkinEditor 현재 개발 상태
 
+## Image Font Editor (AI_1)
+
+Windows > Assets > Image Font Editor에서 현재 Preview의 실제 #LR2FONT 슬롯 또는
+압축되지 않은 .lr2font 또는 구형 DXA를 열어 문자/아틀라스/문장 미리보기를 확인한다. #S 높이,
+#M 간격, #T 페이지 경로, #R 문자 코드/영역 편집과 추가·삭제, 독립 Undo/Redo를
+지원한다. Apply edits는 초안만 변경하고 Save font는 외부 폰트를 안전 저장하며
+현재 Workspace의 해당 런타임 폰트를 다시 읽는다. 스킨 CSV/History는 변경하지 않는다.
+DXA format v1~4/default key는 내부 폰트 정의만 안전 교체한다. 원래 버전과 다른
+파일 데이터는 보존하며 추출 폴더/새 CSV 경로를 만들지 않는다. 외부 변경·잔존 백업은
+저장을 차단한다. 구형 DXA를 지원하는 사용자 제공 DxLib를 소스 빌드하여 연결한다.
+사용법과 검증 범위는 [Image Font Editor](IMAGE_FONT_EDITOR.md)에 정리했다.
+
 ## 시나리오 D: DST 기반 Asset 생성 (AI_1)
 
 권장 흐름은 Asset Browser의 `New layout Object...` → Preview에서 배치 →
@@ -403,10 +415,10 @@ font와 archive는 폴더 전체로 보존한다. 해결할 수 없는 LR2 root,
 과도하게 긴 파일은 외부/누락 개수를 결과와 manifest에 명시한다.
 V0.1 패키지는 계속 Import할 수 있지만 path map이 없으므로 LR2 folder Export를
 활성화하지 않는다.
-SkinEditor가 현재 번들한 DxLib는 legacy DXA 1.02 image font를 읽지 못한다.
+사용자 제공 커스텀 DxLib의 legacy DXA reader로 DXA 1.02 image font를 읽는다.
 LR2beta3 호환성을 깨는 DXA 1.10 변환은 하지 않으며, OLR package와 설치용 LR2
-Export는 원본 `.dxa`를 byte-for-byte 보존한다. 따라서 이 구형 font는 실제 LR2에서는
-사용 가능해도 SkinEditor Preview 로그에는 load 실패로 남을 수 있다.
+Export는 `.dxa`를 byte-for-byte 보존한다. Image Font Editor의 명시적 Save font만
+해당 아카이브의 폰트 정의를 편집하며 OLRskin 0.9 계약은 바꾸지 않는다.
 현재 `Save OLRskin` writer는 알지 못하는 manifest/`skin.json` 필드를 보존하지 않는다.
 따라서 third-party extension은 editor 재저장 뒤에도 유지된다고 가정할 수 없다.
 향후 extension namespace와 passthrough 또는 명시적 rewrite 경계를 별도 정책으로

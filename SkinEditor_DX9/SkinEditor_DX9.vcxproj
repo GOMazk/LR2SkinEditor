@@ -117,7 +117,8 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>winmm.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(D3DXPackageRoot)\build\native\release\lib\x86;$(ProjectDir)..\lib;$(ProjectDir)..\lib\DxLib;$(ProjectDir)..\lib\FMOD</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(D3DXPackageRoot)\build\native\release\lib\x86;$(ProjectDir)..\lib;$(ProjectDir)..\lib\DxLib_unk;$(ProjectDir)..\lib\FMOD</AdditionalLibraryDirectories>
+      <IgnoreSpecificDefaultLibraries>DxLib_vs2015_x86_MD.lib;DxDrawFunc_vs2015_x86_MD.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <DelayLoadDLLs>fmod.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
@@ -151,7 +152,8 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>winmm.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(D3DXPackageRoot)\build\native\release\lib\x64;$(ProjectDir)..\lib;$(ProjectDir)..\lib\DxLib;$(ProjectDir)..\lib\FMOD</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(D3DXPackageRoot)\build\native\release\lib\x64;$(ProjectDir)..\lib;$(ProjectDir)..\lib\DxLib_unk;$(ProjectDir)..\lib\FMOD</AdditionalLibraryDirectories>
+      <IgnoreSpecificDefaultLibraries>DxLib_vs2015_x64_MD.lib;DxDrawFunc_vs2015_x64_MD.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <DelayLoadDLLs>fmod.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
@@ -202,6 +204,11 @@
     <ClCompile Include="arr.cpp" />
     <ClCompile Include="imageLoader.cpp" />
     <ClCompile Include="fontAtlas.cpp" />
+    <ClCompile Include="imageFontDocument.cpp" />
+    <ClCompile Include="imageFontArchive.cpp" />
+    <ClCompile Include="imageFontArchiveTests.cpp" />
+    <ClCompile Include="imageFontTests.cpp" />
+    <ClCompile Include="winWorkspaceImageFont.cpp" />
     <ClCompile Include="fontAtlasTests.cpp" />
     <ClCompile Include="winWorkspaceSimpleFonts.cpp" />
     <ClCompile Include="simpleSelection.cpp" />
@@ -305,6 +312,10 @@
     <ClInclude Include="selfTests.h" />
     <ClInclude Include="seUI.h" />
     <ClInclude Include="fontAtlas.h" />
+    <ClInclude Include="imageFontDocument.h" />
+    <ClInclude Include="imageFontArchive.h" />
+    <ClInclude Include="imageFontEditor.h" />
+    <ClInclude Include="scriptFileSave.h" />
     <ClInclude Include="skin.h" />
     <ClInclude Include="skinBrowser.h" />
     <ClInclude Include="skinPathResolver.h" />
@@ -321,6 +332,12 @@
     <None Include="skinObjGroup.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ItemGroup Condition="'$(Configuration)'=='Release'">
+    <ProjectReference Include="..\lib\DxLibCustom.vcxproj">
+      <Project>{0BD7F876-C103-458E-A157-7216327988CE}</Project>
+      <GlobalPropertiesToRemove>OutDir;IntDir;BaseIntermediateOutputPath</GlobalPropertiesToRemove>
+    </ProjectReference>
+  </ItemGroup>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>

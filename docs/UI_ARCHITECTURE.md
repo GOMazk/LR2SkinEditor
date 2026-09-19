@@ -1,5 +1,19 @@
 # SkinEditor UI architecture and debugging
 
+Image Font Editor is an optional Assets/center-tabs window. WORKSPACE owns its
+external-file draft and form state; the panel never edits runtime arrays directly
+while typing. A successful Save font invalidates/reloads matching image-font caches,
+including removed character rectangles and the legacy directory-only cache key.
+Font undo and Ctrl+S are separate from skin History/save; workspace Object shortcuts
+are suppressed while this tool has focus. Its draft survives hiding and skin reload.
+The active font paths are provenance captured in ReadSkinSE after existing resource
+resolution plus archive-aware `SEFindPreviewImageFontPath`, not a second IF/custom-file
+parser. The same resolved file feeds native loading and the combo; Win32-only
+enumeration must not turn DXA members into `ERROR`. See [Image Font Editor](IMAGE_FONT_EDITOR.md).
+Open font / DXA can select one definition from a multi-font archive. The archive
+snapshot belongs to the external font draft, not the skin model; Save preserves
+other archive members. Native runtime loading remains in the custom DxLib.
+
 Project-wide feature status, file-format rules and scenario coverage are in
 [`PROJECT_STATE.md`](PROJECT_STATE.md). Build and manual regression procedures
 are in [`BUILD_AND_TEST.md`](BUILD_AND_TEST.md).

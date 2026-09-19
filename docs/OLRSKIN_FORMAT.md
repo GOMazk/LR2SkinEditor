@@ -494,9 +494,9 @@ every edited skin:
   becoming LR2 assets;
 - Windows ANSI/`MAX_PATH` constraints still apply to the legacy editor and ZIP
   filename encoding; and
-- SkinEditor's current bundled DxLib cannot Preview legacy DXA 1.02 image-font
-  archives. LR2 export preserves those archives byte-for-byte because converting
-  them to DXA 1.10 would break LR2beta3 compatibility; and
+- the custom DxLib can Preview legacy DXA 1.02 image-font archives. LR2 export
+  still preserves archive bytes without converting them to DXA 1.10 (which would
+  break LR2beta3 compatibility). Explicit font editing is separate from packaging; and
 - parts reflect only SRC-before/after-DST row boundaries; 1P/2P/DP or other
   variants are not inferred or linked automatically;
 - the Object Inspector currently edits only the first destination command

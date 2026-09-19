@@ -1,5 +1,23 @@
 # 빌드, 실행 및 회귀 테스트
 
+`--self-test-image-font` is included in `scripts/test.ps1`. It checks CP932/LR2
+character mapping, lossless font rows and trailing data, duplicate-code rename/delete,
+draft validation and Undo/Redo, external-file atomic save/reopen, stale-source and
+backup rejection, real sharing-lock failures, script-state isolation and headless
+ImGui Begin/End frames. Fonts are created only in a unique owned temp directory.
+Manual GPU/native/LR2 cases are listed in [Image Font Editor](IMAGE_FONT_EDITOR.md).
+
+`image-font-dxa` / `--self-test-image-font-dxa` exercises synthetic legacy DXA
+archives through the custom DxLib and editor writer: versions 1-4, nested fonts,
+compression, unchanged image/other-font payloads, save/reopen/runtime reload,
+stale archives, recovery backups and real sharing locks. A read-only local archive
+check is `--check-image-font-dxa "path/to/font.dxa"` (font rows and all image pages).
+Release project builds `lib/DxLibCustom.vcxproj` automatically from `lib/DxLib`;
+core/draw/Ogg adapters are compiled together; other codec/CRT binaries use `lib/DxLib_unk`.
+Pinned public Xiph headers and their licenses are in `lib/DxLibCodecHeaders`.
+Old prebuilt DxLib/DxDrawFunc cores are explicitly ignored to prevent silent fallback.
+Outputs: `.build/dxlib/{Win32,x64}`, intermediates: `.build/dxlib-obj/{Win32,x64}`.
+
 `--self-test-save-recovery` runs before graphics initialization and is included in
 `scripts/test.ps1`. It exercises the same internal transaction as `SaveSkinScript`
 using 11 isolated temporary-directory cases: success; first/later replacement

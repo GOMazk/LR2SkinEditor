@@ -102,6 +102,11 @@
     <ClCompile Include="fontAtlas.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="imageFontDocument.cpp"><Filter>소스 파일</Filter></ClCompile>
+    <ClCompile Include="imageFontArchive.cpp"><Filter>소스 파일</Filter></ClCompile>
+    <ClCompile Include="imageFontArchiveTests.cpp"><Filter>소스 파일</Filter></ClCompile>
+    <ClCompile Include="imageFontTests.cpp"><Filter>소스 파일</Filter></ClCompile>
+    <ClCompile Include="winWorkspaceImageFont.cpp"><Filter>소스 파일</Filter></ClCompile>
     <ClCompile Include="fontAtlasTests.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
@@ -335,6 +340,10 @@
     <ClInclude Include="fontAtlas.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
+    <ClInclude Include="imageFontDocument.h"><Filter>헤더 파일</Filter></ClInclude>
+    <ClInclude Include="imageFontArchive.h"><Filter>헤더 파일</Filter></ClInclude>
+    <ClInclude Include="imageFontEditor.h"><Filter>헤더 파일</Filter></ClInclude>
+    <ClInclude Include="scriptFileSave.h"><Filter>헤더 파일</Filter></ClInclude>
     <ClInclude Include="skinResolution.h">
       <Filter>소스 파일</Filter>
     </ClInclude>

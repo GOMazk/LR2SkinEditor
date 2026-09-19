@@ -19,6 +19,7 @@
 #include "arr.hpp"
 #include "seHelper.h"
 #include "inputwrap.h"
+#include "scriptFileSave.h"
 #include <cerrno>
 #include <filesystem>
 #include <fstream>
@@ -196,6 +197,37 @@ int CommitSkinSave(std::vector<PendingSkinSave>& pending, std::string& report,
     CleanupSkinSave(pending, report, ops);
     return 0;
 }
+}
+
+bool SESaveExternalTextFile(const std::string& path, const std::string& original,
+    const std::string& edited, std::string& report) {
+    report.clear();
+    if (path.empty()) { report = "No external file is open."; return false; }
+    std::ifstream source(path, std::ios::binary);
+    // Read at most the expected length plus one byte, even if an external
+    // editor replaced the source with a very large file since it was opened.
+    std::string current(original.size() + 1, '\0');
+    source.read(current.data(), (std::streamsize)current.size());
+    const auto count = source.gcount();
+    current.resize((size_t)count);
+    if (!source.is_open() || source.bad() || current != original) {
+        report = "File changed outside the editor or could not be read. Reload before saving: " + Cp932ToUtf8(path.c_str());
+        return false;
+    }
+    source.close();
+    PendingSkinSave save;
+    save.outputPath = path; save.tempPath = path + ".skineditor.tmp"; save.backupPath = path + ".skineditor.bak";
+    if (!RecoveryBackupAvailable(save.backupPath, report)) return false;
+    FILE* output = fopen(save.tempPath.c_str(), "wb");
+    if (!output) { report = "Cannot create temporary file: " + Cp932ToUtf8(save.tempPath.c_str()); return false; }
+    bool ok = fwrite(edited.data(), 1, edited.size(), output) == edited.size();
+    if (fclose(output) != 0) ok = false;
+    if (!ok || !FileFingerprint(save.tempPath.c_str(), save.expectedSize, save.expectedHash)) {
+        report = "Cannot write/verify temporary file: " + Cp932ToUtf8(save.tempPath.c_str());
+        std::vector<PendingSkinSave> pending{save}; CleanupSkinSave(pending, report, SkinSaveFileOps()); return false;
+    }
+    std::vector<PendingSkinSave> pending{save};
+    return CommitSkinSave(pending, report) == 0;
 }
 
 int WORKSPACE::SaveSkinScript(char* path, bool split, bool nocomment) {

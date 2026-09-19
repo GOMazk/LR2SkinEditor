@@ -306,21 +306,34 @@ int WORKSPACE::drawAssetBrowser() {
         return 0;
     }
 
-    const auto toolbarNext = [](const char* label) {
-        const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
-        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x +
-            ImGui::CalcTextSize(label).x + 2 * ImGui::GetStyle().FramePadding.x <= right)
-            ImGui::SameLine();
+    const auto drawCreateItems = [&]() {
+        if (ImGui::MenuItem(SEText("Import image...", u8"\uC774\uBBF8\uC9C0 \uAC00\uC838\uC624\uAE30\u2026"), nullptr, false, loaded)) RequestImageImport();
+        if (ImGui::MenuItem("New layout Object...", nullptr, false, loaded)) layoutFirstDialogPending = true;
+        if (ImGui::MenuItem(SEText("Images from layout...", u8"\ubc30\uce58\uc5d0\uc11c \uc774\ubbf8\uc9c0 \ub9cc\ub4e4\uae30\u2026"), nullptr, false, loaded)) RequestDstAssetDialog();
     };
-    ImGui::BeginDisabled(!loaded);
-    if (ImGui::Button(SEText("Import image...", u8"\uC774\uBBF8\uC9C0 \uAC00\uC838\uC624\uAE30\u2026"))) RequestImageImport();
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Image-first: import, optionally detect crops, then drag an Asset into Preview.");
-    toolbarNext("New layout Object...");
-    if (ImGui::Button("New layout Object...")) layoutFirstDialogPending = true;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Layout-first: place an empty Object, then create artwork using Images from layout.");
-    toolbarNext(SEText("Images from layout...", u8"\uBC30\uCE58\uC5D0\uC11C \uC774\uBBF8\uC9C0 \uB9CC\uB4E4\uAE30\u2026"));
-    if (ImGui::Button(SEText("Images from layout...", u8"\ubc30\uce58\uc5d0\uc11c \uc774\ubbf8\uc9c0 \ub9cc\ub4e4\uae30\u2026"))) RequestDstAssetDialog();
-    ImGui::EndDisabled();
+    if (ImGui::Button("Add...")) ImGui::OpenPopup("##AssetAdd");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Import an image, create a layout Object, or make images from layout.");
+    if (ImGui::BeginPopup("##AssetAdd")) {
+        drawCreateItems();
+        ImGui::EndPopup();
+    }
+    const char* optionsLabel = assetShowUnusedOnly ? "Options (unused)" : "Options...";
+    SEUI::SameLineIfFits(ImGui::CalcTextSize(optionsLabel).x + ImGui::GetStyle().FramePadding.x * 2);
+    if (ImGui::Button(optionsLabel)) ImGui::OpenPopup("##AssetOptions");
+    if (ImGui::BeginPopup("##AssetOptions")) {
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12);
+        ImGui::SliderFloat("Thumbnail", &assetThumbnailSize, 48.0f, 192.0f, "%.0f px");
+        ImGui::Checkbox("Detailed cards", &assetDetailedCards);
+        ImGui::Checkbox("Animate SRC", &assetAnimateSrc);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Preview div_x/div_y frames using the SRC cycle value.");
+        ImGui::Checkbox("Unused only", &assetShowUnusedOnly);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show crops that are not referenced by any Object SRC command.");
+        ImGui::Separator();
+        ImGui::Checkbox("Copy animation when applying", &assetApplyCopyAnimation);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Use in Object also copies div_x, div_y, cycle and timer. Object-specific fields stay unchanged.");
+        ImGui::EndPopup();
+    }
+    assetThumbnailSize = (std::max)(48.0f, (std::min)(192.0f, assetThumbnailSize));
 
     auto drawBackgroundMenu = [&](bool emptySurface = false) {
         // Empty-state children are presentation only, so their whole area
@@ -333,11 +346,7 @@ int WORKSPACE::drawAssetBrowser() {
             ImGui::BeginPopupContextWindow("##AssetBackground",
                 ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems);
         if (open) {
-            if (ImGui::MenuItem(SEText("Import image...", u8"\uC774\uBBF8\uC9C0 \uAC00\uC838\uC624\uAE30\u2026"), nullptr, false, loaded)) RequestImageImport();
-            if (ImGui::MenuItem(SEText("Images from layout...", u8"\ubc30\uce58\uc5d0\uc11c \uc774\ubbf8\uc9c0 \ub9cc\ub4e4\uae30\u2026"), nullptr, false, loaded))
-                RequestDstAssetDialog();
-            if (ImGui::MenuItem("New layout Object...", nullptr, false, loaded))
-                layoutFirstDialogPending = true;
+            drawCreateItems();
             ImGui::EndPopup();
         }
     };
@@ -507,26 +516,18 @@ int WORKSPACE::drawAssetBrowser() {
         return deleted;
     };
 
-    ImGui::SetNextItemWidth((std::min)(260.0f,
-        (std::max)(120.0f, ImGui::GetContentRegionAvail().x * 0.42f)));
+    const float useWidth = ImGui::CalcTextSize("Use in Object").x + 2 * ImGui::GetStyle().FramePadding.x;
+    const float countWidth = ImGui::CalcTextSize("0000 / 0000").x;
+    const float searchMin = ImGui::GetFontSize() * 8;
+    SEUI::SameLineIfFits(searchMin);
+    ImGui::SetNextItemWidth((std::max)(searchMin, ImGui::GetContentRegionAvail().x -
+        useWidth - countWidth - 2 * ImGui::GetStyle().ItemSpacing.x));
     ImGui::InputTextWithHint("##AssetSearch", "Search asset, gr or command...",
         assetSearch, sizeof(assetSearch));
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(150.0f);
-    ImGui::SliderFloat("Thumbnail", &assetThumbnailSize, 48.0f, 192.0f, "%.0f px");
-    assetThumbnailSize = (std::max)(48.0f, (std::min)(192.0f, assetThumbnailSize));
-    ImGui::SameLine();
-    ImGui::Checkbox("Animate SRC", &assetAnimateSrc);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-        ImGui::SetTooltip("Preview div_x/div_y frames using the SRC cycle value.");
-    ImGui::SameLine();
-    ImGui::Checkbox("Unused only", &assetShowUnusedOnly);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-        ImGui::SetTooltip("Show crops that are not referenced by any Object SRC command.");
-    ImGui::Spacing();
+    SEUI::SameLineIfFits(useWidth);
     ImGui::BeginDisabled(src_selected < 0 || src_selected >= arr_IMG.count ||
         !hasAssignableObject);
-    if (ImGui::Button("Use in selected Object"))
+    if (ImGui::Button("Use in Object"))
         requestAssetApply(src_selected);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled |
@@ -536,15 +537,8 @@ int WORKSPACE::drawAssetBrowser() {
         else if (activeSourceRows.empty())
             ImGui::SetTooltip("The selected Object has no image-backed SRC row.");
         else
-            ImGui::SetTooltip("Replace the selected Object SRC crop in one undoable edit.");
-    }
-    ImGui::SameLine();
-    ImGui::Checkbox("Copy animation", &assetApplyCopyAnimation);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-        ImGui::SetTooltip("Also copy div_x, div_y, cycle and timer from the Asset SRC.");
-    if (!assetDeleteStatus.empty()) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", assetDeleteStatus.c_str());
+            ImGui::SetTooltip("Replace the selected Object SRC crop in one undoable edit. Copy animation: %s (Options).",
+                assetApplyCopyAnimation ? "ON" : "OFF");
     }
 
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
@@ -580,8 +574,12 @@ int WORKSPACE::drawAssetBrowser() {
             filteredAssets.push_back(imageIndex);
     }
 
-    ImGui::SameLine();
-    ImGui::TextDisabled("%d / %d", (int)filteredAssets.size(), arr_IMG.count);
+    char countLabel[64];
+    snprintf(countLabel, sizeof(countLabel), "%d / %d", (int)filteredAssets.size(), arr_IMG.count);
+    SEUI::SameLineIfFits(ImGui::CalcTextSize(countLabel).x);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("%s", countLabel);
+    if (!assetDeleteStatus.empty()) ImGui::TextWrapped("%s", assetDeleteStatus.c_str());
     ImGui::Separator();
 
     if (filteredAssets.empty()) {
@@ -596,17 +594,18 @@ int WORKSPACE::drawAssetBrowser() {
         return 0;
     }
 
-    if (ImGui::BeginChild("##AssetGrid", ImVec2(0.0f, 0.0f),
-        ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar)) {
+    if (ImGui::BeginChild("##AssetGrid", ImVec2(0.0f, 0.0f))) {
         const ImGuiStyle& style = ImGui::GetStyle();
         const float padding = 7.0f;
         const float spacing = (std::max)(6.0f, style.ItemSpacing.x);
-        const float cardWidth = assetThumbnailSize + padding * 2.0f;
-        const float cardHeight = assetThumbnailSize + padding * 2.0f +
-            ImGui::GetTextLineHeight() * 3.0f + 5.0f;
+        const float availableWidth = ImGui::GetContentRegionAvail().x;
+        const float thumbnailSize = (std::max)(1.0f, (std::min)(assetThumbnailSize,
+            availableWidth - 2 * padding));
+        const float cardWidth = thumbnailSize + padding * 2.0f;
+        const float cardHeight = thumbnailSize + padding * 2.0f +
+            ImGui::GetTextLineHeight() * (assetDetailedCards ? 3.0f : 1.0f) + 5.0f;
         const float itemStepX = cardWidth + spacing;
         const float itemStepY = cardHeight + spacing;
-        const float availableWidth = ImGui::GetContentRegionAvail().x;
         const int columnCount = (std::max)(1,
             (int)((availableWidth + spacing) / itemStepX));
         const int rowCount = ((int)filteredAssets.size() + columnCount - 1) / columnCount;
@@ -664,13 +663,13 @@ int WORKSPACE::drawAssetBrowser() {
                     const ImVec2 cardMin = ImGui::GetItemRectMin();
                     const ImVec2 cardMax = ImGui::GetItemRectMax();
                     const ImVec2 thumbMin(cardMin.x + padding, cardMin.y + padding);
-                    const ImVec2 thumbMax(thumbMin.x + assetThumbnailSize,
-                        thumbMin.y + assetThumbnailSize);
+                    const ImVec2 thumbMax(thumbMin.x + thumbnailSize,
+                        thumbMin.y + thumbnailSize);
                     drawList->AddRectFilled(thumbMin, thumbMax,
                         ImGui::GetColorU32(ImGuiCol_FrameBg));
                     if (transBackground) {
                         drawList->AddImage(transBackground, thumbMin, thumbMax, ImVec2(0, 0),
-                            ImVec2(assetThumbnailSize / 32.0f, assetThumbnailSize / 32.0f));
+                            ImVec2(thumbnailSize / 32.0f, thumbnailSize / 32.0f));
                     }
 
                     const std::pair<int, int> textureKey(tag.gr, tag.ifGroup);
@@ -735,12 +734,12 @@ int WORKSPACE::drawAssetBrowser() {
                         const int cropW = cropX1 - cropX0;
                         const int cropH = cropY1 - cropY0;
                         if (cropW > 0 && cropH > 0) {
-                            const float imageScale = (std::min)(assetThumbnailSize / cropW,
-                                assetThumbnailSize / cropH);
+                            const float imageScale = (std::min)(thumbnailSize / cropW,
+                                thumbnailSize / cropH);
                             const ImVec2 displaySize(cropW * imageScale, cropH * imageScale);
                             const ImVec2 imageMin(thumbMin.x +
-                                (assetThumbnailSize - displaySize.x) * 0.5f,
-                                thumbMin.y + (assetThumbnailSize - displaySize.y) * 0.5f);
+                                (thumbnailSize - displaySize.x) * 0.5f,
+                                thumbMin.y + (thumbnailSize - displaySize.y) * 0.5f);
                             const ImVec2 imageMax(imageMin.x + displaySize.x,
                                 imageMin.y + displaySize.y);
                             const ImVec2 uv0(cropX0 / (float)source->sizeX,
@@ -757,8 +756,8 @@ int WORKSPACE::drawAssetBrowser() {
                         const char* missing = "Missing crop";
                         const ImVec2 textSize = ImGui::CalcTextSize(missing);
                         drawList->AddText(ImVec2(
-                            thumbMin.x + (assetThumbnailSize - textSize.x) * 0.5f,
-                            thumbMin.y + (assetThumbnailSize - textSize.y) * 0.5f),
+                            thumbMin.x + (thumbnailSize - textSize.x) * 0.5f,
+                            thumbMin.y + (thumbnailSize - textSize.y) * 0.5f),
                             ImGui::GetColorU32(ImGuiCol_TextDisabled), missing);
                     }
                     drawList->AddRect(thumbMin, thumbMax,
@@ -770,11 +769,6 @@ int WORKSPACE::drawAssetBrowser() {
                     const std::string tagName = Cp932ToUtf8(
                         tag.name.body ? tag.name.outstr() : "(unnamed)");
                     drawList->PushClipRect(cardMin, cardMax, true);
-                    drawList->AddText(ImVec2(cardMin.x + padding, thumbMax.y + 4.0f),
-                        ImGui::GetColorU32(ImGuiCol_Text), primaryLabel);
-                    drawList->AddText(ImVec2(cardMin.x + padding,
-                        thumbMax.y + 4.0f + ImGui::GetTextLineHeight()),
-                        ImGui::GetColorU32(ImGuiCol_TextDisabled), tagName.c_str());
                     char usageLabel[64];
                     if (users.empty()) {
                         snprintf(usageLabel, sizeof(usageLabel), "Unused");
@@ -782,11 +776,22 @@ int WORKSPACE::drawAssetBrowser() {
                         snprintf(usageLabel, sizeof(usageLabel), "%d Object%s",
                             (int)users.size(), users.size() == 1 ? "" : "s");
                     }
-                    drawList->AddText(ImVec2(cardMin.x + padding,
-                        thumbMax.y + 4.0f + ImGui::GetTextLineHeight() * 2.0f),
-                        users.empty() ? ImGui::GetColorU32(SEUI::Colors::Warning())
-                            : ImGui::GetColorU32(SEUI::Colors::Success()),
-                        usageLabel);
+                    if (assetDetailedCards) {
+                        drawList->AddText(ImVec2(cardMin.x + padding, thumbMax.y + 4.0f),
+                            ImGui::GetColorU32(ImGuiCol_Text), primaryLabel);
+                        drawList->AddText(ImVec2(cardMin.x + padding,
+                            thumbMax.y + 4.0f + ImGui::GetTextLineHeight()),
+                            ImGui::GetColorU32(ImGuiCol_TextDisabled), tagName.c_str());
+                        drawList->AddText(ImVec2(cardMin.x + padding,
+                            thumbMax.y + 4.0f + ImGui::GetTextLineHeight() * 2.0f),
+                            users.empty() ? ImGui::GetColorU32(SEUI::Colors::Warning())
+                                : ImGui::GetColorU32(SEUI::Colors::Success()), usageLabel);
+                    } else {
+                        char caption[512];
+                        snprintf(caption, sizeof(caption), "%03d %s", imageIndex, tagName.c_str());
+                        drawList->AddText(ImVec2(cardMin.x + padding, thumbMax.y + 4.0f),
+                            ImGui::GetColorU32(ImGuiCol_Text), caption);
+                    }
                     drawList->PopClipRect();
                     if (selected)
                         drawList->AddRect(cardMin, cardMax,

@@ -90,13 +90,19 @@ int WORKSPACE::drawObjectInspector() {
                     }
                     ImGui::TextDisabled("[%s]", flowName.c_str());
                 }
+                ImGui::SameLine();
+                ImGui::TextDisabled("(?)");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) && ImGui::BeginTooltip()) {
+                    DrawObjectPreviewVisibilityDetails(inspectorModelIndex);
+                    ImGui::EndTooltip();
+                }
                 ImGui::Separator();
 
                 char objectName[256];
                 const std::string objectNameUtf8 = Cp932ToUtf8(obj.name.c_str());
                 strncpy(objectName, objectNameUtf8.c_str(), sizeof(objectName) - 1);
                 objectName[sizeof(objectName) - 1] = '\0';
-                ImGui::SetNextItemWidth(260.0f);
+                ImGui::SetNextItemWidth(SEUI::PropertyFieldWidth("Name"));
                 const bool objectNameChanged =
                     ImGui::InputText("Name", objectName, sizeof(objectName));
                 if (objectNameChanged)
@@ -126,7 +132,7 @@ int WORKSPACE::drawObjectInspector() {
                             tagNameUtf8.c_str());
                     } else snprintf(preview, sizeof(preview), "Custom coordinates");
 
-                    ImGui::SetNextItemWidth(300.0f);
+                    ImGui::SetNextItemWidth(SEUI::PropertyFieldWidth("Tagged image"));
                     if (ImGui::BeginCombo("Tagged image", preview)) {
                         for (int tagIndex = 0; tagIndex < arr_IMG.count; ++tagIndex) {
                             IMG& tag = ((IMG*)arr_IMG.data)[tagIndex];
@@ -274,6 +280,7 @@ int WORKSPACE::drawObjectInspector() {
                                         ? "Offset X" : "Offset Y")
                                     : label);
                             const char* widgetLabel = displayLabel;
+                            ImGui::SetNextItemWidth(SEUI::PropertyFieldWidth(displayLabel));
                             if (compactDst) {
                                 if (compactDstIndex == 0) {
                                     ImGui::AlignTextToFramePadding();
@@ -364,7 +371,7 @@ int WORKSPACE::drawObjectInspector() {
                         return false;
                     }
                     int value = line.csv.val[column];
-                    ImGui::SetNextItemWidth(120.0f);
+                    ImGui::SetNextItemWidth(SEUI::PropertyFieldWidth(label));
                     ImGui::PushID(row);
                     ImGui::PushID(column);
                     const bool changed = ImGui::InputInt(label, &value);
@@ -415,16 +422,23 @@ int WORKSPACE::drawObjectInspector() {
                     ImGui::Separator();
                 }
 
-                if (ImGui::BeginTabBar("ObjectPropertyTabs")) {
-                    if (ImGui::BeginTabItem("SRC")) {
+                char timelineLabel[48];
+                snprintf(timelineLabel, sizeof(timelineLabel), "Timeline (%d)", (int)semanticDstRows.size());
+                const char* sections[] = { "SRC", "Layout", timelineLabel, "Conditions", "Advanced LR2" };
+                objectInspectorSection = SEUI::SectionSelector("ObjectPropertySections",
+                    sections, IM_ARRAYSIZE(sections), objectInspectorSection);
+                ImGui::Separator();
+                {
+                    ImGui::PushID("ObjectPropertyContent");
+                    ImGui::PushID(objectInspectorSection);
+                    if (objectInspectorSection == 0) {
                         ImGui::SeparatorText("basic");
                         if (srcRows.empty()) ImGui::TextDisabled("No SRC properties.");
                         for (std::size_t i = 0; i < srcRows.size(); ++i)
                             drawObjectPropertyRow(srcRows[i], -1);
-                        ImGui::EndTabItem();
                     }
 
-                    if (ImGui::BeginTabItem("Layout")) {
+                    if (objectInspectorSection == 1) {
                         if (IsLayoutOnlyObject(inspectorModelIndex)) {
                             ImGui::TextWrapped("Layout only - no image yet. Create artwork in Asset Browser > Images from layout.");
                             if (!previewLayoutMode && ImGui::Button("Show layout boxes")) {
@@ -437,12 +451,15 @@ int WORKSPACE::drawObjectInspector() {
                                 ImGui::SetWindowFocus(title);
                             }
                         }
-                        ImGui::TextDisabled("The first destination rectangle is the static layout authority.");
+                        ImGui::TextDisabled("First DST");
+                        ImGui::SameLine();
+                        SEUI::HelpMarker("The first destination rectangle is the static layout authority. Drag in Preview to move all frames; drag the white handle to resize frame 0.");
                         if (semanticDstRows.empty()) {
                             ImGui::TextDisabled("No DST layout is available.");
                         } else {
                             const int firstDestinationRow = semanticDstRows.front();
-                            if (ImGui::BeginTable("SemanticLayout", 2,
+                            const int layoutColumns = ImGui::GetContentRegionAvail().x >= ImGui::GetFontSize() * 30 ? 2 : 1;
+                            if (ImGui::BeginTable("SemanticLayout", layoutColumns,
                                 ImGuiTableFlags_SizingStretchSame)) {
                                 const char* absoluteLabels[] = { "X", "Y", "Width", "Height", "Rotation", "Blend" };
                                 const char* relativeLabels[] = { "Offset X", "Offset Y", "Width", "Height", "Rotation", "Blend" };
@@ -456,16 +473,10 @@ int WORKSPACE::drawObjectInspector() {
                                 }
                                 ImGui::EndTable();
                             }
-                            ImGui::Separator();
-                            ImGui::TextDisabled("Canvas: drag to move all frames; drag the white handle to resize frame 0.");
                         }
-                        ImGui::EndTabItem();
                     }
 
-                    char timelineTabLabel[64];
-                    snprintf(timelineTabLabel, sizeof(timelineTabLabel),
-                        "Timeline (%d)###ObjectTimelineTab", (int)semanticDstRows.size());
-                    if (ImGui::BeginTabItem(timelineTabLabel)) {
+                    if (objectInspectorSection == 2) {
                         ImGui::BeginDisabled(semanticDstRows.empty());
                         if (ImGui::Button("+ Frame")) requestAddDstFrame = true;
                         ImGui::EndDisabled();
@@ -504,11 +515,10 @@ int WORKSPACE::drawObjectInspector() {
                             }
                             ImGui::EndTable();
                         }
-                        ImGui::EndTabItem();
                     }
 
-                    if (ImGui::BeginTabItem("Conditions")) {
-                        ImGui::TextDisabled("All OP terms must pass. Unknown/custom OP values remain raw.");
+                    if (objectInspectorSection == 3) {
+                        SEUI::HelpMarker("All OP terms must pass. Unknown/custom OP values remain raw.");
                         if (semanticDstRows.empty()) {
                             ImGui::TextDisabled("No destination condition is available.");
                         } else {
@@ -521,7 +531,7 @@ int WORKSPACE::drawObjectInspector() {
                                 int timerValue = currentTimer;
                                 CSTR timerHelp = GetCommandHelp(command, timerColumn);
                                 timerHelp.trimWhiteSpace();
-                                ImGui::SetNextItemWidth(300.0f);
+                                ImGui::SetNextItemWidth(SEUI::PropertyFieldWidth("Trigger"));
                                 if (DrawCommandValueCombo("Trigger", command,
                                     timerHelp.body ? timerHelp.outstr() : "$timer",
                                     currentTimer, timerValue) && timerValue != currentTimer)
@@ -545,7 +555,7 @@ int WORKSPACE::drawObjectInspector() {
                                 optionHelp.trimWhiteSpace();
                                 char label[32];
                                 snprintf(label, sizeof(label), "Condition %d", conditionIndex + 1);
-                                ImGui::SetNextItemWidth(300.0f);
+                                ImGui::SetNextItemWidth(SEUI::PropertyFieldWidth(label));
                                 if (DrawCommandValueCombo(label, command,
                                     optionHelp.body ? optionHelp.outstr() : "$op",
                                     currentOption, option) && option != currentOption)
@@ -573,15 +583,10 @@ int WORKSPACE::drawObjectInspector() {
                                 allConditionsPass ? "VISIBLE" : "HIDDEN", conditionCount,
                                 conditionCount == 1 ? "" : "s");
                         }
-                        ImGui::EndTabItem();
                     }
 
-                    char dstTabLabel[64];
-                    // Keep the tab identity stable while its visible count
-                    // changes, so +DST/-DST does not switch back to SRC.
-                    snprintf(dstTabLabel, sizeof(dstTabLabel), "Advanced LR2###ObjectDstTab");
-                    if (ImGui::BeginTabItem(dstTabLabel)) {
-                        ImGui::TextDisabled("Raw LR2 fields for compatibility and unsupported commands.");
+                    if (objectInspectorSection == 4) {
+                        SEUI::HelpMarker("Raw LR2 fields for compatibility and unsupported commands.");
                         if (hasRelativeNowComboCoordinates) {
                             ImGui::SameLine();
                             SEUI::HelpMarker(NowComboCoordinateHelp());
@@ -687,9 +692,9 @@ int WORKSPACE::drawObjectInspector() {
                                 ImGui::EndTable();
                             }
                         }
-                        ImGui::EndTabItem();
                     }
-                    ImGui::EndTabBar();
+                    ImGui::PopID();
+                    ImGui::PopID();
                 }
 
                 // Apply structural edits after all widgets referencing the

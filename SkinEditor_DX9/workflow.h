@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -13,6 +14,7 @@ struct SEPendingWork {
         return kind == SEPendingKind::TextDraft || kind == SEPendingKind::CustomFilesDraft;
     }
 };
+std::size_t SEPendingWorkCount(const std::vector<std::unique_ptr<WORKSPACE>>& workspaces);
 bool SECanExitWorkspaces(const std::vector<std::unique_ptr<WORKSPACE>>& workspaces);
 bool SEDrawPendingChanges(std::vector<std::unique_ptr<WORKSPACE>>& workspaces, bool& exitRequested);
 int RunWorkflowSelfTest();

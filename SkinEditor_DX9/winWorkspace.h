@@ -395,6 +395,7 @@ typedef struct WORKSPACE {
     bool OpenObjectAppearance(int modelIndex);
     bool SavePaintImage(const std::string& path, std::string& error);
     void drawObjectWorkflowActions(int modelIndex);
+    void DrawObjectPreviewVisibilityDetails(int modelIndex);
     std::string workflowStatus;
     int ExportOlrSkin(const char* packagePath, std::string& resultMessage);
     int SaveOlrSkin(const char* packagePath, std::string& resultMessage);
@@ -730,6 +731,7 @@ typedef struct WORKSPACE {
     SEObjectSelectionKey layoutFirstAnchor;
     std::string layoutFirstError;
     float assetThumbnailSize = 96.0f;
+    bool assetDetailedCards = false;
     bool assetAnimateSrc = true;
     bool assetShowUnusedOnly = false;
     bool assetApplyCopyAnimation = false;
@@ -903,6 +905,7 @@ typedef struct WORKSPACE {
     bool wObjectBrowser = false;
     bool wObjectInspector = false;
     bool objectInspectorRevealRequested = false;
+    int objectInspectorSection = 0; // View state only: SRC, Layout, Timeline, Conditions, Advanced.
     bool imageManagerRevealRequested = false;
     bool codeEditorRevealRequested = false;
     bool objectBrowserActiveOnly = false;

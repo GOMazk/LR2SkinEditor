@@ -2,6 +2,7 @@
 #include "imgui/imgui_internal.h"
 
 #include <algorithm>
+#include <string>
 
 namespace {
     ImVec4 WithAlpha(const ImVec4& color, float alpha) {
@@ -10,6 +11,38 @@ namespace {
 }
 
 namespace SEUI {
+    void SameLineIfFits(float nextWidth) {
+        const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        if (ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + nextWidth <= right)
+            ImGui::SameLine();
+    }
+
+    int SectionSelector(const char* id, const char* const* labels, int count, int selected) {
+        ImGui::PushID(id);
+        const float available = ImGui::GetContentRegionAvail().x;
+        for (int i = 0; i < count; ++i) {
+            const float width = (std::min)(available,
+                ImGui::CalcTextSize(labels[i], nullptr, true).x + 2 * ImGui::GetStyle().FramePadding.x);
+            if (i) SameLineIfFits(width);
+            // Index-based identity survives count-label changes and wrapping.
+            ImGui::PushID(i);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(
+                i == selected ? ImGuiCol_HeaderActive : ImGuiCol_FrameBg));
+            const std::string label = std::string(labels[i]) + "###section";
+            if (ImGui::Button(label.c_str(), ImVec2(width, 0))) selected = i;
+            ImGui::PopStyleColor();
+            ImGui::PopID();
+        }
+        ImGui::PopID();
+        return selected;
+    }
+
+    float PropertyFieldWidth(const char* label, float preferred) {
+        const float remaining = ImGui::GetContentRegionAvail().x -
+            ImGui::CalcTextSize(label, nullptr, true).x - ImGui::GetStyle().ItemInnerSpacing.x;
+        return (std::max)(1.0f, preferred > 0 ? (std::min)(preferred, remaining) : remaining);
+    }
+
     void RevealWindowTab(const char* title) {
         ImGuiWindow* window = ImGui::FindWindowByName(title);
         if (window && window->DockNode && window->DockNode->TabBar) {

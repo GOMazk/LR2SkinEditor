@@ -976,6 +976,8 @@ int WORKSPACE::drawObjectBrowser() {
                             } else {
                                 ImGui::TextDisabled("No DST: this Object has no draw layer.");
                             }
+                            ImGui::Separator();
+                            DrawObjectPreviewVisibilityDetails(modelIndex);
                             ImGui::EndTooltip();
                         }
                     }

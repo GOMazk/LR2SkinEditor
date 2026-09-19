@@ -13,10 +13,35 @@ hidden workspaces), explicit draft handling, failed image/font saves and retry,
 Object font navigation without replacing dirty drafts, and headless ImGui exit
 review/Escape cancellation. It is included in scripts/test.ps1. Native window
 close/Alt+F4 and workflow navigation checks are listed in [Workflow UI](WORKFLOW_UI.md).
+Compact-panel cases use a 1920x1080 headless ImGui viewport and the real Asset
+Browser/Inspector. They check a full default thumbnail row in a 980x220 pane,
+optional three-line details, all five Inspector sections at 280px, narrow/large
+thumbnail clamping without horizontal overflow or preference loss, 125% font
+navigation, a real mouse click on the wrapped Advanced section, resize/count-label
+selection retention, and unchanged document revision/History/Object selection.
+Manual: on FHD hover compact cards, open Add/Options and the blank-space menu,
+toggle Unused/Animate SRC/Copy animation, drag into Preview, apply/delete an Asset,
+and edit all Inspector sections (including +Frame and Undo). Confirm no dock reset.
 The workflow test also builds a real headless ImGui dockspace, clicks Back to
 Preview from three focused sibling tabs, and checks that Preview stays visible
 over eight frames. Cross-pane navigation must preserve a Browser child window's
 focus and active ID. This reproduced the old Simple Mode tab bounce (exit 28).
+Pending-count checks cover zero work, visible and hidden workspace totals, all
+draft/image/font kinds without a loaded skin, and decreases after save/cleanup.
+Manual: modify a second workspace, hide it, and check `Pending: all` in the first
+workspace against the review entries; Simple Mode has only its top Preview action.
+
+The workflow suite checks single-Object visibility reports: loaded native IF mask,
+hidden CSV and Solo mode, signed OP conditions, stopped/running DST timers,
+before/after animation, Rhythm timer 140, alpha zero versus blend 0, zero size,
+offscreen bounds, partially blocked multi-state Objects, missing DST, rebuild-pending and absent-mask
+uncertainty. Layout boxes ignore runtime conditions but honor CSV hiding;
+NOWCOMBO retains special-runtime uncertainty. It checks a second Object, CLI
+serialization, unchanged revision/History/selection/options/timers, and headless
+tooltip Begin/End frames. Manual: hover Object Browser rows or Inspector `(?)` in
+a real IF/ELSE/include skin while changing Option List/Timer Control/CSV eye icons;
+check multi-state Objects and occlusion without treating passing checks as proof
+of visible pixels.
 
 `--self-test-image-font` is included in `scripts/test.ps1`. It checks CP932/LR2
 character mapping, lossless font rows and trailing data, duplicate-code rename/delete,

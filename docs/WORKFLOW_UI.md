@@ -3,12 +3,15 @@
 ## 이미지부터 만들기
 
 1. 스킨을 열거나 New 프리셋을 만든다.
-2. Asset Browser > **Import image...**를 누른다. 기존 gr/와일드카드 확인과
+2. Asset Browser > **Add... > Import image...**를 누른다. 기존 gr/와일드카드 확인과
    선택적 투명 여백 자동 인식을 그대로 사용한다.
 3. 만들어진 Asset을 Preview로 드래그하고 Object 종류를 정한다.
 4. Inspector에서 배치·조건·애니메이션을 편집한다. Source image는 해당 crop을,
    Appearance는 지원되는 숫자/판정/노트 등의 의미별 교체 도구를 연다.
 5. 전문 도구의 **Back to Preview**로 배치 화면에 돌아온다.
+
+Simple Mode의 Preview 이동은 상단 **Back to Preview** 하나로 통일했다.
+창만 켜던 하단의 중복 **Open Preview** 버튼은 제거했다.
 
 같은 도킹 영역에서 돌아올 때는 키보드 포커스도 Preview로 이동해 이전 탭으로
 되돌아가지 않는다. 다른 영역의 Object Browser 등에서 요청한 탭 표시는 그 창의
@@ -16,15 +19,29 @@
 
 ## 배치부터 만들기
 
-1. Asset Browser > **New layout Object...**에서 빈 배치를 만든다.
+1. Asset Browser > **Add... > New layout Object...**에서 빈 배치를 만든다.
 2. Preview의 Layout boxes에서 위치·크기를 조정한다.
-3. **Images from layout...**에서 대상들을 골라 공유 또는 개별 이미지를 만든다.
+3. **Add... > Images from layout...**에서 대상들을 골라 공유 또는 개별 이미지를 만든다.
 4. 생성 PNG에 그림을 그리고 저장하면 외부 이미지 변경이 자동 재로드된다.
 
 지원 유형/atlas/가이드 규칙은 기존과 같으며 이미지 생성과 저장은 별개다.
 기능은 Windows 메뉴에서 계속 열 수 있다. Layout > Balanced workspace는 기본
 작업 창을, Asset workspace/Show all windows는 전문 도구들을 다시 노출한다.
 사용자가 조절한 dock 크기나 위치를 매 프레임 강제하지 않는다.
+
+## FHD / 좁은 패널에서 작업하기
+
+- Asset Browser 상단은 **Add... / Options... / 검색 / Use in Object / 개수**로 압축했다.
+  공간이 부족할 때만 다음 줄로 이어지며, 기존 빈 공간 우클릭 생성 메뉴도 유지한다.
+- 카드는 기본적으로 썸네일과 이름 한 줄만 표시한다. **Options > Detailed cards**로
+  기존 gr·사용 개수 표시를 다시 켤 수 있고, 전체 정보는 카드 툴팁에도 그대로 나온다.
+  썸네일 크기, SRC 애니메이션, 미사용 필터, 적용 시 애니메이션 복사도 Options에 있다.
+  미사용 필터가 켜져 있으면 버튼에 **Options (unused)**로 표시한다.
+- Inspector의 SRC / Layout / Timeline / Conditions / Advanced LR2는 좁을 때 여러 줄로
+  표시한다. 탭 이동 화살표 없이 모든 항목에 접근하고, 창 너비나 프레임 수가 바뀌어도
+  현재 항목을 유지한다. 입력 폭도 패널에 맞추며 좁은 Layout은 한 열로 배치한다.
+- 기본 도킹 위치·크기와 Preview 공간은 변경하지 않는다. Timeline / Advanced의
+  여러 프레임 비교표는 기존처럼 표 안에서 가로 스크롤한다.
 
 ## 선택한 Object에서 편집기로
 
@@ -41,10 +58,25 @@ Asset Browser 우클릭의 **Select first using Object** 또는 **Used by Object
 
 이 버튼들은 탐색만 하며 Object 선택, 문서, Undo를 별도로 만들지 않는다.
 
+## 선택했는데 Preview에서 보이지 않을 때
+
+Object Browser의 오브젝트 행 또는 Inspector 상단 **(?)**에 커서를 올린다.
+툴팁은 현재 로드된 IF/include 제외 상태, CSV 숨김/단독 보기, DST OP 조건과
+타이머 번호, 애니메이션 시작 전/종료 후, 투명도·크기·화면 영역 등을 안내한다.
+해당 CSV 위치와 확인할 창(Option List/Customize, Timer Control, File Manager)도 표시한다.
+조회만 하므로 옵션·타이머·파일 숨김을 자동 변경하지 않는다.
+
+여러 DST 상태 중 일부만 차단되면 다른 상태는 그려질 수 있다. Layout boxes에서는
+IF/OP/타이머를 무시하는 정적 박스라는 점을 안내하며 CSV 숨김은 그대로 검사한다.
+Preview 갱신 중이거나 NOWCOMBO처럼 Scene 코드가 제어하는 경우에는 불확실성을 표시한다.
+검사를 통과하더라도 다른 그림에 가려지거나 텍스처가 투명할 수 있으므로, 실제 픽셀이
+보인다고 단정하는 기능은 아니다.
+
 ## 저장과 종료
 
-상단 **Pending (n)**의 숫자는 현재 Workspace의 저장/적용 대상 수다.
-클릭하면 **모든 Workspace**를 포함한 검토창이 열린다.
+상단 **Pending: all (n)**(전체 미저장)의 숫자는 **모든 Workspace**의 저장/적용
+대상 항목 수다. 숨겨진 Workspace와 스킨 없이 남은 외부 파일 초안도 포함하며,
+클릭해서 여는 전체 검토창과 집계 범위가 같다. 고유 파일 수가 아닌 검토 항목 수다.
 
 - Skin CSV (+ includes): 기존 Save. 이미지/폰트/미적용 초안은 저장하지 않는다.
 - Text Editor / Custom Files draft: Review → 해당 도구에서 Apply → Skin CSV 저장.

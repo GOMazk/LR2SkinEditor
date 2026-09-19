@@ -25,6 +25,10 @@ namespace SEUI {
     bool VisibilityButton(const char* id, bool visible);
     void RevealWindowTab(const char* title);
     void ToolbarSeparator();
+    // Wrap toolbar/navigation items using the current font and available pane width.
+    void SameLineIfFits(float nextWidth);
+    int SectionSelector(const char* id, const char* const* labels, int count, int selected);
+    float PropertyFieldWidth(const char* label, float preferred = 0.0f);
 
     void SectionHeader(const char* title, const char* description = nullptr);
     void StatusPill(const char* label, const ImVec4& color);

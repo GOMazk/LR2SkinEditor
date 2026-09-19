@@ -3,6 +3,10 @@
 ## Workflow UI 1차 정리 (AI_1)
 
 - 기본 중심 창은 Preview / Object Browser / Object Inspector / Asset Browser다.
+  FHD의 낮은 Asset Browser는 Add/Options 메뉴와 한 줄 카드 설명을 기본으로 사용한다.
+  상세 카드·썸네일 크기·애니메이션·미사용 필터·적용 옵션은 Options에서 조절한다.
+  Inspector는 5개 편집 항목을 너비에 맞춰 줄바꿈하고, 입력 폭과 Layout 열 수를 조절한다.
+  현재 항목/선택/도킹 배치는 유지하며 기능을 제거하지 않는다.
   Image Manager, Simple Mode, DST View는 필요할 때 열며 Windows 메뉴의 기능은 유지한다.
   기존 도킹 위치를 변경하지 않고 새 스킨 로드/기본 배치에서 창 노출만 줄인다.
   Focus workspace도 Asset Browser를 유지한다.
@@ -14,8 +18,9 @@
   Object는 `Create artwork...`를 제공한다. TEXT/BAR_TITLE과 NUMBER/NOWCOMBO의
   서로 다른 폰트 경로를 구분하며, 다중 SRC의 원본 이미지 이동은 첫 대응 Asset이다.
   기존 Text Editor/폰트 초안을 덮어쓰지 않고, 폰트는 기존 Save/discard/cancel을 사용한다.
-- 상단 `Pending (n)` 또는 File > Review pending changes에서 모든 Workspace의
+- 상단 `Pending: all (n)` 또는 File > Review pending changes에서 모든 Workspace의
   CSV, Text Editor 초안, Custom Files 초안, Pixel Paint, image font를 확인한다.
+  개수도 전체 Workspace의 검토 항목을 합산하며 숨겨진 창과 외부 파일 초안을 포함한다.
   `Save file`은 선택한 파일 종류만 기존 안전 저장 경로로 저장한다. 초안은 Review로
   해당 편집기에 돌아가 Apply해야 하며 저장 검토창이 자동 적용하지 않는다.
   `SAVED`는 폰트/초안이 남아 있을 때 표시하지 않는다. 파일별 저장은 전체 트랜잭션이 아니다.
@@ -26,6 +31,10 @@
 - 기능 연결은 `workflow.cpp`에 두고 CSV/선택/각 편집기의 History는 복제하지 않는다.
   Pixel Paint 저장은 기존 원자 저장을 공유하며, 한 파일 저장 때문에 다른 미저장
   이미지나 현재 ImGui draw command의 texture를 해제하지 않는다.
+- Object Browser 행과 Inspector 상단 `(?)` 툴팁은 현재 Preview의 IF/include 제외,
+  CSV 숨김/단독 보기, DST OP, 타이머, 애니메이션 구간·투명도·영역을 읽기 전용으로
+  진단한다. 조건을 강제 변경하지 않으며 Layout boxes와 특수 Scene 오브젝트는 구분한다.
+  통과는 실제 픽셀 표시 보장이 아니므로 텍스처 투명도·겹침·Scene 로직의 한계도 안내한다.
 
 사용 흐름과 수동 확인: [Workflow UI](WORKFLOW_UI.md).
 

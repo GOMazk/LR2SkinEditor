@@ -5,6 +5,7 @@
 #include "seUI.h"
 #include "uiCatalog.h"
 #include "winWorkspaceUiHelpers.h"
+#include "agentDiagnostics.h"
 
 namespace {
 void ContinueRowIfFits(const char* label) {
@@ -81,6 +82,15 @@ void WORKSPACE::ReviewPendingWork(const SEPendingWork& item) {
         }
         break;
     }
+}
+
+std::size_t SEPendingWorkCount(const std::vector<std::unique_ptr<WORKSPACE>>& workspaces) {
+    std::size_t count = 0;
+    // Count exactly the entries reviewed by SEDrawPendingChanges, including
+    // hidden workspaces and external-file drafts with no loaded skin.
+    for (const auto& workspace : workspaces)
+        count += workspace->PendingWork().size();
+    return count;
 }
 
 bool SECanExitWorkspaces(const std::vector<std::unique_ptr<WORKSPACE>>& workspaces) {
@@ -181,6 +191,39 @@ bool SEDrawPendingChanges(std::vector<std::unique_ptr<WORKSPACE>>& workspaces, b
 
 void WORKSPACE::RequestPreview() {
     wPreview = true; previewRevealRequested = true;
+}
+
+void WORKSPACE::DrawObjectPreviewVisibilityDetails(int modelIndex) {
+    const auto result = SEObjectPreviewDiagnostics(*this, modelIndex);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 440.0f);
+    ImGui::TextColored(result.status == "hidden" ? SEUI::Colors::Warning() : SEUI::Colors::Accent(),
+        "%s", result.status == "hidden" ? "Preview: blocked by the checks below" :
+        result.status == "layout" ? "Preview: Layout boxes" : "Preview visibility checks");
+    if (result.timelines > 1)
+        ImGui::TextDisabled("Blocked DST states: %d / %d (other states may still draw)",
+            result.hiddenTimelines, result.timelines);
+    if (result.issues.empty())
+        ImGui::TextWrapped("%s", result.status == "not_proven_hidden"
+            ? "No blocker found in IF, DST options, timer and bounds checks."
+            : "Preview state is not available for this Object.");
+    const int shown = (std::min)(8, (int)result.issues.size());
+    for (int i = 0; i < shown; ++i) {
+        const auto& issue = result.issues[i];
+        if (issue.row >= 0 && issue.row < skinfileLines.count) {
+            const auto& row = ((SKINFILELINEREAD*)skinfileLines.data)[issue.row];
+            std::string owner = row.filename.body ? row.filename.body : "";
+            owner = owner.substr(owner.find_last_of("/\\") + 1);
+            ImGui::TextDisabled("%s | %s %d", Cp932ToUtf8(owner.c_str()).c_str(),
+                row.num > 0 ? "line" : "expanded row", row.num > 0 ? row.num : issue.row + 1);
+        }
+        ImGui::TextWrapped("%s", issue.hint.c_str());
+    }
+    if ((int)result.issues.size() > shown)
+        ImGui::TextDisabled("... %d more checks", (int)result.issues.size() - shown);
+    ImGui::Separator();
+    ImGui::TextWrapped("Check Option List / Customize for conditions, Timer Control for timers, and File Manager for CSV visibility. No settings are changed by this tooltip.");
+    ImGui::TextWrapped("Passing these checks does not prove visible pixels: texture transparency, draw order and scene logic may still hide the Object.");
+    ImGui::PopTextWrapPos();
 }
 
 void WORKSPACE::RequestImageImport() {

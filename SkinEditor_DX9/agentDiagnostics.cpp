@@ -94,33 +94,40 @@ DST_ANIMATION EditorFrame(const DSTdraw& frame) {
     result.angle = frame.angle; result.center = frame.center;
     return result;
 }
-} // namespace
+struct DiagnosticReport {
+    std::vector<Issue> issues;
+    std::vector<ObjectResult> results;
+};
 
-std::string SEAgentDiagnostics(WORKSPACE& workspace) {
+DiagnosticReport CollectDiagnostics(WORKSPACE& workspace, int selectedObject = -1) {
     const auto& objects = workspace.objectEditorModel.Objects();
     auto* rows = (SKINFILELINEREAD*)workspace.skinfileLines.data;
     const bool hasMask = workspace.previewRuntimeLineMask.size() ==
         (size_t)workspace.skinfileLines.count;
-    std::vector<int> rowObjects((size_t)workspace.skinfileLines.count, -1);
-    for (int object = 0; object < (int)objects.size(); ++object)
-        for (int row : objects[object].rows)
-            if (row >= 0 && row < workspace.skinfileLines.count) rowObjects[row] = object;
-
-    std::vector<Issue> issues;
-    std::vector<ObjectResult> results(objects.size());
+    const int firstObject = selectedObject < 0 ? 0 : selectedObject;
+    const int endObject = selectedObject < 0 ? (int)objects.size() : selectedObject + 1;
+    DiagnosticReport report;
+    auto& issues = report.issues;
+    auto& results = report.results;
+    results.resize(endObject - firstObject);
     auto add = [&](int object, int row, const char* code, const char* severity,
         const std::string& hint, bool hidden = false, const char* scope = "current_preview") {
         Issue issue;
         issue.object = object; issue.row = row;
         issue.code = code; issue.severity = severity; issue.hint = hint;
         issue.hidden = hidden; issue.scope = scope;
-        if (object >= 0) results[object].issues.push_back((int)issues.size());
+        if (object >= 0) results[object - firstObject].issues.push_back((int)issues.size());
         issues.push_back(std::move(issue));
     };
 
     // This editor scan intentionally includes inactive/customization branches.
     // Missing optional resources are useful authoring warnings, not proof that
     // the selected Object is hidden in the current runtime branch.
+    if (selectedObject < 0) {
+    std::vector<int> rowObjects((size_t)workspace.skinfileLines.count, -1);
+    for (int object = 0; object < (int)objects.size(); ++object)
+        for (int row : objects[object].rows)
+            if (row >= 0 && row < workspace.skinfileLines.count) rowObjects[row] = object;
     std::vector<SEImageDiagnostic> assets;
     workspace.BuildImageDiagnostics(assets);
     for (const auto& asset : assets) {
@@ -147,10 +154,11 @@ std::string SEAgentDiagnostics(WORKSPACE& workspace) {
         const int object = row >= 0 && row < (int)rowObjects.size() ? rowObjects[row] : -1;
         add(object, row, code, "warning", asset.message + ". " + hint, false, "all_branches");
     }
+    }
 
-    for (int objectIndex = 0; objectIndex < (int)objects.size(); ++objectIndex) {
+    for (int objectIndex = firstObject; objectIndex < endObject; ++objectIndex) {
         const auto& object = objects[objectIndex];
-        ObjectResult& result = results[objectIndex];
+        ObjectResult& result = results[objectIndex - firstObject];
         const int anchor = object.rows.empty() ? -1 : object.rows.front();
         std::vector<SEPreviewObjectDestination> destinations;
         workspace.CollectPreviewObjectDestinations(object, destinations);
@@ -405,6 +413,54 @@ std::string SEAgentDiagnostics(WORKSPACE& workspace) {
         result.status = result.hiddenTimelines == result.timelines ? "hidden" :
             uncertain ? "unknown" : "not_proven_hidden";
     }
+
+    return report;
+}
+} // namespace
+
+SEObjectPreviewVisibility SEObjectPreviewDiagnostics(WORKSPACE& workspace, int modelIndex) {
+    SEObjectPreviewVisibility result;
+    const auto& objects = workspace.objectEditorModel.Objects();
+    if (modelIndex < 0 || modelIndex >= (int)objects.size()) return result;
+    if (!workspace.loaded) {
+        result.issues.push_back({-1, "preview_not_loaded", "Open a skin to inspect its Preview state."});
+        return result;
+    }
+    if (workspace.previewLayoutMode) {
+        result.status = "layout";
+        result.issues.push_back({-1, "layout_boxes", "Layout boxes show static first-DST bounds, ignoring IF, OP and timers. They do not prove the artwork is visible."});
+        const int row = objects[modelIndex].firstDstRow;
+        if (row >= 0 && !workspace.IsPreviewRowVisible(row)) {
+            result.status = "hidden";
+            result.issues.push_back({row, "preview_file_hidden", "File Manager hides this CSV or Preview is showing a different file only.", true});
+        } else {
+            float x, y, w, h;
+            if (!workspace.GetObjectLayoutBounds(modelIndex, x, y, w, h))
+                result.issues.push_back({row, "layout_unavailable", "No supported nonzero layout box is available for this Object."});
+        }
+        return result;
+    }
+    if (workspace.previewReloadPending || workspace.editorDerivedRebuildPending || workspace.objectModelRebuildPending) {
+        result.issues.push_back({-1, "preview_refresh_pending", "Preview is updating. Wait for the pending edit or option change to be applied."});
+        return result;
+    }
+    const auto report = CollectDiagnostics(workspace, modelIndex);
+    const auto& object = report.results.front();
+    result.status = object.status;
+    result.timelines = object.timelines;
+    result.hiddenTimelines = object.hiddenTimelines;
+    for (const auto& issue : report.issues)
+        result.issues.push_back({issue.row, issue.code, issue.hint, issue.hidden});
+    return result;
+}
+
+std::string SEAgentDiagnostics(WORKSPACE& workspace) {
+    const auto report = CollectDiagnostics(workspace);
+    const auto& issues = report.issues;
+    const auto& results = report.results;
+    const auto& objects = workspace.objectEditorModel.Objects();
+    auto* rows = (SKINFILELINEREAD*)workspace.skinfileLines.data;
+    const bool hasMask = workspace.previewRuntimeLineMask.size() == (size_t)workspace.skinfileLines.count;
 
     std::ostringstream out;
     out.imbue(std::locale::classic());

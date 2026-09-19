@@ -1407,10 +1407,11 @@ int WORKSPACE::draw() {
         ImGui::SameLine();
         SEUI::HelpMarker("Use Layout for task-focused arrangements and Windows for individual panels. Save As remains in File.");
         ImGui::SameLine();
-        const auto pending = PendingWork();
         char pendingLabel[80];
-        snprintf(pendingLabel, sizeof(pendingLabel), "%s (%d)", SEText("Pending", u8"\uBBF8\uC800\uC7A5"), (int)pending.size());
+        snprintf(pendingLabel, sizeof(pendingLabel), "%s (%zu)###PendingWork",
+            SEText("Pending: all", u8"\uC804\uCCB4 \uBBF8\uC800\uC7A5"), SEPendingWorkCount(workspaceList));
         if (ImGui::Button(pendingLabel)) pendingChangesRequested = true;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pending entries across all workspaces, including hidden ones. Click to review.");
     }
     SEUI::EndToolbar();
 
@@ -13817,8 +13818,6 @@ int WORKSPACE::drawSimpleMode() {
             }
             ImGui::SameLine();
             if (ImGui::Button("Open Asset Browser")) wAssetBrowser = true;
-            ImGui::SameLine();
-            if (ImGui::Button("Open Preview")) wPreview = true;
 
             if (ImGui::CollapsingHeader("Non-destructive color variant",
                 ImGuiTreeNodeFlags_DefaultOpen)) {

@@ -3,6 +3,10 @@
 Workflow entry points and exit review live in `workflow.cpp`. PendingWork is a
 transient projection of the existing document revision, text/custom drafts,
 painted paths and font draft; no second dirty flag or undo stack exists.
+The toolbar's `Pending: all` uses `SEPendingWorkCount(workspaceList)` over the same
+PendingWork entries as the application-wide review, including hidden/unloaded
+workspaces. Its ImGui ID stays stable when the count changes. Simple Mode keeps
+one top-level Back to Preview action; the old visibility-only duplicate is removed.
 `WM_CLOSE` requests an exit review, finishes active property edits, then the main
 loop renders `SEDrawPendingChanges` after all visible workspaces. Hidden workspaces
 still participate in the check. Save failure cannot authorize exit; drafts need
@@ -26,6 +30,20 @@ clearing bounds without refreshing them leaves non-slider Objects without a high
 The action cancels stale move/resize state but does not edit CSV, History, conditions
 or Preview file visibility.
 
+Object Browser row tooltips and Inspector's `(?)` share
+`DrawObjectPreviewVisibilityDetails`. `SEObjectPreviewDiagnostics` projects one
+Object through the existing agentDiagnostics native visibility analyzer, without
+its whole-skin asset scan or any JSON round-trip. The CLI serialization stays the
+same. IF/include state comes from the loaded `previewRuntimeLineMask`; OP, timer
+and animation checks reuse GetOptionFlag_dst, GetTimeLapse, ReadDST and
+SetDSTdrawByTime. Tooltip hover never reparses conditions or edits the model.
+Pending rebuilds report uncertainty rather than reading stale runtime bindings.
+Layout boxes report their own static/file-visibility semantics; NOWCOMBO and other
+Scene-controlled rows are not declared hidden from their raw timer/coordinates.
+Only the hovered Object is analyzed. Details wrap and show at most eight messages
+with CSV locations; partially blocked multi-state Objects remain distinguishable
+from entirely blocked ones. Passing checks never claims visible pixels.
+
 Image Font Editor is an optional Assets/center-tabs window. WORKSPACE owns its
 external-file draft and form state; the panel never edits runtime arrays directly
 while typing. A successful Save font invalidates/reloads matching image-font caches,
@@ -43,6 +61,24 @@ other archive members. Native runtime loading remains in the custom DxLib.
 Project-wide feature status, file-format rules and scenario coverage are in
 [`PROJECT_STATE.md`](PROJECT_STATE.md). Build and manual regression procedures
 are in [`BUILD_AND_TEST.md`](BUILD_AND_TEST.md).
+
+### Compact workflow panels
+
+Asset Browser keeps one wrapping toolbar instead of permanent creation, filter
+and application rows. Add and blank-space context menus share creation intents;
+Options owns only existing display/filter/copy preferences plus `assetDetailedCards`.
+The default single-caption cards retain full metadata in their hover tooltip;
+Detailed cards restores three lines. Effective thumbnail size is clamped to the
+grid width without changing the requested slider value. Existing clipper, card
+IDs, usage selection, apply/delete dialogs and drag payload remain authoritative.
+
+Inspector uses `SEUI::SectionSelector` instead of a scrolling tab strip. All five
+sections wrap using measured text/style widths; `objectInspectorSection` is only
+Workspace view state. Section and content IDs are stable across width/frame-count
+changes. `PropertyFieldWidth` reserves label space; static Layout fields use one
+column in narrow panes and two in wide panes. Multi-frame comparison tables keep
+their intentional horizontal scrolling. No docking layout migration, forced
+resize, second selection, parser or History change is involved.
 
 This document describes the presentation layer introduced for the modern
 SkinEditor UI. Its first rule is that a visual refactor must not own or copy

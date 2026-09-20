@@ -130,6 +130,9 @@ names and frame numbers, and one-entry Undo/Redo. Layout-box tests check NUMBER
 keta bounds and multi-selection union without a runtime texture.
 Manual: enable Layout boxes, click/Ctrl-click/right-click overlapping boxes, move
 and resize, toggle IF and file visibility, and switch back to normal Preview.
+In normal Preview, hold Alt and click a rendered element; the cyan selection
+outline, coordinate meter, Object Browser and Inspector should move to that
+Object without starting a drag.
 Select IMAGE + NUMBER, create a shared atlas, inspect both guide files, paint/reload,
 then save/reopen. Resize a four-digit NUMBER and verify DST w remains a single
 digit width; Ctrl-selection must not accidentally begin moving Objects. Native
@@ -619,6 +622,11 @@ cd D:\Github\SkinEditor\SkinEditor_DX9\Release
 4. Preview, Image Manager, Asset Browser, DST View, Object Browser, Object Inspector가 보이는지
    확인한다. DST View를 처음 열었을 때 오른쪽 미리보기 열이 남은 폭을 즉시
    채우며, 폭을 확보하기 위해 splitter를 먼저 드래그할 필요가 없어야 한다.
+   SELECT 스킨이면 Preview 상단의 **In-game fixture** 체크를 해제한 상태에서
+   마우스를 움직여 ONMOUSE와 버튼 hover를 확인하고, 버튼을 눌러 패널/필터가
+   반응하는지 본다. 체크하면 같은 화면이 입력 없는 정적 인게임 픽스처로 바뀌고,
+   다시 해제하면 SELECT 입력 화면으로 복귀해야 한다. 이 모드 전환은 CSV/History를
+   바꾸지 않아야 한다.
    skin을 열기 전에는 Timer Control이 나타나지 않고, load가 끝난 뒤에는 기본
    layout에 나타나야 한다.
    Preview 하단에는 timer 조작 UI가 없어야 하며

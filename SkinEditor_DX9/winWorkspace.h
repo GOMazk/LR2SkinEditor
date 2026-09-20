@@ -561,6 +561,9 @@ typedef struct WORKSPACE {
     unsigned long long previewLastRenderAt = 0;
     bool previewTextureDirty = true;
     bool previewSimulationPlaying = false;
+    // SELECT skins can be inspected as an interactive selector or as the
+    // static in-game fixture used by the editor's other scene previews.
+    bool previewInGameFixture = false;
     bool previewSelectedFileOnly = false;
     std::vector<std::string> previewHiddenFiles;
     bool IsPreviewFileHidden(const char* owner) const;

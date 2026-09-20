@@ -80,3 +80,8 @@ int LR2SESceneProcSafe(game* g, int type, LR2SEPreviewChartMode mode);
 int LR2SESceneInit(game* g, int type, LR2SEPreviewChartMode mode);
 
 int LR2SESceneProc(game* g, int type, LR2SEPreviewChartMode mode);
+
+// Bridge the editor's ImGui canvas pointer into LR2's mouse state machine.
+// The SELECT scene consumes the same 0/1/2/3 button transitions as LR2.
+void LR2SESetPreviewMouseInput(game* g, int x, int y,
+	bool leftDown, bool rightDown);

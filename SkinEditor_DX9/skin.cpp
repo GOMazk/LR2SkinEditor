@@ -1670,7 +1670,16 @@ int LR2SESceneProc(game* g, int type, LR2SEPreviewChartMode chartMode) {
 
 	switch (type) {
 	case SKINTYPE_SELECT:
-		//ProcI_Select(g, sql3);
+		// The editor has no song database, so the full ProcI_Select path cannot
+		// be driven safely here. Its skin-owned interactive controls are still
+		// valid: reuse the native button/slider handlers and refresh labels after
+		// a click without entering database-backed navigation.
+		SetObjectValue_Slider(g, &g->skstruct, &g->timer1, 0);
+		SetObjectValue_Button(g, &g->skstruct, &g->timer1, 0);
+		if (g->sSelect.buttonObjClicked) {
+			ProcS_Select(g);
+			g->sSelect.buttonObjClicked = 0;
+		}
 		break;
 	case SKINTYPE_DECIDE:
 		ProcI_Decide(g);
@@ -1742,4 +1751,20 @@ int LR2SESceneProc(game* g, int type, LR2SEPreviewChartMode chartMode) {
 
 	g_sceneProcStage = "LR2SESceneProc/complete";
 	return 0;
+}
+
+static char LR2SEPreviewMouseState(char previous, bool down) {
+	if (down) return (previous == 1 || previous == 2) ? 2 : 1;
+	return (previous == 1 || previous == 2) ? 3 : 0;
+}
+
+void LR2SESetPreviewMouseInput(game* g, int x, int y,
+	bool leftDown, bool rightDown) {
+	if (!g) return;
+	g->KeyInput.mouse_oldX = x;
+	g->KeyInput.mouse_oldY = y;
+	g->KeyInput.mouse_buttonL = LR2SEPreviewMouseState(
+		g->KeyInput.mouse_buttonL, leftDown);
+	g->KeyInput.mouse_buttonR = LR2SEPreviewMouseState(
+		g->KeyInput.mouse_buttonR, rightDown);
 }

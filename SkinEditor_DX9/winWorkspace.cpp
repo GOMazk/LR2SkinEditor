@@ -3510,6 +3510,7 @@ int WORKSPACE::LoadSkin(char* path) {
     previewLastRenderAt = 0;
     previewTextureDirty = true;
     previewSimulationPlaying = false;
+    previewInGameFixture = false;
 
     g.skstruct.skinMD5.resize2(34);
     // SkinEditor does not provide audio playback. Keep every inherited LR2
@@ -5292,7 +5293,9 @@ int WORKSPACE::drawTimerControl() {
         LR2SEResetRenderFault();
         const LR2SEPreviewChartMode chartMode = previewChartFull
             ? LR2SE_PREVIEW_CHART_FULL : LR2SE_PREVIEW_CHART_SIMPLE;
-        previewSimulationPlaying = (LR2SESceneInitSafe(&g, meta.type, chartMode) == 0);
+        previewSimulationPlaying =
+            !(meta.type == SKINTYPE_SELECT && previewInGameFixture) &&
+            LR2SESceneInitSafe(&g, meta.type, chartMode) == 0;
         previewReloadPending = false;
         previewLastRenderAt = 0;
     }

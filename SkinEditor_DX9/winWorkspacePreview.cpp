@@ -334,14 +334,18 @@ bool WORKSPACE::UpdatePreviewRuntime(unsigned long long previewNow) {
         // clears the buffer.  Running this after the draw loop made every
         // preview-chart note get cleared at the start of the following frame
         // without ever reaching the preview texture.
-        if (previewSimulationPlaying && LR2SESceneProcSafe(&g, meta.type, chartMode) == -1) {
+        const bool interactiveSelect =
+            meta.type == SKINTYPE_SELECT && !previewInGameFixture;
+        if ((previewSimulationPlaying || interactiveSelect) &&
+            LR2SESceneProcSafe(&g, meta.type, chartMode) == -1) {
             previewSimulationPlaying = false;
         }
 
-        // SELECT still needs its editor-side bar/BGA placeholders while its
-        // timers are running; the original selector loop is not driven here.
+        // SELECT uses the native OnMouse pass while its editor-side input
+        // bridge is active. Other scenes retain their static editor preview
+        // until the user starts playback.
         const bool staticSpecialPreview =
-            !previewSimulationPlaying || meta.type == SKINTYPE_SELECT;
+            !previewSimulationPlaying && !interactiveSelect;
         // Build from the actual runtime order, not editor Object indices. Keeping
         // the full runtime preserves relative NOWCOMBO positions and shared grs.
         if (previewFileDrawMask.empty()) {
@@ -395,10 +399,22 @@ int WORKSPACE::drawPreview() {
     const bool previewWindowVisible = ImGui::Begin(
         title, previewCanvasFullscreen ? NULL : &wPreview, previewWindowFlags);
 
-    const bool previewFrameUpdated = previewWindowVisible ||
-        previewSimulationPlaying || previewReloadPending
-        ? UpdatePreviewRuntime(GetTickCount64()) : false;
+    bool previewFrameUpdated = false;
+    if (meta.type != SKINTYPE_SELECT) {
+        // Keep PLAY/RESULT and other in-game fixtures on the original update
+        // order: their DxLib render must happen before the ImGui canvas child
+        // is submitted. SELECT is deferred until its canvas geometry is known
+        // so the ImGui pointer can be converted to LR2 coordinates.
+        previewFrameUpdated = previewWindowVisible ||
+            previewSimulationPlaying || previewReloadPending
+            ? UpdatePreviewRuntime(GetTickCount64()) : false;
+    }
     if (!previewWindowVisible) {
+        if (meta.type == SKINTYPE_SELECT) {
+            LR2SESetPreviewMouseInput(&g, -1, -1, false, false);
+            previewFrameUpdated = previewSimulationPlaying || previewReloadPending
+                ? UpdatePreviewRuntime(GetTickCount64()) : false;
+        }
         ImGui::End();
         return 0;
     }
@@ -433,6 +449,22 @@ int WORKSPACE::drawPreview() {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
         ImGui::SetTooltip("%s", SEText("Zoom. Ctrl+wheel zooms at the pointer.",
             u8"\uBC30\uC728. Ctrl+\uD720\uB85C \uD3EC\uC778\uD130 \uC704\uCE58\uB97C \uD655\uB300\uD569\uB2C8\uB2E4."));
+    if (meta.type == SKINTYPE_SELECT) {
+        const char* fixtureLabel = SEText("In-game fixture",
+            u8"\uC778\uAC8C\uC784 \uD53D\uC2A4\uCC98");
+        nextToolbarItem(buttonWidth(fixtureLabel) + 16.0f);
+        if (ImGui::Checkbox(fixtureLabel, &previewInGameFixture)) {
+            previewSimulationPlaying = false;
+            previewReloadPending = true;
+            previewReloadRequestedAt = 0;
+            previewLastRenderAt = 0;
+            previewTextureDirty = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("%s", SEText(
+                "Unchecked: interactive SELECT. Checked: static in-game fixture.",
+                u8"\uD574\uC81C: \uC778\uD130\uB799\uD2F0\uBE0C SELECT. \uCCB4\uD06C: \uC815\uC801 \uC778\uAC8C\uC784 \uD53D\uC2A4\uCC98."));
+    }
     const char* fitLabel = SEText("Fit###PreviewFit", u8"\uD654\uBA74 \uB9DE\uCDA4###PreviewFit");
     nextToolbarItem(buttonWidth(fitLabel));
     if (ImGui::Button(fitLabel)) previewAutoFit = true;
@@ -515,6 +547,26 @@ int WORKSPACE::drawPreview() {
         ImGui::SetCursorPos(ImVec2(canvasStart.x + newOffset.x, canvasStart.y + newOffset.y));
         p = ImGui::GetCursorScreenPos();
     }
+    const ImVec2 previewCanvasSize(skinSizeX * previewCanvasScale,
+        skinSizeY * previewCanvasScale);
+
+    if (meta.type == SKINTYPE_SELECT) {
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const bool overCanvas = mouse.x >= p.x && mouse.x <= p.x + previewCanvasSize.x &&
+            mouse.y >= p.y && mouse.y <= p.y + previewCanvasSize.y;
+        const int previewX = overCanvas
+            ? (int)floorf((mouse.x - p.x) / previewCanvasScale) : -1;
+        const int previewY = overCanvas
+            ? (int)floorf((mouse.y - p.y) / previewCanvasScale) : -1;
+        LR2SESetPreviewMouseInput(&g, previewX, previewY,
+            overCanvas && ImGui::GetIO().MouseDown[ImGuiMouseButton_Left],
+            overCanvas && ImGui::GetIO().MouseDown[ImGuiMouseButton_Right]);
+    }
+    if (meta.type == SKINTYPE_SELECT) {
+        previewFrameUpdated = previewSimulationPlaying ||
+            previewReloadPending || meta.type == SKINTYPE_SELECT
+            ? UpdatePreviewRuntime(GetTickCount64()) : false;
+    }
 
     void* previewPixels = NULL;
     if (previewTextureDirty || !texture_preview)
@@ -542,8 +594,7 @@ int WORKSPACE::drawPreview() {
     // An Image does not claim mouse input, so dragging an Object over it can
     // also start ImGui's window move behavior. Use a transparent button as the
     // preview canvas so the canvas owns the drag from its first frame.
-    const ImVec2 previewCanvasSize(skinSizeX * previewCanvasScale,
-        skinSizeY * previewCanvasScale);
+    bool previewAltSelectClick = false;
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(0, 0, 0, 0));
@@ -554,6 +605,59 @@ int WORKSPACE::drawPreview() {
     EndSharpMagnifiedCanvas(sharpPreview);
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar();
+
+    // Normal Preview keeps the runtime render visible, but Alt+click uses the
+    // Object model as an editor hit-test surface. This makes an element
+    // selectable without changing its position or starting a drag. Walk the
+    // same Object-owned destinations used by the context picker so special
+    // commands such as #DST_BGA remain selectable even when they are absent
+    // from the legacy arr_DST cache.
+    const bool previewAltClick = !previewLayoutMode && !placingLayout &&
+        ImGui::IsItemHovered() && ImGui::GetIO().KeyAlt &&
+        ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+    if (previewAltClick) {
+        // Even an empty hit-test must not fall through to the normal move path.
+        previewAltSelectClick = true;
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const float hitScale = previewCanvasScale;
+        int hitModel = -1;
+        const std::vector<SEObjectInstance>& objects = objectEditorModel.Objects();
+        for (int model = (int)objects.size() - 1; model >= 0 && hitModel < 0; --model) {
+            const SEObjectInstance& object = objects[model];
+            if (object.drawOrder < 0) continue;
+            std::vector<SEPreviewObjectDestination> destinations;
+            CollectPreviewObjectDestinations(object, destinations);
+            for (auto destination = destinations.rbegin();
+                destination != destinations.rend(); ++destination) {
+                if (!IsPreviewRowVisible(destination->lastRow) ||
+                    !GetOptionFlag_dst(&g, destination->op1) ||
+                    !GetOptionFlag_dst(&g, destination->op2) ||
+                    !GetOptionFlag_dst(&g, destination->op3))
+                    continue;
+                float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+                ResolvePreviewObjectFrameBounds(object, destination->frame,
+                    x, y, w, h);
+                float x2 = x + w;
+                float y2 = y + h;
+                if (x > x2) std::swap(x, x2);
+                if (y > y2) std::swap(y, y2);
+                const ImVec2 lo(p.x + x * hitScale, p.y + y * hitScale);
+                const ImVec2 hi(p.x + x2 * hitScale, p.y + y2 * hitScale);
+                if (lo.x <= mouse.x && mouse.x <= hi.x &&
+                    lo.y <= mouse.y && mouse.y <= hi.y) {
+                    hitModel = model;
+                    break;
+                }
+            }
+        }
+        if (hitModel >= 0) {
+            SetObjectSelection(std::vector<int>(1, hitModel), hitModel,
+                hitModel, true);
+            preview_object_dragging = false;
+            preview_object_resizing = false;
+            RefreshPreviewSelectionBounds();
+        }
+    }
 
     if (previewLayoutMode && !placingLayout) {
         if (!preview_object_dragging && !preview_object_resizing) RefreshPreviewSelectionBounds();
@@ -835,14 +939,14 @@ int WORKSPACE::drawPreview() {
         // frame's click, so relying on IsMouseClicked can miss the drag start.
         const bool allowLayoutDrag = !previewLayoutMode ||
             (!ImGui::IsPopupOpen("##LayoutBoxSelection") && !ImGui::GetIO().KeyCtrl);
-        if (allowLayoutDrag && !preview_object_dragging && !preview_object_resizing && overResizeHandle &&
+        if (!previewAltSelectClick && allowLayoutDrag && !preview_object_dragging && !preview_object_resizing && overResizeHandle &&
             ImGui::GetIO().MouseDown[ImGuiMouseButton_Left]) {
             preview_object_resizing = true;
             preview_drag_mouse_start = mousePos;
             preview_resize_object_start_w = preview_selected_obj.w;
             preview_resize_object_start_h = preview_selected_obj.h;
         }
-        else if (allowLayoutDrag && !preview_object_dragging && !preview_object_resizing &&
+        else if (!previewAltSelectClick && allowLayoutDrag && !preview_object_dragging && !preview_object_resizing &&
             overSelectedObject && ImGui::GetIO().MouseDown[ImGuiMouseButton_Left]) {
             preview_object_dragging = true;
             preview_drag_mouse_start = mousePos;

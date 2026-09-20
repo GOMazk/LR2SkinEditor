@@ -17,6 +17,20 @@ Simple Mode의 Preview 이동은 상단 **Back to Preview** 하나로 통일했�
 되돌아가지 않는다. 다른 영역의 Object Browser 등에서 요청한 탭 표시는 그 창의
 입력/드래그 포커스를 가져오지 않는다.
 
+## SELECT Preview 모드
+
+SELECT 스킨을 열면 Preview 상단의 **In-game fixture** 체크 박스로 표시 모드를
+바꿀 수 있다. 체크를 해제한 기본 상태는 LR2 SELECT의 마우스 입력과 BUTTON/
+SLIDER/ONMOUSE 동작을 사용하는 인터랙티브 선곡 화면이다. 체크하면 입력과
+호버를 멈추고 정적인 인게임 픽스처처럼 표시한다. 모드를 바꾸면 현재 씬을 다시
+읽어 이전 패널·타이머 상태가 남지 않게 한다. 이 선택은 편집 문서나 CSV에
+저장되지 않는다.
+
+일반 Preview에서 렌더링된 요소를 편집 대상으로 고를 때는 **Alt+클릭**한다.
+현재 화면에 보이는 Object의 DST 영역을 앞쪽부터 검사해 선택하고, 선택 박스와
+좌표 표시를 그리며 Object Browser/Inspector도 같은 Object로 동기화한다.
+Alt+클릭은 이동·크기 변경을 시작하지 않는다.
+
 ## 배치부터 만들기
 
 1. Asset Browser > **Add... > New layout Object...**에서 빈 배치를 만든다.

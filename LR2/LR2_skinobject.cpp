@@ -4029,9 +4029,12 @@ int MouseOnDSTD(DSTdraw *dstd, int *x, int *y){ //1 right 2 left
 
 	xv = *x;
 	yv = *y;
-	fxv = (float)xv; //TODO_RESOULUTION
-	if ( xv < 640 && 0 <= xv && yv < 480 && 0 <= yv 
-		&& dstd->x <= fxv && fxv <= dstd->w + dstd->x
+	fxv = (float)xv;
+	// The editor can preview HD skins (for example 1280x720). The old
+	// 640x480 guard rejected every valid button outside the SD canvas before
+	// the destination rectangle was even checked. The caller already supplies
+	// canvas-local coordinates, so the DST bounds are the complete hit test.
+	if (dstd->x <= fxv && fxv <= dstd->w + dstd->x
 		&& dstd->y <= (float)yv && (float)yv <= dstd->h + dstd->y) {
 		
 		half = dstd->w * 0.5 + dstd->x;
